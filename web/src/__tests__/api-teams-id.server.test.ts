@@ -10,6 +10,7 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, PUT, DELETE } from "../routes/api/teams/[id]/+server.ts";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(opts: {
   id?: string;
@@ -20,12 +21,11 @@ function makeEvent(opts: {
   const id = opts.id ?? "team-1";
   const init: RequestInit = { method: opts.method ?? "GET" };
   if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
-  return {
-    url: new URL(`http://localhost/api/teams/${id}`),
+  return makeRequestEvent(`http://localhost/api/teams/${id}`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/teams/${id}`, init),
-  } as any;
+    request: init,
+  });
 }
 
 describe("GET /api/teams/[id]", () => {

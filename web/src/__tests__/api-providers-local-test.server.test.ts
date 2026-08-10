@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // Mock the RESOLVER, not the guard. Previously this file stubbed
 // `resolveAndValidateHostname` out of `$lib/server/security/url-validation`;
@@ -53,15 +54,14 @@ function makeEvent(opts: {
 }) {
   const body =
     opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
-  return {
-    url: new URL("http://localhost/api/providers/local/test"),
+  return makeRequestEvent("http://localhost/api/providers/local/test", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/providers/local/test", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = {

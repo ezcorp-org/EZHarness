@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
@@ -32,16 +33,15 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const id = opts.id ?? "ext-1";
-  return {
-    url: new URL(`http://localhost/api/extensions/${id}/confirm`),
+  return makeRequestEvent(`http://localhost/api/extensions/${id}/confirm`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/extensions/${id}/confirm`, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body ?? {}),
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "admin" };

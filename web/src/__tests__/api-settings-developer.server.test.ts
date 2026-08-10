@@ -12,6 +12,7 @@
 
 import crypto from "node:crypto";
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(),
@@ -31,29 +32,13 @@ function makeEvent(opts: {
   method?: "GET" | "POST" | "DELETE";
 }) {
   const method = opts.method ?? "GET";
-  return {
-    url: new URL("http://localhost/api/settings/developer"),
+  return makeRequestEvent("http://localhost/api/settings/developer", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/settings/developer", { method }),
-  } as any;
+    request: { method },
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/settings/developer", () => {
   beforeEach(() => {

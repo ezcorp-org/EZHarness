@@ -6,6 +6,8 @@
  * local model endpoints (Ollama, llama.cpp, any OpenAI-compatible server).
  */
 
+import { normalizeUrl } from "./openai-compat-client";
+
 export type EndpointType = "openai-compatible" | "ollama";
 
 export interface LocalModelCheckResult {
@@ -20,11 +22,6 @@ export interface LocalModelCheckResult {
 export interface ModelListEntry {
   id: string;
   name?: string;
-}
-
-/** Normalize base URL: strip trailing slashes, colons, and whitespace. */
-function normalizeUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/[/:]+$/, "");
 }
 
 /**
@@ -90,6 +87,35 @@ export async function checkEndpointReachability(
 }
 
 /**
+ * Fetch the raw model list for a KNOWN endpoint type — `/v1/models` (parsed as
+ * `body.data[].id`) for `openai-compatible`, `/api/tags` (parsed as
+ * `body.models[].name`) for `ollama`. Shared by `checkModelAvailability`
+ * (which additionally matches a specific id) and `listModels` (which just
+ * returns the list) so the two error-shaping/parsing paths cannot drift.
+ * Throws on a transport failure — both callers wrap this in their own
+ * try/catch.
+ */
+async function fetchModelList(
+  baseUrl: string,
+  endpointType: EndpointType,
+  opts?: ModelFetchOptions,
+): Promise<{ models: ModelListEntry[]; error?: string }> {
+  const url = normalizeUrl(baseUrl);
+  if (endpointType === "openai-compatible") {
+    const res = await fetch(`${url}/v1/models`, { headers: opts?.headers, signal: AbortSignal.timeout(5_000) });
+    if (!res.ok) return { models: [], error: `GET /v1/models returned ${res.status}` };
+    const body = await res.json() as { data?: Array<{ id: string }> };
+    return { models: (body.data ?? []).map((m) => ({ id: m.id })) };
+  }
+
+  // Ollama native API
+  const res = await fetch(`${url}/api/tags`, { headers: opts?.headers, signal: AbortSignal.timeout(5_000) });
+  if (!res.ok) return { models: [], error: `GET /api/tags returned ${res.status}` };
+  const body = await res.json() as { models?: Array<{ name: string }> };
+  return { models: (body.models ?? []).map((m) => ({ id: m.name, name: m.name })) };
+}
+
+/**
  * Check if a specific model is available on the endpoint.
  */
 export async function checkModelAvailability(
@@ -97,31 +123,15 @@ export async function checkModelAvailability(
   modelId: string,
   endpointType: EndpointType,
 ): Promise<{ available: boolean; models?: ModelListEntry[]; error?: string }> {
-  const url = normalizeUrl(baseUrl);
-
   try {
-    if (endpointType === "openai-compatible") {
-      const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(5_000) });
-      if (!res.ok) return { available: false, error: `GET /v1/models returned ${res.status}` };
-
-      const body = await res.json() as { data?: Array<{ id: string }> };
-      const models: ModelListEntry[] = (body.data ?? []).map((m) => ({ id: m.id }));
-      const found = models.some((m) => m.id === modelId);
-      return { available: found, models };
-    }
-
-    // Ollama native API
-    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5_000) });
-    if (!res.ok) return { available: false, error: `GET /api/tags returned ${res.status}` };
-
-    const body = await res.json() as { models?: Array<{ name: string }> };
-    const models: ModelListEntry[] = (body.models ?? []).map((m) => ({
-      id: m.name,
-      name: m.name,
-    }));
-    // Match exact or with/without :latest suffix
+    const { models, error } = await fetchModelList(baseUrl, endpointType);
+    if (error) return { available: false, error };
+    // openai-compatible matches the id exactly; ollama also matches
+    // with/without the `:latest` suffix.
     const found = models.some(
-      (m) => m.id === modelId || m.id === `${modelId}:latest` || m.id.replace(/:latest$/, "") === modelId,
+      (m) =>
+        m.id === modelId ||
+        (endpointType === "ollama" && (m.id === `${modelId}:latest` || m.id.replace(/:latest$/, "") === modelId)),
     );
     return { available: found, models };
   } catch (err) {
@@ -188,29 +198,9 @@ export async function listModels(
     return { models: [], endpointType: null, error: "Endpoint not reachable" };
   }
 
-  const url = normalizeUrl(baseUrl);
   try {
-    if (endpointType === "openai-compatible") {
-      const res = await fetch(`${url}/v1/models`, {
-        headers: opts?.headers,
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!res.ok) return { models: [], endpointType, error: `GET /v1/models returned ${res.status}` };
-      const body = await res.json() as { data?: Array<{ id: string }> };
-      return { models: (body.data ?? []).map((m) => ({ id: m.id })), endpointType };
-    }
-
-    // Ollama native
-    const res = await fetch(`${url}/api/tags`, {
-      headers: opts?.headers,
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return { models: [], endpointType, error: `GET /api/tags returned ${res.status}` };
-    const body = await res.json() as { models?: Array<{ name: string }> };
-    return {
-      models: (body.models ?? []).map((m) => ({ id: m.name, name: m.name })),
-      endpointType,
-    };
+    const { models, error } = await fetchModelList(baseUrl, endpointType, opts);
+    return error ? { models: [], endpointType, error } : { models, endpointType };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { models: [], endpointType, error: message };

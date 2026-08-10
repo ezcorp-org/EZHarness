@@ -28,6 +28,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -112,13 +113,11 @@ async function navigateAndSurfaceCard(
 
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-	const textarea = page.locator("textarea").first();
-	await textarea.fill("start the dev server");
 	await Promise.all([
 		page.waitForResponse(
 			(r) => r.url().includes("/messages") && r.request().method() === "POST",
 		),
-		textarea.press("Enter"),
+		sendComposerMessage(page, "start the dev server"),
 	]);
 
 	const invocationId = "inv-preview-detected";

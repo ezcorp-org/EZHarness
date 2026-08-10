@@ -33,7 +33,7 @@
  * would authorize a different object than the one that executes.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { WorkflowRun } from "../../types";
 import type { PendingPermissionGate } from "../workflow-tool-runner";
 import { getWorkflowRuntime } from "../workflow/runtime-registry";
@@ -89,15 +89,6 @@ export interface RunWorkflowToolResult {
   error: unknown;
 }
 
-/** Error convention for built-ins: NEVER throw — a thrown tool kills the
- *  turn, a returned error result lets the LLM read it and recover. */
-function errorResult(message: string) {
-  return {
-    content: [{ type: "text" as const, text: `Error: ${message}` }],
-    details: { isError: true },
-  };
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -151,9 +142,9 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
       try {
         const { name, input } = (params ?? {}) as { name?: unknown; input?: unknown };
         const workflowName = typeof name === "string" ? name.trim() : "";
-        if (!workflowName) return errorResult("`name` is required");
+        if (!workflowName) return toolError("`name` is required");
         if (input !== undefined && !isPlainObject(input)) {
-          return errorResult("`input` must be a JSON object");
+          return toolError("`input` must be a JSON object");
         }
 
         // Null on a backend-only or CLI boot: nothing has registered the
@@ -161,7 +152,7 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
         // result, never a throw.
         const runtime = getWorkflowRuntime();
         if (!runtime) {
-          return errorResult("workflows are not available in this process");
+          return toolError("workflows are not available in this process");
         }
 
         // Resolved out of the PROVENANCE-carrying cache: the ladder
@@ -174,17 +165,17 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
         // an LLM's say-so.
         const cached = runtime.getCachedWorkflows?.();
         if (!cached) {
-          return errorResult("workflow authorization is unavailable in this process");
+          return toolError("workflow authorization is unavailable in this process");
         }
         const entry = cached.find((e) => e.definition.name === workflowName);
-        if (!entry) return errorResult(`no workflow named "${workflowName}"`);
+        if (!entry) return toolError(`no workflow named "${workflowName}"`);
 
         // The role is read from the DB, not carried on the turn: the
         // ladder needs it and nothing LLM-reachable may supply it. A
         // vanished user row fails CLOSED.
         const user = await getUserById(ctx.userId);
         if (!user) {
-          return errorResult("the acting user could not be resolved, so the run was not authorized");
+          return toolError("the acting user could not be resolved, so the run was not authorized");
         }
 
         const decision = await canRunWorkflow(
@@ -192,7 +183,7 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
           { id: user.id, role: user.role },
           ctx.projectId,
         );
-        if (!decision.allowed) return errorResult(decision.reason);
+        if (!decision.allowed) return toolError(decision.reason);
 
         const run = await runtime.workflowExecutor.runWorkflow(
           entry.definition,
@@ -221,7 +212,7 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
           details: { ...projection, isError: run.status !== "success" },
         };
       } catch (e) {
-        return errorResult(e instanceof Error ? e.message : String(e));
+        return toolError(errorMessage(e));
       }
     },
   };

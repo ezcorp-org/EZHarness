@@ -54,6 +54,7 @@ vi.mock("$lib/server/context", () => ({
 }));
 
 import { GET, PUT } from "../routes/api/projects/[id]/tool-permission-mode/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(opts: {
 	id?: string;
@@ -62,19 +63,15 @@ function makeEvent(opts: {
 	method?: string;
 }) {
 	const id = opts.id ?? "p1";
-	return {
-		url: new URL(`http://localhost/api/projects/${id}/tool-permission-mode`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(
-			`http://localhost/api/projects/${id}/tool-permission-mode`,
-			{
+	return makeRequestEvent(`http://localhost/api/projects/${id}/tool-permission-mode`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 				method: opts.method ?? "GET",
 				headers: { "content-type": "application/json" },
 				body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
 			},
-		),
-	} as any;
+	});
 }
 
 const AUTHED = {

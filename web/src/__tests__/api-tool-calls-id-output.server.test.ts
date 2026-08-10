@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const selectMock = vi.fn();
 vi.mock("$server/db/connection", () => ({
@@ -28,30 +29,13 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const id = opts.id ?? "tc-1";
-  return {
-    url: new URL(`http://localhost/api/tool-calls/${id}/output`),
+  return makeRequestEvent(`http://localhost/api/tool-calls/${id}/output`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/tool-calls/${id}/output`),
-  } as any;
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 function chainReturning(rows: unknown[]) {
   return {

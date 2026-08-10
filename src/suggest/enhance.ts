@@ -11,7 +11,14 @@
  *  - Thinking is suppressed (`/no_think` soft switch + defensive
  *    `<think>` stripping) — reasoning tokens would blow the latency
  *    budget on CPU (research: Qwen3-4B thinking-on ≈60s CPU).
+ *
+ * The completion request itself (schema attach + no-schema retry) is the
+ * shared `../providers/openai-compat-client`, also used by the topic-contexts
+ * sidecar lane (`src/contexts/llm.ts`) — this module keeps only its own
+ * prompt-building and response-parsing.
  */
+
+import { normalizeUrl, requestOpenAICompatCompletion } from "../providers/openai-compat-client";
 
 export interface EnhanceContext {
   modeName?: string | null;
@@ -38,11 +45,6 @@ export interface EnhanceDeps {
 export const ENHANCE_PROBE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1_500;
 const MAX_ENHANCED_LENGTH = 4_000;
-
-/** Strip trailing slashes/colons — same normalization as local-model-check. */
-function normalizeUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/[/:]+$/, "");
-}
 
 let probeState: { at: number; ok: boolean } | null = null;
 
@@ -118,49 +120,16 @@ interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
-async function requestCompletion(
-  draft: string,
-  ctx: EnhanceContext,
-  cfg: EnhanceConfig,
-  fetchFn: typeof fetch,
-  withSchema: boolean,
-): Promise<Response> {
-  const body: Record<string, unknown> = {
-    model: cfg.model,
-    stream: false,
-    temperature: 0.3,
-    max_tokens: 400,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserMessage(draft, ctx) },
-    ],
-  };
-  if (withSchema) {
-    // Grammar-constrained decoding (Ollama ≥0.5 / llama.cpp translate this
-    // to GBNF). The schema is ALSO described in the system prompt — the
-    // model can't see response_format, and some /v1 servers reject it
-    // (handled by the no-schema retry in enhancePrompt).
-    body.response_format = {
-      type: "json_schema",
-      json_schema: {
-        name: "prompt_enhancement",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: { enhanced: { type: "string" }, reason: { type: "string" } },
-          required: ["enhanced", "reason"],
-          additionalProperties: false,
-        },
-      },
-    };
-  }
-  return fetchFn(`${normalizeUrl(cfg.baseUrl)}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(cfg.timeoutMs),
-  });
-}
+// Grammar-constrained decoding (Ollama ≥0.5 / llama.cpp translate this to
+// GBNF). The schema is ALSO described in the system prompt — the model can't
+// see response_format, and some /v1 servers reject it (handled by the
+// no-schema retry inside requestOpenAICompatCompletion).
+const ENHANCE_RESPONSE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: { enhanced: { type: "string" }, reason: { type: "string" } },
+  required: ["enhanced", "reason"],
+  additionalProperties: false,
+};
 
 /**
  * Generate a prompt-enhancement suggestion. Returns null when the endpoint
@@ -174,11 +143,18 @@ export async function enhancePrompt(
 ): Promise<EnhanceResult | null> {
   const fetchFn = deps?.fetchFn ?? fetch;
   try {
-    let res = await requestCompletion(draft, ctx, cfg, fetchFn, true);
-    if (!res.ok) {
-      res = await requestCompletion(draft, ctx, cfg, fetchFn, false);
-      if (!res.ok) return null;
-    }
+    const res = await requestOpenAICompatCompletion({
+      baseUrl: cfg.baseUrl,
+      model: cfg.model,
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt: buildUserMessage(draft, ctx),
+      temperature: 0.3,
+      maxTokens: 400,
+      timeoutMs: cfg.timeoutMs,
+      schema: { name: "prompt_enhancement", schema: ENHANCE_RESPONSE_SCHEMA },
+      fetchFn,
+    });
+    if (!res.ok) return null;
     const payload = (await res.json()) as ChatCompletionResponse;
     const content = payload.choices?.[0]?.message?.content;
     if (typeof content !== "string") return null;

@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/invites", () => ({
   createInvite: vi.fn(),
@@ -28,15 +29,14 @@ function makeEvent(opts: {
   method?: "GET" | "POST";
 }) {
   const method = opts.method ?? "POST";
-  return {
-    url: new URL("http://localhost/api/auth/invite"),
+  return makeRequestEvent("http://localhost/api/auth/invite", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/auth/invite", {
+    request: {
       method,
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = {

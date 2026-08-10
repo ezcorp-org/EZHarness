@@ -538,3 +538,71 @@ describe("auth header forwarding", () => {
     expect(result.models).toEqual([{ id: "llama3" }]);
   });
 });
+
+// ── Base-URL normalization ──────────────────────────────────────────
+//
+// A `/v1`-suffixed base URL is what several OpenAI-compatible servers
+// (LM Studio, vLLM) tell users to configure, and it reaches these helpers
+// verbatim from the custom-model Settings field via
+// `POST /api/providers/local/{test,models}`. The per-module `normalizeUrl`
+// this file's callers used to carry only stripped a trailing `/` and `:`, so
+// `http://host:11434/v1` produced a request to `…/v1/v1/models` — a 404 that
+// surfaced to the user as "endpoint unreachable". The shared `normalizeUrl`
+// in `providers/openai-compat-client.ts` strips the `/v1` first. These pin
+// the URL actually requested so the fix cannot silently regress.
+//
+// Asserted per-URL rather than per-call-count: `listModels` legitimately
+// fetches twice (endpoint detection, then the listing).
+describe("base URL normalization — trailing /v1 is not doubled", () => {
+	const EXPECTED = "http://localhost:11434/v1/models";
+
+	function recordUrls(): string[] {
+		const seen: string[] = [];
+		mockFetch.mockImplementation((url: string) => {
+			seen.push(String(url));
+			return Promise.resolve(jsonResponse({ data: [{ id: "llama3" }] }));
+		});
+		return seen;
+	}
+
+	test("listModels never doubles /v1 for a /v1-suffixed base URL", async () => {
+		const seen = recordUrls();
+
+		const result = await listModels("http://localhost:11434/v1");
+
+		expect(seen.length).toBeGreaterThan(0);
+		expect(seen.every((u) => u === EXPECTED)).toBe(true);
+		expect(result.models).toEqual([{ id: "llama3" }]);
+	});
+
+	test("checkModelAvailability targets the same single-/v1 URL", async () => {
+		const seen = recordUrls();
+
+		const result = await checkModelAvailability(
+			"http://localhost:11434/v1",
+			"llama3",
+			"openai-compatible",
+		);
+
+		expect(seen).toEqual([EXPECTED]);
+		expect(result.available).toBe(true);
+	});
+
+	test("a trailing slash after /v1 is stripped too", async () => {
+		const seen = recordUrls();
+
+		await listModels("http://localhost:11434/v1/");
+
+		expect(seen.length).toBeGreaterThan(0);
+		expect(seen.every((u) => u === EXPECTED)).toBe(true);
+	});
+
+	test("a base URL without /v1 is unaffected", async () => {
+		const seen = recordUrls();
+
+		await listModels("http://localhost:11434");
+
+		expect(seen.length).toBeGreaterThan(0);
+		expect(seen.every((u) => u === EXPECTED)).toBe(true);
+	});
+});

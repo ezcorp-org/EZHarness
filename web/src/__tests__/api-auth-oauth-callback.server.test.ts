@@ -41,6 +41,7 @@ vi.mock("$server/providers/encryption", () => ({
 
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
 import { POST, DELETE } from "../routes/api/auth/oauth/callback/+server.ts";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const VALID_STATE = "state-abc";
 
@@ -60,15 +61,14 @@ function makeEvent(opts: {
   body: unknown;
   method: "POST" | "DELETE";
 }) {
-  return {
-    url: new URL("http://localhost/api/auth/oauth/callback"),
+  return makeRequestEvent("http://localhost/api/auth/oauth/callback", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/auth/oauth/callback", {
+    request: {
       method: opts.method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(opts.body),
-    }),
-  } as never as Parameters<typeof POST>[0];
+    },
+  });
 }
 
 // ── Principals ────────────────────────────────────────────────────────────

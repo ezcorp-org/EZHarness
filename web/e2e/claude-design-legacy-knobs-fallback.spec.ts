@@ -12,6 +12,7 @@
  * regression where someone removes the fallback.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("claude-design — legacy knob fallback", () => {
@@ -60,12 +61,11 @@ test.describe("claude-design — legacy knob fallback", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		// open-canvas returns a payload WITHOUT a `knobs` array. The

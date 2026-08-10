@@ -32,33 +32,17 @@ import {
 
 // ── Mock DB + registry (same shape installer-coverage.test.ts uses) ──
 
-const mockExtensions = new Map<string, any>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  createExtension: async (data: any) => {
-    const ext = {
-      id: crypto.randomUUID(),
-      ...data,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    mockExtensions.set(ext.id, ext);
-    return ext;
-  },
-  getExtensionByName: async (name: string) => {
-    for (const ext of mockExtensions.values()) {
-      if (ext.name === name) return ext;
-    }
-    return null;
-  },
-  updateExtension: async (id: string, data: any) => {
-    const ext = mockExtensions.get(id);
-    if (!ext) return null;
-    Object.assign(ext, data, { updatedAt: new Date() });
-    return ext;
-  },
-  deleteExtension: async (id: string) => mockExtensions.delete(id),
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  createExtension: extStore.createExtension,
+  getExtensionByName: extStore.getExtensionByName,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
+  listExtensions: extStore.listExtensions,
 }));
 
 mock.module("../extensions/registry", () => ({

@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage, makeMemory } from "./fixtures/data.js";
 
 // E2E coverage for the MemoriesCard block in chat + its deep-link to the Memories page.
@@ -287,11 +288,9 @@ test.describe("Memories Block", () => {
 			await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 			// Kick off a streaming turn
-			const textarea = page.locator("textarea");
-			await textarea.fill("Streaming turn");
 			await Promise.all([
 				page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-				page.getByRole("button", { name: "Send message" }).click(),
+				sendComposerMessage(page, "Streaming turn"),
 			]);
 
 			await emitWs({

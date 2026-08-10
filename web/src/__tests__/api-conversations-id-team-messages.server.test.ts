@@ -11,6 +11,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getSubConversations = vi.fn();
@@ -32,16 +33,10 @@ const { GET } = await import(
 );
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
-  return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/team/agent-cfg/messages",
-    ),
+  return makeRequestEvent("http://localhost/api/conversations/c1/team/agent-cfg/messages", {
     locals: opts.locals ?? {},
     params: { id: "c1", agentConfigId: "agent-cfg" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/team/agent-cfg/messages",
-    ),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

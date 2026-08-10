@@ -1,5 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { validatePath, validateTimeout } from "../runtime/tools/validate";
+import { stringParam, validatePath, validateTimeout } from "../runtime/tools/validate";
 import { mkdtemp, mkdir, rm } from "fs/promises";
 import { resolve } from "path";
 import { tmpdir } from "os";
@@ -74,5 +74,32 @@ describe("validateTimeout", () => {
     expect(validateTimeout(10_000, 5_000)).toBe(5_000);
     expect(validateTimeout(3_000, 5_000)).toBe(3_000);
     expect(validateTimeout(100, 5_000)).toBe(1000);
+  });
+});
+
+// ── stringParam ──
+
+describe("stringParam", () => {
+  test("returns a trimmed string value", () => {
+    expect(stringParam({ name: "  hi  " }, "name")).toBe("hi");
+  });
+
+  test("returns \"\" when the key is missing", () => {
+    expect(stringParam({}, "name")).toBe("");
+  });
+
+  test("returns \"\" when the key is not a string", () => {
+    expect(stringParam({ name: 5 }, "name")).toBe("");
+    expect(stringParam({ name: null }, "name")).toBe("");
+    expect(stringParam({ name: { x: 1 } }, "name")).toBe("");
+  });
+
+  test("returns \"\" when params itself is null or undefined", () => {
+    expect(stringParam(null, "name")).toBe("");
+    expect(stringParam(undefined, "name")).toBe("");
+  });
+
+  test("collapses a whitespace-only value to \"\"", () => {
+    expect(stringParam({ name: "   " }, "name")).toBe("");
   });
 });

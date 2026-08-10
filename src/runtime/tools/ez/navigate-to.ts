@@ -17,7 +17,7 @@
  * The suspend/abort/emit machinery is shared via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { toolError, type BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
 import type { ToolParams } from "../validate";
 
@@ -54,10 +54,7 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
     execute: async (toolCallId, params: ToolParams, signal) => {
       const path = params?.path;
       if (!isValidInAppPath(path)) {
-        return {
-          content: [{ type: "text" as const, text: "Error: path must be a relative in-app path starting with '/'. External URLs are rejected." }],
-          details: { isError: true },
-        };
+        return toolError("path must be a relative in-app path starting with '/'. External URLs are rejected.");
       }
       return runEzClientTool({
         ctx,

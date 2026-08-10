@@ -63,7 +63,17 @@ jobs:
 
       # Targeted, single-file run (safe per scripts/test.sh — only the
       # unbounded root glob deadlocks). The file's PGlite suite runs too and
-      # keeps passing; the DATABASE_URL-gated suite now executes against the
-      # real server instead of being skipped.
+      # keeps passing; the DATABASE_URL-gated suite executes against the real
+      # server instead of being skipped — now including a tx.execute() (inside
+      # db.transaction()) assertion that ONLY the real bun-sql driver can
+      # prove, since drizzle hands that callback a brand-new transaction
+      # object rather than `db` itself.
+      #
+      # Deliberately NOT added here: the two settings regression suites
+      # (query-core-settings-upsert-race, settings-jsonb-roundtrip). They call
+      # mockDbConnection() unconditionally, so they run against PGlite
+      # regardless of DATABASE_URL and already run in the standard backend
+      # pool. Listing them in a job named "External Postgres (Bun.sql)" would
+      # imply real-driver verification they do not provide.
       - name: Run external-Postgres DB suite
         run: bun test src/__tests__/db-migration-postgres.test.ts

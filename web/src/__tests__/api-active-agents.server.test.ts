@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const listActiveAgentRuns = vi.fn();
 
@@ -36,11 +37,9 @@ function makeEvent(opts: {
   href?: string;
 }) {
   const href = opts.href ?? "http://localhost/api/active-agents";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

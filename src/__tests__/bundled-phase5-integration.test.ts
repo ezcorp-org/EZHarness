@@ -63,41 +63,17 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: unknown;
-  installPath: string;
-  enabled: boolean;
-  consecutiveFailures?: number;
-  isBundled?: boolean;
-  grantedPermissions: ExtensionPermissions;
-}
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
-  deleteExtension: async (id: string) => {
-    for (const [k, v] of store) if (v.id === id) store.delete(k);
-  },
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
   disableExtension: async () => undefined,
@@ -106,8 +82,7 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
   auditEntries.length = 0;
 });
 

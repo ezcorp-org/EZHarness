@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { threadMessages } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeRun } from "./fixtures/data.js";
 
 /**
@@ -26,9 +26,7 @@ test.describe("Streaming Race Conditions", () => {
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 		// Type and send
-		const textarea = page.locator("textarea");
-		await textarea.fill("Hello streaming");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Hello streaming");
 
 		// Wait for user message to appear (POST completed, startStreaming called)
 		await expect(threadMessages(page).getByText("Hello streaming")).toBeVisible({ timeout: 5000 });
@@ -51,9 +49,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Stream test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Stream test");
 		await expect(threadMessages(page).getByText("Stream test")).toBeVisible({ timeout: 5000 });
 
 		// Send first batch of tokens
@@ -74,9 +70,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Show me skeleton");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Show me skeleton");
 
 		// User message appears
 		await expect(threadMessages(page).getByText("Show me skeleton")).toBeVisible({ timeout: 5000 });
@@ -95,9 +89,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Cursor test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Cursor test");
 		await expect(threadMessages(page).getByText("Cursor test")).toBeVisible({ timeout: 5000 });
 
 		// Send a token so streaming text appears
@@ -118,9 +110,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Complete test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Complete test");
 		await expect(threadMessages(page).getByText("Complete test")).toBeVisible({ timeout: 5000 });
 
 		// Stream tokens
@@ -149,9 +139,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Stop button test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Stop button test");
 		await expect(threadMessages(page).getByText("Stop button test")).toBeVisible({ timeout: 5000 });
 
 		// Emit token to establish streaming state
@@ -179,9 +167,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Error test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Error test");
 
 		// Wait for user message
 		await expect(threadMessages(page).getByText("Error test")).toBeVisible({ timeout: 5000 });
@@ -213,9 +199,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Status test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Status test");
 		await expect(threadMessages(page).getByText("Status test")).toBeVisible({ timeout: 5000 });
 
 		// Emit a status update before tokens
@@ -241,9 +225,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Show me code");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Show me code");
 		await expect(threadMessages(page).getByText("Show me code")).toBeVisible({ timeout: 5000 });
 
 		// Stream a code block
@@ -269,9 +251,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Format test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Format test");
 		await expect(threadMessages(page).getByText("Format test")).toBeVisible({ timeout: 5000 });
 
 		// Stream markdown content
@@ -296,9 +276,7 @@ test.describe("Streaming Auto-Scroll", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Optimistic message");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Optimistic message");
 
 		// The user message should appear immediately (optimistic rendering)
 		await expect(threadMessages(page).getByText("Optimistic message")).toBeVisible({ timeout: 5000 });
@@ -314,9 +292,7 @@ test.describe("Streaming Auto-Scroll", () => {
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 		// Send a message
-		const textarea = page.locator("textarea");
-		await textarea.fill("Scroll test");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Scroll test");
 		// Scope to chat-messages-container to avoid strict-mode collision with the
 		// sidebar project title "Scroll Test" (case-insensitive substring match).
 		await expect(page.getByTestId("chat-messages-container").getByText("Scroll test")).toBeVisible({ timeout: 5000 });

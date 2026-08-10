@@ -11,6 +11,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace", () => ({
 	getListingById: vi.fn(),
@@ -53,14 +54,13 @@ function makeEvent(opts: {
 	method?: string;
 }) {
 	const id = opts.id ?? "abc";
-	return {
-		url: new URL(`http://localhost/api/marketplace/${id}`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(`http://localhost/api/marketplace/${id}`, {
+	return makeRequestEvent(`http://localhost/api/marketplace/${id}`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 			method: opts.method ?? "GET",
-		}),
-	} as any;
+		},
+	});
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

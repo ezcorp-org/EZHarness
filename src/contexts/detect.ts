@@ -103,15 +103,33 @@ export function buildDetectTranscript(
       : m.content;
     return `[m${ordinal}] ${m.role}: ${body}`;
   });
+  const { transcript, truncated } = truncateTranscriptLines(lines, MAX_TRANSCRIPT_CHARS, "\n");
+  return { transcript, truncated, ordinalToId };
+}
 
-  // Accumulate from the newest end until the next message would overflow.
+/**
+ * Shared by `buildDetectTranscript` and `src/contexts/extract.ts`'s
+ * `buildExtractTranscript`: walk `lines` newest→oldest, accumulating until
+ * the next line (plus one `separator`) would push the running total over
+ * `maxChars`, then reverse back to chronological order and join with
+ * `separator`. A truncated result is prefixed with the truncation marker
+ * followed by one more `separator`. The two callers differ only in how a
+ * message becomes a line and which separator they join with (detection
+ * tags+truncates each line and joins with `"\n"`; extraction keeps lines
+ * verbatim and joins with a blank-line `"\n\n"`).
+ */
+export function truncateTranscriptLines(
+  lines: readonly string[],
+  maxChars: number,
+  separator: string,
+): { transcript: string; truncated: boolean } {
   const kept: string[] = [];
   let total = 0;
   let truncated = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
-    const add = line.length + 1; // +1 for the join newline
-    if (total + add > MAX_TRANSCRIPT_CHARS && kept.length > 0) {
+    const add = line.length + separator.length;
+    if (total + add > maxChars && kept.length > 0) {
       truncated = true;
       break;
     }
@@ -120,9 +138,9 @@ export function buildDetectTranscript(
   }
   kept.reverse();
   const transcript = truncated
-    ? `…[older messages truncated]…\n${kept.join("\n")}`
-    : kept.join("\n");
-  return { transcript, truncated, ordinalToId };
+    ? `…[older messages truncated]…${separator}${kept.join(separator)}`
+    : kept.join(separator);
+  return { transcript, truncated };
 }
 
 /**

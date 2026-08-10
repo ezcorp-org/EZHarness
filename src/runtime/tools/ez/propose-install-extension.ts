@@ -14,11 +14,11 @@
  * `searchQuery` (free-text browse). At least one is required.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import { browseMarketplace, getListingBySlug } from "../../../db/queries/marketplace";
 import type { EzToolContext } from "./propose-create-project";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 const MAX_RESULTS = 5;
 
@@ -41,13 +41,10 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const extensionName = typeof params?.extensionName === "string" ? params.extensionName.trim() : "";
-        const searchQuery = typeof params?.searchQuery === "string" ? params.searchQuery.trim() : "";
+        const extensionName = stringParam(params, "extensionName");
+        const searchQuery = stringParam(params, "searchQuery");
         if (!extensionName && !searchQuery) {
-          return {
-            content: [{ type: "text" as const, text: "Error: provide extensionName or searchQuery" }],
-            details: { isError: true },
-          };
+          return toolError("provide extensionName or searchQuery");
         }
 
         let extensions: Array<{ id: string; slug: string; name: string; description: string }> = [];
@@ -82,7 +79,7 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
           details: { draftId: draft.id, openUrl, kind: "extension" as const, extensions },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

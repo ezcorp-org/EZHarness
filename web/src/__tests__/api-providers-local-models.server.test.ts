@@ -11,6 +11,7 @@
 
 import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/providers/local-model-check", () => ({
   listModels: vi.fn(),
@@ -25,15 +26,14 @@ function makeEvent(opts: {
   rawBody?: string;
 }) {
   const body = opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
-  return {
-    url: new URL("http://localhost/api/providers/local/models"),
+  return makeRequestEvent("http://localhost/api/providers/local/models", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/providers/local/models", {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };

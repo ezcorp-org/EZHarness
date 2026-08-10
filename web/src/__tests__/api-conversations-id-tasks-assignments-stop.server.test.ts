@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getTaskSnapshotForConversation = vi.fn();
@@ -38,17 +39,11 @@ const { POST } = await import(
 );
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
-  return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop",
-    ),
+  return makeRequestEvent("http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop", {
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1", assignmentId: "as1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop",
-      { method: "POST" },
-    ),
-  } as any;
+    request: { method: "POST" },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

@@ -36,6 +36,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownOrResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 // `requireAuth(locals)` returns the user. The `scope: "forever"` admin gate
@@ -219,28 +220,18 @@ interface RequestEventLike {
 }
 
 function makeEvent(body: unknown, role: "admin" | "member" = "member"): RequestEventLike {
-	return {
-		request: new Request("http://localhost/api/extensions/ext-1/reapprove", {
+	return makeRequestEvent("http://localhost/api/extensions/ext-1/reapprove", {
+	  url: null,
+	  request: {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
-		}),
-		locals: {
+		},
+	  locals: {
 			user: { id: "user-1", email: "u@x", name: "u", role },
 		},
-		params: { id: "ext-1" },
-	};
-}
-
-async function expectThrownOrResponse(
-	fn: () => Promise<Response> | Response,
-): Promise<Response> {
-	try {
-		return await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		return thrown as Response;
-	}
+	  params: { id: "ext-1" },
+	});
 }
 
 beforeEach(() => {

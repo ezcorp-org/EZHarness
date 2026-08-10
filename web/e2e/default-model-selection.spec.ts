@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 /**
@@ -100,9 +101,7 @@ test.describe("@evidence default model selection", () => {
 		await captureEvidence(page, testInfo, "default-model-selection-auto");
 
 		// Turn 1 goes out with the explicit-null sentinel → the server routes it.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("route my very first turn");
-		await composer.press("Enter");
+		await sendComposerMessage(page, "route my very first turn");
 
 		await expect.poll(() => sent.body).not.toBeNull();
 		expect(sent.body!.model).toBeNull();
@@ -133,9 +132,7 @@ test.describe("@evidence default model selection", () => {
 		await captureEvidence(page, testInfo, "default-model-selection-first");
 
 		// …and the pinned pair rides the wire, so nothing is routed.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("keep me pinned");
-		await composer.press("Enter");
+		await sendComposerMessage(page, "keep me pinned");
 
 		await expect.poll(() => sent.body).not.toBeNull();
 		expect(sent.body!.provider).toBe("anthropic");
@@ -193,9 +190,7 @@ test.describe("@evidence default model selection", () => {
 
 		// Turn 2 carries the SERVED pair, not the null sentinel: the thread is
 		// routed ONCE, so the warm prompt-cache prefix survives.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("turn two");
-		await composer.press("Enter");
+		await sendComposerMessage(page, "turn two");
 
 		await expect.poll(() => sent.body).not.toBeNull();
 		expect(sent.body!.provider).toBe("anthropic");

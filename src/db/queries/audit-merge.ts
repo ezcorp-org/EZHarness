@@ -486,8 +486,8 @@ export async function statsForExtension(
     WHERE extension_id = ${extensionId}
       AND created_at >= ${since.toISOString()}
   `);
-  // Drizzle's `execute` returns `{rows}` for postgres-style drivers
-  // and a raw array for PGlite. Normalize.
+  // Drizzle's `execute` returns a raw array for bun-sql (external Postgres)
+  // and `{rows}` for PGlite. Normalize.
   const row = (
     (rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ??
       (rows as unknown as Array<Record<string, unknown>>)

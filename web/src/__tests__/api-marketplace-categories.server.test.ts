@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace", () => ({
   getMarketplaceTagCounts: vi.fn(),
@@ -24,12 +25,10 @@ beforeEach(() => {
 });
 
 function makeEvent() {
-  return {
-    url: new URL("http://localhost/api/marketplace/categories"),
+  return makeRequestEvent("http://localhost/api/marketplace/categories", {
     locals: {},
     params: {},
-    request: new Request("http://localhost/api/marketplace/categories"),
-  } as never;
+  });
 }
 
 describe("GET /api/marketplace/categories", () => {

@@ -38,32 +38,23 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ExtensionProcess } from "../extensions/subprocess";
-import type { ExtensionPermissions } from "../extensions/types";
 
 // ── DB mock — extension store keyed by manifest name ────────────────
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  enabled: boolean;
-  manifest?: unknown;
-  installPath?: string;
-  isBundled?: boolean;
-  grantedPermissions?: ExtensionPermissions;
-}
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
+  getExtensionByName: extStore.getExtensionByName,
   updateExtension: async () => null,
-  listExtensions: async () => Array.from(store.values()),
+  listExtensions: extStore.listExtensions,
 }));
 
 afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
-  store = new Map();
+  extStore.reset();
 });
 
 // ── Lazy import after mocks ─────────────────────────────────────────
@@ -133,12 +124,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // Populate BOTH flagged rows so the test isolates "lessons-distiller
     // got spawned" from the orthogonal "memory-extractor row missing"
     // signal. Each row is checked independently in the helper.
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -147,12 +138,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // entries. Populate their rows too so `failed[]` stays empty (a missing
     // row would otherwise record them as failed, drowning the
     // lessons-distiller signal).
-    store.set("ping-loop", {
+    extStore.seed({
       id: "ext-ping",
       name: "ping-loop",
       enabled: true,
     });
-    store.set("github-projects", {
+    extStore.seed({
       id: "ext-gh",
       name: "github-projects",
       enabled: true,
@@ -170,12 +161,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   });
 
   test("spawns memory-extractor when its DB row is enabled", async () => {
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -183,12 +174,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
 
     // Other `bootSpawn: true` bundled entries — populate so `failed[]` stays
     // empty (mirrors the lessons-distiller test above).
-    store.set("ping-loop", {
+    extStore.seed({
       id: "ext-ping",
       name: "ping-loop",
       enabled: true,
     });
-    store.set("github-projects", {
+    extStore.seed({
       id: "ext-gh",
       name: "github-projects",
       enabled: true,
@@ -206,12 +197,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   });
 
   test("spawns BOTH flagged extensions when both rows exist", async () => {
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -256,7 +247,11 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       "kokoro-tts",
     ];
     for (const name of allBundled) {
-      store.set(name, { id: `ext-${name}`, name, enabled: true });
+      extStore.seed({
+        id: `ext-${name}`,
+        name,
+        enabled: true,
+      });
     }
 
     const { spawnCalls, registry } = makeRegistry();
@@ -281,12 +276,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   });
 
   test("a spawn failure for one entry does not block others", async () => {
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -295,12 +290,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // ping-loop + github-projects are the other `bootSpawn: true` entries;
     // give them clean enabled rows + passing spawns so this test isolates the
     // lessons-distiller failure from the orthogonal entries.
-    store.set("ping-loop", {
+    extStore.seed({
       id: "ext-ping",
       name: "ping-loop",
       enabled: true,
     });
-    store.set("github-projects", {
+    extStore.seed({
       id: "ext-gh",
       name: "github-projects",
       enabled: true,
@@ -335,12 +330,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   });
 
   test("disabled DB row is skipped (no spawn, no failure)", async () => {
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: false, // operator-disabled
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -348,12 +343,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // Other `bootSpawn: true` entries — enabled, so they spawn alongside
     // memory-extractor. Keeps `failed[]` empty (a missing row would
     // register as a failure and break the operator-opt-out assertion).
-    store.set("ping-loop", {
+    extStore.seed({
       id: "ext-ping",
       name: "ping-loop",
       enabled: true,
     });
-    store.set("github-projects", {
+    extStore.seed({
       id: "ext-gh",
       name: "github-projects",
       enabled: true,
@@ -405,7 +400,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // Asserts the ordering invariant: getProcess must complete before
     // ensureSubprocessRpcWired runs (the latter receives the proc handle
     // returned by the former).
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
@@ -457,12 +452,12 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   // it deterministically — not skip it on retry, not call it twice).
 
   test("calls proc.ensureRunning() exactly once per successful entry (Phase 53.6 fix)", async () => {
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
     });
-    store.set("memory-extractor", {
+    extStore.seed({
       id: "ext-memory",
       name: "memory-extractor",
       enabled: true,
@@ -487,7 +482,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // block should swallow the throw without touching the (nonexistent)
     // proc handle. Belt-and-suspenders against a future refactor that
     // moves ensureRunning out of the try block.
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,
@@ -534,7 +529,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // entry as failed[] — NOT spawned[]. Without this guard a future
     // refactor that moves ensureRunning out of the try block would
     // silently mark a non-running proc as spawned.
-    store.set("lessons-distiller", {
+    extStore.seed({
       id: "ext-lessons",
       name: "lessons-distiller",
       enabled: true,

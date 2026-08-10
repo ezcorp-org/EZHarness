@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import { getToolOutputLimit, truncateText } from "./output-limits";
 import type { ToolParams } from "./validate";
 
@@ -28,7 +28,7 @@ export function createReadFileTool(projectPath: string): BuiltinToolDef {
           details: truncated ? { truncated: true, originalBytes } : {},
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

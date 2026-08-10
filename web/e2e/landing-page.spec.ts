@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject } from "./fixtures/data.js";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
@@ -96,12 +97,7 @@ test.describe.skip("Landing page", () => {
 		await page.goto("/");
 
 		// Model auto-selects from /api/models once loaded — that enables the send button.
-		const textarea = page.locator("textarea");
-		await expect(textarea).toBeVisible();
-		await textarea.fill("hello landing");
-
-		// Submit via Enter (simpler than hunting the send button with no testid).
-		await textarea.press("Enter");
+		await sendComposerMessage(page, "hello landing");
 
 		const request = await createConvRequest;
 		expect(request.postDataJSON()).toMatchObject({ projectId: "proj-1" });
@@ -137,10 +133,7 @@ test.describe.skip("Landing page", () => {
 
 		await page.goto("/");
 
-		const textarea = page.locator("textarea");
-		await expect(textarea).toBeVisible();
-		await textarea.fill("hello global");
-		await textarea.press("Enter");
+		await sendComposerMessage(page, "hello global");
 
 		const request = await createConvRequest;
 		expect(request.postDataJSON()).toMatchObject({ projectId: "global" });

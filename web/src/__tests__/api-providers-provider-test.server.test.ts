@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("@earendil-works/pi-ai/compat", () => ({
   complete: vi.fn(),
@@ -49,11 +50,11 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   params?: { provider?: string };
 }) {
-  return {
-    url: new URL("http://localhost/api/providers/x/test"),
+  return makeRequestEvent("http://localhost/api/providers/x/test", {
     locals: opts.locals ?? {},
     params: opts.params ?? { provider: "anthropic" },
-  } as any;
+    request: null,
+  });
 }
 
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };

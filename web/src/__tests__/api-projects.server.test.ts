@@ -5,38 +5,24 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, POST } from "../routes/api/projects/+server";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeGetEvent(locals: Record<string, unknown> = {}) {
-	return { url: new URL("http://localhost/api/projects"), locals } as any;
+	return makeRequestEvent("http://localhost/api/projects", {
+	  locals,
+	  request: null,
+	});
 }
 
 function makePostEvent(body: unknown, locals: Record<string, unknown> = {}) {
-	return {
-		url: new URL("http://localhost/api/projects"),
-		locals,
-		request: new Request("http://localhost/api/projects", {
+	return makeRequestEvent("http://localhost/api/projects", {
+	  locals,
+	  request: {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(body),
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		const out = await fn();
-		res = out;
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res).toBeInstanceOf(Response);
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 describe("GET /api/projects", () => {

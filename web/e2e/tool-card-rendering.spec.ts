@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 // PHASE 61-02 TESTID HARDENING (Bucket A #6): added `data-testid="tool-card-{kind}"`
@@ -58,11 +59,9 @@ test.describe("Tool Card Rendering", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do something");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Do something"),
 		]);
 
 		await emitWs({

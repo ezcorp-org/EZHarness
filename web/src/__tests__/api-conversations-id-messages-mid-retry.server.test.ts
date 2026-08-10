@@ -16,6 +16,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/auth/middleware", () => ({
 	requireAuth: (locals: Record<string, unknown>) => {
@@ -103,15 +104,16 @@ function makeEvent(
 	body: unknown = {},
 	{ id = "conv-owned", mid = "a1", locals = {} as Record<string, unknown>, badJson = false } = {},
 ): EventLike {
-	return {
-		request: new Request(`http://localhost/api/conversations/${id}/messages/${mid}/retry`, {
+	return makeRequestEvent(`http://localhost/api/conversations/${id}/messages/${mid}/retry`, {
+		url: null,
+		request: {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: badJson ? "not-json{" : JSON.stringify(body),
-		}),
+		},
 		locals: { user: { id: "user-1", email: "u@x", name: "u", role: "member" }, ...locals },
 		params: { id, mid },
-	};
+	});
 }
 async function run(fn: () => Promise<Response> | Response): Promise<Response> {
 	try {

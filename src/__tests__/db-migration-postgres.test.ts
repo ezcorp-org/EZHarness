@@ -305,6 +305,23 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
     expect((res.rows[0] as { one: number }).one).toBe(1);
   });
 
+  test("tx.execute() inside db.transaction() is normalized too, against the real driver", async () => {
+    // The wrapper above patches `db.execute`, but drizzle hands a
+    // db.transaction(...) callback a BRAND-NEW transaction object built off
+    // the driver's own class (bun-sql/session.js's BunSQLSession.transaction),
+    // not `db` itself — so this is the one assertion that can only be proven
+    // against the real Bun.sql driver, not a hand-rolled fake. Without
+    // applyExecuteNormalization's separate wrap of `db.transaction`, this
+    // `res` would be the bare array bun-sql's client.unsafe() returns.
+    const returned = await conn.getDb().transaction(async (tx: any) => {
+      const res = await tx.execute(sql`SELECT 2 AS two`);
+      expect(Array.isArray(res)).toBe(false);
+      expect((res.rows[0] as { two: number }).two).toBe(2);
+      return "tx-return-value";
+    });
+    expect(returned).toBe("tx-return-value");
+  });
+
   test("jsonb column round-trips as an object (mapToDriverValue identity fix)", async () => {
     await conn.getDb()
       .insert(schema.settings)

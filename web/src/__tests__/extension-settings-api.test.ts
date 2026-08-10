@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 let mockUser: { id: string; role: string } | null = {
   id: "user-1",
@@ -175,8 +176,9 @@ function makeEvent(
   /** API-key scopes for the principal. `undefined` = cookie session. */
   apiKeyScopes?: string[],
 ): RequestEventLike {
-  return {
-    request: new Request(`http://localhost/api/extensions/${id}/settings`, {
+  return makeRequestEvent(`http://localhost/api/extensions/${id}/settings`, {
+    url: null,
+    request: {
       method,
       headers: { "Content-Type": "application/json" },
       body:
@@ -185,10 +187,10 @@ function makeEvent(
           : typeof body === "string"
             ? body
             : JSON.stringify(body),
-    }),
+    },
     locals: apiKeyScopes ? { user: mockUser, apiKeyScopes } : { user: mockUser },
     params: { id },
-  };
+  });
 }
 
 /** A secret-typed field, so the PUT below really does encrypt-and-store. */

@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const listAgents = vi.fn();
 
@@ -23,11 +24,9 @@ const { GET } = await import("../routes/api/agents/+server.ts");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   const href = "http://localhost/api/agents";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

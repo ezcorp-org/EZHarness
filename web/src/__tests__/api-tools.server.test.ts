@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getAllTools = vi.fn(() => [] as Array<{ name: string; description: string }>);
 const getExtensionType = vi.fn((_name: string) => "local");
@@ -38,29 +39,12 @@ vi.mock("$server/runtime/tools/builtin-registry", () => ({
 const { GET } = await import("../routes/api/tools/+server");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
-  return {
-    url: new URL("http://localhost/api/tools"),
+  return makeRequestEvent("http://localhost/api/tools", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/tools"),
-  } as any;
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/tools", () => {
   beforeEach(() => {

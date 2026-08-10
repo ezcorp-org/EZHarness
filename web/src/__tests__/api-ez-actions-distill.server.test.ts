@@ -32,6 +32,7 @@
  * imports via `$server/...` aliases.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── ExtensionRegistry mock ────────────────────────────────────────────
 const registryGetTool = vi.fn();
@@ -104,16 +105,15 @@ const USER = { id: "u1", email: "u@x", name: "u", role: "user" } as const;
 
 function makeEvent(body?: unknown) {
   const href = "http://localhost/api/ez-actions/distill";
-  return {
+  return makeRequestEvent(href, {
     params: { name: "distill" },
-    request: new Request(href, {
+    request: {
       method: "POST",
       body: body !== undefined ? JSON.stringify(body) : undefined,
       headers: { "Content-Type": "application/json" },
-    }),
+    },
     locals: { user: USER },
-    url: new URL(href),
-  } as never;
+  });
 }
 
 /** Assemble the tool-result envelope the forwarder parses. */

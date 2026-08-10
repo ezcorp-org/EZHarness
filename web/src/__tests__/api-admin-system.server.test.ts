@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/analytics", () => ({
   getSystemHealth: vi.fn(async () => ({ status: "ok", db: "up" })),
@@ -21,27 +22,10 @@ const { getSystemHealth, getActivityFeed, getErrorSummary } = await import(
 const { GET } = await import("../routes/api/admin/system/+server");
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-	return {
-		url: new URL("http://localhost/api/admin/system"),
-		locals,
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		const out = await fn();
-		res = out;
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res).toBeInstanceOf(Response);
-	expect(res!.status).toBe(status);
-	return res!;
+	return makeRequestEvent("http://localhost/api/admin/system", {
+	  locals,
+	  request: null,
+	});
 }
 
 const adminLocals = {

@@ -14,6 +14,7 @@
  * second call fires only on the null path.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
 
 const mockDelete = vi.fn();
 const mockUpdateVisibility = vi.fn();
@@ -56,21 +57,6 @@ function makePatchEvent(opts: {
 		params: { id },
 		request: new Request(`http://localhost/api/lessons/${id}`, init),
 	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
 }
 
 const USER = { id: "u1", email: "u@x", name: "u", role: "user" };

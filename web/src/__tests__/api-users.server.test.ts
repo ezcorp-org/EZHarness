@@ -10,6 +10,7 @@
  *   - admin-role + admin-scope gated.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/users", () => ({
 	listUsers: vi.fn(async () => []),
@@ -21,11 +22,9 @@ const { GET } = await import("../routes/api/users/+server");
 
 function makeEvent(opts: { search?: string; locals?: Record<string, unknown> }) {
 	const url = `http://localhost/api/users${opts.search ?? ""}`;
-	return {
-		url: new URL(url),
-		locals: opts.locals ?? {},
-		request: new Request(url),
-	} as any;
+	return makeRequestEvent(url, {
+	  locals: opts.locals ?? {},
+	});
 }
 
 const admin = { user: { id: "a1", email: "a@x", name: "A", role: "admin" } };
@@ -39,18 +38,6 @@ function mkUser(i: number) {
 		status: "active",
 		passwordHash: "secret-hash",
 	};
-}
-
-async function expectThrown(fn: () => Promise<Response> | Response, status: number) {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
 }
 
 describe("GET /api/users", () => {

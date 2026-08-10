@@ -26,6 +26,7 @@
  */
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/auth/middleware", () => ({
 	requireAuth: vi.fn(),
@@ -53,16 +54,14 @@ function makeEvent(init: {
 	method?: string;
 } = {}) {
 	const body = init.body !== undefined ? JSON.stringify(init.body) : undefined;
-	const request = new Request("http://localhost/api/user/agent-picker", {
-		method: init.method ?? "GET",
-		body,
-		headers: body ? { "content-type": "application/json" } : undefined,
-	});
-	return {
-		url: new URL("http://localhost/api/user/agent-picker"),
+	return makeRequestEvent("http://localhost/api/user/agent-picker", {
 		locals: init.locals ?? {},
-		request,
-	} as never;
+		request: {
+			method: init.method ?? "GET",
+			body,
+			headers: body ? { "content-type": "application/json" } : undefined,
+		},
+	});
 }
 
 const USER = { id: "user-1", email: "u@x", name: "U", role: "member" };

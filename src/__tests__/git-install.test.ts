@@ -15,35 +15,17 @@ import { configContent } from "./helpers/write-config";
 
 // ── Mock DB layer ─────────────────────────────────────────────────────
 
-const mockExtensions = new Map<string, any>();
+import { createMockExtensionsStore, requireRow } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  createExtension: async (data: any) => {
-    const ext = {
-      id: crypto.randomUUID(),
-      ...data,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    mockExtensions.set(ext.id, ext);
-    return ext;
-  },
-  getExtensionByName: async (name: string) => {
-    for (const ext of mockExtensions.values()) {
-      if (ext.name === name) return ext;
-    }
-    return null;
-  },
-  updateExtension: async (id: string, data: any) => {
-    const ext = mockExtensions.get(id);
-    if (!ext) return null;
-    Object.assign(ext, data, { updatedAt: new Date() });
-    return ext;
-  },
-  deleteExtension: async (id: string) => {
-    return mockExtensions.delete(id);
-  },
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  createExtension: extStore.createExtension,
+  getExtensionByName: extStore.getExtensionByName,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
+  listExtensions: extStore.listExtensions,
 }));
 
 // Mock registry reload to no-op
@@ -409,7 +391,7 @@ describe("updateExtension", () => {
 
   test("throws if source is local", async () => {
     // Manually insert a local extension
-    mockExtensions.set("local-id", {
+    extStore.seed({
       id: "local-id",
       name: "local-ext",
       source: "local:/tmp/fake",
@@ -465,8 +447,9 @@ describe("updateExtension — env-leak gate (v1.4 parity with install)", () => {
     );
 
     // DB row untouched — old version, old manifest, still enabled.
-    const row = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "leaky-update-ext",
+    const row = requireRow(
+      Array.from(mockExtensions.values()).find((e: any) => e.name === "leaky-update-ext"),
+      "leaky-update-ext row",
     );
     expect(row.version).toBe("1.0.0");
     expect(row.manifest.permissions?.env).toBeUndefined();
@@ -474,7 +457,8 @@ describe("updateExtension — env-leak gate (v1.4 parity with install)", () => {
 
     // Disk restored — the subprocess spawns from disk, so a refused
     // update must NOT leave the new tag checked out.
-    const onDisk = await Bun.file(join(row.installPath, "ezcorp.config.ts")).text();
+    const installPath = requireRow(row.installPath, "leaky-update-ext row's installPath");
+    const onDisk = await Bun.file(join(installPath, "ezcorp.config.ts")).text();
     expect(onDisk.includes("FOO_API_TOKEN")).toBe(false);
     expect(onDisk.includes("1.0.0")).toBe(true);
   });
@@ -506,8 +490,9 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
     const result = await updateExtension("narrow-update-ext");
     expect(result.to).toBe("1.1.0");
 
-    const row = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "narrow-update-ext",
+    const row = requireRow(
+      Array.from(mockExtensions.values()).find((e: any) => e.name === "narrow-update-ext"),
+      "narrow-update-ext row",
     );
     // Stale looser sandbox closed: shell gone, cdn host gone.
     expect(row.grantedPermissions.shell).toBeUndefined();
@@ -533,8 +518,9 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
     const result = await updateExtension("noop-update-ext");
     expect(result.to).toBe("1.1.0");
 
-    const row = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "noop-update-ext",
+    const row = requireRow(
+      Array.from(mockExtensions.values()).find((e: any) => e.name === "noop-update-ext"),
+      "noop-update-ext row",
     );
     expect(row.grantedPermissions.network).toEqual([
       "api.example.com",
@@ -575,7 +561,7 @@ describe("removeExtension", () => {
     await mkdir(dangerousPath, { recursive: true });
     await Bun.write(join(dangerousPath, "important.txt"), "do not delete");
 
-    mockExtensions.set("dangerous-id", {
+    extStore.seed({
       id: "dangerous-id",
       name: "dangerous-ext",
       source: `file://${bareRepoDir}`,

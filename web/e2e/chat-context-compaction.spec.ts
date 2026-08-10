@@ -67,6 +67,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe.skip("Long conversation no longer dead-ends on context_length_exceeded", () => {
@@ -105,13 +106,11 @@ test.describe.skip("Long conversation no longer dead-ends on context_length_exce
 			page.getByRole("button", { name: /load older messages/i }),
 		).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Given everything above, summarize.");
 		await Promise.all([
 			page.waitForResponse(
 				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Given everything above, summarize."),
 		]);
 	}
 

@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/agent-configs", () => ({
   getAgentConfig: vi.fn(),
@@ -67,36 +68,19 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const id = opts.id ?? "agent-1";
-  return {
-    url: new URL(`http://localhost/api/agents/${id}/share`),
+  return makeRequestEvent(`http://localhost/api/agents/${id}/share`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/agents/${id}/share`, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const ownerUser = { id: "u1", email: "u@x", name: "u", role: "user" };
 const ownedAgent = { id: "agent-1", name: "my-agent", userId: "u1" };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-    if (!res || res.status !== status) expect.fail("expected thrown Response");
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/agents/[id]/share", () => {
   beforeEach(() => {

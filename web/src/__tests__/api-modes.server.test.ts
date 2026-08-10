@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/modes", () => ({
 	listModes: vi.fn(),
@@ -17,41 +18,24 @@ const { listModes, createMode } = await import("$server/db/queries/modes");
 const { GET, POST } = await import("../routes/api/modes/+server");
 
 function makeGetEvent(opts: { locals?: Record<string, unknown> }) {
-	return {
-		url: new URL("http://localhost/api/modes"),
-		locals: opts.locals ?? {},
-		request: new Request("http://localhost/api/modes", { method: "GET" }),
-	} as any;
+	return makeRequestEvent("http://localhost/api/modes", {
+	  locals: opts.locals ?? {},
+	  request: { method: "GET" },
+	});
 }
 
 function makePostEvent(opts: {
 	body?: unknown;
 	locals?: Record<string, unknown>;
 }) {
-	return {
-		url: new URL("http://localhost/api/modes"),
-		locals: opts.locals ?? {},
-		request: new Request("http://localhost/api/modes", {
+	return makeRequestEvent("http://localhost/api/modes", {
+	  locals: opts.locals ?? {},
+	  request: {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 const authedUser = {

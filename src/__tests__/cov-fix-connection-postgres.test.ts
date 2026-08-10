@@ -4,6 +4,15 @@
  * jsonb-fix opening), 553 (the advisory-locked `migrate()`), and the Bun.sql
  * `closeDb()` pool drain (708).
  *
+ * Also covers `applyExecuteNormalization`/`wrapTransactionExecute`: the fix
+ * that makes `tx.execute()` inside `db.transaction(async (tx) => …)` return
+ * `{rows}` on the Postgres path, same as `db.execute()`. That fix can ONLY be
+ * proven against a driver whose `.transaction()` hands the callback a
+ * DIFFERENT object than `db` (mirroring bun-sql/session.js's real behavior —
+ * see connection.ts's doc comment) — a same-object fake would pass even
+ * without the wrap. `createFakeTx()` below does exactly that.
+ *
+
  * connection.ts captures `DATABASE_URL` in a module-load const, so `init()`
  * only routes to `initPostgres()` when the WHOLE process was booted with
  * DATABASE_URL set — the PGlite coverage shards never are (the real-server
@@ -44,8 +53,29 @@ restoreModuleMocks();
 const sqlCalls: string[] = [];
 let migrateCalls = 0;
 
+/**
+ * Fake transaction handle. Mirrors the real driver's shape enough to exercise
+ * `applyExecuteNormalization`'s `db.transaction` wrap: a fresh object per
+ * `.transaction()` call (never `pool` itself — that's the whole bug the wrap
+ * fixes, see connection.ts), with its own `execute` and a `transaction` for
+ * the nested/savepoint case.
+ */
+interface FakeTx {
+  execute: (...a: unknown[]) => Promise<unknown[]>;
+  transaction: (fn: (nested: FakeTx) => unknown) => Promise<unknown>;
+}
+
+function createFakeTx(): FakeTx {
+  const tx: FakeTx = {
+    execute: async (..._a: unknown[]): Promise<unknown[]> => [],
+    transaction: async (fn: (nested: FakeTx) => unknown) => fn(createFakeTx()),
+  };
+  return tx;
+}
+
 interface FakePool {
   execute: (...a: unknown[]) => Promise<unknown[]>;
+  transaction: (fn: (tx: FakeTx) => unknown, config?: unknown) => Promise<unknown>;
   $client: {
     (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
     close: () => Promise<void>;
@@ -69,6 +99,10 @@ function createFakePool(): FakePool {
     // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
     // marker/column scans to no-op.
     execute: async (..._a: unknown[]): Promise<unknown[]> => [],
+    // A fresh FakeTx per call — real drizzle sessions do the same (a brand-new
+    // transaction object off the driver's class prototype), which is exactly
+    // why `db.execute`'s own wrap never reached `tx.execute` before this fix.
+    transaction: async (fn: (tx: FakeTx) => unknown, _config?: unknown) => fn(createFakeTx()),
     $client: Object.assign(
       (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
         sqlCalls.push(strings.join("?"));
@@ -213,5 +247,53 @@ describe("initPostgres — stale pool reclaim across a module re-instantiation",
     const live = openedPools.at(-1)!;
     await conn.closeDb();
     expect(live.closed).toBe(1);
+  });
+});
+
+/**
+ * The `{rows}` invariant, pinned on the `tx` a `db.transaction(...)` callback
+ * receives — not just on `db` itself.
+ *
+ * `db.execute`'s wrapper (asserted above) reassigns a property on the `db`
+ * INSTANCE. `db.transaction(async (tx) => …)` hands the callback a completely
+ * separate object (`createFakeTx()`, mirroring `BunSQLSession.transaction()`
+ * building a fresh `BunSQLTransaction`), so a wrap that only touches `db`
+ * never reaches `tx.execute`. `applyExecuteNormalization` closes that by
+ * wrapping `db.transaction` itself to normalize the `tx` it hands out before
+ * the caller's callback ever sees it.
+ */
+describe("initPostgres — tx.execute() is normalized the same as db.execute()", () => {
+  test("db.transaction()'s tx.execute() returns { rows }, not the driver's bare array", async () => {
+    await conn.__test.initPostgres();
+    const db = conn.getDb();
+
+    const returned = await db.transaction(async (tx: FakeTx) => {
+      const res = (await tx.execute()) as unknown as { rows: unknown[] };
+      expect(Array.isArray(res)).toBe(false);
+      expect(res.rows).toEqual([]);
+      return "callback-return-value";
+    });
+    // The wrap must not swallow or alter the callback's own return value.
+    expect(returned).toBe("callback-return-value");
+
+    await conn.closeDb();
+  });
+
+  test("a nested tx.transaction() (savepoint) handle is normalized too", async () => {
+    await conn.__test.initPostgres();
+    const db = conn.getDb();
+
+    await db.transaction(async (tx: FakeTx) => {
+      // Sanity: the outer handle is already proven above; the interesting
+      // case is the INNER one, built by tx.transaction — a second fresh
+      // object the wrap has to recurse into to reach.
+      await tx.transaction(async (nested: FakeTx) => {
+        const res = (await nested.execute()) as unknown as { rows: unknown[] };
+        expect(Array.isArray(res)).toBe(false);
+        expect(res.rows).toEqual([]);
+      });
+    });
+
+    await conn.closeDb();
   });
 });

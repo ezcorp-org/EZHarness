@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Task Stack Card Rendering", () => {
@@ -28,11 +29,9 @@ test.describe("Task Stack Card Rendering", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Trigger streaming
-		const textarea = page.locator("textarea");
-		await textarea.fill("Add a task");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Add a task"),
 		]);
 
 		await emitWs({
@@ -86,11 +85,9 @@ test.describe("Task Stack Card Rendering", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("List tasks");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "List tasks"),
 		]);
 
 		await emitWs({

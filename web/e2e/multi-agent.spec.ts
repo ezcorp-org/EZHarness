@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { threadMessages } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
@@ -15,11 +15,9 @@ test.describe("Multi-Agent Orchestration", () => {
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */
 	async function sendAndWaitForStream(page: Page, text: string) {
-		const textarea = page.locator("textarea");
-		await textarea.fill(text);
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, text),
 		]);
 		// Scoped to the thread: the sidebar row is auto-titled with the same
 		// text, so an unscoped match is ambiguous on a hydrated page.

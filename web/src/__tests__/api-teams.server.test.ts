@@ -7,21 +7,21 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, POST } from "../routes/api/teams/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
   body?: unknown;
 }) {
   const body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
-  return {
-    url: new URL("http://localhost/api/teams"),
+  return makeRequestEvent("http://localhost/api/teams", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/teams", {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };

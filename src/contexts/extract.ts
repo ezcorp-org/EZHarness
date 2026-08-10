@@ -13,7 +13,7 @@ import type { ContextsTarget } from "./config";
 import { describeTarget, resolveContextsTarget } from "./config";
 import type { ContextsCompletionRequest } from "./llm";
 import { runContextsCompletion } from "./llm";
-import { MAX_TRANSCRIPT_CHARS, isConversationalMessage } from "./detect";
+import { MAX_TRANSCRIPT_CHARS, isConversationalMessage, truncateTranscriptLines } from "./detect";
 import type { SavedContext } from "../db/schema";
 import type { UpsertSavedContextInput } from "../db/queries/contexts";
 import {
@@ -49,25 +49,7 @@ export function buildExtractTranscript(
     const marker = anchorIds.has(m.id) ? ">>> [RELEVANT TO TOPIC]\n" : "";
     return `${marker}${m.role}: ${m.content}`;
   });
-
-  const kept: string[] = [];
-  let total = 0;
-  let truncated = false;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
-    const add = line.length + 2; // +2 for the blank-line join
-    if (total + add > MAX_TRANSCRIPT_CHARS && kept.length > 0) {
-      truncated = true;
-      break;
-    }
-    kept.push(line);
-    total += add;
-  }
-  kept.reverse();
-  const transcript = truncated
-    ? `…[older messages truncated]…\n\n${kept.join("\n\n")}`
-    : kept.join("\n\n");
-  return { transcript, truncated };
+  return truncateTranscriptLines(lines, MAX_TRANSCRIPT_CHARS, "\n\n");
 }
 
 /** Verbatim-biased extraction prompt: a structured, self-contained Markdown

@@ -49,6 +49,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock surface ────────────────────────────────────────────────────
 
@@ -143,12 +144,11 @@ function makeGetEvent(opts: { query?: string; locals?: Record<string, unknown> }
   const href = `http://localhost/api/conversations/c1/messages${
     opts.query ? `?${opts.query}` : ""
   }`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? { user },
     params: { id: "c1" },
-    request: new Request(href, { method: "GET" }),
-  } as any;
+    request: { method: "GET" },
+  });
 }
 
 function makeJsonPostEvent(opts: { body: unknown; locals?: Record<string, unknown> }) {

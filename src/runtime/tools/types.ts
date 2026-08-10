@@ -2,6 +2,42 @@ import type { AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/p
 import type { Tool } from "@earendil-works/pi-ai";
 
 /**
+ * Error convention for built-in tools: NEVER throw — a thrown tool kills
+ * the whole turn, a returned error result lets the LLM read it and
+ * recover. 17 of the 28 files under `src/runtime/tools/` hand-rolled this
+ * exact `{ content, details }` envelope (`run-workflow.ts` was the first to
+ * extract it locally, as `errorResult`); this is that helper promoted to a
+ * shared home so the shape lives in one place.
+ *
+ * `extra` is merged in AFTER `isError: true` so a tool that carries richer
+ * failure details than the bare convention — `shell`'s
+ * `exitCode`/`stdout`/`stderr`/`streaming`, `grep`'s
+ * `matchCount`/`pattern`/`timeout`/`aborted` — can still shape its own
+ * `details` without re-deriving the envelope. Omit `extra` for the plain
+ * `{ isError: true }` case the majority of call sites use.
+ */
+export function toolError(
+  message: string,
+  extra?: Record<string, unknown>,
+): AgentToolResult<Record<string, unknown>> {
+  return {
+    content: [{ type: "text", text: `Error: ${message}` }],
+    details: { isError: true, ...extra },
+  };
+}
+
+/**
+ * The message text a caught value contributes to a `toolError` call:
+ * `e.message` for a real `Error`, `String(e)` for anything else (a thrown
+ * string, a rejected non-Error value). Every built-in's catch block reduces
+ * to `toolError(errorMessage(e))` (or with `extra` for the richer shapes
+ * above) instead of repeating the `instanceof Error ? … : …` ternary.
+ */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
  * "ez" was added in Phase 48 for the in-app concierge tools (propose_*,
  * summarize_conversation, find_agents, fill_form, navigate_to). Adding a
  * dedicated category — rather than reusing read/write/execute — keeps the

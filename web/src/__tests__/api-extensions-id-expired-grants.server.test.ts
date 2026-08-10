@@ -6,6 +6,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
 	getExtension: vi.fn(),
@@ -28,15 +29,11 @@ function makeEvent(opts: {
 	locals?: Record<string, unknown>;
 }) {
 	const id = opts.id ?? "scratchpad";
-	return {
-		url: new URL(`http://localhost/api/extensions/${id}/expired-grants`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(
-			`http://localhost/api/extensions/${id}/expired-grants`,
-			{ method: "GET" },
-		),
-	} as any;
+	return makeRequestEvent(`http://localhost/api/extensions/${id}/expired-grants`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: { method: "GET" },
+	});
 }
 
 const adminUser = { id: "u-admin", email: "a@x", name: "a", role: "admin" };

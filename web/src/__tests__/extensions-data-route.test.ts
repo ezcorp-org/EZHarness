@@ -18,6 +18,7 @@ import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 
@@ -87,15 +88,14 @@ const { GET } = await import(
 // ── Helpers ───────────────────────────────────────────────────────
 
 function makeEvent(params: { name?: string; path?: string }): unknown {
-  return {
-    request: new Request(
-      `http://localhost/api/extensions/${params.name ?? ""}/data/${params.path ?? ""}`,
-    ),
+  return makeRequestEvent(`http://localhost/api/extensions/${params.name ?? ""}/data/${params.path ?? ""}`, {
+    url: null,
+    request: undefined,
     locals: {
       user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
     },
     params,
-  };
+  });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

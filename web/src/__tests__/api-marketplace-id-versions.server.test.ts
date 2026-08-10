@@ -5,6 +5,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace-versions", () => ({
   listVersions: vi.fn(),
@@ -22,12 +23,10 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const id = opts.id ?? "listing-1";
-  return {
-    url: new URL(`http://localhost/api/marketplace/${id}/versions`),
+  return makeRequestEvent(`http://localhost/api/marketplace/${id}/versions`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/marketplace/${id}/versions`),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

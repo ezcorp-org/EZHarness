@@ -19,6 +19,7 @@
  * structure is the contract. Filed scope: composer textarea-locator.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("claude-design — clarify-brief form-card flow", () => {
@@ -68,13 +69,11 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("brief");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "brief"),
 		]);
 
 		// Stream a `tool:start` for clarify-brief — this is a card whose
@@ -177,13 +176,11 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 
 		// Send a vague prompt to nudge the agent into clarify-brief
 		// territory (mocked — no real agent runs in e2e).
-		const composer = page.locator("textarea");
-		await composer.fill("make me a page");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			composer.press("Enter"),
+			sendComposerMessage(page, "make me a page"),
 		]);
 
 		// Stream clarify-brief tool start.

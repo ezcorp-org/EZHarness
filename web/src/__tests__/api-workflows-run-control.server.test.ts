@@ -14,6 +14,7 @@
  * control module's suite and quietly hand every member admin reach.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const ctl = vi.hoisted(() => ({
   resumeParkedRun: vi.fn(),
@@ -37,27 +38,11 @@ const authedAdmin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" }
 
 function makeEvent(kind: "resume" | "cancel", opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "r1";
-  return {
-    url: new URL(`http://localhost/api/workflows/runs/${id}/${kind}`),
+  return makeRequestEvent(`http://localhost/api/workflows/runs/${id}/${kind}`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/workflows/runs/${id}/${kind}`, { method: "POST" }),
-  } as never;
-}
-
-async function expectThrownResponse(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
+    request: { method: "POST" },
+  });
 }
 
 describe.each([

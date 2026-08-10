@@ -13,10 +13,10 @@
  * true, swap in tsvector full-text search.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import { listAgentConfigs } from "../../../db/queries/agent-configs";
 import type { EzToolContext } from "./propose-create-project";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 const MAX_RESULTS = 10;
 
@@ -70,9 +70,9 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const query = typeof params?.query === "string" ? params.query.trim() : "";
+        const query = stringParam(params, "query");
         if (!query) {
-          return { content: [{ type: "text" as const, text: "Error: query is required" }], details: { isError: true } };
+          return toolError("query is required");
         }
         const all = await listAgentConfigs(ctx.userId);
 
@@ -120,7 +120,7 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
           details: result,
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

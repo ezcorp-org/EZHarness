@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import { getToolOutputLimit, truncateText } from "./output-limits";
 import type { ToolParams } from "./validate";
 
@@ -209,6 +209,10 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
             : []),
         ]);
 
+        // NOTE: these two messages are user-facing status text, not the
+        // `Error: <message>` convention `toolError` encodes (the tests pin
+        // the exact strings — no "Error: " prefix) — so they stay hand-built
+        // even though `isError` rides along in `details`.
         if (outcome.type === "timeout") {
           proc.kill();
           return {
@@ -241,10 +245,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
         // `!trimmed` no-match check below would otherwise mask a genuine
         // error as a bland "No matches found.")
         if (exitCode === 2 && !trimmed) {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${stderr.trim() || "search error"}` }],
-            details: { isError: true, matchCount: 0 },
-          };
+          return toolError(stderr.trim() || "search error", { matchCount: 0 });
         }
 
         // Exit 1 = "no matches" for both grep and ripgrep.
@@ -271,10 +272,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
           },
         };
       } catch (e) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
-          details: { isError: true, matchCount: 0 },
-        };
+        return toolError(errorMessage(e), { matchCount: 0 });
       }
     },
   };

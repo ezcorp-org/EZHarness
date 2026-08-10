@@ -8,13 +8,12 @@
 
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/auth/me/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-  return {
-    url: new URL("http://localhost/api/auth/me"),
+  return makeRequestEvent("http://localhost/api/auth/me", {
     locals,
-    request: new Request("http://localhost/api/auth/me"),
-  } as any;
+  });
 }
 
 describe("GET /api/auth/me", () => {

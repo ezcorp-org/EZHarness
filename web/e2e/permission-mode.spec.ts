@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Permission Mode", () => {
@@ -123,14 +124,12 @@ test.describe("Permission Mode", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Send a message to trigger streaming (sets up streamingRunToConversation)
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do something");
-		// Wait for the message POST to complete, which returns runId "run-stream".
+				// Wait for the message POST to complete, which returns runId "run-stream".
 		// Armed WITH the keypress: a waiter registered after it can miss its own
 		// response and then block for the full test timeout.
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Do something"),
 		]);
 
 		// Emit run:start to set up the streaming run-to-conversation mapping
@@ -179,11 +178,9 @@ test.describe("Permission Mode", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Trigger streaming
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do something");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Do something"),
 		]);
 
 		await emitWs({
@@ -337,11 +334,9 @@ test.describe("Permission Mode", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Trigger streaming
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do something");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Do something"),
 		]);
 
 		await emitWs({

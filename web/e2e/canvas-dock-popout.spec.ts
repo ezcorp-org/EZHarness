@@ -9,6 +9,7 @@
  * validation: post-plan addition #6 (pop-out URL button).
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — pop-out button", () => {
@@ -41,10 +42,9 @@ test.describe("Canvas Dock — pop-out button", () => {
 			void orig; // explicit no-op to keep TS happy
 		});
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		await emitWs({

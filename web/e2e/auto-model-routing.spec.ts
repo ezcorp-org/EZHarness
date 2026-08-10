@@ -1,4 +1,5 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 /**
@@ -187,9 +188,7 @@ test("selecting Auto in the picker sends the explicit null sentinel @evidence", 
 	await expect(selector).toContainText("Auto (smart routing)");
 
 	// Send a message — the wire body must carry the EXPLICIT nulls.
-	const composer = page.getByPlaceholder("Send a message...");
-	await composer.fill("route my first turn");
-	await composer.press("Enter");
+	await sendComposerMessage(page, "route my first turn");
 
 	await expect.poll(() => sentBody).not.toBeNull();
 	expect(sentBody!.model).toBeNull();

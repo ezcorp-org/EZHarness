@@ -166,3 +166,44 @@ describe("enhancePrompt", () => {
     expect(await enhancePrompt("draft", ctx, CFG, { fetchFn })).toBeNull();
   });
 });
+
+// ── Base-URL normalization ──────────────────────────────────────────
+//
+// See the matching block in `src/__tests__/local-model-check.test.ts`.
+// `enhance.ts` used to carry its own `normalizeUrl` that stripped only a
+// trailing `/` and `:`, so a `/v1`-suffixed base URL — the form LM Studio
+// and vLLM document — probed `…/v1/v1/models`, 404'd, and silently disabled
+// the enhance feature via the cached probe. The shared `normalizeUrl` strips
+// the `/v1` first; these pin the URL actually requested.
+describe("base URL normalization — trailing /v1 is not doubled", () => {
+  test("isEnhanceAvailable probes /v1/models exactly once, not /v1/v1/models", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL) => {
+      seen.push(String(url));
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const ok = await isEnhanceAvailable("http://localhost:11434/v1", { fetchFn });
+
+    expect(ok).toBe(true);
+    expect(seen).toEqual(["http://localhost:11434/v1/models"]);
+  });
+
+  test("enhancePrompt POSTs to a single-/v1 chat-completions URL", async () => {
+    const seen: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL) => {
+      seen.push(String(url));
+      return completionResponse("enhanced text");
+    }) as unknown as typeof fetch;
+
+    await enhancePrompt(
+      "make it better",
+      { tools: [] },
+      { ...CFG, baseUrl: "http://localhost:11434/v1" },
+      { fetchFn },
+    );
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((u) => u === "http://localhost:11434/v1/chat/completions")).toBe(true);
+  });
+});

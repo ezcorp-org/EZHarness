@@ -24,6 +24,7 @@
  * code→status mapping are exactly what a fake would get to invent.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const queries = vi.hoisted(() => ({
   createServiceAccount: vi.fn(),
@@ -96,17 +97,15 @@ const member = { user: { id: "u1", email: "u@x", name: "u", role: "member" }, au
 const VALID_BODY = { name: "nightly", maxTokensPerDay: 10_000, scopes: ["use"] };
 
 function makeEvent(locals: Record<string, unknown>, body: unknown = VALID_BODY, search = "") {
-  const url = new URL(`http://localhost/api/service-accounts${search}`);
-  return {
-    url,
+  return makeRequestEvent(`http://localhost/api/service-accounts${search}`, {
     locals,
     params: {},
-    request: new Request(url, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
-  } as never;
+    },
+  });
 }
 
 /**

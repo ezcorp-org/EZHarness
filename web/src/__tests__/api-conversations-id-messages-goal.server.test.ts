@@ -38,6 +38,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock surface — same shape as api-conversations-id-messages.server.test.ts
 
@@ -151,16 +152,15 @@ function makeEvent(opts: {
   // — the rest of `RequestEvent` (cookies/fetch/getClientAddress/...)
   // is unused. Cast through `unknown` so we don't need to fabricate
   // an entire SvelteKit event surface.
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id: "c1" },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body),
-    }),
-  } as unknown as Parameters<typeof POST>[0];
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

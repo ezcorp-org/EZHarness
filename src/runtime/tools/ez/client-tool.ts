@@ -18,6 +18,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { EventBus } from "../../events";
 import type { AgentEvents } from "../../../types";
+import { errorMessage, toolError } from "../types";
 import {
   registerPendingEzClientTool,
   rejectEzClientTool,
@@ -127,10 +128,7 @@ export async function runEzClientTool(args: {
 }): Promise<AgentToolResult<unknown>> {
   const { ctx, toolCallId, toolName, input, signal, errorDetails } = args;
   if (!ctx.bus) {
-    return {
-      content: [{ type: "text" as const, text: "Error: client-tool bus not wired" }],
-      details: { isError: true, clientSide: true, toolName },
-    };
+    return toolError("client-tool bus not wired", { clientSide: true, toolName });
   }
 
   const pending = registerPendingEzClientTool({
@@ -153,11 +151,7 @@ export async function runEzClientTool(args: {
     const panelResult = await pending;
     return panelResultToToolResult(panelResult, toolName);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      content: [{ type: "text" as const, text: `Error: ${message}` }],
-      details: { isError: true, clientSide: true, toolName, deferred: true, ...(errorDetails ?? {}) },
-    };
+    return toolError(errorMessage(err), { clientSide: true, toolName, deferred: true, ...(errorDetails ?? {}) });
   } finally {
     signal?.removeEventListener("abort", onAbort);
     // Defensive: if the Promise settled via timeout/abort the entry is

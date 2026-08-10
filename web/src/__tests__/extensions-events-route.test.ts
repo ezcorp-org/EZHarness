@@ -23,6 +23,7 @@
  */
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 
@@ -234,20 +235,18 @@ function makeEvent(
     event: "knob-change",
   },
 ): RequestEventLike {
-  return {
-    request: new Request(
-      `http://localhost/api/extensions/${params.name}/events/${params.event}`,
-      {
+  return makeRequestEvent(`http://localhost/api/extensions/${params.name}/events/${params.event}`, {
+    url: null,
+    request: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: typeof body === "string" ? body : JSON.stringify(body),
       },
-    ),
     locals: {
       user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
     },
     params,
-  };
+  });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

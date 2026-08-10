@@ -2,7 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { ToolParams } from "./validate";
 
 export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
@@ -46,7 +46,7 @@ export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
         await walk(dir, "", 1);
         return { content: [{ type: "text" as const, text: lines.join("\n") || "(empty directory)" }], details: {} };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

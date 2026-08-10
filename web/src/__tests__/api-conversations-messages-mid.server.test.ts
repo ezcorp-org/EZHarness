@@ -3,31 +3,37 @@
  * Auth gate — success path mutates DB.
  */
 
-import { test, expect, describe } from "vitest";
+import { describe, expect, test } from "vitest";
 import { PATCH } from "../routes/api/conversations/[id]/messages/[mid]/+server";
-
-function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
-	return {
-		url: new URL("http://localhost/api/conversations/c1/messages/m1"),
-		locals: opts.locals ?? {},
-		params: { id: "c1", mid: "m1" },
-		request: new Request("http://localhost/api/conversations/c1/messages/m1", {
-			method: "PATCH",
-			headers: { "content-type": "application/json" },
-			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
-}
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 async function expectThrownResponse(
 	fn: () => Promise<Response> | Response,
 	status: number,
 ): Promise<Response> {
 	let res: Response | undefined;
-	try { res = await fn(); }
-	catch (thrown) { expect(thrown).toBeInstanceOf(Response); res = thrown as Response; }
+	try {
+		res = await fn();
+	} catch (thrown) {
+		expect(thrown).toBeInstanceOf(Response);
+		res = thrown as Response;
+	}
+	expect(res).toBeInstanceOf(Response);
 	expect(res!.status).toBe(status);
 	return res!;
+}
+
+
+function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
+	return makeRequestEvent("http://localhost/api/conversations/c1/messages/m1", {
+	  locals: opts.locals ?? {},
+	  params: { id: "c1", mid: "m1" },
+	  request: {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+		},
+	});
 }
 
 describe("PATCH /api/conversations/[id]/messages/[mid]", () => {

@@ -25,6 +25,7 @@
  * extension's own unit tests, not here.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockGetEzAction = vi.fn();
 vi.mock("$server/runtime/ez-actions/registry", () => ({
@@ -56,16 +57,15 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const href = `http://localhost/api/ez-actions/${opts.name}`;
-  return {
+  return makeRequestEvent(href, {
     params: { name: opts.name },
-    request: new Request(href, {
+    request: {
       method: "POST",
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       headers: { "Content-Type": "application/json" },
-    }),
+    },
     locals: opts.locals ?? { user: USER },
-    url: new URL(href),
-  } as any;
+  });
 }
 
 describe("POST /api/ez-actions/[name]", () => {

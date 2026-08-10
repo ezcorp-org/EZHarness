@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const refreshMcpTools = vi.fn();
 vi.mock("$server/extensions/registry", () => ({
@@ -23,11 +24,11 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   params?: { id?: string };
 }) {
-  return {
-    url: new URL("http://localhost/api/mcp-servers/x/refresh"),
+  return makeRequestEvent("http://localhost/api/mcp-servers/x/refresh", {
     locals: opts.locals ?? {},
     params: opts.params ?? { id: "x" },
-  } as any;
+    request: null,
+  });
 }
 
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };

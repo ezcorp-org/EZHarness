@@ -575,6 +575,64 @@ async function closeBunSqlPool(client: BunSqlPoolClient | undefined): Promise<vo
 }
 
 /**
+ * bun-sql's `execute()` resolves to whatever `client.unsafe(...)` returns — a
+ * raw array — while PGlite's resolves to `{ rows: [...] }` natively (PGlite's
+ * own `.query()` already returns that shape; see `applyExecuteNormalization`
+ * for why only the bun-sql path needs this). Query code uniformly expects
+ * `{rows}`, so this is the one place that gap gets closed.
+ */
+function normalizeExecuteResult(result: unknown): unknown {
+  return Array.isArray(result) ? { rows: result } : result;
+}
+
+/**
+ * Patch a transaction handle's `execute` in place so it returns the
+ * normalized `{rows}` shape, and recurse into `tx.transaction` so a nested
+ * (savepoint) transaction's handle gets the same patch. Returns `tx` so it
+ * can be used inline where `applyExecuteNormalization` wraps the callback
+ * `db.transaction(...)` hands to the caller.
+ */
+function wrapTransactionExecute(tx: DbTransaction): DbTransaction {
+  const origExecute = tx.execute.bind(tx) as (...a: unknown[]) => Promise<unknown>;
+  tx.execute = async (...args: unknown[]) => normalizeExecuteResult(await origExecute(...args));
+  if (typeof tx.transaction === "function") {
+    const origNestedTransaction = tx.transaction.bind(tx) as (fn: (nested: DbTransaction) => unknown) => Promise<unknown>;
+    tx.transaction = (fn: (nested: DbTransaction) => unknown) =>
+      origNestedTransaction((nested: DbTransaction) => fn(wrapTransactionExecute(nested)));
+  }
+  return tx;
+}
+
+/**
+ * Wrap `db.execute` AND `db.transaction` on a bun-sql drizzle instance so
+ * `execute()` always returns `{rows}` — at the top level AND on the `tx`
+ * handed to a `db.transaction(async (tx) => …)` callback.
+ *
+ * `tx` needs its OWN patch, separate from `db`'s: drizzle builds a brand-new
+ * session — and a brand-new transaction object, fresh off the driver's class
+ * prototype — per transaction (`BunSQLSession.transaction()` in
+ * `drizzle-orm/bun-sql/session.js`). Patching only the `db` instance's
+ * `execute` property, as a prior version of this function did, never touches
+ * that fresh `tx` object, so `tx.execute()` kept returning a raw array on the
+ * Postgres path with nothing pinning the difference. Wrapping `db.transaction`
+ * itself to normalize the `tx` before the caller's callback sees it closes
+ * that gap for every call site, present and future, instead of requiring each
+ * one to normalize its own result.
+ */
+function applyExecuteNormalization(db: Database): void {
+  const origExecute = db.execute.bind(db) as (...a: unknown[]) => Promise<unknown>;
+  db.execute = async (...args: unknown[]) => normalizeExecuteResult(await origExecute(...args));
+
+  // Single-line cast on purpose: bun's coverage emitter attributes a zero-hit
+  // DA record to the CLOSING line of a multi-line type annotation, which no
+  // test can ever reach — the trap documented in CLAUDE.md's coverage notes.
+  type TxRunner = (fn: (tx: DbTransaction) => unknown, config?: unknown) => Promise<unknown>;
+  const origTransaction = db.transaction.bind(db) as TxRunner;
+  db.transaction = (fn: (tx: DbTransaction) => unknown, config?: unknown) =>
+    origTransaction((tx: DbTransaction) => fn(wrapTransactionExecute(tx)), config);
+}
+
+/**
  * Registry key for the external-Postgres pool in the globalThis-anchored
  * process-holder registry. A constant rather than the URL because
  * `DATABASE_URL` is a module-load const — one process only ever holds one
@@ -627,16 +685,9 @@ async function initPostgres(): Promise<void> {
     await closeBunSqlPool((db as { $client?: BunSqlPoolClient }).$client);
   });
 
-  // Wrap execute() so raw SQL results always return { rows: [...] }
-  // bun-sql returns arrays directly, but PGlite returns { rows: [...] }.
-  // All query code expects the { rows } shape.
-  const origExecute = db.execute.bind(db) as (...a: unknown[]) => Promise<unknown>;
-  // biome-ignore lint/suspicious/noExplicitAny: replacing `execute` in place on a concrete drizzle instance — its overloaded signature can't be restated here without rebuilding the whole generic surface, and a narrower cast would have to name that surface.
-  (db as any).execute = async (...args: unknown[]) => {
-    const result = await origExecute(...args);
-    if (Array.isArray(result)) return { rows: result };
-    return result;
-  };
+  // Normalize execute() (top-level AND inside a transaction) to always
+  // return { rows: [...] } — see the doc comment on applyExecuteNormalization.
+  applyExecuteNormalization(db);
   _db = db;
 
   // Ensure pgvector extension is available

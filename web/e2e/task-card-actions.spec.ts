@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Task Card Actions", () => {
@@ -31,16 +32,14 @@ test.describe("Task Card Actions", () => {
 	/**
 	 * Send a composer message and wait until it has actually landed.
 	 *
-	 * Pressing Enter and racing `waitForResponse` on the POST was flaky: the
-	 * send button is gated on the page finishing its initial load, so an early
-	 * keypress was swallowed and the wait timed out. Clicking the button (which
-	 * Playwright auto-waits to be enabled) and then asserting the message
-	 * rendered is the pattern the passing chat specs use.
+	 * `sendComposerMessage` owns the hydration + model-ready gate (see
+	 * `fixtures/composer.ts`); the assertion here is scoped to the thread
+	 * container because sending a message re-titles the conversation, and an
+	 * unscoped `getByText` would also match the sidebar's conversation row.
 	 */
 	async function sendMessage(page: any, text: string) {
-		await page.locator("textarea").fill(text);
-		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText(text)).toBeVisible();
+		await sendComposerMessage(page, text);
+		await expect(threadMessages(page).getByText(text)).toBeVisible();
 	}
 
 	async function sendMessageAndStreamTaskList(page: any, emitSse: any, tasks: any[]) {

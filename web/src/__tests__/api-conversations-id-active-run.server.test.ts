@@ -15,6 +15,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const cancelRun = vi.fn();
 const getActiveRunForConversation = vi.fn();
@@ -62,16 +63,15 @@ function makeEvent(opts: {
   method?: string;
 }) {
   const method = opts.method ?? "GET";
-  return {
-    url: new URL("http://localhost/api/conversations/c1/active-run"),
+  return makeRequestEvent("http://localhost/api/conversations/c1/active-run", {
     locals: opts.locals ?? {},
     params: { id: "c1" },
-    request: new Request("http://localhost/api/conversations/c1/active-run", {
+    request: {
       method,
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

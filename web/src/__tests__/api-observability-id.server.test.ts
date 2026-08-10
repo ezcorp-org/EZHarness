@@ -6,6 +6,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/observability", () => ({
   getConversationObservability: vi.fn(async () => []),
@@ -25,30 +26,13 @@ function makeEvent(opts: {
 }) {
   const id = opts.conversationId ?? "c-1";
   const url = `http://localhost/api/observability/${id}`;
-  return {
-    url: new URL(url),
+  return makeRequestEvent(url, {
     locals: opts.locals ?? {},
     params: { conversationId: id },
-    request: new Request(url),
-  } as any;
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/observability/[conversationId]", () => {
   beforeEach(() => {

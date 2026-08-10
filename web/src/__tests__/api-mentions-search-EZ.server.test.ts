@@ -15,6 +15,7 @@
  * `bun run test:component` (vitest), NOT `bun test`.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockListEzActions = vi.fn();
 vi.mock("$server/runtime/ez-actions/registry", () => ({
@@ -52,11 +53,10 @@ const { GET } = await import("../routes/api/mentions/search/+server");
 
 function makeEvent(opts: { href: string; locals?: Record<string, unknown> }) {
   const href = opts.href;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href, { method: "GET" }),
-  } as any;
+    request: { method: "GET" },
+  });
 }
 
 const USER = { id: "u1", email: "u@x", name: "u", role: "user" };

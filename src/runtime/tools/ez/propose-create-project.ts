@@ -14,9 +14,9 @@
  * `src/db/queries/ez-drafts.ts#sweepExpired`).
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 export interface EzToolContext {
   /** Acting user — required so the draft is owned by the right account
@@ -46,14 +46,14 @@ export function createProposeCreateProjectTool(ctx: EzToolContext): BuiltinToolD
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const name = typeof params?.name === "string" ? params.name.trim() : "";
-        const path = typeof params?.path === "string" ? params.path.trim() : "";
+        const name = stringParam(params, "name");
+        const path = stringParam(params, "path");
         const description = typeof params?.description === "string" ? params.description : undefined;
         if (!name) {
-          return { content: [{ type: "text" as const, text: "Error: name is required" }], details: { isError: true } };
+          return toolError("name is required");
         }
         if (!path) {
-          return { content: [{ type: "text" as const, text: "Error: path is required" }], details: { isError: true } };
+          return toolError("path is required");
         }
         const draft = await createDraft({
           userId: ctx.userId,
@@ -66,7 +66,7 @@ export function createProposeCreateProjectTool(ctx: EzToolContext): BuiltinToolD
           details: { draftId: draft.id, openUrl, kind: "project" as const },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

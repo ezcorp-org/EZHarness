@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/users", () => ({
   getUserById: vi.fn(),
@@ -32,15 +33,14 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   body?: unknown;
 }) {
-  return {
-    url: new URL("http://localhost/api/auth/reset-password"),
+  return makeRequestEvent("http://localhost/api/auth/reset-password", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/auth/reset-password", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = {

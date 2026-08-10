@@ -2,7 +2,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { ToolParams } from "./validate";
 
 export function createEditFileTool(projectPath: string): BuiltinToolDef {
@@ -39,14 +39,14 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
         const lineRange: { startLine: number; endLine: number } | undefined = params.lineRange;
 
         if (oldStr !== undefined && oldStr === "") {
-          return { content: [{ type: "text" as const, text: "Error: old_string is empty. Omit old_string to create/overwrite the file." }], details: { isError: true } };
+          return toolError("old_string is empty. Omit old_string to create/overwrite the file.");
         }
 
         // Line range mode
         if (lineRange) {
           const file = Bun.file(resolved);
           if (!(await file.exists())) {
-            return { content: [{ type: "text" as const, text: "Error: file not found. Use readFile to verify the path, or omit lineRange to create a new file." }], details: { isError: true } };
+            return toolError("file not found. Use readFile to verify the path, or omit lineRange to create a new file.");
           }
 
           const oldContent = await file.text();
@@ -54,7 +54,7 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
           const { startLine, endLine } = lineRange;
 
           if (startLine < 1 || endLine < startLine || startLine > lines.length) {
-            return { content: [{ type: "text" as const, text: `Error: invalid line range ${startLine}-${endLine}. File has ${lines.length} lines.` }], details: { isError: true } };
+            return toolError(`invalid line range ${startLine}-${endLine}. File has ${lines.length} lines.`);
           }
 
           const clampedEnd = Math.min(endLine, lines.length);
@@ -97,18 +97,18 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
         // Search-and-replace mode
         const file = Bun.file(resolved);
         if (!(await file.exists())) {
-          return { content: [{ type: "text" as const, text: "Error: file not found. Use readFile to verify the path, or omit old_string to create a new file." }], details: { isError: true } };
+          return toolError("file not found. Use readFile to verify the path, or omit old_string to create a new file.");
         }
 
         const oldContent = await file.text();
         const count = oldContent.split(oldStr).length - 1;
 
         if (count === 0) {
-          return { content: [{ type: "text" as const, text: "Error: old_string not found in file. Match the text exactly (including whitespace). Use readFile to check current content." }], details: { isError: true } };
+          return toolError("old_string not found in file. Match the text exactly (including whitespace). Use readFile to check current content.");
         }
 
         if (count > 1 && !params.replace_all) {
-          return { content: [{ type: "text" as const, text: `Error: old_string found ${count} times. Set replace_all: true to replace all, or provide more context to make old_string unique.` }], details: { isError: true } };
+          return toolError(`old_string found ${count} times. Set replace_all: true to replace all, or provide more context to make old_string unique.`);
         }
 
         const newContent = params.replace_all ? oldContent.replaceAll(oldStr, params.new_string) : oldContent.replace(oldStr, params.new_string);
@@ -127,7 +127,7 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
           details: { oldContent, newContent },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

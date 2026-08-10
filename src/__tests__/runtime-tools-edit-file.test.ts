@@ -67,6 +67,15 @@ describe("createEditFileTool", () => {
     expect(result.details.isError).toBe(true);
   });
 
+  test("errors when old_string does not match anything in the file", async () => {
+    await writeFile(resolve(projectPath, "f.txt"), "hello world");
+    const tool = createEditFileTool(projectPath);
+    const result = await tool.execute("1", { path: "f.txt", old_string: "goodbye", new_string: "hi" });
+    expect(getText(result)).toContain("old_string not found in file");
+    expect(result.details.isError).toBe(true);
+    expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("hello world");
+  });
+
   test("rejects path traversal during create", async () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "../../etc/passwd", new_string: "pwn" });
@@ -84,5 +93,30 @@ describe("createEditFileTool", () => {
     });
     expect(getText(result)).toContain("Replaced lines 2-3");
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("a\nB\nC\nd");
+  });
+
+  test("errors when the file does not exist in lineRange mode", async () => {
+    const tool = createEditFileTool(projectPath);
+    const result = await tool.execute("1", {
+      path: "missing.txt",
+      new_string: "x",
+      lineRange: { startLine: 1, endLine: 1 },
+    });
+    expect(getText(result)).toContain("file not found");
+    expect(result.details.isError).toBe(true);
+  });
+
+  test("errors on an out-of-range lineRange", async () => {
+    await writeFile(resolve(projectPath, "f.txt"), "a\nb\nc");
+    const tool = createEditFileTool(projectPath);
+    const result = await tool.execute("1", {
+      path: "f.txt",
+      new_string: "x",
+      lineRange: { startLine: 5, endLine: 6 },
+    });
+    expect(getText(result)).toContain("invalid line range 5-6");
+    expect(result.details.isError).toBe(true);
+    // File must be unchanged on error.
+    expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("a\nb\nc");
   });
 });

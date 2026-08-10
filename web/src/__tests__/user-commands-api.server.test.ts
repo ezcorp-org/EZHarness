@@ -15,6 +15,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const invalidate = vi.fn();
 const invalidateUser = vi.fn();
@@ -50,19 +51,15 @@ function makeEvent(opts: {
   params?: Record<string, string>;
 }) {
   const href = "http://localhost/api/user-commands";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: opts.params ?? {},
-    request: new Request(href, {
+    request: {
       method: opts.method ?? "GET",
       headers: { "Content-Type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-    // SvelteKit's RequestEvent is over-typed for our handler boundary;
-    // the structural subset above is what every handler actually reads.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } as any;
+    },
+  });
 }
 
 beforeEach(() => {

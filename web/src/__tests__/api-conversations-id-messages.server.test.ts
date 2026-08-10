@@ -13,6 +13,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getLatestLeaf = vi.fn();
@@ -96,18 +97,17 @@ function makeEvent(opts: {
     opts.query ? `?${opts.query}` : ""
   }`;
   const hasBody = opts.body !== undefined;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id: "c1" },
-    request: new Request(href, {
+    request: {
       method,
       headers: hasBody
         ? { "content-type": opts.contentType ?? "application/json" }
         : undefined,
       body: hasBody ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

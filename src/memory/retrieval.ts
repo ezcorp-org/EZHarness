@@ -1,7 +1,11 @@
-// Hybrid search: combines vector cosine similarity with tsvector keyword matching using RRF scoring
+// Hybrid search: combines vector cosine similarity with tsvector keyword matching using RRF scoring.
+// The RRF constant and the fused-score formula are SHARED with searchMessages
+// (src/db/queries/message-search.ts, the most composable of the three RRF
+// implementations) — imported here rather than re-derived.
 import { rawQuery } from "../db/connection";
 import { touchMemoryAccess } from "../db/queries/memories";
 import { searchKBChunks } from "../db/queries/knowledge-base";
+import { RRF_K, rrfFusedScoreExpr } from "../db/queries/message-search";
 import { toVectorLiteral } from "./vector-utils";
 import type { MemoryCategory, MemoryProvenance, KBChunkResult } from "./types";
 import { logger } from "../logger";
@@ -45,7 +49,7 @@ export async function hybridSearch(
   opts: HybridSearchOptions,
 ): Promise<HybridSearchResult[]> {
   const limit = opts.limit ?? 20;
-  const k = opts.k ?? 60;
+  const k = opts.k ?? RRF_K;
   const isolate = opts.isolateToProject === true;
   const projectId = opts.projectId ?? null;
 
@@ -131,10 +135,7 @@ export async function hybridSearch(
       COALESCE(v.confidence, k.confidence) AS confidence,
       COALESCE(v.provenance, k.provenance) AS provenance,
       COALESCE(v.status, k.status) AS status,
-      (
-        COALESCE(1.0 / (${k} + v.rank_v), 0) +
-        COALESCE(1.0 / (${k} + k.rank_k), 0)
-      ) * ${boostExpr} * ${statusWeightExpr} AS rrf_score
+      ${rrfFusedScoreExpr("v.rank_v", "k.rank_k", k)} * ${boostExpr} * ${statusWeightExpr} AS rrf_score
     FROM vector_ranked v
     FULL OUTER JOIN keyword_ranked k ON v.id = k.id
     ORDER BY rrf_score DESC

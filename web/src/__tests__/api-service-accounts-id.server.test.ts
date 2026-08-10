@@ -15,6 +15,7 @@
  * are real.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const queries = vi.hoisted(() => ({
   deleteServiceAccount: vi.fn(),
@@ -70,17 +71,15 @@ function makeEvent(
   body: unknown = { enabled: false, disabledReason: "runaway spend" },
   id = "sa-1",
 ) {
-  const url = new URL(`http://localhost/api/service-accounts/${id}`);
-  return {
-    url,
+  return makeRequestEvent(`http://localhost/api/service-accounts/${id}`, {
     locals,
     params: { id },
-    request: new Request(url, {
+    request: {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
-  } as never;
+    },
+  });
 }
 
 describe("gates — both methods, both axes", () => {

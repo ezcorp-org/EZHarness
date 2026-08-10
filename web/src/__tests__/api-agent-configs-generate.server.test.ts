@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("@earendil-works/pi-ai/compat", () => ({
   complete: vi.fn(),
@@ -42,15 +43,14 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const href = "http://localhost/api/agent-configs/generate";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

@@ -48,6 +48,7 @@ vi.mock("$server/db/queries/audit-log", () => audit);
 vi.mock("$server/db/queries/project-members", () => members);
 
 import { GET, PUT, DELETE } from "../routes/api/workflows/[name]/+server";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 /** The single audit call a handler made, or undefined if it made none. */
 function auditCall(): [string | null, string, string, Record<string, unknown>] | undefined {
@@ -84,31 +85,15 @@ function makeEvent(opts: {
 	method?: string;
 }) {
 	const name = opts.name ?? "w1";
-	return {
-		url: new URL(`http://localhost/api/workflows/${name}`),
-		locals: opts.locals ?? {},
-		params: { name },
-		request: new Request(`http://localhost/api/workflows/${name}`, {
+	return makeRequestEvent(`http://localhost/api/workflows/${name}`, {
+	  locals: opts.locals ?? {},
+	  params: { name },
+	  request: {
 			method: opts.method ?? "GET",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 const authedUser = {

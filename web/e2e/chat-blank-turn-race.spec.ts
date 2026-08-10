@@ -29,7 +29,7 @@ import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
-import { threadMessages } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 
 async function installFakeTransports(page: Page) {
 	await page.addInitScript(() => {
@@ -224,8 +224,7 @@ test.describe("chat blank turn race — reconcileAfterStream snapshot fallback",
 		// pointer events on the bottom-right of the viewport — hide it so the
 		// Send-message click hits its actual target.
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
-		await page.locator("textarea").fill("Hello");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Hello");
 		await expect(threadMessages(page).getByText("Hello")).toBeVisible({ timeout: 5000 });
 		// Stop button visibility proves `startStreaming` registered the run.
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
@@ -343,11 +342,9 @@ test.describe("chat blank turn race — extended reconciliation races", () => {
 		).toBeVisible({ timeout: 5000 });
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
 
-		await page.locator("textarea").fill("first message");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "first message");
 		// Scope to chat container — sidebar has "Start your first chat" link.
-		const chatBox = page.getByTestId("chat-messages-container");
-		await expect(chatBox.getByText("first message")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("first message")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
 			timeout: 8000,
 		});
@@ -356,7 +353,7 @@ test.describe("chat blank turn race — extended reconciliation races", () => {
 			type: "run:token",
 			data: { runId: "run-stream", token: "alpha response" },
 		});
-		await expect(chatBox.getByText("alpha response")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("alpha response")).toBeVisible({ timeout: 5000 });
 
 		// PRODUCTION GUARD: while streaming, the textarea is disabled AND
 		// the Send button is replaced with "Stop generating" — preventing
@@ -384,7 +381,7 @@ test.describe("chat blank turn race — extended reconciliation races", () => {
 
 		// Final DOM: streamed answer present exactly once (no duplicate/orphan
 		// row from the empty post-fetch race).
-		await expect(chatBox.getByText("alpha response")).toHaveCount(1);
+		await expect(threadMessages(page).getByText("alpha response")).toHaveCount(1);
 		// Send button is back (replaces Stop) — input re-enabled.
 		await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
 		await expect(page.locator("textarea")).toBeEnabled();
@@ -711,8 +708,7 @@ test.describe("chat blank turn race — extended reconciliation races", () => {
 		).toBeVisible({ timeout: 5000 });
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
 
-		await page.locator("textarea").fill("tool me");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "tool me");
 		await expect(threadMessages(page).getByText("tool me")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
 			timeout: 8000,

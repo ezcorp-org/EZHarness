@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -60,14 +61,12 @@ test("paperclip stages an image, chip renders, send posts multipart", async ({ p
   await expect(chip).toBeVisible();
   await expect(chip).toContainText("cat.png");
 
-  await textarea.fill("look at this");
-
-  // Capture the outgoing POST — then click send and verify it's multipart + carries the file.
+  // Capture the outgoing POST — then send and verify it's multipart + carries the file.
   const sendRequest = page.waitForRequest(
     (req) => req.method() === "POST" && /\/api\/conversations\/[^/]+\/messages$/.test(req.url()),
     { timeout: 5_000 },
   );
-  await page.getByRole("button", { name: "Send message" }).click();
+  await sendComposerMessage(page, "look at this");
   const req = await sendRequest;
   const ct = req.headers()["content-type"] ?? "";
   expect(ct.startsWith("multipart/form-data")).toBe(true);

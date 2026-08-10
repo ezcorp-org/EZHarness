@@ -46,3 +46,16 @@ export function validateTimeout(timeout?: number, max: number = 600000): number 
   if (timeout === undefined || timeout === null) return defaultTimeout;
   return Math.max(1000, Math.min(timeout, max));
 }
+
+/**
+ * Pull a trimmed string param out of the LLM-supplied, unvalidated
+ * `params` blob — the `typeof params?.[key] === "string" ? … .trim() : ""`
+ * guard repeated across the Ez tools (`ez/find-agents.ts`,
+ * `ez/propose-create-agent.ts`, etc.) for every string argument they read.
+ * Missing, non-string, and empty all collapse to `""` so callers can test
+ * with a single truthiness check.
+ */
+export function stringParam(params: ToolParams, key: string): string {
+  const value = params?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}

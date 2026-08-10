@@ -27,6 +27,7 @@
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import type { AnswerApprovalDeps } from "$server/runtime/workflow-answer-approval";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const chokepoint = vi.hoisted(() => ({ answerApproval: vi.fn() }));
 vi.mock("$server/runtime/workflow-answer-approval", () => ({
@@ -86,16 +87,15 @@ function makeEvent(
   body: unknown = { choice: "approve" },
   id = "ap-1",
 ) {
-  return {
-    url: new URL(`http://localhost/api/workflows/approvals/${id}`),
+  return makeRequestEvent(`http://localhost/api/workflows/approvals/${id}`, {
     locals,
     params: { id },
-    request: new Request(`http://localhost/api/workflows/approvals/${id}`, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
-  } as never;
+    },
+  });
 }
 
 /** The `deps` object the route handed the chokepoint on its last call. */

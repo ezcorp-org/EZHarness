@@ -53,6 +53,7 @@
 import type { AnyModel } from "./model-types";
 import type { ModelEntry } from "./registry";
 import { getSetting, upsertSetting } from "../db/queries/settings";
+import { costTierForBlendedRate } from "../runtime/routing/cost-tier";
 import {
   KILO_BASE_URL,
   KILO_FREE_AUTO_MODEL,
@@ -145,18 +146,15 @@ export const KILO_SEED_MODELS: readonly KiloModel[] = [
 // ── Projections ──────────────────────────────────────────────────────
 
 /**
- * Cost tier for a Kilo model, using the same USD-per-1M thresholds
- * `registry.ts#inferTier` applies to every other provider — restated rather
- * than imported to keep this module out of an import cycle with `registry.ts`
- * (which imports this one for `resolveModelObject`). The thresholds are pinned
- * by `kilo-catalog.test.ts` against `tierForModel` so they cannot drift apart
- * silently.
+ * Cost tier for a Kilo model — the shared `../runtime/routing/cost-tier`
+ * thresholds, the same ones `registry.ts#inferTier` applies to every other
+ * provider. Imported from there rather than from `registry.ts` directly to
+ * avoid a cycle: `registry.ts` imports THIS module at runtime (for
+ * `kiloPickerEntries`/`resolveKiloModel`), so a `kilo.ts -> registry.ts`
+ * import back would be circular.
  */
 function kiloCostTier(model: KiloModel): ModelEntry["costTier"] {
-  const blended = model.cost.input + model.cost.output;
-  if (blended <= 3) return "low";
-  if (blended <= 30) return "medium";
-  return "high";
+  return costTierForBlendedRate(model.cost.input + model.cost.output);
 }
 
 /**

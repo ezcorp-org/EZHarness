@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { mkdirSync } from "node:fs";
 import { validateTimeout, type ToolParams } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
@@ -162,10 +162,12 @@ export function createShellTool(
 
       const blocked = DANGEROUS_COMMAND_PATTERNS.find((p) => p.test(params.command));
       if (blocked) {
-        return {
-          content: [{ type: "text" as const, text: `Error: command blocked by security policy` }],
-          details: { exitCode: -1, stdout: "", stderr: "Command matches dangerous pattern blocklist", streaming: false, isError: true },
-        };
+        return toolError("command blocked by security policy", {
+          exitCode: -1,
+          stdout: "",
+          stderr: "Command matches dangerous pattern blocklist",
+          streaming: false,
+        });
       }
 
       const timeout = validateTimeout(params.timeout);
@@ -293,11 +295,8 @@ export function createShellTool(
           details: { exitCode: result.exitCode, stdout: output, stderr, streaming: false, truncated },
         };
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          details: { exitCode: -1, stdout: "", stderr: message, streaming: false, isError: true },
-        };
+        const message = errorMessage(e);
+        return toolError(message, { exitCode: -1, stdout: "", stderr: message, streaming: false });
       }
     },
   };

@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getLatestLeaf = vi.fn();
@@ -39,12 +40,11 @@ function makeEvent(opts: {
   const href = `http://localhost/api/conversations/c1/export${
     opts.query ? `?${opts.query}` : ""
   }`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id: "c1" },
-    request: new Request(href, { method: "GET" }),
-  } as any;
+    request: { method: "GET" },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

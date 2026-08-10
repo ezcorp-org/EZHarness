@@ -13,6 +13,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 let lastClientSpec: any;
 const mcpConnect = vi.fn(async () => undefined);
@@ -53,16 +54,15 @@ const { PUT } = await import("../routes/api/mcp-servers/[id]/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "ext-1";
-  return {
+  return makeRequestEvent(`http://localhost/api/mcp-servers/${id}`, {
     params: { id },
-    url: new URL(`http://localhost/api/mcp-servers/${id}`),
     locals: opts.locals ?? {},
-    request: new Request(`http://localhost/api/mcp-servers/${id}`, {
+    request: {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = { user: { id: "admin-1", email: "a@x", name: "a", role: "admin" } };

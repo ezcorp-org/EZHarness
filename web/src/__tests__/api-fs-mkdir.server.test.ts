@@ -5,6 +5,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const realpath = vi.fn();
 const mkdir = vi.fn(async () => undefined);
@@ -17,26 +18,14 @@ vi.mock("node:fs/promises", () => ({
 const { POST } = await import("../routes/api/fs/mkdir/+server");
 
 function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
-	return {
-		url: new URL("http://localhost/api/fs/mkdir"),
-		locals: opts.locals ?? {},
-		request: new Request("http://localhost/api/fs/mkdir", {
+	return makeRequestEvent("http://localhost/api/fs/mkdir", {
+	  locals: opts.locals ?? {},
+	  request: {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try { res = await fn(); }
-	catch (thrown) { expect(thrown).toBeInstanceOf(Response); res = thrown as Response; }
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 const adminLocals = {

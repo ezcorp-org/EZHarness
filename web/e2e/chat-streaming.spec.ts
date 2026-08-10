@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Chat Streaming", () => {
@@ -17,12 +18,10 @@ test.describe("Chat Streaming", () => {
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 		// Type and send a message
-		const textarea = page.locator("textarea");
-		await textarea.fill("Tell me a joke");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Tell me a joke");
 
 		// Wait for the user message to appear (either optimistic or from API response)
-		await expect(page.getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
 
 		// Simulate streaming tokens via WS
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Why did " } });
@@ -42,12 +41,10 @@ test.describe("Chat Streaming", () => {
 
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Hello");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Hello");
 
 		// Wait for the send to complete (user message appears)
-		await expect(page.getByText("Hello")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Hello")).toBeVisible({ timeout: 5000 });
 
 		// Emit a token to keep stream alive
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });

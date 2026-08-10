@@ -18,6 +18,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation: vi.fn(),
@@ -56,15 +57,14 @@ function makePostEvent(opts: {
   body?: unknown;
   locals?: Record<string, unknown>;
 }) {
-  return {
-    url: new URL("http://localhost/api/conversations"),
+  return makeRequestEvent("http://localhost/api/conversations", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/conversations", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 function makePutEvent(opts: {

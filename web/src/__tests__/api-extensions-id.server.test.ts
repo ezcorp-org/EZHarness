@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
 	getExtension: vi.fn(),
@@ -38,31 +39,15 @@ function makeEvent(opts: {
 }) {
 	const id = opts.id ?? "ext-1";
 	const href = `http://localhost/api/extensions/${id}`;
-	return {
-		url: new URL(href),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(href, {
+	return makeRequestEvent(href, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 			method: opts.method ?? "GET",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

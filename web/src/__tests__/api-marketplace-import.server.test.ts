@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/extensions/manifest", () => ({
   validateManifestV2: vi.fn(),
@@ -34,15 +35,14 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const href = "http://localhost/api/marketplace/import";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body ?? {}),
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

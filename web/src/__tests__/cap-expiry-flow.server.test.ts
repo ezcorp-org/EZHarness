@@ -1,3 +1,4 @@
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 /**
  * Phase 4 (capability-expiry) — E2E-flavored integration test.
  *
@@ -79,16 +80,15 @@ function makeEvent(opts: {
 }) {
 	const id = opts.id ?? "scratchpad";
 	const path = opts.path ?? `/api/extensions/${id}/expired-grants`;
-	return {
-		url: new URL(`http://localhost${path}`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(`http://localhost${path}`, {
+	return makeRequestEvent(`http://localhost${path}`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 			method: opts.method ?? "GET",
 			headers: { "content-type": "application/json" },
 			body: opts.body ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
+		},
+	});
 }
 
 beforeEach(() => {

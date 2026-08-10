@@ -37,6 +37,7 @@ vi.mock("$server/runtime/workflow-dry-run", () => dry);
 vi.mock("$server/db/queries/project-members", () => projectMembers);
 
 import { POST } from "../routes/api/workflows/[name]/dry-run/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const DEF = { name: "w1", description: "", steps: [{ name: "s1", agent: "a" }] };
 
@@ -56,16 +57,15 @@ function entry(overrides: Record<string, unknown> = {}) {
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 
 function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
-  return {
-    url: new URL("http://localhost/api/workflows/w1/dry-run"),
+  return makeRequestEvent("http://localhost/api/workflows/w1/dry-run", {
     locals: opts.locals ?? {},
     params: { name: "w1" },
-    request: new Request("http://localhost/api/workflows/w1/dry-run", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body ?? {}),
-    }),
-  } as never;
+    },
+  });
 }
 
 beforeEach(() => {

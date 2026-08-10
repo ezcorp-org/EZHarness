@@ -31,6 +31,7 @@ vi.mock("$server/db/queries/project-members", () => projectMembers);
 
 import { POST as CLAIM } from "../routes/api/workflows/[name]/claim/+server";
 import { GET as VERSIONS } from "../routes/api/workflows/[name]/versions/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const admin = { user: { id: "admin-1", email: "a@x", name: "A", role: "admin" } };
 const member = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };
@@ -49,16 +50,15 @@ function entry(overrides: Record<string, unknown> = {}) {
 }
 
 function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown>; method?: string }) {
-  return {
-    url: new URL("http://localhost/api/workflows/w1/claim"),
+  return makeRequestEvent("http://localhost/api/workflows/w1/claim", {
     locals: opts.locals ?? {},
     params: { name: "w1" },
-    request: new Request("http://localhost/api/workflows/w1/claim", {
+    request: {
       method: opts.method ?? "POST",
       headers: { "content-type": "application/json" },
       ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
-    }),
-  } as never;
+    },
+  });
 }
 
 beforeEach(() => {

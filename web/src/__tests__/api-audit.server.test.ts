@@ -4,6 +4,7 @@
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/audit-global", () => ({
 	listGlobalAudit: vi.fn(),
@@ -21,12 +22,10 @@ function makeEvent(opts: {
 }) {
 	const path = opts.path ?? "/api/audit";
 	const href = `http://localhost${path}${opts.search ?? ""}`;
-	return {
-		url: new URL(href),
-		locals: opts.locals ?? {},
-		params: {},
-		request: new Request(href),
-	} as any;
+	return makeRequestEvent(href, {
+	  locals: opts.locals ?? {},
+	  params: {},
+	});
 }
 
 const adminUser = { id: "u-admin", email: "a@x", name: "admin", role: "admin" };

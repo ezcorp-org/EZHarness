@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/settings", () => ({
   upsertSetting: vi.fn(async () => undefined),
@@ -37,11 +38,9 @@ function makeEvent(opts: {
     params.set("app_origin", opts.appOrigin);
   }
   const href = `http://localhost/api/auth/oauth?${params.toString()}`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href),
-  } as any;
+  });
 }
 
 const adminLocals = {

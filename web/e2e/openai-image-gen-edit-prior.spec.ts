@@ -68,6 +68,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 // Same constants both turns use, so the assertions can verify the URL
@@ -153,20 +154,14 @@ test.describe("openai-image-gen-2 — edit-prior-image chat flow", () => {
 		await page.waitForLoadState("networkidle");
 
 		// ── Turn 1: user asks for the original generation ──────────────
-		const textarea = page.locator("textarea").first();
-		await expect(textarea).toBeEnabled({ timeout: 10_000 });
-		await textarea.fill("draw a red apple");
-		await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
-			timeout: 8000,
-		});
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes(`/conversations/${conv.id}/messages`) && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "draw a red apple"),
 		]);
 
-		await expect(page.getByText("draw a red apple")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("draw a red apple")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
 
 		// CRITICAL EVENT #1 — assistant dispatches `generate` (NOT edit).
@@ -241,15 +236,14 @@ test.describe("openai-image-gen-2 — edit-prior-image chat flow", () => {
 		// `streamingRunToConversation` mapping is reset on `run:complete`
 		// and re-established on the next `startStreaming` call, so the
 		// reused runId is fine.
-		await page.locator("textarea").fill("make it blue");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes(`/conversations/${conv.id}/messages`) && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "make it blue"),
 		]);
 
-		await expect(page.getByText("make it blue")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("make it blue")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
 
 		// Stream a small thinking-style preamble (proves text + tool block
@@ -364,12 +358,11 @@ test.describe("openai-image-gen-2 — edit-prior-image chat flow", () => {
 		});
 
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
-		await page.locator("textarea").fill("draw a red apple");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/conversations/conv-fresh/messages") && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "draw a red apple"),
 		]);
 
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
