@@ -40,7 +40,6 @@
 		"vitest": "4.1.10"
 	},
 	"dependencies": {
-		"@abhivarde/svelte-drawer": "^1.0.0",
 		"@electric-sql/pglite": "0.5.4",
 		"ansi_up": "^6.0.6",
 		"diff2html": "^3.4.56",
