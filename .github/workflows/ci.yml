@@ -250,10 +250,15 @@ jobs:
       - name: Dependency boundaries
         run: bun scripts/check-boundaries.ts
       # Secret scan (gitleaks). Folded into THIS job for the same reason as the
-      # boundary check above: it runs in ~1.2s over the whole tree, and
-      # `Lint (biome)` is ALREADY a required status check. A standalone job
-      # would not be required until someone with repo-admin adds the context to
-      # branch protection, so it would ship advisory and ignorable.
+      # boundary check above: it is cheap enough to ride along on an existing
+      # job, and `Lint (biome)` is ALREADY a required status check. A standalone
+      # job would not be required until someone with repo-admin adds the context
+      # to branch protection, so it would ship advisory and ignorable.
+      #
+      # Cost is MEASURED, off this branch's own first CI run (job 93340841347):
+      # ~14s for the whole step — 10.6s to scan ~45.47 MB of working tree, plus
+      # ~2.5s to pull the image, which a cold runner pays every time because
+      # nothing caches it here. `Lint (biome)` went from 27-30s to 42s.
       #
       # The CLI in a container, not `gitleaks/gitleaks-action`: that action
       # requires a `GITLEAKS_LICENSE` for organisation-owned repos. Image is
