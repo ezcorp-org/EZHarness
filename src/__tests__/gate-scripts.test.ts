@@ -528,6 +528,93 @@ describe("gate-integrity: unassertedAddedBlocks vs doc-comment prose", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4, 5, 6]))).toEqual([]);
   });
+  // ── extent correctness (parser-grade scan, not a per-line brace walk) ─────
+
+  test("a MULTI-LINE TEMPLATE LITERAL no longer truncates the block", () => {
+    // The per-line scanner reset its quote state at every newline, so braces
+    // inside a multi-line template leaked into the brace count and ended the
+    // block early — the assertion below fell OUTSIDE the scanned range and the
+    // test was reported vacuous. 18 blocks on this tree were mis-scoped this way.
+    const src = [
+      "test('writes a config', async () => {",
+      "  const cfg = `export default ${JSON.stringify({",
+      "    name: 'x',",
+      "    tools: [],",
+      "  })};`;",
+      "  await write(cfg);",
+      "  expect(cfg).toContain('export default');",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4, 5, 6, 7, 8]))).toEqual([]);
+  });
+
+  test("a CONCISE ARROW body is examined at all (it used to be skipped)", () => {
+    // `test("x", () => f())` has no `{`, so the old scanner never found an
+    // opening brace, bailed, and never judged the block. A genuinely vacuous
+    // concise-arrow test was invisible to the gate.
+    const vacuous = `test("rejects loopback", () => doThing("127.0.0.1"));`;
+    expect(unassertedAddedBlocks(vacuous, new Set([1])).length).toBe(1);
+    const asserts = `test("rejects loopback", () => expect(check("127.0.0.1")).toBe(false));`;
+    expect(unassertedAddedBlocks(asserts, new Set([1]))).toEqual([]);
+  });
+
+  test("an assertion mentioned only in a COMMENT no longer satisfies the gate", () => {
+    // The old scan tested the RAW line, so the word "assert" in a comment
+    // credited the block. Writing `// just assert it doesn't crash` above a
+    // bare call was enough to pass an anti-cheat gate.
+    const src = [
+      "test('unarmed conversation does not crash', async () => {",
+      "  // just assert that calling the default does not crash",
+      "  await host.start();",
+      "  host.stop();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4, 5])).length).toBe(1);
+  });
+
+  test("an assertion inside a STRING LITERAL no longer satisfies the gate", () => {
+    const src = [
+      "test('renders sample source', async () => {",
+      "  const sample = \"expect(1).toBe(1)\";",
+      "  await render(sample);",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4])).length).toBe(1);
+  });
+
+  test("a REGEX literal carrying quotes/parens does not desync the scan", () => {
+    // `/from\s+["']x["']/` holds both quote characters; untracked, one of them
+    // opens a phantom string that poisons the mask for the rest of the FILE.
+    const src = [
+      "test('imports from the shared module', async () => {",
+      "  const ok = /from\\s+[\"']\\$server\\/fs[\"']/.test(src);",
+      "  const c = [...html.matchAll(/color:(rgb\\([^)]*\\))/g)];",
+      "  expect(ok).toBe(true);",
+      "});",
+      "test('a later vacuous test is still seen', () => {",
+      "  doThing();",
+      "});",
+    ].join("\n");
+    const all = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+    const found = unassertedAddedBlocks(src, all);
+    // First test asserts → silent. Second is vacuous → exactly one finding,
+    // which also proves the mask recovered rather than desyncing.
+    expect(found.length).toBe(1);
+    expect(found[0]).toContain("a later vacuous test is still seen");
+  });
+
+  test("hooks and describe blocks are never judged as tests", () => {
+    const src = [
+      "test.beforeEach(async ({ page }) => {",
+      "  await page.setViewportSize({ width: 400, height: 800 });",
+      "});",
+      "describe('a suite', () => {",
+      "  setup();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(src, new Set([1, 2, 3, 4, 5, 6]))).toEqual([]);
+  });
+
   test("still flags a genuinely vacuous test that follows a doc comment", () => {
     const src = [
       "/**",
