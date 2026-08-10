@@ -5,7 +5,7 @@
     "": {
       "name": "web",
       "dependencies": {
-        "@abhivarde/svelte-drawer": "^1.0.0",
+        "@abhivarde/svelte-drawer": "^2.0.0",
         "@electric-sql/pglite": "0.5.4",
         "ansi_up": "^6.0.6",
         "diff2html": "^3.4.56",
@@ -42,7 +42,7 @@
     },
   },
   "packages": {
-    "@abhivarde/svelte-drawer": ["@abhivarde/svelte-drawer@1.0.8", "", { "peerDependencies": { "svelte": "^5.46.4" } }, "sha512-RcUbGPARC4rf8ZOYnNVjfSATKua34wCdmCGnl68KdNrTA7XpGRMdg4bZ0f19X4bfZvnNNpu8ElJjrEdWmVv6yQ=="],
+    "@abhivarde/svelte-drawer": ["@abhivarde/svelte-drawer@2.0.0", "", { "peerDependencies": { "svelte": "^5.46.4" } }, "sha512-Xrf80jYh+rmOPYN5JEQtXoA+0Tw7F+3mzhn1G0WXRigr8Sdi3FHzAV9rDZVXp4GkKvDd7k96km4M8mU4wVKlOA=="],
 
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
 
