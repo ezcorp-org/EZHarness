@@ -342,7 +342,7 @@ export async function purge(deps: StateDeps, quarantineId: string): Promise<Hand
   const manifest = await readManifest(p.manifest);
   const entry = manifest.entries.find((e) => e.id === quarantineId);
   if (!entry) return { ok: true, message: "Not found", changed: false };
-  await hardDeleteTrash(join(p.trashRoot, entry.id));
+  await hardDeleteTrash(p.trashRoot, entry.id);
   await atomicWrite(p.manifest, JSON.stringify(removeEntry(manifest, quarantineId), null, 2));
   return { ok: true, message: "Deleted permanently", changed: true };
 }
@@ -351,7 +351,7 @@ export async function purge(deps: StateDeps, quarantineId: string): Promise<Hand
 export async function emptyQuarantine(deps: StateDeps): Promise<HandlerResult> {
   const p = paths(deps.dataDir);
   const manifest = await readManifest(p.manifest);
-  for (const e of manifest.entries) await hardDeleteTrash(join(p.trashRoot, e.id));
+  for (const e of manifest.entries) await hardDeleteTrash(p.trashRoot, e.id);
   await atomicWrite(p.manifest, JSON.stringify(emptyManifest(), null, 2));
   return { ok: true, message: "Quarantine emptied", changed: manifest.entries.length > 0 };
 }
@@ -364,7 +364,7 @@ export async function purgeExpired(deps: StateDeps): Promise<HandlerResult> {
   const victims = selectPruneVictims(manifest, { now: now(deps), capBytes });
   let working = manifest;
   for (const id of victims) {
-    await hardDeleteTrash(join(p.trashRoot, id));
+    await hardDeleteTrash(p.trashRoot, id);
     working = removeEntry(working, id);
   }
   await atomicWrite(p.manifest, JSON.stringify(working, null, 2));
@@ -523,8 +523,9 @@ function rootForRestore(config: Config, originalPath: string): string {
   // Fall back to the original file's parent (or `/`) so the prefix-check
   // passes for a folder that's since been removed (quarantine outlives the
   // folder). This `/`/parent fallback is DELIBERATE: restore returns the
-  // file to its recorded absolute path and is still guarded by
-  // `touchesDataDir`, so a missing watched root must not block recovery.
+  // file to its recorded absolute path and is still guarded by the
+  // applier's protected-dir deny (and its trash-root containment on the
+  // quarantined source), so a missing watched root must not block recovery.
   // Distinct from the `watchedRootFor` → `blocked` policy on accept /
   // confirm-deletes, where a missing root SHOULD hold the destructive op.
   return originalPath.slice(0, originalPath.lastIndexOf("/")) || "/";

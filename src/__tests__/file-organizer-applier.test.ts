@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, readFile, symlink, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, symlink, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -33,7 +33,9 @@ function fakeEngine(decision: "allow" | "deny" = "allow"): PermissionEngine & { 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "fo-applier-"));
+  // realpath'd: the applier canonicalizes every path it contains, so a
+  // symlinked `$TMPDIR` would make in-root fixtures look out-of-root.
+  root = await realpath(await mkdtemp(join(tmpdir(), "fo-applier-")));
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
@@ -249,6 +251,12 @@ describe("restoreFromQuarantine", () => {
 });
 
 describe("journal crash-replay", () => {
+  /** Anchors covering the fixture's watched root (see the security suite
+   *  for the refusal cases these must not fire on). */
+  function anchors(...roots: string[]): { roots: string[]; dataDirRoot: string } {
+    return { roots, dataDirRoot: join(root, ".ezcorp", "extension-data", "file-organizer") };
+  }
+
   test("copy-done entry finishes the unlink idempotently", async () => {
     const watched = join(root, "w");
     await mkdir(join(watched, "sub"), { recursive: true });
@@ -260,7 +268,7 @@ describe("journal crash-replay", () => {
     await _applierInternals.writeJournal(journalPath, [
       { op: "move", src, dst, quarantineId: null, phase: "copy-done" } as never,
     ]);
-    const res = await replayJournal(journalPath);
+    const res = await replayJournal(journalPath, anchors(watched));
     expect(res.finished).toBe(1);
     expect(await _applierInternals.pathExists(src)).toBe(false); // unlink completed
     expect(await _applierInternals.pathExists(dst)).toBe(true);
@@ -278,15 +286,15 @@ describe("journal crash-replay", () => {
     await _applierInternals.writeJournal(journalPath, [
       { op: "move", src, dst, quarantineId: null, phase: "copy-pending" } as never,
     ]);
-    const res = await replayJournal(journalPath);
+    const res = await replayJournal(journalPath, anchors(watched));
     expect(res.rolledBack).toBe(1);
     expect(await _applierInternals.pathExists(src)).toBe(true); // original kept
     expect(await _applierInternals.pathExists(dst)).toBe(false); // partial removed
   });
 
   test("empty journal is a no-op", async () => {
-    const res = await replayJournal(join(root, "missing-journal.json"));
-    expect(res).toEqual({ finished: 0, rolledBack: 0 });
+    const res = await replayJournal(join(root, "missing-journal.json"), anchors(root));
+    expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 0 });
   });
 
   test("a corrupt (non-JSON) journal is read as empty (fail-safe)", async () => {
@@ -295,8 +303,8 @@ describe("journal crash-replay", () => {
     // readJournal swallows the parse error and returns [] — replay is then
     // a clean no-op rather than a crash on a torn write.
     expect(await _applierInternals.readJournal(journalPath)).toEqual([]);
-    const res = await replayJournal(journalPath);
-    expect(res).toEqual({ finished: 0, rolledBack: 0 });
+    const res = await replayJournal(journalPath, anchors(root));
+    expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 0 });
   });
 
   test("a non-array journal payload is read as empty", async () => {
@@ -308,34 +316,78 @@ describe("journal crash-replay", () => {
 
 describe("hardDeleteTrash", () => {
   test("removes a trash dir recursively", async () => {
-    const dir = join(root, "trash-q");
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "x"), "x");
-    expect(await hardDeleteTrash(dir)).toBe(true);
-    expect(await _applierInternals.pathExists(dir)).toBe(false);
+    const trashRoot = join(root, "trash");
+    await mkdir(join(trashRoot, "q"), { recursive: true });
+    await writeFile(join(trashRoot, "q", "x"), "x");
+    expect(await hardDeleteTrash(trashRoot, "q")).toBe(true);
+    expect(await _applierInternals.pathExists(join(trashRoot, "q"))).toBe(false);
   });
 });
 
 describe("guards (unit)", () => {
-  test("isWithin / touchesDataDir (loose substring fallback)", () => {
+  test("isWithin / touchesProtectedDir (segment-bounded fallback)", async () => {
     expect(_applierInternals.isWithin("/a", "/a/b")).toBe(true);
     expect(_applierInternals.isWithin("/a", "/ab")).toBe(false);
-    expect(_applierInternals.touchesDataDir("/x/.ezcorp/data/y")).toBe(true);
-    expect(_applierInternals.touchesDataDir("/x/Downloads/y")).toBe(false);
+    expect(await _applierInternals.touchesProtectedDir("/x/.ezcorp/data/y")).toBe(true);
+    expect(await _applierInternals.touchesProtectedDir("/x/Downloads/y")).toBe(false);
+    // Segment-bounded, not a substring: `data-export` is a NEIGHBOUR of the
+    // protected `data/`, not part of it. The old `includes(".ezcorp/data")`
+    // form matched it and refused a legitimate destination.
+    expect(await _applierInternals.touchesProtectedDir("/x/.ezcorp/data-export/y")).toBe(false);
   });
 
-  test("touchesDataDir anchors to the real dataDirRoot's project .ezcorp/data", () => {
+  test("touchesProtectedDir anchors to the real dataDirRoot's project .ezcorp/data", async () => {
     // dataDirRoot = <proj>/.ezcorp/extension-data/file-organizer ⇒ the
     // protected dir is <proj>/.ezcorp/data (its .ezcorp sibling).
     const proj = "/home/dev/proj";
     const dataDirRoot = join(proj, ".ezcorp", "extension-data", "file-organizer");
-    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data", "ez.db"), dataDirRoot)).toBe(true);
-    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data"), dataDirRoot)).toBe(true);
+    expect(await _applierInternals.touchesProtectedDir(join(proj, ".ezcorp", "data", "ez.db"), dataDirRoot)).toBe(true);
+    expect(await _applierInternals.touchesProtectedDir(join(proj, ".ezcorp", "data"), dataDirRoot)).toBe(true);
     // A sibling that merely shares the `.ezcorp` parent but is NOT data/ is fine.
-    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "extension-data", "x"), dataDirRoot)).toBe(false);
-    // The anchored check is in addition to the loose fallback — a path under
-    // a DIFFERENT project's .ezcorp/data still trips the substring guard.
-    expect(_applierInternals.touchesDataDir("/other/.ezcorp/data/y", dataDirRoot)).toBe(true);
+    expect(await _applierInternals.touchesProtectedDir(join(proj, ".ezcorp", "extension-data", "x"), dataDirRoot)).toBe(false);
+    // The anchored check is in addition to the segment fallback — a path under
+    // a DIFFERENT project's .ezcorp/data still trips the guard.
+    expect(await _applierInternals.touchesProtectedDir("/other/.ezcorp/data/y", dataDirRoot)).toBe(true);
+  });
+
+  test("isQuarantineId accepts every host generator and refuses traversal", () => {
+    // The three shapes that actually reach the applier.
+    expect(_applierInternals.isQuarantineId(crypto.randomUUID())).toBe(true);
+    expect(_applierInternals.isQuarantineId(`agent-${Date.now()}-0`)).toBe(true);
+    expect(_applierInternals.isQuarantineId("f-0")).toBe(true);
+    expect(_applierInternals.isQuarantineId("q1")).toBe(true);
+    // Anything that could become a second path segment, climb out, or
+    // arrive as a non-string is refused.
+    expect(_applierInternals.isQuarantineId("")).toBe(false);
+    expect(_applierInternals.isQuarantineId(".")).toBe(false);
+    expect(_applierInternals.isQuarantineId("..")).toBe(false);
+    expect(_applierInternals.isQuarantineId("../x")).toBe(false);
+    expect(_applierInternals.isQuarantineId("a/b")).toBe(false);
+    expect(_applierInternals.isQuarantineId("a\\b")).toBe(false);
+    expect(_applierInternals.isQuarantineId("a..b")).toBe(false);
+    expect(_applierInternals.isQuarantineId("/abs")).toBe(false);
+    expect(_applierInternals.isQuarantineId("-lead")).toBe(false);
+    expect(_applierInternals.isQuarantineId("a".repeat(129))).toBe(false);
+    expect(_applierInternals.isQuarantineId("a".repeat(128))).toBe(true);
+    expect(_applierInternals.isQuarantineId(null)).toBe(false);
+    expect(_applierInternals.isQuarantineId(42)).toBe(false);
+  });
+
+  test("canonicalRoot / resolveCreateTarget canonicalize through symlinks", async () => {
+    const real = join(root, "real");
+    await mkdir(real, { recursive: true });
+    const link = join(root, "link");
+    await symlink(real, link);
+    expect(await _applierInternals.canonicalRoot(link)).toBe(real);
+    // Fail-closed: an anchor that doesn't resolve yields null.
+    expect(await _applierInternals.canonicalRoot(join(root, "nope"))).toBe(null);
+    // A not-yet-created parent chain still canonicalizes (lowest existing
+    // ancestor + tail), and the LEAF is never resolved.
+    expect(await _applierInternals.resolveCreateTarget(join(link, "a", "b.txt"))).toBe(join(real, "a", "b.txt"));
+    await writeFile(join(real, "leaf.txt"), "x");
+    const leafLink = join(real, "leaf-link.txt");
+    await symlink(join(real, "leaf.txt"), leafLink);
+    expect(await _applierInternals.resolveCreateTarget(leafLink)).toBe(leafLink);
   });
 
   test("resolveNonOverwrite walks suffixes on disk", async () => {
