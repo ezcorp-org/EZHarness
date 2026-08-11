@@ -153,5 +153,13 @@ test("context indicator measures the served model's budget, not the picker's win
 		"older messages start being dropped",
 	);
 
+	// The breakdown and the summary describe the SAME turn, so they must not
+	// disagree. They did: the breakdown read the raw `inputTokens` (the fresh,
+	// non-cached prompt only) and rendered "Total 8.5k tokens" directly above
+	// "160k / 168k used" — off by 19x, in one popover.
+	await expect(page.getByTestId("ctx-bd-input")).toContainText("160k");
+	await expect(page.getByTestId("ctx-bd-output")).toContainText("500");
+	await expect(page.getByTestId("ctx-bd-total")).toContainText("161k");
+
 	await captureEvidence(page, testInfo, "context-window-served-model");
 });

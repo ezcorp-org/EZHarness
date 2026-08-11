@@ -148,5 +148,12 @@ test("switching models re-scales the context bar to the new model's budget @evid
 	await expect(explanation).toContainText("switched models");
 	await expect(explanation).toContainText("NEXT turn");
 
+	// Only the DENOMINATOR moved. The breakdown still describes the turn that
+	// happened, and it still agrees with the summary's used total — a switch
+	// must not be able to reopen the gap between the panel and the pill.
+	await expect(page.getByTestId("ctx-bd-input")).toContainText("160k");
+	await expect(page.getByTestId("ctx-bd-total")).toContainText("161k");
+	await expect(summary).toContainText("160k /");
+
 	await captureEvidence(page, testInfo, "context-window-model-switch");
 });

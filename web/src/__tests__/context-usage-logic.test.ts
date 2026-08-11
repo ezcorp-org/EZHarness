@@ -23,6 +23,7 @@ import {
 	type MessageLike,
 	type ModelWindowLike,
 	type ToolBreakdownEntry,
+	type TurnTokens,
 } from "$lib/context-usage-logic";
 
 // ── computePct ──────────────────────────────────────────────────────────────
@@ -320,14 +321,26 @@ describe("estimateToolCallTokens", () => {
 // ── computeBreakdown ────────────────────────────────────────────────────────
 
 describe("computeBreakdown", () => {
-	test("returns null when input is missing or non-positive", () => {
-		expect(computeBreakdown(null, 50, 10)).toBeNull();
-		expect(computeBreakdown(0, 50, 10)).toBeNull();
-		expect(computeBreakdown(Number.NaN, 50, 10)).toBeNull();
+	/** A usage row in the shape `pickLastTurnUsage` returns. */
+	const usage = (o: Partial<TurnTokens>): TurnTokens => ({
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		...o,
+	});
+
+	test("returns null when there is no usage at all", () => {
+		expect(computeBreakdown(null, 10)).toBeNull();
+	});
+
+	test("returns null when nothing occupies the window", () => {
+		expect(computeBreakdown(usage({ outputTokens: 50 }), 10)).toBeNull();
+		expect(computeBreakdown(usage({ inputTokens: Number.NaN }), 10)).toBeNull();
 	});
 
 	test("computes input/output/tool percentages on a clean turn", () => {
-		const bd = computeBreakdown(800, 200, 100)!;
+		const bd = computeBreakdown(usage({ inputTokens: 800, outputTokens: 200 }), 100)!;
 		expect(bd.inputTokens).toBe(800);
 		expect(bd.outputTokens).toBe(200);
 		expect(bd.toolTokens).toBe(100);
@@ -337,16 +350,68 @@ describe("computeBreakdown", () => {
 		expect(bd.pctTools).toBe(10);
 	});
 
-	test("clamps tool tokens to inputTokens (tool data lives inside input)", () => {
-		const bd = computeBreakdown(100, 50, 9_999)!;
+	// The reported bug: the panel said "Total 8.5k tokens" directly above a
+	// summary line reading "160k / 168k used" — the same turn, off by 19x.
+	test("counts cached tokens as input, so the panel matches the gauge", () => {
+		const cached = usage({
+			inputTokens: 8_000,
+			outputTokens: 500,
+			cacheReadTokens: 152_000,
+		});
+		const bd = computeBreakdown(cached, 0)!;
+		expect(bd.inputTokens).toBe(160_000);
+		expect(bd.totalTokens).toBe(160_500);
+		// The one number the two displays must agree on.
+		expect(bd.inputTokens).toBe(contextUsedTokens(cached));
+	});
+
+	test("counts cache WRITES too — they occupy the window on the turn that pays for them", () => {
+		const bd = computeBreakdown(
+			usage({ inputTokens: 1_000, cacheWriteTokens: 40_000 }),
+			0,
+		)!;
+		expect(bd.inputTokens).toBe(41_000);
+	});
+
+	test("clamps tool tokens to the FULL input, not the fresh slice", () => {
+		// Pre-fix this clamped to 1_000 — tool payloads are exactly the kind of
+		// stable prefix that gets served from cache, so the tool share was
+		// crushed on the threads where tools dominate.
+		const bd = computeBreakdown(
+			usage({ inputTokens: 1_000, cacheReadTokens: 99_000 }),
+			60_000,
+		)!;
+		expect(bd.toolTokens).toBe(60_000);
+	});
+
+	test("still clamps a tool estimate that exceeds the whole input", () => {
+		const bd = computeBreakdown(usage({ inputTokens: 100, outputTokens: 50 }), 9_999)!;
 		expect(bd.toolTokens).toBe(100);
 	});
 
 	test("treats missing output as 0", () => {
-		const bd = computeBreakdown(1_000, null, 0)!;
+		const bd = computeBreakdown(usage({ inputTokens: 1_000 }), 0)!;
 		expect(bd.outputTokens).toBe(0);
 		expect(bd.totalTokens).toBe(1_000);
 		expect(bd.pctInput).toBe(100);
+	});
+
+	// ChatThread feeds `totalTokens` straight into computeToolBreakdown as the
+	// denominator for every per-tool row, and THAT one is not clamped. So the
+	// undercount did not just understate the total — it produced tool rows
+	// claiming several hundred percent of a turn.
+	test("per-tool percentages are sane once the total counts cached tokens", () => {
+		const bigCall = { toolName: "read", input: "x".repeat(200_000), output: "" };
+		const cached = usage({ inputTokens: 8_000, cacheReadTokens: 152_000 });
+		const toolTokens = estimateToolCallTokens([bigCall]);
+
+		const fresh = computeToolBreakdown([bigCall], 8_000)[0]!;
+		expect(fresh.pct).toBeGreaterThan(100); // what the panel used to render
+
+		const bd = computeBreakdown(cached, toolTokens)!;
+		const row = computeToolBreakdown([bigCall], bd.totalTokens)[0]!;
+		expect(row.pct).toBeLessThanOrEqual(100);
+		expect(Math.round(row.pct)).toBe(31);
 	});
 });
 
