@@ -16,6 +16,7 @@ import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { __resetProjectRootCacheForTests } from "$server/extensions/project-root";
 
 // ── Module mocks (BEFORE the route import) ─────────────────────────
 
@@ -191,6 +192,7 @@ import { POST } from "../routes/api/extensions/author/install/+server";
 // ── Test fixtures ──────────────────────────────────────────────────
 
 let TMP: string;
+let savedProjectRootEnv: string | undefined;
 let DRAFT_ROOT: string;
 let INSTALL_ROOT: string;
 const USER = { id: "user-x", email: "x@x", name: "X", role: "member" };
@@ -247,12 +249,23 @@ export default defineExtension({
 
 beforeEach(() => {
   TMP = join(tmpdir(), `ext-author-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-  // Pretend repo root is here. The endpoint walks up looking for `.git`.
+  // Pretend repo root is here. The endpoint walks up looking for `.git`,
+  // and `getProjectRoot()` — which is what decides where the install
+  // lands (`<root>/.ezcorp/extensions/<name>`) — is PINNED at it via the
+  // env override. Without the pin the resolver answers with the real
+  // checkout (its own module path wins before any cwd rule) and the
+  // pipeline installs into the working tree. `docs/extensions/examples`
+  // is the "looks like the repo" probe that override is validated
+  // against; `EZCORP_PROJECT_ROOT` is restored in `afterEach`.
   mkdirSync(join(TMP, ".git"), { recursive: true });
+  mkdirSync(join(TMP, "docs/extensions/examples"), { recursive: true });
   DRAFT_ROOT = join(TMP, ".ezcorp/extension-data/extension-author/drafts");
   INSTALL_ROOT = join(TMP, ".ezcorp/extensions");
   mkdirSync(DRAFT_ROOT, { recursive: true });
   process.chdir(TMP);
+  savedProjectRootEnv = process.env.EZCORP_PROJECT_ROOT;
+  process.env.EZCORP_PROJECT_ROOT = TMP;
+  __resetProjectRootCacheForTests();
 
   draftStore.clear();
   mockGetExtensionByName = vi.fn(async () => null);
@@ -272,6 +285,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (savedProjectRootEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+  else process.env.EZCORP_PROJECT_ROOT = savedProjectRootEnv;
+  __resetProjectRootCacheForTests();
   try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
 });
 

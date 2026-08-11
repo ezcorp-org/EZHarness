@@ -30,6 +30,8 @@ import {
 } from "../db/queries/ez-drafts";
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
+import { authoredExtensionsDir } from "./install-roots";
+import { getProjectRoot } from "./project-root";
 import { ExtensionRegistry } from "./registry";
 import { runAuthorAcceptanceGate } from "./author-gate";
 import { isPreinstalledDependencySource } from "./dependency-source";
@@ -331,12 +333,15 @@ export async function installAuthoredDraft(args: {
       `Extension "${name}" is already installed`,
     );
   }
-  // `<root>/.ezcorp/extension-data/extension-author/drafts/<uid>/<did>`
-  // → walk up 6 segments to the project root.
-  const root = dirname(
-    dirname(dirname(dirname(dirname(dirname(draftDir))))),
-  );
-  const installedPath = join(root, ".ezcorp/extensions", name);
+  // The install base, from the SAME resolver `getExtensionAuthorDraftDir`
+  // used to build `draftDir` — which is
+  // `<projectRoot>/.ezcorp/extension-data/extension-author/drafts/<uid>/<did>`.
+  // This used to walk six `dirname()`s back up that path to recover the
+  // root; equal by construction, but only until someone adds or drops a
+  // segment, and then it would silently disagree with the uninstall
+  // containment roots (`install-roots.ts`) about where authored
+  // extensions live.
+  const installedPath = join(authoredExtensionsDir(getProjectRoot()), name);
   if (existsSync(installedPath)) {
     if (!sanctionedModify) {
       throw new AuthorInstallError(

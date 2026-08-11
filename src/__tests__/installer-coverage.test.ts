@@ -15,6 +15,7 @@ import { test, expect, describe, beforeEach, afterEach, mock, afterAll, spyOn } 
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { mkdtemp, rm, mkdir } from "fs/promises";
+import { existsSync } from "fs";
 import { basename, join, resolve } from "path";
 import { tmpdir } from "os";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
@@ -43,6 +44,16 @@ mock.module("../extensions/registry", () => ({
   },
 }));
 
+// `removeExtension` reads the `projects` table so it can allow deletes
+// under `<project.path>/.ezcorp/extensions/` — where `POST /api/import/commit`
+// installs. Default is "no projects registered"; the import-scoped test
+// pushes a row and pops it again.
+const mockProjectPaths: string[] = [];
+
+mock.module("../db/queries/projects", () => ({
+  listProjects: async () => mockProjectPaths.map((path, i) => ({ id: `p${i}`, name: `p${i}`, path })),
+}));
+
 // `installFromGitHub()` resolves its install base as the RELATIVE path
 // `data/extensions` — i.e. against `process.cwd()`, which for a test IS the
 // checkout. Every install below therefore left a real directory behind in
@@ -63,10 +74,14 @@ const {
   updateExtension,
   removeExtension,
   checkForUpdates,
+} = await import("../extensions/installer");
+
+const {
   allowedInstallRoots,
+  authoredExtensionsDir,
   downloadedExtensionsDir,
   isRemovableInstallPath,
-} = await import("../extensions/installer");
+} = await import("../extensions/install-roots");
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -707,12 +722,13 @@ describe("updateExtension (additional branches)", () => {
 // containing that substring (`<root>/docs/extensions/examples/<name>`,
 // `<root>/extensions/<name>`), so `ezcorp ext remove <bundled-name>`
 // deleted the repository's own files. The rule now is containment: delete
-// iff the resolved path is strictly inside `data/extensions` or
-// `<projectRoot>/.ezcorp/extensions`.
+// iff the resolved path is strictly inside `data/extensions`,
+// `<projectRoot>/.ezcorp/extensions`, or a registered project's
+// `<project.path>/.ezcorp/extensions`.
 //
 // `TMP_ROOT` (module scope) chdir's into a throwaway project root and
-// points `getProjectRoot()` at it, so BOTH allowed roots live under a
-// temp dir for this file and every assertion below is a real filesystem
+// points `getProjectRoot()` at it, so the allowed roots live under a temp
+// dir for this file and every assertion below is a real filesystem
 // assertion.
 
 describe("removeExtension (install-path containment)", () => {
@@ -761,7 +777,7 @@ describe("removeExtension (install-path containment)", () => {
     expect(refusal).toContain("was NOT deleted");
   }
 
-  // ── Allowed: the two roots the host itself installs into ────────────
+  // ── Allowed: the roots the host itself installs into ────────────────
 
   test("removes a relative data/extensions/<name> install", async () => {
     const dir = await seedDir(join(TMP_ROOT.root, "data", "extensions", "rel-ext"));
@@ -781,6 +797,23 @@ describe("removeExtension (install-path containment)", () => {
     expect(warnings).toEqual([]);
   });
 
+  test("a contained path that does not exist is reported, not silently missed", async () => {
+    // A relative `install_path` is resolved against the CURRENT cwd, so it
+    // passes containment no matter which cwd installed it. `force: true`
+    // then turns the miss into a no-op with nothing logged. The uninstall
+    // must say that the directory it meant to delete was not there.
+    const missing = join("data", "extensions", "never-installed");
+    expect(isRemovableInstallPath(missing)).toBe(true);
+    expect(existsSync(join(TMP_ROOT.root, missing))).toBe(false);
+
+    const warnings = await uninstall("never-installed", missing);
+
+    const notice = warnings.find((w) => w.includes(missing));
+    expect(notice).toBeDefined();
+    expect(notice).toContain("does not exist");
+    expect(notice).toContain(join(TMP_ROOT.root, missing));
+  });
+
   test("removes a <projectRoot>/.ezcorp/extensions/<name> install", async () => {
     const dir = await seedDir(join(TMP_ROOT.root, ".ezcorp", "extensions", "authored-ext"));
 
@@ -788,6 +821,46 @@ describe("removeExtension (install-path containment)", () => {
 
     expect(await survives(dir)).toBe(false);
     expect(warnings).toEqual([]);
+  });
+
+  test("removes a <project.path>/.ezcorp/extensions/<name> install", async () => {
+    // `POST /api/import/commit` installs a synthesized skill under the
+    // SELECTED PROJECT's path (`projects.path`), which is not the project
+    // root — in the shipped compose stack it is `/repo` against a `/app`
+    // working dir. A containment rule built only from `getProjectRoot()`
+    // refuses this and orphans the directory, after which re-importing
+    // auto-renames to `<name>-2`.
+    const projectPath = join(tempBase, "user-project");
+    const dir = await seedDir(join(projectPath, ".ezcorp", "extensions", "imported-skill"));
+    const outside = await seedDir(join(projectPath, "src"));
+    mockProjectPaths.push(projectPath);
+
+    let warnings: string[];
+    try {
+      warnings = await uninstall("imported-skill", dir);
+    } finally {
+      mockProjectPaths.length = 0;
+    }
+
+    expect(await survives(dir)).toBe(false);
+    expect(warnings).toEqual([]);
+    // Registering a project widens the rule to that project's
+    // `.ezcorp/extensions` ONLY — not to the project directory at large.
+    expect(await survives(outside)).toBe(true);
+    expect(isRemovableInstallPath(outside, [projectPath])).toBe(false);
+  });
+
+  test("refuses a project-scoped install once its project is unregistered", async () => {
+    // Same path as the test above, with `mockProjectPaths` left empty:
+    // the row's directory is only removable while its project is known.
+    const dir = await seedDir(
+      join(tempBase, "gone-project", ".ezcorp", "extensions", "orphan-skill"),
+    );
+
+    const warnings = await uninstall("orphan-skill", dir);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, dir);
   });
 
   // ── Refused: everything else ────────────────────────────────────────
@@ -855,9 +928,14 @@ describe("removeExtension (install-path containment)", () => {
     expectRefusalWarning(warnings, join("data", "extensions-backup"));
   });
 
-  test("refuses a path that IS an allowed root", async () => {
-    // A row storing exactly the install base must never take the base —
-    // and every other extension installed under it — with it.
+  // The next two assert an OUTCOME, not a clause: a row whose
+  // `install_path` is an install BASE must not take the base and every
+  // extension under it. Two clauses independently produce that outcome
+  // (`p !== root`, and `startsWith(root + sep)` — `"/a/b"` does not start
+  // with `"/a/b/"`), so no test can distinguish them; mutating out either
+  // one alone leaves these green. That redundancy is deliberate, and the
+  // blast radius is why: the outcome is what must never regress.
+  test("keeps the data/extensions base itself, and everything under it", async () => {
     const sibling = await seedDir(join(TMP_ROOT.root, "data", "extensions", "innocent"));
 
     const warnings = await uninstall("root-ext", join("data", "extensions"));
@@ -866,7 +944,7 @@ describe("removeExtension (install-path containment)", () => {
     expectRefusalWarning(warnings, join("data", "extensions"));
   });
 
-  test("refuses a path that IS the .ezcorp/extensions root", async () => {
+  test("keeps the .ezcorp/extensions base itself, and everything under it", async () => {
     const sibling = await seedDir(
       join(TMP_ROOT.root, ".ezcorp", "extensions", "innocent-authored"),
     );
@@ -890,10 +968,19 @@ describe("removeExtension (install-path containment)", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("install-path containment predicate", () => {
-  test("allowedInstallRoots is exactly the two host-owned install bases", () => {
+  test("allowedInstallRoots is the host-owned install bases, one per writer", () => {
     expect(allowedInstallRoots()).toEqual([
       join(TMP_ROOT.root, "data", "extensions"),
       join(TMP_ROOT.root, ".ezcorp", "extensions"),
+    ]);
+    // A registered project adds ITS `.ezcorp/extensions`, appended — the
+    // static two are never displaced.
+    expect(allowedInstallRoots(["/srv/proj", "relative/proj"])).toEqual([
+      join(TMP_ROOT.root, "data", "extensions"),
+      join(TMP_ROOT.root, ".ezcorp", "extensions"),
+      join("/srv/proj", ".ezcorp", "extensions"),
+      // A relative `projects.path` resolves against cwd like everything else.
+      join(TMP_ROOT.root, "relative/proj", ".ezcorp", "extensions"),
     ]);
   });
 
@@ -904,10 +991,35 @@ describe("install-path containment predicate", () => {
     );
   });
 
-  test("empty / absent install paths are never removable", () => {
-    expect(isRemovableInstallPath(null)).toBe(false);
-    expect(isRemovableInstallPath(undefined)).toBe(false);
-    expect(isRemovableInstallPath("")).toBe(false);
+  test("authoredExtensionsDir is `<root>/.ezcorp/extensions`", () => {
+    expect(authoredExtensionsDir("/srv/proj")).toBe(join("/srv/proj", ".ezcorp", "extensions"));
+    expect(resolve(authoredExtensionsDir(TMP_ROOT.root))).toBe(allowedInstallRoots()[1]);
+  });
+
+  test("an empty install path is refused even from INSIDE a root", async () => {
+    // `resolve(cwd, "")` is `cwd`. Run from inside an allowed root and a
+    // blank `install_path` would resolve to a real, contained directory —
+    // i.e. "delete my working directory" — without the explicit
+    // empty-string guard. Asserting it from anywhere else proves nothing:
+    // a cwd outside every root is refused for the ordinary reason.
+    //
+    // It has to be the `.ezcorp/extensions` root, not `data/extensions`:
+    // that one is cwd-RELATIVE, so chdir'ing into it moves it too.
+    const inside = join(TMP_ROOT.root, ".ezcorp", "extensions", "cwd-probe");
+    await mkdir(inside, { recursive: true });
+    const savedCwd = process.cwd();
+    process.chdir(inside);
+    try {
+      expect(resolve(process.cwd(), "")).toBe(inside);
+      expect(isRemovableInstallPath("")).toBe(false);
+      expect(isRemovableInstallPath(null)).toBe(false);
+      expect(isRemovableInstallPath(undefined)).toBe(false);
+      // Same cwd, a non-empty path: still contained, so the guard is
+      // rejecting the EMPTY value, not the location.
+      expect(isRemovableInstallPath(".")).toBe(true);
+    } finally {
+      process.chdir(savedCwd);
+    }
   });
 
   test("accepts installs inside either root, at any depth", () => {
@@ -923,6 +1035,26 @@ describe("install-path containment predicate", () => {
     ]) {
       expect(isRemovableInstallPath(p)).toBe(true);
     }
+  });
+
+  test("a registered project's .ezcorp/extensions is accepted, its siblings are not", () => {
+    const projectPath = join(tempBase, "proj");
+    const roots = [projectPath];
+
+    expect(isRemovableInstallPath(join(projectPath, ".ezcorp", "extensions", "skill"), roots)).toBe(
+      true,
+    );
+    // Base itself, a sibling tree, and the project dir at large stay out.
+    for (const p of [
+      join(projectPath, ".ezcorp", "extensions"),
+      join(projectPath, ".ezcorp", "extension-data", "skill"),
+      join(projectPath, "src"),
+      projectPath,
+    ]) {
+      expect(isRemovableInstallPath(p, roots)).toBe(false);
+    }
+    // …and without the project registered, nothing under it is removable.
+    expect(isRemovableInstallPath(join(projectPath, ".ezcorp", "extensions", "skill"))).toBe(false);
   });
 
   test("refuses every bundled-extension install path shape", () => {

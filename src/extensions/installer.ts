@@ -30,78 +30,36 @@ import {
   deleteExtension,
 } from "../db/queries/extensions";
 import { getSetting } from "../db/queries/settings";
-import { getProjectRoot } from "./project-root";
-import { join, resolve, sep } from "node:path";
+import { listProjects } from "../db/queries/projects";
+import {
+  allowedInstallRoots,
+  downloadedExtensionsDir,
+  isRemovableInstallPath,
+} from "./install-roots";
+import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
-// ── Install roots ────────────────────────────────────────────────────
-
 /**
- * Base directory for downloaded installs (`installFromGitHub`,
- * `installFromGit`). RELATIVE by design: it resolves against
- * `process.cwd()` — the deployment's working directory (`WORKDIR /app` in
- * the container) — and the relative string is what gets persisted into
- * `extensions.install_path`. One helper instead of the literal inlined at
- * each install site, so the install writers and the uninstall containment
- * check below cannot drift apart.
+ * Registered project roots, for the uninstall containment check —
+ * `POST /api/import/commit` installs into `<project.path>/.ezcorp/extensions/`,
+ * so those directories are host-created and removable (see
+ * `allowedInstallRoots`).
+ *
+ * Returns `[]` when the DB is unreachable: `getDb()` THROWS on an
+ * uninitialized connection rather than lazily booting one, so this costs
+ * nothing (and touches no filesystem) in a CLI run before `initDb` or in
+ * a unit test with the DB layer stubbed. The consequence of the empty
+ * fallback is a refused delete, never a wrong one.
  */
-export function downloadedExtensionsDir(): string {
-  return join("data", "extensions");
-}
-
-/**
- * The ONLY directories `removeExtension` may delete inside of, absolute
- * and resolved. Exactly one entry per host-owned install writer:
- *
- *   1. `<cwd>/data/extensions/<name>` — `installFromGitHub` /
- *      `installFromGit` copy or `mv` the fetched tree here.
- *   2. `<projectRoot>/.ezcorp/extensions/<name>` — `author-install.ts`
- *      and `POST /api/import/commit` move a draft / synthesized skill
- *      bundle here.
- *
- * Every OTHER `install_path` in the table points at content the host did
- * not create and must never delete: `installFromLocal` stores the path it
- * was handed, so bundled extensions record their GIT-TRACKED source
- * directory (`<root>/docs/extensions/examples/<name>`,
- * `<root>/extensions/<name>`, `<root>/packages/@ezcorp/ai-kit`) and
- * `ezcorp ext install ./my-ext` records the user's own working copy.
- */
-export function allowedInstallRoots(): string[] {
-  return [
-    resolve(process.cwd(), downloadedExtensionsDir()),
-    resolve(getProjectRoot(), ".ezcorp", "extensions"),
-  ];
-}
-
-/**
- * True iff `instPath` resolves STRICTLY INSIDE one of
- * {@link allowedInstallRoots} — the containment rule for the uninstall
- * `rm -rf`.
- *
- * Every clause is load-bearing:
- *   - `resolve(process.cwd(), …)` FIRST. The old check accepted any path
- *     that didn't start with `/` as "relative, therefore safe", so
- *     `../../etc` passed; and accepted any absolute path containing the
- *     substring `/extensions/`, so `/home/user/extensions/notes` passed.
- *     Comparing resolved paths is what makes both fail.
- *   - `p !== root` — a row storing exactly `data/extensions` would
- *     otherwise take out the whole install root.
- *   - `startsWith(root + sep)`, never bare `startsWith(root)` — otherwise
- *     `data/extensions-backup` is treated as inside `data/extensions`.
- *
- * Deliberately LEXICAL — no `realpath()`. `@ezcorp/ai-kit`'s dev-link flow
- * (`packages/@ezcorp/ai-kit/src/cli/install.ts`) symlinks the package
- * source into `<projectRoot>/.ezcorp/extensions/ai-kit`; `rm(path, {
- * recursive, force })` unlinks that symlink and leaves its target intact,
- * which is the correct uninstall. Resolving the link first would both
- * refuse that legitimate removal and, if the resolved path were then
- * deleted, destroy the linked package source.
- */
-export function isRemovableInstallPath(instPath: string | null | undefined): boolean {
-  if (typeof instPath !== "string" || instPath.length === 0) return false;
-  const p = resolve(process.cwd(), instPath);
-  return allowedInstallRoots().some((root) => p !== root && p.startsWith(root + sep));
+async function registeredProjectPaths(): Promise<string[]> {
+  try {
+    const rows = await listProjects();
+    return rows.map((row) => row.path).filter((path) => path.length > 0);
+  } catch {
+    return [];
+  }
 }
 
 // ── Auto-enable-on-install allowlist ─────────────────────────────────
@@ -851,8 +809,31 @@ export async function removeExtension(name: string): Promise<void> {
   // to warn about.
   const instPath = ext.installPath;
   if (instPath) {
-    if (isRemovableInstallPath(instPath)) {
-      await rm(instPath, { recursive: true, force: true }).catch(() => {});
+    const projectPaths = await registeredProjectPaths();
+    // `rm` the RESOLVED path, not the raw one — the same string the
+    // predicate decided on. They agree today; spelling it once means a
+    // future normalization step cannot make the check and the delete
+    // disagree about which directory is meant.
+    const resolved = resolve(process.cwd(), instPath);
+    if (isRemovableInstallPath(instPath, projectPaths)) {
+      if (existsSync(resolved)) {
+        await rm(resolved, { recursive: true, force: true }).catch(() => {});
+      } else {
+        // A RELATIVE install_path always resolves under the CURRENT cwd,
+        // so it always passes containment — even when the directory it
+        // names is somewhere else entirely. That happens whenever the
+        // removing process' cwd differs from the installing one's (dev
+        // from `web/`, container from `/app`), and `force: true` makes
+        // the miss silent. Say it out loud instead: the real directory is
+        // still on disk, and nothing else will mention it.
+        console.warn(
+          `[installer] Extension "${name}": install path "${instPath}" resolved ` +
+            `to "${resolved}", which does not exist — nothing was deleted. A ` +
+            `relative install path is resolved against the current working ` +
+            `directory (${process.cwd()}); if the extension was installed from a ` +
+            `different one, its files are still on disk there.`,
+        );
+      }
     } else {
       // Never silent: the row is gone but the files are not, and an
       // operator who expected a full uninstall needs to know which path
@@ -860,8 +841,8 @@ export async function removeExtension(name: string): Promise<void> {
       console.warn(
         `[installer] Extension "${name}": unregistered, but its install path ` +
           `"${instPath}" was NOT deleted — it is not inside an allowed install ` +
-          `root (${allowedInstallRoots().join(", ")}). Remove the files by hand ` +
-          `if they are yours to remove.`,
+          `root (${allowedInstallRoots(projectPaths).join(", ")}). Remove the ` +
+          `files by hand if they are yours to remove.`,
       );
     }
   }

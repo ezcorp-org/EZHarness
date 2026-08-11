@@ -21,6 +21,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { requireRole } from "$server/auth/middleware";
 import { deleteExtension, getExtensionByName } from "$server/db/queries/extensions";
 import { getProjectRoot } from "$server/extensions/bundled";
+import { authoredExtensionsDir } from "$server/extensions/install-roots";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -59,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // never trust the row's `install_path` (could be NULL or diverged
     // after a manual move).
     const root = getProjectRoot();
-    const installedPath = join(root, ".ezcorp/extensions", body.name);
+    const installedPath = join(authoredExtensionsDir(root), body.name);
     let dirRemoved = false;
     if (existsSync(installedPath)) {
       await rm(installedPath, { recursive: true, force: true });

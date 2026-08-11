@@ -23,6 +23,15 @@ The authoring surface is `@ezcorp/sdk` (`defineExtension` + runtime helpers,
 - **Install/registry/manifest** — `installer.ts`, `registry.ts`, `manifest.ts`,
   `bundled.ts` (the `BUNDLED_EXTENSIONS` registry + `ensureBundledExtensions()`
   reconcile engine), `dependency-resolver.ts`.
+- **Install roots (binding)** — `install-roots.ts` owns the two path literals
+  (`data/extensions`, `<root>/.ezcorp/extensions`) AND the rule for which
+  directories `removeExtension` may `rm -rf` inside of. Spell those paths
+  through it — never inline them. `<root>` is NOT always `getProjectRoot()`:
+  `POST /api/import/commit` installs under the selected project's
+  `projects.path`, so the containment check takes the registered project
+  paths as an argument. An install path outside every root is unregistered
+  but never deleted (a bundled extension's row points at its git-tracked
+  source tree).
 - **Project-root resolution** — `project-root.ts` owns `getProjectRoot()` /
   `resolveProjectRoot()` (env → `import.meta` → `.git` walk-up → cwd, cached
   per process). `bundled.ts` re-exports them so pre-existing importers needed

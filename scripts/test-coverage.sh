@@ -781,6 +781,7 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/export/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reopen/+server.ts' \
       --coverage.include='src/routes/api/__test/seed-extension-author-draft/+server.ts' \
+      --coverage.include='src/routes/api/__test/cleanup-extension/+server.ts' \
       --coverage.include='src/lib/tool-output.ts' \
       --coverage.include='src/lib/components/ui/format-map.ts' \
       --coverage.include='src/lib/inline-tool-store.svelte.ts' \

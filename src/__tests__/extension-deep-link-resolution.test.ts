@@ -30,10 +30,13 @@
  */
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import {
+  useTempProjectRoot,
+  type TempProjectRoot,
+} from "./helpers/temp-project-root";
 import { mockDbConnection, setupTestDb, closeTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
@@ -42,6 +45,7 @@ mockDbConnection();
 // The pipeline's owner-scoped draft lookup + the on-disk draft dir.
 let DRAFT_DIR = "";
 let TMP_ROOT = "";
+let tmpProjectRoot: TempProjectRoot | undefined;
 const consumed: string[] = [];
 mock.module("../db/queries/ez-drafts", () => ({
   getDraft: async () => ({ id: "draft-1", kind: "extension", payload: { type: "tool" } }),
@@ -106,7 +110,7 @@ mock.module("../extensions/registry", () => ({
 
 afterAll(async () => {
   await closeTestDb();
-  if (TMP_ROOT) rmSync(TMP_ROOT, { recursive: true, force: true });
+  tmpProjectRoot?.cleanup();
   restoreModuleMocks();
 });
 
@@ -136,10 +140,13 @@ beforeEach(async () => {
   await setupTestDb();
   consumed.length = 0;
   manifestName = "weather-lookup";
-  // `<root>/.ezcorp/extension-data/extension-author/drafts/<uid>/<did>` — the
-  // pipeline walks up exactly 6 segments to find the project root, so the
-  // depth here is load-bearing.
-  TMP_ROOT = join(tmpdir(), `ez-deeplink-${crypto.randomUUID()}`);
+  // The install lands at `getProjectRoot()/.ezcorp/extensions/<name>`, so
+  // the root has to be PINNED here — otherwise the pipeline writes into
+  // the real checkout. `tmpProjectRoot.cleanup()` (afterAll) restores the
+  // env var, the cache and the cwd. The draft dir keeps its real-world
+  // depth because the resolver is mocked to hand back this exact path.
+  tmpProjectRoot = useTempProjectRoot("ez-deeplink-");
+  TMP_ROOT = tmpProjectRoot.root;
   DRAFT_DIR = join(
     TMP_ROOT,
     ".ezcorp/extension-data/extension-author/drafts/user-1/draft-1",

@@ -32,6 +32,7 @@ import {
   bestEffortRm,
 } from "$server/runtime/import/staging";
 import { installFromLocal } from "$server/extensions/installer";
+import { authoredExtensionsDir } from "$server/extensions/install-roots";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { filterFrontmatter } from "../../user-commands/schema";
@@ -121,11 +122,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           let i = 2;
           while (
             (await getExtensionByName(finalName)) ||
-            existsSync(join(root, ".ezcorp/extensions", finalName))
+            existsSync(join(authoredExtensionsDir(root), finalName))
           ) {
             finalName = `${b.name}-${i++}`.slice(0, 64);
           }
-          const destDir = join(root, ".ezcorp/extensions", finalName);
+          const destDir = join(authoredExtensionsDir(root), finalName);
           await synthesizeSkillExtension({ bundle: b, destDir, name: finalName });
           try {
             const inst = await installFromLocal(
