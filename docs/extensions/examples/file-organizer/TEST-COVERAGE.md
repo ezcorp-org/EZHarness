@@ -122,10 +122,11 @@ would let these flip from host-unit-only to real-backend e2e.
 | Surface | Coverage | Backend | CI |
 |---|---|---|---|
 | daemon (`file-organizer-daemon.ts`) — modes, stability, dedup, lockfile, kill-switch, circuit-breaker, real interval | `file-organizer-daemon.test.ts` (66 tests) | **real fs**, injected clock | ✅ |
-| applier (`file-organizer-applier.ts`) — copy/verify/unlink, containment, journal replay, symlink-leaf, EXDEV | `file-organizer-applier.test.ts` (28) + `file-organizer-applier-exdev.test.ts` (10, mocked fs-promises for error branches) | **real fs** + targeted fs mock | ✅ |
+| applier (`file-organizer-applier.ts`) — copy/verify/unlink, containment, journal replay, symlink-leaf, EXDEV | `file-organizer-applier.test.ts` (27) + `file-organizer-applier-exdev.test.ts` (10, mocked fs-promises for error branches) | **real fs** + targeted fs mock | ✅ |
+| applier reserved-dir deny (`EZCORP_DB_PATH` datadir, `.ezcorp/backups`) — the platform dirs with no `.ezcorp/data` segment | `file-organizer-applier-reserved-dirs.test.ts` (5, own process: pins `EZCORP_PROJECT_ROOT`) | **real fs** | ✅ |
 | state (`file-organizer-state.ts`) — CAS accept/reject, config mutations, quarantine, audit gate | `file-organizer-state.test.ts` (~45) | **real fs** | ✅ |
 | config validation (`lib/config.ts`) | `lib/config.test.ts` (27, 100%) | real-pure | ✅ |
-| security (no-network, containment, fail-closed) | `src/__tests__/security/file-organizer-security.test.ts` (7) | **real subprocess** w/ `--preload` | ✅ |
+| security (no-network, containment, fail-closed) + the **path-containment exploit set**: proposal-source escapes (`..`, symlinked ancestor, `.ezcorp/data`), a lying `snapshot.isSymlink`, traversing quarantine ids, `hardDeleteTrash` escapes (`../../../..` and a `..`-free hop through a planted symlink), out-of-anchor journal replay, and restore from outside the trash root | `src/__tests__/security/file-organizer-security.test.ts` (35) | **real subprocess** w/ `--preload`; **real fs** for the applier cases | ✅ |
 
 ### 2d. Cross-cutting concerns
 

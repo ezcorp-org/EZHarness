@@ -16,7 +16,7 @@
 // file runs in its own bun process (per-file isolation) so the
 // mock.module override can't contaminate any other suite.
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionEngine } from "../extensions/permission-engine";
@@ -32,6 +32,7 @@ const realMkdir = realFsp.mkdir;
 const realRm = realFsp.rm;
 const realLstat = realFsp.lstat;
 const realUnlink = realFsp.unlink;
+const realRealpath = realFsp.realpath;
 const realFspSnapshot = { ...realFsp };
 
 // When true, the next rename() throws EXDEV (forcing the copy fallback).
@@ -49,6 +50,10 @@ let forceAllExist = false;
 // When true, unlink() throws SYNCHRONOUSLY (before returning a promise), so
 // the `.catch(()=>{})` never attaches and replayJournal's entry catch fires.
 let forceUnlinkSyncThrow = false;
+// Basename whose realpath() throws — used to force hardDeleteTrash's
+// `realpathInsideRoot` re-check to fail on an entry that lstat'd as an
+// ordinary directory (the TOCTOU window between the two calls).
+const REALPATH_TRAP = "escape-me";
 
 mock.module("node:fs/promises", () => ({
   ...realFspSnapshot,
@@ -97,6 +102,16 @@ mock.module("node:fs/promises", () => ({
     if (forceAllExist) return { isSymbolicLink: () => false } as Awaited<ReturnType<typeof realLstat>>;
     return realLstat(...args);
   },
+  realpath: (async (...args: Parameters<typeof realRealpath>) => {
+    // Only the trap basename fails; every other realpath (containment
+    // anchors, parent canonicalization) resolves for real.
+    if (String(args[0]).endsWith(`/${REALPATH_TRAP}`)) {
+      const err = new Error("ELOOP: too many symbolic links") as NodeJS.ErrnoException;
+      err.code = "ELOOP";
+      throw err;
+    }
+    return realRealpath(...args);
+  }) as typeof realRealpath,
   unlink: ((...args: Parameters<typeof realUnlink>) => {
     if (forceUnlinkSyncThrow) {
       // Synchronous throw (not a rejected promise) so `unlink(...).catch`
@@ -125,7 +140,8 @@ let dataDir: string;
 let watched: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "fo-exdev-"));
+  // realpath'd: the applier canonicalizes every path it contains.
+  root = await realRealpath(await mkdtemp(join(tmpdir(), "fo-exdev-")));
   dataDir = join(root, ".ezcorp", "extension-data", "file-organizer");
   watched = join(root, "watched");
   await mkdir(join(dataDir, ".trash"), { recursive: true });
@@ -248,10 +264,31 @@ describe("restoreFromQuarantine — failure surfaces as 'failed'", () => {
 
 describe("hardDeleteTrash — rm failure returns false", () => {
   test("a prune that can't remove the dir returns false (swallowed + logged)", async () => {
-    const dir = join(dataDir, ".trash", "stuck");
-    await mkdir(dir, { recursive: true });
+    const trashRoot = join(dataDir, ".trash");
+    await mkdir(join(trashRoot, "stuck"), { recursive: true });
     forceRmThrow = true;
-    expect(await hardDeleteTrash(dir)).toBe(false);
+    expect(await hardDeleteTrash(trashRoot, "stuck")).toBe(false);
+  });
+
+  test("an entry whose realpath fails the containment re-check is refused", async () => {
+    // lstat says "ordinary directory", but the realpath re-check that
+    // closes the lstat→rm TOCTOU window can't resolve it. Fail-closed.
+    const trashRoot = join(dataDir, ".trash");
+    await mkdir(join(trashRoot, REALPATH_TRAP), { recursive: true });
+    expect(await hardDeleteTrash(trashRoot, REALPATH_TRAP)).toBe(false);
+    // The directory is still there — nothing was removed on a failed check.
+    expect(await _applierInternals.pathExists(join(trashRoot, REALPATH_TRAP))).toBe(true);
+  });
+
+  test("a symlinked entry whose unlink fails returns false", async () => {
+    const trashRoot = join(dataDir, ".trash");
+    const id = "linked";
+    await symlink(watched, join(trashRoot, id));
+    forceUnlinkSyncThrow = true; // unlink of the LINK throws
+    expect(await hardDeleteTrash(trashRoot, id)).toBe(false);
+    forceUnlinkSyncThrow = false;
+    // The watched dir the link pointed at was never touched.
+    expect(await _applierInternals.pathExists(watched)).toBe(true);
   });
 });
 
@@ -282,8 +319,8 @@ describe("replayJournal — a per-entry failure is swallowed (continue)", () => 
     // Must not reject — the entry error is logged + swallowed (the throw
     // happens before `finished++`, so neither counter advances), and the
     // journal is still cleared at the end.
-    const res = await replayJournal(journalPath);
-    expect(res).toEqual({ finished: 0, rolledBack: 0 });
+    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
+    expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 0 });
     forceUnlinkSyncThrow = false;
     expect(await _applierInternals.readJournal(journalPath)).toHaveLength(0);
   });

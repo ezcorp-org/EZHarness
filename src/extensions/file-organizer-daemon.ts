@@ -27,7 +27,7 @@
  * destructive ops — a read disconnect is NEVER read as "all deleted".
  */
 import { createHash } from "node:crypto";
-import { readdir, lstat, stat, readlink } from "node:fs/promises";
+import { readdir, lstat, stat, readlink, realpath } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { logger } from "../logger";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
@@ -231,9 +231,14 @@ export class FileOrganizerDaemon {
     }
 
     // Crash-replay any in-flight apply intent before the first tick.
+    // Replay is a boot-time unlink/rm driven by an on-disk JSON file, so
+    // it gets the same containment anchors an interactive apply gets.
     try {
-      const res = await replayJournal(this.journalPath);
-      if (res.finished + res.rolledBack > 0) {
+      const res = await replayJournal(this.journalPath, {
+        roots: await this.replayAnchors(),
+        dataDirRoot: this.opts.dataDir,
+      });
+      if (res.finished + res.rolledBack + res.refused > 0) {
         log.info("file-organizer journal replayed", res);
       }
     } catch (err) {
@@ -581,7 +586,7 @@ export class FileOrganizerDaemon {
     if (victims.length === 0) return 0;
     let next = manifest;
     for (const id of victims) {
-      const ok = await hardDeleteTrash(join(this.trashRoot, id));
+      const ok = await hardDeleteTrash(this.trashRoot, id);
       if (ok) next = removeEntry(next, id);
     }
     await this.writeManifest(next);
@@ -663,6 +668,24 @@ export class FileOrganizerDaemon {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * The realpath'd roots a journal entry is allowed to touch: every
+   * configured watched folder, plus the trash root. A folder that won't
+   * resolve (unmounted, deleted) contributes NO anchor — replay for it is
+   * refused rather than guessed. An empty list refuses every entry.
+   */
+  private async replayAnchors(): Promise<string[]> {
+    const config = await this.readConfig();
+    const roots: string[] = [];
+    for (const folder of config.folders) {
+      const real = await realpath(folder.path).catch(() => null);
+      if (real !== null) roots.push(real);
+    }
+    const realTrash = await realpath(this.trashRoot).catch(() => null);
+    if (realTrash !== null) roots.push(realTrash);
+    return roots;
   }
 
   private async readConfig(): Promise<Config> {

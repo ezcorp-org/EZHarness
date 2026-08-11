@@ -130,3 +130,28 @@ realpath/lstat discipline · never write into `.ezcorp/data` · single atomic
 writer + single daemon · idempotent + re-authorized apply · mode at apply
 time · fail-closed on missing project root / unreachable folder / degraded
 mount · every destructive action audited.
+
+**Path containment (host applier).** Containment is checked on BOTH ends of
+every operation, against a REALPATH'd anchor:
+
+- A proposal's **source** must resolve inside its watched root, the same way
+  its destination must — an uncontained `src` would be an arbitrary host-file
+  read *and* delete (copy it into the extension-readable `.trash/`, then
+  unlink the original). Parents are realpath'd, leaves are not, so a
+  symlinked ancestor can't smuggle a path out.
+- Symlink skipping is decided by a **live `lstat`**, never by the proposal's
+  `snapshot.isSymlink` (a caller-supplied field).
+- Neither end may touch a **protected platform dir**: `<project>/.ezcorp/data`
+  plus everything `isReservedSensitivePath()` reserves — which is what covers
+  the container's `EZCORP_DB_PATH=/app/data/ezcorp` datadir and the
+  `.ezcorp/backups` snapshots, neither of which has a `.ezcorp/data` segment.
+- **Quarantine ids** are validated as a single safe path segment before they
+  reach `.trash/manifest.json`, and `hardDeleteTrash` — the one recursive
+  `rm` — takes `(trashRoot, id)` rather than a pre-joined path, re-checks
+  containment by realpath, and unlinks (never recurses through) a symlinked
+  entry.
+- **Journal replay** at boot is anchored the same way: entries are refused
+  unless they name a path inside a configured watched folder or the trash
+  root. No anchors ⇒ nothing replays.
+- An anchor that won't `realpath` refuses the operation (fail-closed) instead
+  of falling back to a raw prefix compare.

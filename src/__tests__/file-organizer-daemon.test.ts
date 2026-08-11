@@ -597,6 +597,80 @@ describe("daemon — lifecycle", () => {
     expect(file.proposals.length).toBeGreaterThan(0);
   });
 
+  // ── start() → journal replay anchors ──────────────────────────────
+  //
+  // Replay runs at server BOOT, before any UI, and its only input is an
+  // on-disk JSON file. The daemon is what tells the applier which roots
+  // that file is allowed to name: the configured watched folders plus
+  // the trash root, each realpath'd.
+
+  async function seedJournal(src: string, dst: string): Promise<void> {
+    await writeFile(
+      join(dataDir, "journal.json"),
+      JSON.stringify([{ op: "move", src, dst, quarantineId: null, phase: "copy-done" }], null, 2),
+    );
+  }
+
+  test("start() replays an in-anchor journal entry and refuses an out-of-anchor one", async () => {
+    await writeConfig();
+    const inRoot = join(watched, "a.txt");
+    await writeFile(inRoot, "data");
+    const victim = join(root, "outside", "victim.txt");
+    await mkdir(join(root, "outside"), { recursive: true });
+    await writeFile(victim, "victim");
+    await writeFile(
+      join(dataDir, "journal.json"),
+      JSON.stringify(
+        [
+          { op: "move", src: inRoot, dst: join(watched, "sub", "a.txt"), quarantineId: null, phase: "copy-done" },
+          { op: "move", src: victim, dst: join(watched, "victim.txt"), quarantineId: null, phase: "copy-done" },
+        ],
+        null,
+        2,
+      ),
+    );
+    const d = makeDaemon();
+    expect(await d.start({ ...DEFAULT_SETTINGS, scanIntervalSec: 5 })).toBe(true);
+    d.stop();
+    // The configured folder is an anchor ⇒ its entry completed.
+    expect(await Bun.file(inRoot).exists()).toBe(false);
+    // Nothing anchors the outside file ⇒ boot never deleted it.
+    expect(await readFile(victim, "utf8")).toBe("victim");
+  });
+
+  test("a watched folder that no longer resolves contributes NO anchor", async () => {
+    // config points at a removed/unmounted folder — replay must not fall
+    // back to "anything on disk", so an entry under a DIFFERENT existing
+    // dir is still refused.
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({
+        folders: [{ id: "f1", path: join(root, "gone"), presets: [], customRules: [], ignore: [], backlogPolicy: "new-only" }],
+        globalIgnore: [],
+        schemaVersion: 1,
+      }),
+    );
+    const survivor = join(watched, "a.txt");
+    await writeFile(survivor, "data");
+    await seedJournal(survivor, join(watched, "sub", "a.txt"));
+    const d = makeDaemon();
+    expect(await d.start({ ...DEFAULT_SETTINGS, scanIntervalSec: 5 })).toBe(true);
+    d.stop();
+    expect(await readFile(survivor, "utf8")).toBe("data");
+  });
+
+  test("the trash root is an anchor (a quarantine entry replays)", async () => {
+    await writeConfig();
+    const trashed = join(dataDir, ".trash", "q1", "junk.tmp");
+    await mkdir(join(dataDir, ".trash", "q1"), { recursive: true });
+    await writeFile(trashed, "junk");
+    await seedJournal(trashed, join(watched, "junk.tmp"));
+    const d = makeDaemon();
+    expect(await d.start({ ...DEFAULT_SETTINGS, scanIntervalSec: 5 })).toBe(true);
+    d.stop();
+    expect(await Bun.file(trashed).exists()).toBe(false);
+  });
+
   test("constructed without `now` defaults to Date.now (no crash on tick)", async () => {
     await writeConfig();
     // No `now` injected → the `opts.now ?? Date.now` fallback is taken.
