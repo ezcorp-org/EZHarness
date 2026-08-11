@@ -6,16 +6,16 @@
  *   - installFromGitHub (all paths, mocked fetch)
  *   - installFromGit: no-entrypoint branch
  *   - updateExtension: no semver tags, already latest, checkout fail, invalid manifest, no entrypoint
- *   - removeExtension: path safety branches (relative, abs+extensions, abs-no-extensions)
+ *   - removeExtension: install-path containment (what the uninstall rm may delete)
  *   - checkForUpdates: no semver tags, tags but none newer
  *   - findManifest: nested manifest discovery (via installFromGitHub)
  */
 
-import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, mock, afterAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { mkdtemp, rm, mkdir } from "fs/promises";
-import { join } from "path";
+import { basename, join, resolve } from "path";
 import { tmpdir } from "os";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
 import { configContent, writeConfig } from "./helpers/write-config";
@@ -63,6 +63,9 @@ const {
   updateExtension,
   removeExtension,
   checkForUpdates,
+  allowedInstallRoots,
+  downloadedExtensionsDir,
+  isRemovableInstallPath,
 } = await import("../extensions/installer");
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -695,64 +698,263 @@ describe("updateExtension (additional branches)", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// removeExtension — path safety branches
+// removeExtension — install-path containment
+// ═══════════════════════════════════════════════════════════════════════
+//
+// `removeExtension` used to `rm -rf` any relative path (so `../../etc`
+// passed) and any absolute path containing the substring `/extensions/`.
+// 27 of the 28 bundled extensions record a git-tracked SOURCE directory
+// containing that substring (`<root>/docs/extensions/examples/<name>`,
+// `<root>/extensions/<name>`), so `ezcorp ext remove <bundled-name>`
+// deleted the repository's own files. The rule now is containment: delete
+// iff the resolved path is strictly inside `data/extensions` or
+// `<projectRoot>/.ezcorp/extensions`.
+//
+// `TMP_ROOT` (module scope) chdir's into a throwaway project root and
+// points `getProjectRoot()` at it, so BOTH allowed roots live under a
+// temp dir for this file and every assertion below is a real filesystem
+// assertion.
+
+describe("removeExtension (install-path containment)", () => {
+  /** Create a directory with a marker file inside. Returns the dir. */
+  async function seedDir(path: string): Promise<string> {
+    await mkdir(path, { recursive: true });
+    await Bun.write(join(path, "keep.txt"), "payload");
+    return path;
+  }
+
+  const survives = (dir: string) => Bun.file(join(dir, "keep.txt")).exists();
+
+  /**
+   * Seed a row with `installPath`, uninstall it, and return everything
+   * `console.warn` saw. Always asserts the DB row is gone — an uninstall
+   * unregisters the extension whether or not it may touch the files.
+   */
+  async function uninstall(name: string, installPath: string | null): Promise<string[]> {
+    const id = `${name}-id`;
+    extStore.seed({
+      id,
+      name,
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath,
+    });
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+    try {
+      await removeExtension(name);
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(mockExtensions.has(id)).toBe(false);
+    return warnings;
+  }
+
+  /** Assert the refusal was loud and named the path it kept. */
+  function expectRefusalWarning(warnings: string[], installPath: string): void {
+    const refusal = warnings.find((w) => w.includes(installPath));
+    expect(refusal).toBeDefined();
+    expect(refusal).toContain("was NOT deleted");
+  }
+
+  // ── Allowed: the two roots the host itself installs into ────────────
+
+  test("removes a relative data/extensions/<name> install", async () => {
+    const dir = await seedDir(join(TMP_ROOT.root, "data", "extensions", "rel-ext"));
+
+    const warnings = await uninstall("rel-ext", join("data", "extensions", "rel-ext"));
+
+    expect(await survives(dir)).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  test("removes an absolute <cwd>/data/extensions/<name> install", async () => {
+    const dir = await seedDir(join(TMP_ROOT.root, "data", "extensions", "abs-ok-ext"));
+
+    const warnings = await uninstall("abs-ok-ext", dir);
+
+    expect(await survives(dir)).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  test("removes a <projectRoot>/.ezcorp/extensions/<name> install", async () => {
+    const dir = await seedDir(join(TMP_ROOT.root, ".ezcorp", "extensions", "authored-ext"));
+
+    const warnings = await uninstall("authored-ext", dir);
+
+    expect(await survives(dir)).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  // ── Refused: everything else ────────────────────────────────────────
+
+  test("refuses a relative path that escapes the project root", async () => {
+    // `tempBase` is a sibling temp dir, so a `../<sibling>/…` relative
+    // path reaches outside cwd — the exact shape the old
+    // "doesn't start with / ⇒ safe" branch accepted.
+    const dir = await seedDir(join(tempBase, "precious"));
+    const escaping = join("..", basename(tempBase), "precious");
+    expect(resolve(TMP_ROOT.root, escaping)).toBe(dir);
+
+    const warnings = await uninstall("escaping-ext", escaping);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, escaping);
+  });
+
+  test("refuses an absolute path containing /extensions/ outside the roots", async () => {
+    const dir = await seedDir(join(tempBase, "extensions", "abs-ext"));
+
+    const warnings = await uninstall("abs-ext", dir);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, dir);
+  });
+
+  test("refuses an absolute path with no /extensions/ segment", async () => {
+    const dir = await seedDir(join(tempBase, "unsafe-dir"));
+
+    const warnings = await uninstall("unsafe-ext", dir);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, dir);
+  });
+
+  test("refuses a bundled extension's docs/extensions/examples source dir", async () => {
+    // The live data-loss case: `installFromLocal` records the path it was
+    // handed, so every reference extension's row points at the checkout.
+    const dir = await seedDir(
+      join(TMP_ROOT.root, "docs", "extensions", "examples", "scratchpad"),
+    );
+
+    const warnings = await uninstall("scratchpad", dir);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, dir);
+  });
+
+  test("refuses a bundled extension's top-level extensions/<name> source dir", async () => {
+    const dir = await seedDir(join(TMP_ROOT.root, "extensions", "ez-factory"));
+
+    const warnings = await uninstall("ez-factory", dir);
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, dir);
+  });
+
+  test("refuses data/extensions-backup (prefix, not containment)", async () => {
+    const dir = await seedDir(join(TMP_ROOT.root, "data", "extensions-backup"));
+
+    const warnings = await uninstall("backup-ext", join("data", "extensions-backup"));
+
+    expect(await survives(dir)).toBe(true);
+    expectRefusalWarning(warnings, join("data", "extensions-backup"));
+  });
+
+  test("refuses a path that IS an allowed root", async () => {
+    // A row storing exactly the install base must never take the base —
+    // and every other extension installed under it — with it.
+    const sibling = await seedDir(join(TMP_ROOT.root, "data", "extensions", "innocent"));
+
+    const warnings = await uninstall("root-ext", join("data", "extensions"));
+
+    expect(await survives(sibling)).toBe(true);
+    expectRefusalWarning(warnings, join("data", "extensions"));
+  });
+
+  test("refuses a path that IS the .ezcorp/extensions root", async () => {
+    const sibling = await seedDir(
+      join(TMP_ROOT.root, ".ezcorp", "extensions", "innocent-authored"),
+    );
+    const root = join(TMP_ROOT.root, ".ezcorp", "extensions");
+
+    const warnings = await uninstall("ezcorp-root-ext", root);
+
+    expect(await survives(sibling)).toBe(true);
+    expectRefusalWarning(warnings, root);
+  });
+
+  test("MCP-kind row (no installPath): no filesystem work, no warning", async () => {
+    const warnings = await uninstall("mcp-ext", null);
+
+    expect(warnings).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// isRemovableInstallPath / allowedInstallRoots — the containment predicate
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("removeExtension (path safety)", () => {
-  test("relative path: rm is called", async () => {
-    mockExtensions.set("rel-id", {
-      id: "rel-id",
-      name: "rel-ext",
-      source: "github:user/repo@v1.0.0",
-      version: "1.0.0",
-      installPath: "data/extensions/rel-ext",
-    });
-
-    // Should not throw (rm will fail silently on non-existent path)
-    await removeExtension("rel-ext");
-    expect(mockExtensions.has("rel-id")).toBe(false);
+describe("install-path containment predicate", () => {
+  test("allowedInstallRoots is exactly the two host-owned install bases", () => {
+    expect(allowedInstallRoots()).toEqual([
+      join(TMP_ROOT.root, "data", "extensions"),
+      join(TMP_ROOT.root, ".ezcorp", "extensions"),
+    ]);
   });
 
-  test("absolute path WITH /extensions/: rm is called", async () => {
-    const absPath = join(tempBase, "extensions", "abs-ext");
-    await mkdir(absPath, { recursive: true });
-    await Bun.write(join(absPath, "dummy.txt"), "test");
-
-    mockExtensions.set("abs-ext-id", {
-      id: "abs-ext-id",
-      name: "abs-ext",
-      source: "github:user/repo@v1.0.0",
-      version: "1.0.0",
-      installPath: absPath,
-    });
-
-    await removeExtension("abs-ext");
-    expect(mockExtensions.has("abs-ext-id")).toBe(false);
-
-    // Verify directory was actually removed
-    const exists = await Bun.file(join(absPath, "dummy.txt")).exists();
-    expect(exists).toBe(false);
+  test("downloadedExtensionsDir stays relative (resolved against cwd)", () => {
+    expect(downloadedExtensionsDir()).toBe(join("data", "extensions"));
+    expect(resolve(process.cwd(), downloadedExtensionsDir())).toBe(
+      allowedInstallRoots()[0],
+    );
   });
 
-  test("absolute path WITHOUT /extensions/: rm is NOT called (safety check)", async () => {
-    const unsafePath = join(tempBase, "unsafe-dir");
-    await mkdir(unsafePath, { recursive: true });
-    await Bun.write(join(unsafePath, "important.txt"), "do not delete");
+  test("empty / absent install paths are never removable", () => {
+    expect(isRemovableInstallPath(null)).toBe(false);
+    expect(isRemovableInstallPath(undefined)).toBe(false);
+    expect(isRemovableInstallPath("")).toBe(false);
+  });
 
-    mockExtensions.set("unsafe-id", {
-      id: "unsafe-id",
-      name: "unsafe-ext",
-      source: "github:user/repo@v1.0.0",
-      version: "1.0.0",
-      installPath: unsafePath, // Absolute, no /extensions/ in path
-    });
+  test("accepts installs inside either root, at any depth", () => {
+    for (const p of [
+      join("data", "extensions", "weather"),
+      join(TMP_ROOT.root, "data", "extensions", "weather"),
+      join(TMP_ROOT.root, "data", "extensions", "weather", "nested"),
+      join(".ezcorp", "extensions", "ai-kit"),
+      join(TMP_ROOT.root, ".ezcorp", "extensions", "ai-kit"),
+      // Traversal that lands back inside a root is fine — the rule is
+      // about where the path RESOLVES, not how it is spelled.
+      join("data", "extensions", "x", "..", "weather"),
+    ]) {
+      expect(isRemovableInstallPath(p)).toBe(true);
+    }
+  });
 
-    await removeExtension("unsafe-ext");
-    expect(mockExtensions.has("unsafe-id")).toBe(false);
+  test("refuses every bundled-extension install path shape", () => {
+    // The 28 bundled entries resolve to `join(getProjectRoot(), entry.path)`.
+    for (const relPath of [
+      "docs/extensions/examples/scratchpad",
+      "docs/extensions/examples/task-tracking",
+      "extensions/ez-factory",
+      "extensions/lessons-distiller",
+      "extensions/memory-extractor",
+      "packages/@ezcorp/ai-kit",
+    ]) {
+      expect(isRemovableInstallPath(join(TMP_ROOT.root, relPath))).toBe(false);
+      expect(isRemovableInstallPath(relPath)).toBe(false);
+    }
+  });
 
-    // Verify directory was NOT removed
-    const exists = await Bun.file(join(unsafePath, "important.txt")).exists();
-    expect(exists).toBe(true);
+  test("refuses escapes, near-misses and the roots themselves", () => {
+    for (const p of [
+      "../../etc",
+      "/etc",
+      "/home/user/extensions/notes",
+      "/var/lib/extensions/",
+      join("data", "extensions-backup", "weather"),
+      join("data", "extensions"),
+      join(TMP_ROOT.root, "data", "extensions"),
+      join(TMP_ROOT.root, ".ezcorp", "extensions"),
+      // Resolves back OUT of the root.
+      join("data", "extensions", "..", "..", "etc"),
+    ]) {
+      expect(isRemovableInstallPath(p)).toBe(false);
+    }
   });
 });
 

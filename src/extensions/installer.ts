@@ -30,9 +30,79 @@ import {
   deleteExtension,
 } from "../db/queries/extensions";
 import { getSetting } from "../db/queries/settings";
-import { join } from "node:path";
+import { getProjectRoot } from "./project-root";
+import { join, resolve, sep } from "node:path";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+
+// ── Install roots ────────────────────────────────────────────────────
+
+/**
+ * Base directory for downloaded installs (`installFromGitHub`,
+ * `installFromGit`). RELATIVE by design: it resolves against
+ * `process.cwd()` — the deployment's working directory (`WORKDIR /app` in
+ * the container) — and the relative string is what gets persisted into
+ * `extensions.install_path`. One helper instead of the literal inlined at
+ * each install site, so the install writers and the uninstall containment
+ * check below cannot drift apart.
+ */
+export function downloadedExtensionsDir(): string {
+  return join("data", "extensions");
+}
+
+/**
+ * The ONLY directories `removeExtension` may delete inside of, absolute
+ * and resolved. Exactly one entry per host-owned install writer:
+ *
+ *   1. `<cwd>/data/extensions/<name>` — `installFromGitHub` /
+ *      `installFromGit` copy or `mv` the fetched tree here.
+ *   2. `<projectRoot>/.ezcorp/extensions/<name>` — `author-install.ts`
+ *      and `POST /api/import/commit` move a draft / synthesized skill
+ *      bundle here.
+ *
+ * Every OTHER `install_path` in the table points at content the host did
+ * not create and must never delete: `installFromLocal` stores the path it
+ * was handed, so bundled extensions record their GIT-TRACKED source
+ * directory (`<root>/docs/extensions/examples/<name>`,
+ * `<root>/extensions/<name>`, `<root>/packages/@ezcorp/ai-kit`) and
+ * `ezcorp ext install ./my-ext` records the user's own working copy.
+ */
+export function allowedInstallRoots(): string[] {
+  return [
+    resolve(process.cwd(), downloadedExtensionsDir()),
+    resolve(getProjectRoot(), ".ezcorp", "extensions"),
+  ];
+}
+
+/**
+ * True iff `instPath` resolves STRICTLY INSIDE one of
+ * {@link allowedInstallRoots} — the containment rule for the uninstall
+ * `rm -rf`.
+ *
+ * Every clause is load-bearing:
+ *   - `resolve(process.cwd(), …)` FIRST. The old check accepted any path
+ *     that didn't start with `/` as "relative, therefore safe", so
+ *     `../../etc` passed; and accepted any absolute path containing the
+ *     substring `/extensions/`, so `/home/user/extensions/notes` passed.
+ *     Comparing resolved paths is what makes both fail.
+ *   - `p !== root` — a row storing exactly `data/extensions` would
+ *     otherwise take out the whole install root.
+ *   - `startsWith(root + sep)`, never bare `startsWith(root)` — otherwise
+ *     `data/extensions-backup` is treated as inside `data/extensions`.
+ *
+ * Deliberately LEXICAL — no `realpath()`. `@ezcorp/ai-kit`'s dev-link flow
+ * (`packages/@ezcorp/ai-kit/src/cli/install.ts`) symlinks the package
+ * source into `<projectRoot>/.ezcorp/extensions/ai-kit`; `rm(path, {
+ * recursive, force })` unlinks that symlink and leaves its target intact,
+ * which is the correct uninstall. Resolving the link first would both
+ * refuse that legitimate removal and, if the resolved path were then
+ * deleted, destroy the linked package source.
+ */
+export function isRemovableInstallPath(instPath: string | null | undefined): boolean {
+  if (typeof instPath !== "string" || instPath.length === 0) return false;
+  const p = resolve(process.cwd(), instPath);
+  return allowedInstallRoots().some((root) => p !== root && p.startsWith(root + sep));
+}
 
 // ── Auto-enable-on-install allowlist ─────────────────────────────────
 
@@ -472,7 +542,7 @@ export async function installFromGitHub(
 
     // Copy to persistent install directory. Fail loudly — no silent fallback:
     // if this fails, the later temp-dir cleanup would leave a broken install.
-    const extBase = join("data", "extensions");
+    const extBase = downloadedExtensionsDir();
     await mkdir(extBase, { recursive: true });
     const installDir = join(extBase, manifest.name);
     const copyProc = Bun.spawnSync(["cp", "-r", manifestDir, installDir], {
@@ -583,7 +653,7 @@ export async function installFromGit(
     }
 
     // Move to persistent install directory
-    const extBase = opts?.extensionsDir ?? join("data", "extensions");
+    const extBase = opts?.extensionsDir ?? downloadedExtensionsDir();
     const installDir = join(extBase, installName);
     const mvProc = Bun.spawnSync(["mv", cloneDest, installDir], {
       env: { ...process.env },
@@ -773,15 +843,27 @@ export async function removeExtension(name: string): Promise<void> {
   // Delete DB record
   await deleteExtension(ext.id);
 
-  // Remove install directory (safety check: must be under data/extensions/ or a temp path).
-  // MCP-kind extensions have no installPath — skip.
+  // Remove the install directory — ONLY when it resolves strictly inside
+  // an allowed install root (`isRemovableInstallPath`). Anything else is
+  // content the host never created: a bundled extension's git-tracked
+  // source tree, or the working copy a user pointed `ext install` at.
+  // MCP-kind extensions have no installPath — nothing to remove, nothing
+  // to warn about.
   const instPath = ext.installPath;
-  if (instPath && !instPath.startsWith("/")) {
-    // Relative path like data/extensions/... — safe to remove
-    await rm(instPath, { recursive: true, force: true }).catch(() => {});
-  } else if (instPath?.includes("/extensions/")) {
-    // Absolute path containing /extensions/ — safe to remove
-    await rm(instPath, { recursive: true, force: true }).catch(() => {});
+  if (instPath) {
+    if (isRemovableInstallPath(instPath)) {
+      await rm(instPath, { recursive: true, force: true }).catch(() => {});
+    } else {
+      // Never silent: the row is gone but the files are not, and an
+      // operator who expected a full uninstall needs to know which path
+      // was kept and why.
+      console.warn(
+        `[installer] Extension "${name}": unregistered, but its install path ` +
+          `"${instPath}" was NOT deleted — it is not inside an allowed install ` +
+          `root (${allowedInstallRoots().join(", ")}). Remove the files by hand ` +
+          `if they are yours to remove.`,
+      );
+    }
   }
 
   try {
