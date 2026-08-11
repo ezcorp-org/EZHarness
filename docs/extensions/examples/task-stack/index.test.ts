@@ -129,39 +129,41 @@ describe("resolveProjectRoot", () => {
     expect(result).toBe("/tmp");
   });
 
-  // Convention: all extension data under
-  // <projectRoot>/.ezcorp/extension-data/<ext-name>/ — never under web/.
+  // The walk must leave the `web/` SEGMENT and land on the `.git` root, which
+  // is what puts extension data at <projectRoot>/.ezcorp/extension-data/<name>/
+  // instead of under web/.
   //
   // Built on a SYNTHETIC tree rather than this repo's own cwd, on purpose. The
   // original form asserted `expect(expected).not.toContain("web/.ezcorp")`
   // against an ABSOLUTE path, which also matched any checkout directory whose
   // name merely ENDS in "web" (a worktree at .../ez-passfail-web reds it), so
   // it failed on where the repo happens to live rather than on the behaviour
-  // it names. Its replacement, `expect(basename(root)).not.toBe("web")`, was
-  // path-independent but tautological — it never exercised the walk-up at all.
+  // it names. Its replacement, `expect(basename(root)).not.toBe("web")`, ran
+  // the walk but asserted nothing the walk could get wrong.
   //
-  // A fixture root whose name deliberately ENDS in "web" pins the exact
-  // regression: the walk must leave the `web/` SEGMENT, and must not care what
-  // any ancestor is spelled.
-  test("store path resolves to project root, not the web/ subdirectory", () => {
+  // A fixture root whose name deliberately ENDS in "web" pins the regression.
+  // Asserting the resolved root EQUALS the fixture root is what gives the test
+  // teeth: it also catches a walk that accepts only a `.git` DIRECTORY and so
+  // climbs past a worktree's `.git` FILE to some ancestor repo.
+  test("resolves out of the web/ subdirectory to the .git root", () => {
     const ORIG = process.env.EZCORP_PROJECT_ROOT;
-    // Step 1 of resolveProjectRoot is the host-injected env var; it would
-    // short-circuit the fs walk this test is about.
-    delete process.env.EZCORP_PROJECT_ROOT;
-    const tmp = mkdtempSync(join(tmpdir(), "task-stack-root-"));
-    const projectRoot = join(tmp, "fixture-web");
-    mkdirSync(join(projectRoot, "web", "src"), { recursive: true });
-    // A .git FILE, not a directory — that is what a git worktree has, and
-    // resolveProjectRoot's existsSync accepts either.
-    writeFileSync(join(projectRoot, ".git"), "gitdir: /nowhere\n");
+    // Everything that can throw goes inside the try, so a failed mkdtemp
+    // cannot leave the env var deleted for the rest of the file or leak the
+    // fixture dir.
+    let tmp: string | undefined;
     try {
-      const root = resolveProjectRoot(join(projectRoot, "web", "src"));
-      expect(root).toBe(projectRoot);
-      expect(join(root, ".ezcorp", "extension-data", "task-stack", "task-stack.json")).toBe(
-        join(projectRoot, ".ezcorp", "extension-data", "task-stack", "task-stack.json"),
-      );
+      // Step 1 of resolveProjectRoot is the host-injected env var; it would
+      // short-circuit the fs walk this test is about.
+      delete process.env.EZCORP_PROJECT_ROOT;
+      tmp = mkdtempSync(join(tmpdir(), "task-stack-root-"));
+      const projectRoot = join(tmp, "fixture-web");
+      mkdirSync(join(projectRoot, "web", "src"), { recursive: true });
+      // A .git FILE, not a directory — that is what a git worktree has, and
+      // resolveProjectRoot's existsSync accepts either.
+      writeFileSync(join(projectRoot, ".git"), "gitdir: /nowhere\n");
+      expect(resolveProjectRoot(join(projectRoot, "web", "src"))).toBe(projectRoot);
     } finally {
-      rmSync(tmp, { recursive: true, force: true });
+      if (tmp !== undefined) rmSync(tmp, { recursive: true, force: true });
       if (ORIG === undefined) delete process.env.EZCORP_PROJECT_ROOT;
       else process.env.EZCORP_PROJECT_ROOT = ORIG;
     }
