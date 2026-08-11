@@ -83,7 +83,13 @@ never diverge. It does two things:
 gauge at 42% while compaction was already dropping turns. The numerator is
 `inputTokens + cacheReadTokens + cacheWriteTokens` — cached tokens still
 occupy the window, and counting only the fresh ones made the danger bucket
-unreachable on any provider with prompt caching on. The denominator is keyed
+unreachable on any provider with prompt caching on. **`contextUsedTokens` is
+the ONE definition of that sum**, and the popover's Input/Total rows go through
+it too (`computeBreakdown` takes the whole usage row, never a loose
+`inputTokens`). They used to read the raw field and rendered "Total 8.5k
+tokens" directly above "160k / 168k used" — the same turn, described two ways,
+off by 19x. The same undercount fed `computeToolBreakdown`'s denominator, so
+per-tool rows could claim several hundred percent of a turn. The denominator is keyed
 to the model that **served** the turn (read off the assistant row), not the
 model in the picker, which survives conversation switches and is seeded from a
 global `localStorage` preference.

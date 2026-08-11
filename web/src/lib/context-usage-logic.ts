@@ -266,6 +266,16 @@ function positive(n: number | null | undefined): number {
 	return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/** The normalised usage row {@link pickLastTurnUsage} produces. */
+export type TurnUsage = NonNullable<ReturnType<typeof pickLastTurnUsage>>;
+
+/** The token fields that describe what a turn OCCUPIED — the only input both
+ *  the gauge's numerator and the popover's breakdown are allowed to read. */
+export type TurnTokens = Pick<
+	TurnUsage,
+	"inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens"
+>;
+
 /**
  * Tokens actually occupying the context window this turn.
  *
@@ -277,10 +287,7 @@ function positive(n: number | null | undefined): number {
  * tokens still occupy the window; they are merely cheaper.
  */
 export function contextUsedTokens(
-	usage: Pick<
-		NonNullable<ReturnType<typeof pickLastTurnUsage>>,
-		"inputTokens" | "cacheReadTokens" | "cacheWriteTokens"
-	> | null,
+	usage: Pick<TurnTokens, "inputTokens" | "cacheReadTokens" | "cacheWriteTokens"> | null,
 ): number | null {
 	if (!usage) return null;
 	return usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
@@ -555,15 +562,27 @@ export function groupToolBreakdown(
  * Build the popover breakdown: input vs output share of the last assistant
  * turn, plus an estimated tool-call slice. Returns null when we don't yet
  * have a turn with usage to report.
+ *
+ * Takes the whole usage row rather than a loose `inputTokens`, and routes it
+ * through {@link contextUsedTokens}, so the popover cannot hold a second
+ * opinion about what "input" means. It used to take the raw field, which is
+ * the FRESH, non-cached prompt only: on a cached thread the panel reported
+ * "Total 8.5k tokens" directly above a summary line reading "160k / 168k
+ * used" — the same turn, off by 19x, in one popover. Cached tokens occupy the
+ * window like any other; they are merely cheaper.
+ *
+ * The tool-call clamp inherits the same correction. Clamping to the fresh
+ * slice crushed the tool share on exactly the threads where tool payloads
+ * dominate, since a re-sent tool result is precisely the kind of prefix that
+ * gets served from cache.
  */
 export function computeBreakdown(
-	inputTokens: number | null | undefined,
-	outputTokens: number | null | undefined,
+	usage: TurnTokens | null,
 	toolTokens: number,
 ): ContextBreakdown | null {
-	if (inputTokens == null || !Number.isFinite(inputTokens) || inputTokens <= 0) return null;
-	const inp = inputTokens;
-	const out = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens > 0 ? outputTokens : 0;
+	const inp = contextUsedTokens(usage);
+	if (inp == null || !Number.isFinite(inp) || inp <= 0) return null;
+	const out = positive(usage?.outputTokens);
 	const tools = Number.isFinite(toolTokens) && toolTokens > 0 ? Math.min(toolTokens, inp) : 0;
 	const total = inp + out;
 	return {

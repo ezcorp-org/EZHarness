@@ -709,12 +709,12 @@
 			nextTurnModel,
 		),
 	);
+	// The whole usage row, not `inputTokens` — the breakdown counts cached
+	// tokens through the same `contextUsedTokens` the gauge uses, so the panel
+	// and the summary line under it can no longer describe the same turn
+	// differently.
 	let contextBreakdown = $derived(
-		computeBreakdown(
-			lastTurnUsage?.inputTokens ?? null,
-			lastTurnUsage?.outputTokens ?? null,
-			estimateToolCallTokens(inlineCalls),
-		),
+		computeBreakdown(lastTurnUsage, estimateToolCallTokens(inlineCalls)),
 	);
 	let contextToolBreakdown = $derived(
 		computeToolBreakdown(inlineCalls, contextBreakdown?.totalTokens ?? 0),
