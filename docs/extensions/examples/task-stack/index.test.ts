@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, beforeEach, afterAll, describe, spyOn } from "bun:test";
-import { join } from "path";
+import { basename, join } from "path";
 import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
 import {
   loadStore, saveStore, genId, ensureStack, getStackTasks, reindex,
@@ -133,7 +133,13 @@ describe("resolveProjectRoot", () => {
     // STORE_DIR should be under project root, not under web/
     // Convention: all extension data under .ezcorp/extension-data/<ext-name>/
     const expected = join(root, ".ezcorp", "extension-data", "task-stack", "task-stack.json");
-    expect(expected).not.toContain("web/.ezcorp");
+    // Assert on the resolved ROOT, not on a substring of the absolute path.
+    // The old `expect(expected).not.toContain("web/.ezcorp")` also matched any
+    // CHECKOUT DIRECTORY whose name merely ends in "web" — a worktree at
+    // .../worktrees/ez-passfail-web reds it — so it failed on where the repo
+    // happens to live rather than on the behaviour it names. That is a real
+    // gate hazard now that the examples tree is pass/fail-gated (wave 4).
+    expect(basename(root)).not.toBe("web");
     expect(expected).toContain(join(".ezcorp", "extension-data", "task-stack"));
   });
 });
