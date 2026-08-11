@@ -112,6 +112,7 @@
       "web/e2e/workflows-demos.spec.ts",
       "web/e2e/workflows-editor.spec.ts",
       "web/e2e/workflows-fork.spec.ts",
+      "web/e2e/workflows-run-output.spec.ts",
       "web/e2e/workflows-run-trace.spec.ts"
     ],
     "docker": [

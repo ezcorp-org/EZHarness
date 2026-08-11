@@ -77,7 +77,11 @@ test.describe("Workflows", () => {
 		});
 		await page.goto("/workflows/my-workflow");
 
-		await expect(page.getByText("Steps")).toBeVisible();
+		// The HEADING, not the text. "Edit steps" — the inline-editor button
+		// beside it — also contains "Steps", so a bare `getByText` is a
+		// strict-mode violation. Red on `main` before this change; unrelated
+		// to it, fixed here rather than left.
+		await expect(page.getByRole("heading", { name: "Steps" })).toBeVisible();
 		await expect(page.getByText("extract", { exact: true })).toBeVisible();
 		await expect(page.getByText("extractor")).toBeVisible();
 		await expect(page.getByText("transform", { exact: true })).toBeVisible();

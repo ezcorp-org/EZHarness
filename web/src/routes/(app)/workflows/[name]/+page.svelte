@@ -2,22 +2,104 @@
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
-	import { triggerWorkflowRun, deleteWorkflow, updateWorkflow, forkWorkflow } from "$lib/api.js";
+	import {
+		triggerWorkflowRun,
+		deleteWorkflow,
+		updateWorkflow,
+		forkWorkflow,
+		fetchWorkflowRuns,
+		fetchWorkflowRunTrace,
+		type WorkflowRunSummary,
+	} from "$lib/api.js";
 	import {
 		statusColor,
 		kindLabel,
 		runErrorText,
+		runOutput,
 		modelBindingLabel,
 		stepModelBinding,
 		resolvedModelLabel,
 	} from "$lib/workflow-run-display.js";
+	import { isLiveRun, type RunTrace } from "$lib/workflow-trace-logic.js";
+	import { mergeRunHistory } from "$lib/workflow-run-history.js";
+	import { relativeTime } from "$lib/utils/relative-time.js";
 	import { duplicateName } from "$lib/workflow-builder-logic.js";
 	import { inputClass } from "$lib/styles.js";
 	import WorkflowBuilder from "$lib/components/WorkflowBuilder.svelte";
+	import RunPayload from "$lib/components/workflows/RunPayload.svelte";
 
 	let workflowName = $derived(page.params.name);
 	let workflow = $derived(store.workflows.find((w) => w.name === workflowName));
-	let runs = $derived(store.workflowRuns.filter((r) => r.workflowName === workflowName));
+
+	// ── Run history ─────────────────────────────────────────────────
+	// TWO sources, and the page used to have only the second. `store
+	// .workflowRuns` is filled from live `workflow:*` SSE frames alone, so
+	// history existed only for as long as the tab stayed open: a reload
+	// showed "No runs yet" over a full `workflow_runs` table. The persisted
+	// half is fetched here; `mergeRunHistory` reconciles the two wire
+	// shapes and decides who wins a collision.
+	let persistedRuns = $state<WorkflowRunSummary[]>([]);
+	let historyError = $state("");
+	let runs = $derived(
+		mergeRunHistory(
+			persistedRuns,
+			store.workflowRuns.filter((r) => r.workflowName === workflowName),
+		),
+	);
+
+	$effect(() => {
+		void loadHistory(workflowName ?? "");
+	});
+
+	async function loadHistory(name: string) {
+		if (!name) return;
+		historyError = "";
+		try {
+			const loaded = await fetchWorkflowRuns(name);
+			// The name can have moved on while this was in flight (a rename
+			// redirect, a click straight through the list). Assigning anyway
+			// would paint one workflow's runs under another's heading.
+			if (name === workflowName) persistedRuns = loaded;
+		} catch (e) {
+			if (name === workflowName) {
+				historyError = e instanceof Error ? e.message : "Failed to load run history";
+			}
+		}
+	}
+
+	// ── The output of one run ───────────────────────────────────────
+	// Fetched per run, on open, from the authorized trace endpoint. The
+	// list projection deliberately carries no `result` (it is an uncapped
+	// payload, and 50 of them on a page nobody has asked the question on
+	// yet is the wrong trade), so this is the one place it can come from.
+	let openRunId = $state<string | null>(null);
+	let traces = $state<Record<string, RunTrace>>({});
+	let traceErrors = $state<Record<string, string>>({});
+	let traceLoading = $state<string | null>(null);
+
+	async function toggleOutput(id: string, status: string) {
+		if (openRunId === id) {
+			openRunId = null;
+			return;
+		}
+		openRunId = id;
+		// A terminal run's trace cannot change, so it is answered from the
+		// cache. A LIVE one's result is still being written, and serving a
+		// stale copy of it is worse than the round trip.
+		if (traces[id] && !isLiveRun(status)) return;
+		traceLoading = id;
+		traceErrors = { ...traceErrors, [id]: "" };
+		try {
+			traces = { ...traces, [id]: await fetchWorkflowRunTrace(id) };
+		} catch (e) {
+			traceErrors = {
+				...traceErrors,
+				[id]: e instanceof Error ? e.message : "Failed to load this run's output",
+			};
+		} finally {
+			traceLoading = null;
+		}
+	}
 
 	// Server-resolved by the ownership ladder's `edit` rung — `source === "db"`
 	// AND (admin, or the owner of a `private`/`project` row). A `system` row is
@@ -484,18 +566,55 @@
 		</div>
 		{/if}
 
+		<!-- ── Run History ────────────────────────────────────────────
+		     Persisted rows plus whatever is streaming in live. It used to be
+		     the live half alone, which meant a reload emptied the section
+		     and a run's OUTPUT — the thing you ran it for — appeared
+		     nowhere in the product. -->
+		{#if historyError}
+			<p class="text-sm text-red-400" data-testid="run-history-error">
+				Could not load run history: {historyError}
+			</p>
+		{/if}
 		{#if runs.length > 0}
 			<section>
 				<h3 class="mb-3 text-lg font-semibold text-[var(--color-text-primary)]">Run History</h3>
 				<div class="space-y-2">
 					{#each runs as run (run.id)}
-						<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
-							<div class="flex items-center gap-2">
+						{@const trace = traces[run.id]}
+						<!-- The live frame carries the result; a persisted row does not,
+						     so its message arrives with the trace the reader opens. One
+						     reader over whichever source has it, never two error lines. -->
+						{@const errorText = runErrorText({ status: run.status, result: trace ? trace.run.result : run.result })}
+						<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" data-testid="run-row">
+							<div class="flex flex-wrap items-center gap-2">
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{run.id.slice(0, 8)}</span>
 								<span class="rounded bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs {statusColor(run.status)}">{run.status}</span>
+								{#if run.startedAt > 0}
+									<span class="text-xs text-[var(--color-text-muted)]" data-testid="run-started">{relativeTime(run.startedAt)}</span>
+								{/if}
+								<!-- Pushed to the right so the two actions read as a pair and
+								     the identity of the run stays the left-hand column. -->
+								<span class="ml-auto flex items-center gap-2">
+									<button
+										type="button"
+										onclick={() => toggleOutput(run.id, run.status)}
+										aria-expanded={openRunId === run.id}
+										data-testid="run-output-toggle"
+										class="rounded-md bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-border)]"
+									>
+										{openRunId === run.id ? "Hide output" : "Output"}
+									</button>
+									<a
+										href="/workflows/runs/{run.id}"
+										data-testid="run-trace-link"
+										title="Per-step timings, tokens, cost and payloads"
+										class="text-xs text-[var(--color-accent)] underline-offset-2 hover:underline"
+									>Full trace →</a>
+								</span>
 							</div>
-							{#if runErrorText(run)}
-								<p class="mt-2 text-xs {statusColor(run.status)}" data-testid="run-error">{runErrorText(run)}</p>
+							{#if errorText}
+								<p class="mt-2 text-xs {statusColor(run.status)}" data-testid="run-error">{errorText}</p>
 							{/if}
 							{#if run.steps.length > 0}
 								<div class="mt-2 space-y-1">
@@ -514,11 +633,25 @@
 									{/each}
 								</div>
 							{/if}
+							<!-- Collapsed until asked for: a workflow's output can be a
+							     whole document, and 25 of them stacked would bury the
+							     history this list is for. -->
+							{#if openRunId === run.id}
+								<div class="mt-3 border-t border-[var(--color-border)] pt-3" data-testid="run-output-panel">
+									{#if traceLoading === run.id}
+										<p class="text-xs text-[var(--color-text-muted)]" data-testid="run-output-loading">Loading output…</p>
+									{:else if traceErrors[run.id]}
+										<p class="text-xs text-red-400" data-testid="run-output-error">{traceErrors[run.id]}</p>
+									{:else if trace}
+										<RunPayload label="Output" value={runOutput(trace.run.result)} testId="run-output" />
+									{/if}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
 			</section>
-		{:else}
+		{:else if !historyError}
 			<p class="text-[var(--color-text-muted)]">No runs yet — trigger one above.</p>
 		{/if}
 	{:else}

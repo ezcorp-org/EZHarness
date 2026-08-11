@@ -51,14 +51,24 @@ test.describe("Workflows — detail action bar @evidence", () => {
 		const dividerBox = await divider.boundingBox();
 		const deleteBox = await page.getByTestId("workflow-delete").boundingBox();
 		const duplicateBox = await page.getByTestId("workflow-duplicate").boundingBox();
-		expect(dividerBox).not.toBeNull();
 		expect(deleteBox).not.toBeNull();
 		expect(duplicateBox).not.toBeNull();
-		// The divider sits between them on the x axis.
-		expect(dividerBox!.x).toBeGreaterThan(duplicateBox!.x + duplicateBox!.width);
-		expect(deleteBox!.x).toBeGreaterThan(dividerBox!.x);
-		// And the resulting gap is wider than the plain 8px inter-pill gap.
-		expect(deleteBox!.x - (duplicateBox!.x + duplicateBox!.width)).toBeGreaterThan(8);
+		// Everywhere: the destructive control comes LAST in reading order, so
+		// it is never the pill a thumb lands on by accident.
+		expect(deleteBox!.y > duplicateBox!.y || deleteBox!.x > duplicateBox!.x).toBe(true);
+
+		// The divider itself is `hidden … sm:block` — a hairline rule is
+		// noise on a narrow, wrapping row — so BELOW `sm` it is attached with
+		// no box, and geometry over it would be geometry over nothing. This
+		// used to assert the box unconditionally and was therefore red on
+		// mobile-chromium against the page as designed.
+		if (dividerBox !== null) {
+			// The divider sits between them on the x axis.
+			expect(dividerBox.x).toBeGreaterThan(duplicateBox!.x + duplicateBox!.width);
+			expect(deleteBox!.x).toBeGreaterThan(dividerBox.x);
+			// And the resulting gap is wider than the plain 8px inter-pill gap.
+			expect(deleteBox!.x - (duplicateBox!.x + duplicateBox!.width)).toBeGreaterThan(8);
+		}
 
 		await captureEvidence(page, testInfo, "workflow-action-bar-editable");
 	});

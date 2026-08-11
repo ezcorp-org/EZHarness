@@ -21,6 +21,7 @@ import {
 	modelBindingLabel,
 	resolvedModelLabel,
 	runErrorText,
+	runOutput,
 	statusColor,
 	stepModelBinding,
 } from "./workflow-run-display.js";
@@ -169,6 +170,44 @@ describe("runErrorText — tolerates every payload shape the backend emits", () 
 		// The specific ones that must be EMPTY (nothing usable to show).
 		expect(runErrorText({ status: "error" } as never)).toBe("");
 		expect(runErrorText({ status: "error", result: { error: 7 } } as never)).toBe("");
+	});
+});
+
+describe("runOutput — the invariants a payload pane relies on", () => {
+	test("the OUTPUT half is what surfaces, for every status the run can hold", () => {
+		// `success` is already on screen as the status and `error` has
+		// `runErrorText`; returning the wrapper would bury a one-line answer
+		// under two fields the page has already rendered. This holds across
+		// the whole status domain because the function never reads `status` —
+		// which is the property that keeps a PARKED run's handoff payload
+		// (recorded on purpose by the executor) visible.
+		for (const status of STATUSES) {
+			expect(runOutput({ success: status === "success", output: "the answer" })).toBe("the answer");
+		}
+	});
+
+	test("'no result' and 'a result of null' stay distinguishable", () => {
+		// The pane renders the first as "not recorded" and the second as a
+		// measured null. Collapsing them would turn a gap into a value, which
+		// is the one thing this whole surface exists to avoid.
+		expect(runOutput(undefined)).toBeUndefined();
+		expect(runOutput(null)).toBeUndefined();
+		expect(runOutput({ success: true, output: null })).toBeNull();
+	});
+
+	test("a falsy output is never mistaken for an absent one", () => {
+		// A `??`/`||` in here would swallow every one of these.
+		for (const falsy of ["", 0, false, null]) {
+			expect(runOutput({ success: true, output: falsy })).toBe(falsy);
+		}
+	});
+
+	test("a shape the executor does not produce is returned WHOLE, never dropped", () => {
+		// Showing something unexpected beats showing "not recorded" over a
+		// value that plainly exists.
+		for (const odd of ["a bare string", 42, [1, 2], { note: "no output key" }]) {
+			expect(runOutput(odd)).toEqual(odd);
+		}
 	});
 });
 

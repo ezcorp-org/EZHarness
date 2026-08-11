@@ -242,22 +242,33 @@ export function isTruncated(value: unknown): value is { __truncated: true; bytes
 }
 
 /**
- * How a payload cell should render: a JSON block, the truncation notice,
- * or nothing at all.
+ * How a payload cell should render: prose, a JSON block, the truncation
+ * notice, or nothing at all.
  *
  * Returned as a tagged union rather than a pre-rendered string so the
- * template can style the three cases differently — and so the truncation
- * case cannot be mistaken for a payload that happens to contain the word
+ * template can style the cases differently — and so the truncation case
+ * cannot be mistaken for a payload that happens to contain the word
  * "truncated".
  */
 export type PayloadView =
   | { kind: "absent" }
   | { kind: "truncated"; bytes: number }
+  | { kind: "text"; text: string }
   | { kind: "json"; text: string };
 
+/**
+ * **A string payload is shown VERBATIM, never JSON-encoded.** The commonest
+ * payload on this surface is an agent step's answer, which is prose: run it
+ * through `JSON.stringify` and it arrives as one quoted line with every
+ * newline as a literal `\n` and every quote backslashed — the exact value
+ * the reader opened the panel for, made unreadable. Everything else keeps
+ * the indented JSON block, including a bare number or boolean, whose type
+ * is the interesting part.
+ */
 export function payloadView(value: unknown): PayloadView {
   if (value === null || value === undefined) return { kind: "absent" };
   if (isTruncated(value)) return { kind: "truncated", bytes: value.bytes };
+  if (typeof value === "string") return { kind: "text", text: value };
   return { kind: "json", text: JSON.stringify(value, null, 2) };
 }
 
