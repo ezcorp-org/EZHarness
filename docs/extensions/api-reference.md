@@ -135,6 +135,8 @@ ezcorp ext remove weather-tool
 
 If other installed extensions declare `name` as a dependency, removal is refused (prints an error and exits `1`) unless `--force` is passed.
 
+The install directory is deleted only when it resolves strictly inside a directory the host installs into itself: `data/extensions/` (git/GitHub installs), `<projectRoot>/.ezcorp/extensions/` (authored extensions), or `<project.path>/.ezcorp/extensions/` for any registered project (skills imported via `POST /api/import/commit`, which installs under the *selected project's* path — not the platform project root). Anything else is content the host never created: an extension installed from a local path records that path, so a bundled/reference extension's row points at its git-tracked source directory. Those are always unregistered but never deleted, and the refusal is logged with the path it kept (`src/extensions/install-roots.ts`, `isRemovableInstallPath`).
+
 ---
 
 ### `ezcorp ext info`

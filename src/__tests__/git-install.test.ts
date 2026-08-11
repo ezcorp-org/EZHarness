@@ -5,7 +5,7 @@
  * Mocks the DB layer to isolate installer logic.
  */
 
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { mkdtemp, rm, mkdir } from "fs/promises";
 import { join } from "path";
@@ -535,20 +535,48 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
 // ── Remove tests ──────────────────────────────────────────────────────
 
 describe("removeExtension", () => {
-  test("removes extension from DB and cleans up files", async () => {
-    const _ext = await installFromGit(
+  /** Run an uninstall and capture what `console.warn` saw. */
+  async function removeCapturingWarnings(name: string): Promise<string[]> {
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+    try {
+      await removeExtension(name);
+    } finally {
+      warnSpy.mockRestore();
+    }
+    return warnings;
+  }
+
+  test("unregisters the extension but keeps files installed outside the allowed roots", async () => {
+    // This suite installs into a throwaway `extensionsDir` (only the
+    // test-only `__EZCORP_TEST_EXTENSIONS_DIR` sets that in production
+    // code — a real git install lands in `data/extensions/`). That temp
+    // base is NOT one of the two allowed install roots, so containment
+    // refuses the delete and says so instead of silently `rm -rf`ing a
+    // directory the host does not own. Removal of a genuinely-contained
+    // install is asserted in installer-coverage.test.ts.
+    const ext = await installFromGit(
       `file://${bareRepoDir}@v1.0.0`,
       defaultPerms,
       { extensionsDir: installBase },
     );
+    expect(await Bun.file(join(ext.installPath, "ezcorp.config.ts")).exists()).toBe(true);
 
-    await removeExtension("test-git-ext");
+    const warnings = await removeCapturingWarnings("test-git-ext");
 
     // Verify DB record gone
     const remaining = Array.from(mockExtensions.values()).find(
       (e: any) => e.name === "test-git-ext",
     );
     expect(remaining).toBeUndefined();
+
+    // Files kept, refusal logged with the path it kept.
+    expect(await Bun.file(join(ext.installPath, "ezcorp.config.ts")).exists()).toBe(true);
+    expect(warnings.some((w) => w.includes(ext.installPath) && w.includes("was NOT deleted"))).toBe(
+      true,
+    );
   });
 
   test("throws if extension not found", async () => {
@@ -556,26 +584,40 @@ describe("removeExtension", () => {
   });
 
   test("does not remove install path outside extensions directory", async () => {
-    // Simulate an extension whose installPath is an absolute path NOT containing /extensions/
-    const dangerousPath = join(tempBase, "precious-data");
-    await mkdir(dangerousPath, { recursive: true });
-    await Bun.write(join(dangerousPath, "important.txt"), "do not delete");
+    // Two shapes the pre-containment check got wrong, both absolute:
+    // one with no `/extensions/` substring (which it did refuse) and one
+    // WITH it (`/…/extensions/precious-ext`, which it happily deleted —
+    // this is the shape every bundled extension's row has).
+    const cases = [
+      { id: "dangerous-id", name: "dangerous-ext", dir: join(tempBase, "precious-data") },
+      {
+        id: "substring-id",
+        name: "substring-ext",
+        dir: join(tempBase, "someone-elses", "extensions", "precious-ext"),
+      },
+    ];
 
-    extStore.seed({
-      id: "dangerous-id",
-      name: "dangerous-ext",
-      source: `file://${bareRepoDir}`,
-      version: "1.0.0",
-      installPath: dangerousPath, // absolute path without /extensions/
-    });
+    for (const { id, name, dir } of cases) {
+      await mkdir(dir, { recursive: true });
+      await Bun.write(join(dir, "important.txt"), "do not delete");
 
-    await removeExtension("dangerous-ext");
+      extStore.seed({
+        id,
+        name,
+        source: `file://${bareRepoDir}`,
+        version: "1.0.0",
+        installPath: dir,
+      });
 
-    // DB record should be gone
-    expect(mockExtensions.has("dangerous-id")).toBe(false);
+      const warnings = await removeCapturingWarnings(name);
 
-    // But the directory should NOT have been removed (safety check)
-    const file = Bun.file(join(dangerousPath, "important.txt"));
-    expect(await file.exists()).toBe(true);
+      // DB record should be gone
+      expect(mockExtensions.has(id)).toBe(false);
+
+      // But the directory should NOT have been removed (containment)
+      const file = Bun.file(join(dir, "important.txt"));
+      expect(await file.exists()).toBe(true);
+      expect(warnings.some((w) => w.includes(dir) && w.includes("was NOT deleted"))).toBe(true);
+    }
   });
 });

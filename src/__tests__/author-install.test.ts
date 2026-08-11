@@ -13,12 +13,14 @@ import {
   mkdirSync,
   writeFileSync,
   existsSync,
-  rmSync,
   readFileSync,
   readdirSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  useTempProjectRoot,
+  type TempProjectRoot,
+} from "./helpers/temp-project-root";
 
 // ── Mutable test doubles (swapped per test) ────────────────────────
 let draftRow: Record<string, unknown> | undefined;
@@ -121,9 +123,16 @@ const { installAuthoredDraft, AuthorInstallError } = await import(
 );
 
 let TMP = "";
+let tmpRoot: TempProjectRoot | undefined;
 
-/** Build `<tmp>/.ezcorp/extension-data/extension-author/drafts/<u>/<d>`
- *  so dirname^6 resolves the project root to `<tmp>`. */
+/** Build the draft dir the real resolver would produce under `<tmp>`,
+ *  `<tmp>/.ezcorp/extension-data/extension-author/drafts/<u>/<d>`. The
+ *  install base is resolved independently, from `getProjectRoot()` —
+ *  which `useTempProjectRoot` pins to the same `<tmp>` (it used to be
+ *  recovered by walking six `dirname()`s back up THIS path, so a test
+ *  could keep its writes in tmp while `getProjectRoot()` still pointed
+ *  at the checkout — and did, until author-install started asking the
+ *  resolver directly). */
 function seed(opts: {
   kind?: string;
   type?: string;
@@ -153,8 +162,8 @@ function seed(opts: {
 }
 
 beforeEach(() => {
-  TMP = join(tmpdir(), `ai-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-  mkdirSync(TMP, { recursive: true });
+  tmpRoot = useTempProjectRoot("ai-install-");
+  TMP = tmpRoot.root;
   draftRow = undefined;
   consumeCalls = [];
   updateCalls = [];
@@ -169,7 +178,10 @@ beforeEach(() => {
   failBackupCleanup = false;
 });
 afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* */ }
+  // `cleanup()` restores cwd + the project-root override and removes the
+  // dir (the LINKS it made, never their targets).
+  tmpRoot?.cleanup();
+  tmpRoot = undefined;
 });
 
 async function code(p: Promise<unknown>): Promise<string> {

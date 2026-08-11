@@ -30,9 +30,37 @@ import {
   deleteExtension,
 } from "../db/queries/extensions";
 import { getSetting } from "../db/queries/settings";
-import { join } from "node:path";
+import { listProjects } from "../db/queries/projects";
+import {
+  allowedInstallRoots,
+  downloadedExtensionsDir,
+  isRemovableInstallPath,
+} from "./install-roots";
+import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+
+/**
+ * Registered project roots, for the uninstall containment check —
+ * `POST /api/import/commit` installs into `<project.path>/.ezcorp/extensions/`,
+ * so those directories are host-created and removable (see
+ * `allowedInstallRoots`).
+ *
+ * Returns `[]` when the DB is unreachable: `getDb()` THROWS on an
+ * uninitialized connection rather than lazily booting one, so this costs
+ * nothing (and touches no filesystem) in a CLI run before `initDb` or in
+ * a unit test with the DB layer stubbed. The consequence of the empty
+ * fallback is a refused delete, never a wrong one.
+ */
+async function registeredProjectPaths(): Promise<string[]> {
+  try {
+    const rows = await listProjects();
+    return rows.map((row) => row.path).filter((path) => path.length > 0);
+  } catch {
+    return [];
+  }
+}
 
 // ── Auto-enable-on-install allowlist ─────────────────────────────────
 
@@ -472,7 +500,7 @@ export async function installFromGitHub(
 
     // Copy to persistent install directory. Fail loudly — no silent fallback:
     // if this fails, the later temp-dir cleanup would leave a broken install.
-    const extBase = join("data", "extensions");
+    const extBase = downloadedExtensionsDir();
     await mkdir(extBase, { recursive: true });
     const installDir = join(extBase, manifest.name);
     const copyProc = Bun.spawnSync(["cp", "-r", manifestDir, installDir], {
@@ -583,7 +611,7 @@ export async function installFromGit(
     }
 
     // Move to persistent install directory
-    const extBase = opts?.extensionsDir ?? join("data", "extensions");
+    const extBase = opts?.extensionsDir ?? downloadedExtensionsDir();
     const installDir = join(extBase, installName);
     const mvProc = Bun.spawnSync(["mv", cloneDest, installDir], {
       env: { ...process.env },
@@ -773,15 +801,50 @@ export async function removeExtension(name: string): Promise<void> {
   // Delete DB record
   await deleteExtension(ext.id);
 
-  // Remove install directory (safety check: must be under data/extensions/ or a temp path).
-  // MCP-kind extensions have no installPath — skip.
+  // Remove the install directory — ONLY when it resolves strictly inside
+  // an allowed install root (`isRemovableInstallPath`). Anything else is
+  // content the host never created: a bundled extension's git-tracked
+  // source tree, or the working copy a user pointed `ext install` at.
+  // MCP-kind extensions have no installPath — nothing to remove, nothing
+  // to warn about.
   const instPath = ext.installPath;
-  if (instPath && !instPath.startsWith("/")) {
-    // Relative path like data/extensions/... — safe to remove
-    await rm(instPath, { recursive: true, force: true }).catch(() => {});
-  } else if (instPath?.includes("/extensions/")) {
-    // Absolute path containing /extensions/ — safe to remove
-    await rm(instPath, { recursive: true, force: true }).catch(() => {});
+  if (instPath) {
+    const projectPaths = await registeredProjectPaths();
+    // `rm` the RESOLVED path, not the raw one — the same string the
+    // predicate decided on. They agree today; spelling it once means a
+    // future normalization step cannot make the check and the delete
+    // disagree about which directory is meant.
+    const resolved = resolve(process.cwd(), instPath);
+    if (isRemovableInstallPath(instPath, projectPaths)) {
+      if (existsSync(resolved)) {
+        await rm(resolved, { recursive: true, force: true }).catch(() => {});
+      } else {
+        // A RELATIVE install_path always resolves under the CURRENT cwd,
+        // so it always passes containment — even when the directory it
+        // names is somewhere else entirely. That happens whenever the
+        // removing process' cwd differs from the installing one's (dev
+        // from `web/`, container from `/app`), and `force: true` makes
+        // the miss silent. Say it out loud instead: the real directory is
+        // still on disk, and nothing else will mention it.
+        console.warn(
+          `[installer] Extension "${name}": install path "${instPath}" resolved ` +
+            `to "${resolved}", which does not exist — nothing was deleted. A ` +
+            `relative install path is resolved against the current working ` +
+            `directory (${process.cwd()}); if the extension was installed from a ` +
+            `different one, its files are still on disk there.`,
+        );
+      }
+    } else {
+      // Never silent: the row is gone but the files are not, and an
+      // operator who expected a full uninstall needs to know which path
+      // was kept and why.
+      console.warn(
+        `[installer] Extension "${name}": unregistered, but its install path ` +
+          `"${instPath}" was NOT deleted — it is not inside an allowed install ` +
+          `root (${allowedInstallRoots(projectPaths).join(", ")}). Remove the ` +
+          `files by hand if they are yours to remove.`,
+      );
+    }
   }
 
   try {
