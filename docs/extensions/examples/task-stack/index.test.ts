@@ -1,6 +1,7 @@
 import { test, expect, beforeAll, beforeEach, afterAll, describe, spyOn } from "bun:test";
-import { basename, join } from "path";
-import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { tmpdir } from "os";
 import {
   loadStore, saveStore, genId, ensureStack, getStackTasks, reindex,
   setStorePath, handleRequest, resolveProjectRoot,
@@ -128,19 +129,42 @@ describe("resolveProjectRoot", () => {
     expect(result).toBe("/tmp");
   });
 
-  test("store path resolves to project root, not subdirectory", () => {
-    const root = resolveProjectRoot(process.cwd());
-    // STORE_DIR should be under project root, not under web/
-    // Convention: all extension data under .ezcorp/extension-data/<ext-name>/
-    const expected = join(root, ".ezcorp", "extension-data", "task-stack", "task-stack.json");
-    // Assert on the resolved ROOT, not on a substring of the absolute path.
-    // The old `expect(expected).not.toContain("web/.ezcorp")` also matched any
-    // CHECKOUT DIRECTORY whose name merely ends in "web" — a worktree at
-    // .../worktrees/ez-passfail-web reds it — so it failed on where the repo
-    // happens to live rather than on the behaviour it names. That is a real
-    // gate hazard now that the examples tree is pass/fail-gated (wave 4).
-    expect(basename(root)).not.toBe("web");
-    expect(expected).toContain(join(".ezcorp", "extension-data", "task-stack"));
+  // Convention: all extension data under
+  // <projectRoot>/.ezcorp/extension-data/<ext-name>/ — never under web/.
+  //
+  // Built on a SYNTHETIC tree rather than this repo's own cwd, on purpose. The
+  // original form asserted `expect(expected).not.toContain("web/.ezcorp")`
+  // against an ABSOLUTE path, which also matched any checkout directory whose
+  // name merely ENDS in "web" (a worktree at .../ez-passfail-web reds it), so
+  // it failed on where the repo happens to live rather than on the behaviour
+  // it names. Its replacement, `expect(basename(root)).not.toBe("web")`, was
+  // path-independent but tautological — it never exercised the walk-up at all.
+  //
+  // A fixture root whose name deliberately ENDS in "web" pins the exact
+  // regression: the walk must leave the `web/` SEGMENT, and must not care what
+  // any ancestor is spelled.
+  test("store path resolves to project root, not the web/ subdirectory", () => {
+    const ORIG = process.env.EZCORP_PROJECT_ROOT;
+    // Step 1 of resolveProjectRoot is the host-injected env var; it would
+    // short-circuit the fs walk this test is about.
+    delete process.env.EZCORP_PROJECT_ROOT;
+    const tmp = mkdtempSync(join(tmpdir(), "task-stack-root-"));
+    const projectRoot = join(tmp, "fixture-web");
+    mkdirSync(join(projectRoot, "web", "src"), { recursive: true });
+    // A .git FILE, not a directory — that is what a git worktree has, and
+    // resolveProjectRoot's existsSync accepts either.
+    writeFileSync(join(projectRoot, ".git"), "gitdir: /nowhere\n");
+    try {
+      const root = resolveProjectRoot(join(projectRoot, "web", "src"));
+      expect(root).toBe(projectRoot);
+      expect(join(root, ".ezcorp", "extension-data", "task-stack", "task-stack.json")).toBe(
+        join(projectRoot, ".ezcorp", "extension-data", "task-stack", "task-stack.json"),
+      );
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+      if (ORIG === undefined) delete process.env.EZCORP_PROJECT_ROOT;
+      else process.env.EZCORP_PROJECT_ROOT = ORIG;
+    }
   });
 });
 
