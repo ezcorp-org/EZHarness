@@ -128,7 +128,7 @@ describe("isRemovableDataDir", () => {
       join(import.meta.dir, "..", "extensions", "extension-data-dir.ts"),
       "utf8",
     );
-    const pattern = /\/\^\[a-z0-9\]\[a-z0-9\-_.\]\{0,63\}\$\//;
+    const pattern = /\/\^\[a-z0-9\]\[a-z0-9-_.\]\{0,63\}\$\//;
     expect(manifestSrc).toMatch(pattern);
     expect(dataDirSrc).toMatch(pattern);
   });

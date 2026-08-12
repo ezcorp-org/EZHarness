@@ -57,10 +57,10 @@ function makeInput(name: string) {
     checksumVerified: false,
     consecutiveFailures: 0,
     isBundled: false,
-    // biome-ignore lint/suspicious/noExplicitAny: NewExtension's jsonb columns
-    // are typed to the manifest/permission shapes; the fixture is deliberately
-    // minimal, matching `extensions-list-bundled-filter.test.ts`.
-  } as any;
+    // The cast matches `extensions-list-bundled-filter.test.ts`: `NewExtension`
+    // types its jsonb columns to the full manifest/permission shapes, and this
+    // fixture is deliberately minimal.
+  } as unknown as Parameters<typeof createExtension>[0];
 }
 
 test("a fresh row defaults to disabled_by_user = false", async () => {
