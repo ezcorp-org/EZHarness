@@ -152,6 +152,97 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		await captureEvidence(page, testInfo, "extension-card-hub-tab-hidden");
 	});
 
+	test("the Hub tab bar drops the tab too, not just the sidebar", async ({ page, mockApi }, testInfo) => {
+		// The sidebar test above covers the PRODUCER (the Extensions page
+		// dispatching `extensions:changed`); this covers the CONSUMER on the
+		// Hub route, which is a different page — the two are never on screen
+		// together, so the event is dispatched directly here.
+		await mockApi({ projects: [proj], extensions: [makeHubExtension(true)] });
+
+		let disabled = false;
+		await page.route("**/api/hub/pages", (route) =>
+			route.fulfill({ json: disabled ? withoutExtPage : withExtPage }),
+		);
+		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_PAGE_ID)}*`, (route) =>
+			route.fulfill({
+				json: { page: { title: "Notes Dashboard", nodes: [] }, renderedAt: 1 },
+			}),
+		);
+		await page.route("**/api/hub/pages/core%3Abriefing*", (route) =>
+			route.fulfill({ json: { page: { title: "Briefing", nodes: [] }, renderedAt: 1 } }),
+		);
+
+		await page.goto(`/hub/${encodeURIComponent(EXT_PAGE_ID)}`);
+		await expect(page.getByTestId("hub-tab")).toHaveCount(2, { timeout: 5000 });
+
+		disabled = true;
+		await page.evaluate(() => window.dispatchEvent(new CustomEvent("extensions:changed")));
+
+		await expect(page.getByTestId("hub-tab")).toHaveCount(1, { timeout: 5000 });
+		await expect(page.getByTestId("hub-tab")).toHaveText("Briefing");
+
+		await captureEvidence(page, testInfo, "hub-tab-bar-after-disable");
+	});
+
+	test("the extension detail page offers the uninstall, and built-ins do not", async ({ page, mockApi }, testInfo) => {
+		// Until now the ONLY way to remove an extension was the library grid,
+		// so arriving here by the install flow's deep link left no way out.
+		const detail = {
+			...makeHubExtension(true),
+			installPath: "/tmp/notes-keeper",
+			checksumVerified: true,
+			installedPermissions: null,
+		};
+
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/extensions/ext-notes": () => detail,
+				// The panel is admin-only, mirroring the DELETE route's gate.
+				"/api/auth/me": () => ({
+					user: { id: "a1", email: "a@test.local", name: "Admin", role: "admin" },
+				}),
+			},
+		});
+		await page.goto("/extensions/ext-notes");
+
+		const panel = page.getByTestId("extension-detail-uninstall");
+		await expect(panel).toBeVisible({ timeout: 5000 });
+		await page.getByTestId("extension-detail-uninstall-button").click();
+
+		const dialog = page.getByTestId("uninstall-dialog");
+		await expect(dialog).toBeVisible();
+		await expect(dialog).toContainText(".ezcorp/extension-data/notes-keeper/");
+
+		await captureEvidence(page, testInfo, "extension-detail-uninstall");
+	});
+
+	test("a built-in's detail page explains the toggle instead of offering a delete", async ({ page, mockApi }) => {
+		const detail = {
+			...makeHubExtension(true),
+			isBundled: true,
+			installPath: "/repo/extensions/notes-keeper",
+			checksumVerified: true,
+			installedPermissions: null,
+		};
+
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/extensions/ext-notes": () => detail,
+				"/api/auth/me": () => ({
+					user: { id: "a1", email: "a@test.local", name: "Admin", role: "admin" },
+				}),
+			},
+		});
+		await page.goto("/extensions/ext-notes");
+
+		const panel = page.getByTestId("extension-detail-uninstall");
+		await expect(panel).toBeVisible({ timeout: 5000 });
+		await expect(panel).toContainText("ships with EZCorp and cannot be uninstalled");
+		await expect(page.getByTestId("extension-detail-uninstall-button")).toHaveCount(0);
+	});
+
 	test("the uninstall dialog names the data directory and makes the user choose", async ({ page, mockApi }, testInfo) => {
 		// The delete now reaches the filesystem. Neither option is
 		// preselected: a default "delete" destroys data people meant to keep,
