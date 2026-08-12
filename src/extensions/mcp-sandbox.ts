@@ -40,7 +40,7 @@ import {
   closeSync,
   mkdirSync,
 } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 /**
  * Audit finding #1 fix: MCP stdio extensions must run under the same
