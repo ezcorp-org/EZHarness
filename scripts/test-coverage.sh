@@ -352,6 +352,7 @@ run_legs() {
       src/__tests__/api-workflows-name-run.server.test.ts \
       src/__tests__/api-workflows-run-control.server.test.ts \
       src/__tests__/api-workflows-run-trace.server.test.ts \
+      src/__tests__/api-workflows-runs-client-contract.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
       src/__tests__/api-workflows-approvals-answer.server.test.ts \
       src/__tests__/workflow-approvals-logic.unit.test.ts \
