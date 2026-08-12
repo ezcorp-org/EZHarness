@@ -39,8 +39,15 @@ describe("/extensions +page.server.ts", () => {
 			bundledExtensions: { id: string; isBundled: boolean }[];
 			installedExtensions: { id: string; isBundled: boolean }[];
 		};
-		expect(result.bundledExtensions).toEqual([{ id: "b1", isBundled: true }]);
-		expect(result.installedExtensions).toEqual([{ id: "i1", isBundled: false }]);
+		// `isCritical` is attached by the shared mapper so the SSR first paint
+		// and the post-mutation `/api/extensions` re-fetch render the same
+		// card. These sentinels have no `name`, so neither is critical.
+		expect(result.bundledExtensions).toEqual([
+			{ id: "b1", isBundled: true, isCritical: false },
+		]);
+		expect(result.installedExtensions).toEqual([
+			{ id: "i1", isBundled: false, isCritical: false },
+		]);
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledTimes(2);
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledWith({ bundled: true });
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledWith({ bundled: false });

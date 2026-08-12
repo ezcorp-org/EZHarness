@@ -756,6 +756,43 @@ describe("HubPageView · ext:page-state SSE live-invalidation", () => {
 	});
 });
 
+describe("HubPageView · extensions:changed refetches the tab bar", () => {
+	// `/api/hub/pages` is filtered by `enabled` server-side, so enabling,
+	// disabling or uninstalling an extension adds or removes tabs. Without
+	// this listener the bar kept offering a tab whose render call now 404s.
+
+	function tabGets(): number {
+		return fetchCalls.filter((c) => c.url === "/api/hub/pages").length;
+	}
+
+	test("the event re-pulls the listing and drops the removed tab", async () => {
+		const { findByTestId, queryAllByTestId } = await renderView(EXT_PAGE_ID);
+		await findByTestId("hub-page-title");
+		const before = tabGets();
+		expect(queryAllByTestId("hub-tab")).toHaveLength(2);
+
+		// The extension that shipped the "Logs" tab was just disabled.
+		tabsHandler = () => jsonResponse({ pages: TABS.filter((t) => t.id !== "ext:myext:logs") });
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+
+		await waitFor(() => expect(tabGets()).toBe(before + 1));
+		await waitFor(() => expect(queryAllByTestId("hub-tab")).toHaveLength(1));
+	});
+
+	test("the listener is removed on unmount (no refetch after destroy)", async () => {
+		const { findByTestId, unmount } = await renderView(EXT_PAGE_ID);
+		await findByTestId("hub-page-title");
+		const before = tabGets();
+
+		unmount();
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+		await tick();
+		await tick();
+
+		expect(tabGets()).toBe(before);
+	});
+});
+
 describe("projectId prop (project-scoped hub route)", () => {
 	test("render pull carries ?project= on the initial load AND on re-pulls", async () => {
 		render(HubPageView, {

@@ -920,6 +920,20 @@ export function getCriticalBundledExtensions(): Array<{
 }
 
 /**
+ * True for a bundled entry flagged `critical: true`.
+ *
+ * Read by the Extensions page (through the list route's `isCritical` field)
+ * so switching one of these OFF can say what the loop loses first. The user
+ * may still do it — a replacement extension can provide the same tool — but
+ * the choice should not be silent, because a missing `ask-user` presents as
+ * an agent that loops instead of asking a question, and nothing in the UI
+ * would otherwise connect the two.
+ */
+export function isCriticalBundledExtensionName(name: string): boolean {
+  return BUNDLED_EXTENSIONS.some((e) => e.name === name && e.critical === true);
+}
+
+/**
  * Path (relative to the project root) of a bundled extension's on-disk
  * source, or `null` for non-bundled names. Consumed by the admin
  * drift-reapproval heal (`bundled-drift-reapprove.ts`) so it loads the
@@ -1129,7 +1143,13 @@ export async function ensureBundledExtensions(): Promise<void> {
                   ...(await diskChecksumFields(criticalDiskDir, diskManifest, entry.name)),
                 };
                 await updateExtension(existing.id, {
-                  enabled: true,
+                  // `enabled: true` is what "auto-accept" means here — but
+                  // it must not resurrect an extension the USER switched
+                  // off. A version bump is not consent to undo that; the
+                  // manifest/version refresh below still lands, so the row
+                  // converges on disk and re-enabling later gets the new
+                  // code. Preserves the user's OFF across an upgrade.
+                  enabled: !existing.disabledByUser,
                   version: diskManifest.version,
                   // Sync the denormalized description column too — same
                   // gap as the normal refresh path (the UI reads the
@@ -1319,12 +1339,23 @@ export async function ensureBundledExtensions(): Promise<void> {
         await reconcileBundledGrant(entry, existing);
 
         // If a bundled extension was disabled by a prior runtime check
-        // (e.g. the now-removed integrity gate) or by an operator toggling
-        // it off outside the opt-out env flag, re-enable it on the next
+        // (e.g. the now-removed integrity gate), re-enable it on the next
         // startup — we're the source of truth for "bundled default on".
-        // Operators who genuinely want it off should set the disable flag,
-        // which keeps the extension out of this loop entirely.
-        if (!existing.enabled) {
+        //
+        // EXCEPT when the user turned it off on purpose (`disabledByUser`,
+        // written only by `PATCH /api/extensions/:id`). That case is not
+        // damage to repair: a user who runs their own replacement for a
+        // built-in must be able to switch ours off and have it STAY off.
+        // Before this flag existed the toggle looked like it worked and
+        // silently reverted on the next boot, and the only real off switch
+        // was the `DISABLE_FLAGS` env var — which still works, and still
+        // keeps its extension out of this loop entirely.
+        if (!existing.enabled && existing.disabledByUser) {
+          log.info("Bundled extension left disabled — user opt-out", {
+            name: entry.name,
+            extensionId: existing.id,
+          });
+        } else if (!existing.enabled) {
           await updateExtension(existing.id, {
             enabled: true,
             consecutiveFailures: 0,

@@ -5,8 +5,8 @@ import {
   getExtension,
   getExtensionByRef,
   updateExtension,
-  deleteExtension,
 } from "$server/db/queries/extensions";
+import { uninstallExtension } from "$server/extensions/installer";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { getPageCache } from "$server/extensions/page-cache";
 import { requireAuth, requireRole } from "$server/auth/middleware";
@@ -76,7 +76,11 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
     if (enabled === true) {
       return errorJson(400, "Use POST /:id/activate to enable an extension");
     }
-    const updated = await updateExtension(params.id, { enabled });
+    // `disabledByUser` records that this OFF is a deliberate choice, so the
+    // boot reconcilers leave it alone (`ensureBundledExtensions` otherwise
+    // re-enables every disabled built-in). Only `activateExtension` clears
+    // it, so the flag and `enabled` can never disagree about intent.
+    const updated = await updateExtension(params.id, { enabled, disabledByUser: true });
     await ExtensionRegistry.getInstance().reload();
     // Drop the extension's cached Hub page trees (60s TTL) so a
     // re-enable can't serve content rendered before the disable.
@@ -87,7 +91,22 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   return errorJson(400, "No valid update fields provided");
 };
 
-export const DELETE: RequestHandler = async ({ params, locals }) => {
+/**
+ * Uninstall — remove the row AND the files the host created for it.
+ *
+ * `?purgeData=1` additionally deletes the extension's own data store
+ * (`.ezcorp/extension-data/<name>/`). It has no default worth guessing, so
+ * the UI asks outright before it calls here: keeping the data lets a
+ * reinstall resume, deleting it cannot be undone.
+ *
+ * Built-ins are refused with 409. The Extensions page has never shown the
+ * button for them, but the API did allow it, and the delete was worse than
+ * useless: `ensureBundledExtensions` reinstalls the row on the next boot
+ * with default grants, so the only lasting effect was silently discarding
+ * the admin's permission narrowing. Disabling is the supported off switch
+ * and now survives restarts.
+ */
+export const DELETE: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
@@ -97,17 +116,24 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Not found");
 
-  // Kill any running subprocess
-  try {
-    const registry = ExtensionRegistry.getInstance();
-    registry.killAll(); // safe: kills only managed processes for this extension
-  } catch {
-    // Registry may not have this extension loaded
+  if (ext.isBundled) {
+    return errorJson(409, "Built-in extensions can't be uninstalled — disable it instead");
   }
 
-  await deleteExtension(params.id);
-  await ExtensionRegistry.getInstance().reload();
+  // `uninstallExtension` deletes the row, removes the install directory
+  // when it is inside a host-owned install root, optionally purges the data
+  // store, and reloads the registry. The reload is what retires THIS
+  // extension's subprocess, MCP proxy and client — the previous
+  // `registry.killAll()` here killed EVERY extension's subprocess, which
+  // the comment beside it claimed it did not.
+  await uninstallExtension(ext, {
+    purgeData: url.searchParams.get("purgeData") === "1",
+  });
+
   // An uninstalled extension's cached Hub page trees must not linger.
   getPageCache().invalidateExtension(params.id);
+  // 204, unchanged: `@ezcorp/harness-client`'s `uninstallExtension` is
+  // published as "resolves with no body on 204". The caller learns nothing
+  // new from a result body — it chose `purgeData` itself.
   return new Response(null, { status: 204 });
 };

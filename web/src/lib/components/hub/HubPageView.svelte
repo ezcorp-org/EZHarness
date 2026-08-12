@@ -278,7 +278,21 @@
 			}
 		}
 		window.addEventListener("ext:page-state", onPageState);
-		return () => window.removeEventListener("ext:page-state", onPageState);
+
+		// An extension being enabled, disabled or uninstalled adds or removes
+		// tabs from this bar — `/api/hub/pages` filters on `enabled`. Without
+		// this the bar keeps offering a tab whose render call now 404s.
+		// `loadTabs` is unconditional (no cache to drop), so the handler is
+		// just the refetch.
+		function onExtensionsChanged() {
+			void loadTabs();
+		}
+		window.addEventListener("extensions:changed", onExtensionsChanged);
+
+		return () => {
+			window.removeEventListener("ext:page-state", onPageState);
+			window.removeEventListener("extensions:changed", onExtensionsChanged);
+		};
 	});
 
 	// Re-load whenever the route param changes (tab click / deep link). On

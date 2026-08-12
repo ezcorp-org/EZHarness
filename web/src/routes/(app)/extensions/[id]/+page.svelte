@@ -15,6 +15,9 @@
 	import ExpiredReapproveModal from "$lib/components/permissions/ExpiredReapproveModal.svelte";
 	import { DEFAULT_TTL_FIRST_USE_MS } from "$lib/components/permissions/expiry-copy";
 	import EntityTable from "$lib/components/EntityTable.svelte";
+	import UninstallDialog from "$lib/components/extensions/UninstallDialog.svelte";
+	import { goto } from "$app/navigation";
+	import { addToast } from "$lib/toast.svelte.js";
 	import { updateMcpServer, type McpServerSpec } from "$lib/api";
 
 	// Phase 56: per-capability TTL UI. The picker default seed comes
@@ -168,6 +171,11 @@
 	let clearingViolations = $state(false);
 	let modifyBusy = $state(false);
 	let modifiableBusy = $state(false);
+	// Uninstall from the detail page. Until now the ONLY way to remove an
+	// extension was the library grid, so arriving here by deep link (the
+	// install flow's `redirectUrl`) left the user with no way out.
+	let uninstallOpen = $state(false);
+	let uninstalling = $state(false);
 
 	// The route param is a REFERENCE, not necessarily the row id. The library
 	// links by id, but the deep-link the server hands a user after an install
@@ -293,6 +301,42 @@
 		if (ext) invalidateExtensionSettings(ext.name);
 		showTemporarySuccess("Settings saved");
 		await loadSettings();
+	}
+
+	/**
+	 * Uninstall this extension, then leave — the page it was rendered from
+	 * no longer exists, so staying would show a 404 the user has to work out
+	 * for themselves.
+	 */
+	async function uninstall({ purgeData }: { purgeData: boolean }) {
+		if (!ext) return;
+		const name = ext.name;
+		uninstalling = true;
+		try {
+			const query = purgeData ? "?purgeData=1" : "";
+			const res = await fetch(`/api/extensions/${extId}${query}`, { method: "DELETE" });
+			if (!res.ok && res.status !== 204) {
+				const body = await res.json().catch(() => null);
+				throw new Error(body?.error ?? `Uninstall failed: HTTP ${res.status}`);
+			}
+			uninstallOpen = false;
+			addToast({
+				type: "success",
+				message: purgeData
+					? `${name} uninstalled and its stored data deleted`
+					: `${name} uninstalled — its stored data was kept`,
+			});
+			// Same signal the library page sends, so the Hub nav drops this
+			// extension's tabs without a reload.
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(new CustomEvent("extensions:changed"));
+			}
+			await goto("/extensions");
+		} catch (e) {
+			addToast({ type: "error", message: e instanceof Error ? e.message : "Uninstall failed" });
+		} finally {
+			uninstalling = false;
+		}
 	}
 
 	async function resetUserSettings() {
@@ -1568,5 +1612,44 @@
 				{/if}
 			</div>
 		{/if}
+
+		<!-- Uninstall. Admin-only, matching the DELETE route's own gate, and
+		     absent for built-ins: the harness recreates their row at every
+		     boot, so the toggle on the library page is their off switch. -->
+		{#if isAdmin}
+			<div
+				class="rounded-lg border border-red-900/50 bg-[var(--color-surface-secondary)] p-4"
+				data-testid="extension-detail-uninstall"
+			>
+				<h3 class="mb-2 text-sm font-medium text-[var(--color-text-muted)]">Uninstall</h3>
+				{#if ext.isBundled}
+					<p class="text-xs text-[var(--color-text-muted)]">
+						{ext.name} ships with EZCorp and cannot be uninstalled. Turn it off from the
+						<a href="/extensions" class="text-blue-400 hover:text-blue-300">Extensions</a> page
+						instead — that choice now survives a restart.
+					</p>
+				{:else}
+					<p class="mb-3 text-xs text-[var(--color-text-muted)]">
+						Removes {ext.name}, its tools, its permissions and its files. You choose
+						what happens to the data it saved.
+					</p>
+					<button
+						onclick={() => (uninstallOpen = true)}
+						class="rounded-md border border-red-800 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-900/30"
+						data-testid="extension-detail-uninstall-button"
+					>
+						Uninstall {ext.name}
+					</button>
+				{/if}
+			</div>
+		{/if}
+
+		<UninstallDialog
+			open={uninstallOpen}
+			extensionName={ext.name}
+			busy={uninstalling}
+			onconfirm={uninstall}
+			oncancel={() => (uninstallOpen = false)}
+		/>
 	{/if}
 </div>

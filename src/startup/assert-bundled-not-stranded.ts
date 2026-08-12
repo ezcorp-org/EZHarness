@@ -26,11 +26,17 @@
  *   decides.
  *
  * The check is STATELESS: it needs no bookkeeping from the boot loop
- * because "bundled + still disabled" is already an exact signal. The
- * normal (no-gate) path unconditionally re-enables a disabled bundled
- * row, and `resolveBundledExtensions()` filters out entries an operator
- * opted out of via env — so anything still `enabled=false` here was left
- * that way by a gate, never by choice.
+ * because "bundled + still disabled" is an exact signal once ONE case is
+ * subtracted. The normal (no-gate) path re-enables a disabled bundled row,
+ * and `resolveBundledExtensions()` filters out entries an operator opted
+ * out of via env — so what remains was left `enabled=false` by a gate,
+ * never by choice, EXCEPT a row carrying `disabledByUser`. That flag means
+ * the user switched the built-in off from the Extensions page (typically
+ * because they run their own replacement), and `ensureBundledExtensions`
+ * now honours it across restarts. Such a row is not stranded and needs no
+ * re-approval: telling an operator to go re-enable the thing a user just
+ * turned off is exactly the noise this module was written to remove. It is
+ * reported under `userDisabled` and kept out of the WARN.
  *
  * Never throws: a lookup failure is logged and folded into the result so
  * startup stays non-fatal.
@@ -51,6 +57,8 @@ export interface StrandedBundledResult {
   missing: string[];
   /** Lookup threw; state unknown. */
   unknown: string[];
+  /** `enabled=false` because the USER said so — a choice, not a strand. */
+  userDisabled: string[];
 }
 
 /**
@@ -66,6 +74,7 @@ export async function assertBundledNotStranded(): Promise<StrandedBundledResult>
     stranded: [],
     missing: [],
     unknown: [],
+    userDisabled: [],
   };
 
   for (const entry of entries) {
@@ -84,7 +93,9 @@ export async function assertBundledNotStranded(): Promise<StrandedBundledResult>
       result.missing.push(entry.name);
       continue;
     }
-    if (row.enabled === false) result.stranded.push(entry.name);
+    if (row.enabled !== false) continue;
+    if (row.disabledByUser === true) result.userDisabled.push(entry.name);
+    else result.stranded.push(entry.name);
   }
 
   // ONE aggregate line, not one per extension — the per-extension `info`

@@ -77,7 +77,10 @@ test.describe("Extensions List Page", () => {
 		});
 		await page.goto("/extensions");
 
-		await expect(page.getByRole("heading", { name: "Extensions" })).toBeVisible({ timeout: 5000 });
+		// `exact` is required: this test seeds no extensions, so the empty
+		// state's "No extensions installed" heading also matches the default
+		// substring lookup and the locator resolves to two elements.
+		await expect(page.getByRole("heading", { name: "Extensions", exact: true })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Create your own")).toBeVisible();
 	});
 
@@ -258,7 +261,7 @@ test.describe("Extensions List Page", () => {
 		await expect(page.getByRole("button", { name: "Uninstall" })).toBeVisible({ timeout: 5000 });
 	});
 
-	test("Uninstall button requires confirmation before removing", async ({ page, mockApi }) => {
+	test("Uninstall opens a dialog that will not proceed without a data choice", async ({ page, mockApi }) => {
 		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
 
 		await mockApi({
@@ -267,9 +270,108 @@ test.describe("Extensions List Page", () => {
 		});
 		await page.goto("/extensions");
 
-		// Click uninstall — should show Confirm button
-		await page.getByRole("button", { name: "Uninstall" }).click();
-		await expect(page.getByRole("button", { name: "Confirm" })).toBeVisible({ timeout: 3000 });
+		await page.getByTestId("ext-card-uninstall").click();
+
+		const dialog = page.getByTestId("uninstall-dialog");
+		await expect(dialog).toBeVisible({ timeout: 3000 });
+		// The delete now reaches the filesystem, so the dialog names the
+		// directory at risk and refuses to guess what to do with it.
+		await expect(dialog).toContainText(".ezcorp/extension-data/removable-ext/");
+		await expect(page.getByTestId("uninstall-confirm")).toBeDisabled();
+	});
+
+	test("uninstall keeping data sends no purgeData flag", async ({ page, mockApi }) => {
+		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
+
+		await mockApi({ projects: [proj], extensions: [ext] });
+		// AFTER mockApi: Playwright runs the most recently registered handler
+		// first, so registering before the fixture's catch-all never fires.
+		const deleteUrls: string[] = [];
+		await page.route("**/api/extensions/ext-1*", async (route) => {
+			if (route.request().method() !== "DELETE") return route.fallback();
+			deleteUrls.push(route.request().url());
+			return route.fulfill({ status: 204, body: "" });
+		});
+		await page.goto("/extensions");
+
+		await page.getByTestId("ext-card-uninstall").click();
+		await page.getByTestId("uninstall-keep-data").click();
+		await page.getByTestId("uninstall-confirm").click();
+
+		await expect.poll(() => deleteUrls.length).toBe(1);
+		expect(deleteUrls[0]).not.toContain("purgeData");
+	});
+
+	test("uninstall deleting data sends purgeData=1", async ({ page, mockApi }) => {
+		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
+
+		await mockApi({ projects: [proj], extensions: [ext] });
+		const deleteUrls: string[] = [];
+		await page.route("**/api/extensions/ext-1*", async (route) => {
+			if (route.request().method() !== "DELETE") return route.fallback();
+			deleteUrls.push(route.request().url());
+			return route.fulfill({ status: 204, body: "" });
+		});
+		await page.goto("/extensions");
+
+		await page.getByTestId("ext-card-uninstall").click();
+		await page.getByTestId("uninstall-delete-data").click();
+		await page.getByTestId("uninstall-confirm").click();
+
+		await expect.poll(() => deleteUrls.length).toBe(1);
+		expect(deleteUrls[0]).toContain("purgeData=1");
+	});
+
+	test("a built-in offers disable, never uninstall", async ({ page, mockApi }) => {
+		// Deleting a built-in's row is undone by the next boot, so the card
+		// shows the provenance badge instead of a button that lies.
+		const ext = makeExtension({ id: "ext-1", name: "scratchpad", isBundled: true });
+
+		await mockApi({ projects: [proj], extensions: [ext] });
+		await page.goto("/extensions");
+		await page.getByTestId("ext-tab-builtins").click();
+
+		const card = page.getByTestId("ext-card").filter({ hasText: "scratchpad" });
+		await expect(card.getByTestId("ext-card-builtin-badge")).toBeVisible({ timeout: 5000 });
+		await expect(card.getByTestId("ext-card-uninstall")).toHaveCount(0);
+		// The toggle IS the off switch, so it must still be there.
+		await expect(card.locator("button[title='Disable']")).toBeVisible();
+	});
+
+	test("disabling a critical built-in asks first and says what is lost", async ({ page, mockApi }) => {
+		const ext = makeExtension({
+			id: "ext-1",
+			name: "ask-user",
+			isBundled: true,
+			isCritical: true,
+			criticalConsequence:
+				"Agents use this to ask you a question when they are blocked. With it off, a blocked agent stops instead of asking.",
+		});
+
+		await mockApi({ projects: [proj], extensions: [ext] });
+		const patched: string[] = [];
+		await page.route("**/api/extensions/ext-1", async (route) => {
+			if (route.request().method() !== "PATCH") return route.fallback();
+			patched.push(route.request().url());
+			return route.fulfill({ json: { success: true } });
+		});
+		await page.goto("/extensions");
+		await page.getByTestId("ext-tab-builtins").click();
+
+		await page.locator("button[title='Disable']").click();
+
+		// The toggle does NOT fire until the user confirms — a missing
+		// `ask-user` presents as an agent that loops instead of asking, and
+		// nothing else would connect the two.
+		const dialog = page.getByTestId("disable-critical-dialog");
+		await expect(dialog).toBeVisible({ timeout: 3000 });
+		await expect(page.getByTestId("disable-critical-consequence")).toContainText(
+			"ask you a question",
+		);
+		expect(patched).toHaveLength(0);
+
+		await page.getByTestId("disable-critical-confirm").click();
+		await expect.poll(() => patched.length).toBe(1);
 	});
 
 	test("auto-disabled extension shows warning banner with Re-enable button", async ({ page, mockApi }) => {

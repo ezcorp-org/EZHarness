@@ -276,6 +276,11 @@ export async function reapproveBundledDrift(
     // (same denormalization gap fixed in the boot-refresh path).
     description: diskManifest.description ?? "",
     enabled: true,
+    // An admin re-approving drift is an explicit enable, so it also
+    // withdraws any earlier user opt-out — otherwise the row would come
+    // back enabled while still flagged "the user turned this off", and
+    // the next boot's reconcilers would read contradictory intent.
+    disabledByUser: false,
   });
   if (!updated) {
     return {

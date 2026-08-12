@@ -100,7 +100,11 @@ describe("GET /api/extensions", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual([ext]);
+    // Same derived flags the full list carries, so the page renders an
+    // identical card whichever surface fed it. `isCritical` comes from the
+    // bundled catalog (`$lib/server/extensions/list-flags`), which the
+    // browser has no business hardcoding.
+    expect(body).toEqual([{ ...ext, isCritical: false }]);
     expect(getExtensionByName).toHaveBeenCalledWith("kokoro-tts");
     expect(listExtensions).not.toHaveBeenCalled();
   });

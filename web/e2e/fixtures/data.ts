@@ -365,6 +365,13 @@ export interface ExtensionData {
 		tools?: Array<{ name: string; description: string; inputSchema?: Record<string, unknown> }>;
 		permissions?: Record<string, unknown>;
 		acceptsCallerCaps?: boolean;
+		/**
+		 * Declared Hub tabs. Declaring a page IS the grant, so this alone
+		 * decides whether the extension contributes a tab — and, because
+		 * `/api/hub/pages` filters on `enabled`, whether disabling it makes
+		 * that tab disappear.
+		 */
+		pages?: Array<{ id: string; title: string; icon?: string; description?: string }>;
 	};
 	/**
 	 * HIGH-2 column: the user's install-time NARROWED choice. `null` means

@@ -216,8 +216,12 @@ describe("PATCH /api/extensions/[id]", () => {
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { enabled: boolean };
 		expect(body.enabled).toBe(false);
+		// `disabledByUser` is what keeps the OFF across a restart: the boot
+		// reconcilers re-enable a disabled BUILT-IN unless this flag says the
+		// user meant it (`ensureBundledExtensions`).
 		expect(vi.mocked(updateExtension)).toHaveBeenCalledWith("ext-1", {
 			enabled: false,
+			disabledByUser: true,
 		});
 		// Side-effect: registry reloaded after disable.
 		expect(reload).toHaveBeenCalledTimes(1);
@@ -269,16 +273,34 @@ describe("DELETE /api/extensions/[id]", () => {
 		expect(body.error).toBe("Not found");
 	});
 
-	test("happy path: kills subprocesses, deletes row, reloads registry, returns 204", async () => {
+	test("happy path: deletes row, reloads registry, returns 204 — and never killAll", async () => {
 		vi.mocked(getExtension).mockResolvedValue(ext as any);
 		vi.mocked(deleteExtension).mockResolvedValue(true as any);
 		const res = await DELETE(
 			makeEvent({ method: "DELETE", locals: { user: admin } }),
 		);
 		expect(res.status).toBe(204);
-		// Side-effects in order
-		expect(killAll).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(deleteExtension)).toHaveBeenCalledWith("ext-1");
 		expect(reload).toHaveBeenCalledTimes(1);
+		// `killAll()` kills EVERY extension's subprocess, closes every MCP
+		// client and drops every forward proxy — uninstalling one extension
+		// took the rest down with it. `reload()` retires exactly the entries
+		// that went away.
+		expect(killAll).not.toHaveBeenCalled();
+	});
+
+	test("returns 409 for a built-in, and deletes nothing", async () => {
+		// The row is recreated at the next boot with DEFAULT grants, so the
+		// only lasting effect of allowing this was silently discarding the
+		// admin's permission narrowing. Disabling is the supported off switch.
+		vi.mocked(getExtension).mockResolvedValue({ ...ext, isBundled: true } as any);
+		const res = await DELETE(
+			makeEvent({ method: "DELETE", locals: { user: admin } }),
+		);
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toMatch(/disable it instead/);
+		expect(vi.mocked(deleteExtension)).not.toHaveBeenCalled();
+		expect(reload).not.toHaveBeenCalled();
 	});
 });

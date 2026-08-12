@@ -21,6 +21,7 @@ interface Row {
   id: string;
   name: string;
   enabled: boolean;
+  disabledByUser?: boolean;
 }
 const auditEntries: Array<{ action: string; target?: string }> = [];
 let rows: Map<string, Row>;
@@ -129,4 +130,59 @@ describe("assertCriticalExtensions", () => {
   // `assert-critical-extensions-ceiling-exceeds.test.ts` (it must
   // `mock.module` bundled-ceiling, which can't be safely scoped within
   // this multi-test file).
+});
+
+// ── The user's own off switch ─────────────────────────────────────────
+//
+// A critical extension is allowed to be off when the USER turned it off —
+// they may run their own replacement for the capability. Re-enabling it
+// here would undo that choice on every boot, which is the same bug the
+// `disabled_by_user` column fixes in `ensureBundledExtensions`.
+//
+// It is reported under `userDisabled` rather than `violations` so a caller
+// cannot mistake a decision for a fault; the ERROR + remediation still
+// belong to every other route to a disabled critical extension.
+
+describe("assertCriticalExtensions — user opt-out", () => {
+  test("a user-disabled critical extension is left alone", async () => {
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+
+    const r = await assertCriticalExtensions();
+
+    expect(rows.get("ask-user")!.enabled).toBe(false);
+    expect(updateCalls).toEqual([]);
+    expect(r.userDisabled).toContain("ask-user");
+    // Not a violation, and not remediated — those arrays drive the
+    // operator-facing escalation and this is not an incident.
+    expect(r.violations).not.toContain("ask-user");
+    expect(r.remediated).not.toContain("ask-user");
+    expect(r.unremediated).not.toContain("ask-user");
+  }, 20_000);
+
+  test("no auto-reapproval audit row for a user opt-out", async () => {
+    // The audit trail records a SYSTEM decision to re-enable. Nothing was
+    // re-enabled, so writing one would misattribute the user's choice.
+    seedAll(true);
+    Object.assign(rows.get("task-tracking")!, { enabled: false, disabledByUser: true });
+
+    await assertCriticalExtensions();
+
+    expect(auditEntries).toEqual([]);
+  }, 20_000);
+
+  test("the opt-out is per row, not a blanket amnesty", async () => {
+    // One critical extension off by choice must not suppress remediation
+    // of another that is off for a real reason.
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+    rows.get("task-tracking")!.enabled = false;
+
+    const r = await assertCriticalExtensions();
+
+    expect(rows.get("ask-user")!.enabled).toBe(false);
+    expect(rows.get("task-tracking")!.enabled).toBe(true);
+    expect(r.userDisabled).toEqual(["ask-user"]);
+    expect(r.remediated).toContain("task-tracking");
+  }, 20_000);
 });

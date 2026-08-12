@@ -6,13 +6,17 @@
   ALPHABETICALLY — the same `sortHubPagesByTitle` ordering the Hub tab bar
   uses, so the two never drift. It STARTS COLLAPSED: the listing fetch only
   fires the first time the user opens it (and only once — subsequent toggles
-  reuse the cached list).
+  reuse the cached list). The one thing that invalidates that cache is an
+  `extensions:changed` event: the listing is filtered by `enabled`
+  server-side, so disabling or uninstalling an extension must drop its tab
+  from here rather than leave a link that 404s.
 
   Mounted by BOTH sidebar surfaces in `(app)/+layout.svelte`: the desktop
   command column and the mobile drawer. The drawer passes `onnavigate` so a
   page click also closes the drawer; on desktop it is omitted (a no-op).
 -->
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { sortHubPagesByTitle, type HubPageListing } from "$lib/hub";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
 
@@ -41,9 +45,15 @@
 	let loading = $state(false);
 	let pages = $state<HubPageListing[]>([]);
 
+	// Set when an `extensions:changed` arrives DURING a load: that in-flight
+	// response may predate the change, so its result cannot be trusted as
+	// current and one more round is owed.
+	let pendingReload = false;
+
 	async function loadPages() {
 		// Lazy + once: never refetch after the first successful/failed load, and
-		// never fire two concurrent loads from rapid toggling.
+		// never fire two concurrent loads from rapid toggling. The cache is
+		// dropped explicitly by `handleExtensionsChanged`.
 		if (loaded || loading) return;
 		loading = true;
 		try {
@@ -57,6 +67,11 @@
 		} finally {
 			loaded = true;
 			loading = false;
+			if (pendingReload) {
+				pendingReload = false;
+				loaded = false;
+				if (expanded) void loadPages();
+			}
 		}
 	}
 
@@ -64,6 +79,31 @@
 		expanded = !expanded;
 		if (expanded) void loadPages();
 	}
+
+	/**
+	 * The listing is filtered by `enabled` SERVER-side, so a disable or an
+	 * uninstall changes it — but `loadPages()` is lazy-once, which left a
+	 * removed extension's tab sitting in this list until a full page reload,
+	 * linking to a route that now 404s.
+	 *
+	 * Drop the cache on `extensions:changed` (dispatched by the Extensions
+	 * page after every enable, disable and uninstall) and refetch only while
+	 * the section is open; collapsed, the next expand does the work.
+	 */
+	function handleExtensionsChanged() {
+		if (loading) {
+			// Let the in-flight load finish, then repeat it — see `pendingReload`.
+			pendingReload = true;
+			return;
+		}
+		loaded = false;
+		if (expanded) void loadPages();
+	}
+
+	onMount(() => {
+		window.addEventListener("extensions:changed", handleExtensionsChanged);
+		return () => window.removeEventListener("extensions:changed", handleExtensionsChanged);
+	});
 
 	function pageHref(id: string): string {
 		return `${hubBase}/${encodeURIComponent(id)}`;

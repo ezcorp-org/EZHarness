@@ -491,7 +491,11 @@ export async function installAuthoredDraft(args: {
   //     materializes it enabled and its tools enter the LLM toolset.
   if (enable) {
     try {
-      await updateExtension(installed.id, { enabled: true });
+      // Clear any earlier user opt-out: re-authoring and installing an
+      // extension is an explicit enable, so leaving the flag set would
+      // have the next boot's bundled reconciler read the row as "off on
+      // purpose" while it is plainly on.
+      await updateExtension(installed.id, { enabled: true, disabledByUser: false });
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e);
       log.error("installAuthoredDraft: enable failed (installed but disabled)", {

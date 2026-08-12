@@ -95,11 +95,16 @@ export async function activateExtension(
 	}
 
 	const submittedPerms = opts.submittedPermissions;
+	// Enabling is the ONLY thing that clears `disabledByUser`. Clearing it
+	// here rather than in the caller keeps the invariant local: every path
+	// that sets `enabled=true` for a user goes through this service, so an
+	// enabled row can never still carry the user's off-switch.
 	const update: {
 		enabled: boolean;
+		disabledByUser: boolean;
 		grantedPermissions?: ExtensionPermissions;
 		installedPermissions?: ExtensionPermissions;
-	} = { enabled: true };
+	} = { enabled: true, disabledByUser: false };
 
 	if (submittedPerms !== undefined) {
 		const manifestPerms = ext.manifest?.permissions ?? {};

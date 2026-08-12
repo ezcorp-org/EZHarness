@@ -428,6 +428,13 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // the flag on install and backfills existing bundled rows at startup.
   await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS is_bundled BOOLEAN NOT NULL DEFAULT FALSE`);
 
+  // Deliberate user opt-out, distinct from the `enabled=false` the boot
+  // reconcilers write. See schema.ts: without it, `ensureBundledExtensions`
+  // re-enables every disabled built-in on each boot. Existing rows default
+  // to FALSE, which preserves that repair behaviour for anything disabled
+  // before this column existed.
+  await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS disabled_by_user BOOLEAN NOT NULL DEFAULT FALSE`);
+
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS tool_calls (
       id TEXT PRIMARY KEY,
