@@ -14,7 +14,7 @@
  *   - a critical extension MISSING ⇒ violation + unremediated.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 interface Row {
@@ -58,6 +58,9 @@ const { assertCriticalExtensions } = await import(
   "../startup/assert-critical-extensions"
 );
 const { getCriticalBundledExtensions } = await import("../extensions/bundled");
+// The SAME source the SUT reads its clause from, so the assertion below
+// pins the log line to the shared text rather than restating it.
+const { consequenceFor } = await import("../extensions/critical-consequence");
 
 afterAll(() => restoreModuleMocks());
 
@@ -143,7 +146,67 @@ describe("assertCriticalExtensions", () => {
 // cannot mistake a decision for a fault; the ERROR + remediation still
 // belong to every other route to a disabled critical extension.
 
+/**
+ * Capture the module's own WARN lines off stderr.
+ *
+ * The user-opt-out branch REPLACES an ERROR + a remediation with a single
+ * log line, and the module header calls that line load-bearing: a silently
+ * absent `ask-user` presents as an agent that loops instead of asking, and
+ * this is the only thing that connects the two for an operator. Deleting
+ * the `log.warn` is therefore a real regression, and without this capture
+ * every test here still passes.
+ *
+ * stderr rather than a logger module-mock, for the reason
+ * `assert-bundled-not-stranded.test.ts` documents: the SUT binds
+ * `logger.child()` at its own module-load time, before a mock could win.
+ */
+function captureWarnings(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const spy = spyOn(process.stderr, "write").mockImplementation(
+    ((chunk: string | Uint8Array): boolean => {
+      const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+      for (const raw of s.split("\n")) {
+        const line = raw.trim();
+        if (!line) continue;
+        try {
+          const p = JSON.parse(line) as { level?: string; msg?: string; subsystem?: string };
+          if (
+            p.level === "warn" &&
+            typeof p.msg === "string" &&
+            p.subsystem === "startup/assert-critical-extensions"
+          ) {
+            lines.push(p.msg);
+          }
+        } catch {
+          /* non-JSON stderr noise */
+        }
+      }
+      return true;
+    }) as typeof process.stderr.write,
+  );
+  return { lines, restore: () => spy.mockRestore() };
+}
+
 describe("assertCriticalExtensions — user opt-out", () => {
+  test("logs ONE warning naming what the loop loses", async () => {
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+
+    const cap = captureWarnings();
+    try {
+      await assertCriticalExtensions();
+    } finally {
+      cap.restore();
+    }
+
+    const mine = cap.lines.filter((l) => l.includes("ask-user"));
+    expect(mine).toHaveLength(1);
+    // The consequence clause comes from the shared source both this module
+    // and the Extensions page's confirm dialog read.
+    expect(mine[0]).toContain(consequenceFor("ask-user"));
+    expect(mine[0]).toContain("disabled by the user");
+  }, 20_000);
+
   test("a user-disabled critical extension is left alone", async () => {
     seedAll(true);
     Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });

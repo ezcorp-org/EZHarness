@@ -14,7 +14,8 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { join, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
 import {
   extensionDataBaseDir,
   extensionDataDir,
@@ -61,22 +62,41 @@ describe("isRemovableDataDir", () => {
     }
   });
 
-  test("an absolute name is contained, not escaped", () => {
-    // `join(base, "/etc")` is `<base>/etc`, not `/etc` — a leading separator
-    // is just a segment to `join`. So an absolute name does not need to be
-    // REFUSED to be safe; it is already neutralized. Assert the property
-    // that actually matters, which holds either way: whenever the predicate
-    // says yes, the directory it authorized is strictly inside the base.
-    const name = join(sep, "etc");
-    expect(isRemovableDataDir(name, ROOT)).toBe(true);
-    expect(extensionDataDir(name, ROOT)).toBe(join(BASE, "etc"));
+  test("refuses an absolute name", () => {
+    expect(isRemovableDataDir(join(sep, "etc"), ROOT)).toBe(false);
   });
 
-  test("says yes ONLY for a directory strictly inside the base", () => {
-    // The invariant every refusal above is an instance of. Stated once
-    // over the whole set so a future change to how the path is built
-    // (`join` → `resolve`, say, which does NOT neutralize a leading
-    // separator) cannot quietly authorize a delete outside the base.
+  // ── The hole this predicate shipped with ────────────────────────────
+  //
+  // Containment alone is NOT enough, and the first cut of this function
+  // checked only containment (`startsWith(base + sep)`). A name that walks
+  // OUT of the base and back IN stays "inside" while naming a DIFFERENT
+  // extension's store, so `DELETE /api/extensions/:id?purgeData=1` on a row
+  // carrying that name erased a built-in's data. It was reachable: the MCP
+  // install route synthesises its manifest and never runs `manifest.ts`'s
+  // name validation.
+
+  test("refuses a name that walks out of the base and back in", () => {
+    for (const name of [
+      join("..", "extension-data", "task-tracking"),
+      join("x", "..", "..", "extension-data", "ask-user"),
+      join("..", "..", ".ezcorp", "extension-data", "ask-user"),
+    ]) {
+      expect(isRemovableDataDir(name, ROOT)).toBe(false);
+    }
+  });
+
+  test("refuses a nested name — a data dir is exactly one level down", () => {
+    // Previously accepted, because it too is `startsWith` the base.
+    expect(isRemovableDataDir(join("scoped", "notes"), ROOT)).toBe(false);
+  });
+
+  test("says yes ONLY for a DIRECT CHILD of the base", () => {
+    // The invariant every refusal above is an instance of, stated once over
+    // the whole set: whenever the predicate says yes, the directory it
+    // authorized is a single segment inside the base — never deeper, never
+    // elsewhere. A future change to how the path is built cannot quietly
+    // widen this without failing here.
     const names = [
       "task-tracking",
       "",
@@ -84,13 +104,33 @@ describe("isRemovableDataDir", () => {
       "..",
       join("..", ".."),
       join(sep, "etc"),
+      join("..", "extension-data", "ask-user"),
       join("..", "extension-data-backup", "notes"),
       join("scoped", "notes"),
+      "../",
+      "a/b/../..",
     ];
     for (const name of names) {
       if (!isRemovableDataDir(name, ROOT)) continue;
-      expect(extensionDataDir(name, ROOT).startsWith(BASE + sep)).toBe(true);
+      expect(dirname(extensionDataDir(name, ROOT))).toBe(BASE);
     }
+  });
+
+  test("the accepted name shape is byte-identical to the manifest's", () => {
+    // The predicate restates `NAME_REGEX` rather than importing it, to keep
+    // this module a leaf. That is only safe while the two agree, so pin the
+    // literal against its source of truth.
+    const manifestSrc = readFileSync(
+      join(import.meta.dir, "..", "extensions", "manifest.ts"),
+      "utf8",
+    );
+    const dataDirSrc = readFileSync(
+      join(import.meta.dir, "..", "extensions", "extension-data-dir.ts"),
+      "utf8",
+    );
+    const pattern = /\/\^\[a-z0-9\]\[a-z0-9\-_.\]\{0,63\}\$\//;
+    expect(manifestSrc).toMatch(pattern);
+    expect(dataDirSrc).toMatch(pattern);
   });
 
   test("refuses a name that resolves to the base itself", () => {
@@ -113,10 +153,17 @@ describe("isRemovableDataDir", () => {
     expect(isRemovableDataDir(escaping, ROOT)).toBe(false);
   });
 
-  test("a nested name stays inside the base and is removable", () => {
-    // Not a name any installer produces (`manifest.ts` pins names to a
-    // single segment), but it resolves inside the base, so the predicate
-    // must say so rather than accidentally refusing on the separator.
-    expect(isRemovableDataDir(join("scoped", "notes"), ROOT)).toBe(true);
+  test("refuses every character class the manifest name pattern excludes", () => {
+    for (const name of [
+      "Uppercase",
+      "-leading-dash",
+      ".leading-dot",
+      "has space",
+      "has/slash",
+      "has\\backslash",
+      "a".repeat(65),
+    ]) {
+      expect(isRemovableDataDir(name, ROOT)).toBe(false);
+    }
   });
 });

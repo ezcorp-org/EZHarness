@@ -852,10 +852,29 @@ export async function uninstallExtension(
   const name = ext.name;
   const result: UninstallResult = { installPathRemoved: false, dataRemoved: false };
 
+  // Read the registered project paths BEFORE the row goes. This is a DB
+  // query, and once the row is deleted a throw here would strand the whole
+  // teardown: no `rm`, no `reload()`, and (in the HTTP route) no page-cache
+  // invalidation, leaving the registry serving a deleted extension's tools.
+  const projectPaths = ext.installPath ? await registeredProjectPaths() : [];
+
   // Delete DB record. FK cascades clear the rest of this extension's rows
   // (storage, secrets, RBAC grants, schedules, webhooks, triggers,
   // capability calls, quotas, conversation wiring) — see src/db/schema.ts.
   await deleteExtension(ext.id);
+
+  // Retire the running extension BEFORE deleting anything on disk.
+  //
+  // `reload()` reads the DB, so it has to come after the row delete — but it
+  // must come before the `rm`, because the subprocess is still live until it
+  // does. For an MCP-kind extension the data directory being deleted is
+  // literally the sandbox's only read-write mount (`mcp-sandbox.ts`), so a
+  // running child can re-create files underneath the walk; `dataRemoved:
+  // true` would then be a claim about a directory that exists again.
+  // (`retireProcess` still DEFERS the kill while a call is in flight, so a
+  // busy extension can outlive this by the length of that call — bounded,
+  // and strictly better than deleting its files with it running.)
+  await reloadRegistryQuietly();
 
   // Remove the install directory — ONLY when it resolves strictly inside
   // an allowed install root (`isRemovableInstallPath`). Anything else is
@@ -865,7 +884,6 @@ export async function uninstallExtension(
   // to warn about.
   const instPath = ext.installPath;
   if (instPath) {
-    const projectPaths = await registeredProjectPaths();
     // `rm` the RESOLVED path, not the raw one — the same string the
     // predicate decided on. They agree today; spelling it once means a
     // future normalization step cannot make the check and the delete
@@ -873,8 +891,21 @@ export async function uninstallExtension(
     const resolved = resolve(process.cwd(), instPath);
     if (isRemovableInstallPath(instPath, projectPaths)) {
       if (existsSync(resolved)) {
-        await rm(resolved, { recursive: true, force: true }).catch(() => {});
-        result.installPathRemoved = true;
+        // The flag must report what HAPPENED, not what was attempted. The
+        // `rm` is swallowed (an uninstall must not throw once the row is
+        // gone), so claiming success unconditionally would have a
+        // read-only filesystem or an EACCES report `installPathRemoved:
+        // true` over files that are still there.
+        result.installPathRemoved = await rm(resolved, { recursive: true, force: true })
+          .then(() => true)
+          .catch((err) => {
+            console.warn(
+              `[installer] Extension "${name}": failed to delete install path ` +
+                `"${resolved}" — ${String(err)}. The row is unregistered; the ` +
+                `files are still on disk.`,
+            );
+            return false;
+          });
       } else {
         // A RELATIVE install_path always resolves under the CURRENT cwd,
         // so it always passes containment — even when the directory it
@@ -911,8 +942,19 @@ export async function uninstallExtension(
     if (isRemovableDataDir(name)) {
       const dataDir = extensionDataDir(name);
       if (existsSync(dataDir)) {
-        await rm(dataDir, { recursive: true, force: true }).catch(() => {});
-        result.dataRemoved = true;
+        // Same as the install path above: report the outcome, not the
+        // attempt. This one matters more — the user explicitly asked for
+        // this data to be gone, so a silent failure that reports success
+        // is the difference between "deleted" and "still on disk".
+        result.dataRemoved = await rm(dataDir, { recursive: true, force: true })
+          .then(() => true)
+          .catch((err) => {
+            console.warn(
+              `[installer] Extension "${name}": failed to delete stored data at ` +
+                `"${dataDir}" — ${String(err)}. It is still on disk.`,
+            );
+            return false;
+          });
       }
     } else {
       // Unreachable for any name the installer accepted, but a refused
@@ -924,13 +966,22 @@ export async function uninstallExtension(
     }
   }
 
+  return result;
+}
+
+/**
+ * `ExtensionRegistry.reload()`, swallowing failure.
+ *
+ * Never throws: a reload failure in a test environment (or a transient DB
+ * blip) must not abort an uninstall that has already deleted the row —
+ * that would leave the disk work undone with no way to retry it.
+ */
+async function reloadRegistryQuietly(): Promise<void> {
   try {
     await ExtensionRegistry.getInstance().reload();
   } catch {
     // Registry reload may fail in test environments
   }
-
-  return result;
 }
 
 /**

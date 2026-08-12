@@ -70,11 +70,16 @@ beforeEach(() => {
  * differs from ask-user's on-disk perms (eventSubscriptions only), and
  * the bumped-down version forces `versionChanged`.
  */
-function seedStale(name: string, opts: { extraPerm?: Record<string, unknown> } = {}): void {
+function seedStale(
+  name: string,
+  opts: { extraPerm?: Record<string, unknown>; disabledByUser?: boolean } = {},
+): void {
   store.set(name, {
     id: `seed-${name}`,
     name,
-    enabled: true,
+    // A user-disabled row arrives here already OFF; every other case is ON.
+    enabled: opts.disabledByUser !== true,
+    ...(opts.disabledByUser === true ? { disabledByUser: true } : {}),
     isBundled: true,
     installPath: `docs/extensions/examples/${name}`,
     version: "0.0.1",
@@ -117,6 +122,46 @@ describe("S9 critical-aware gate", () => {
     seedStale("task-tracking");
     await ensureBundledExtensions();
     expect(store.get("task-tracking")?.enabled).toBe(true);
+  }, 30_000);
+
+  // A version bump is not consent to undo the user's choice. This branch is
+  // the ONE place the auto-accept writes `enabled`, and it is reached on
+  // essentially every boot for `extension-author` (its tool list churns), so
+  // getting it wrong would hand a user back the extension they switched off
+  // within one restart. Mutating `enabled: !existing.disabledByUser` to a
+  // bare `enabled: true` used to leave the whole suite green.
+  test("a user-disabled CRITICAL extension is NOT re-enabled by the auto-accept", async () => {
+    const { ensureBundledExtensions } = await import("../extensions/bundled");
+    seedStale("ask-user", { disabledByUser: true });
+
+    await ensureBundledExtensions();
+
+    const row = store.get("ask-user");
+    expect(row?.enabled).toBe(false);
+    expect(row?.disabledByUser).toBe(true);
+  }, 30_000);
+
+  test("...but its manifest and version still converge on disk", async () => {
+    // The other half of the promise: the row is left OFF, not left STALE. If
+    // the refresh were skipped, re-enabling later would resurrect the
+    // pre-bump code, and S9 would re-fire on every subsequent boot.
+    const { ensureBundledExtensions } = await import("../extensions/bundled");
+    seedStale("ask-user", { disabledByUser: true });
+
+    await ensureBundledExtensions();
+
+    expect(store.get("ask-user")?.version).not.toBe("0.0.1");
+  }, 30_000);
+
+  test("control: the SAME bump on a NOT-user-disabled row still auto-accepts", async () => {
+    // Without this arm the two tests above would also pass if the auto-accept
+    // stopped enabling anything at all.
+    const { ensureBundledExtensions } = await import("../extensions/bundled");
+    seedStale("ask-user");
+
+    await ensureBundledExtensions();
+
+    expect(store.get("ask-user")?.enabled).toBe(true);
   }, 30_000);
 
   test("regression: non-critical (scratchpad) version-bump+perm-change ⇒ disabled", async () => {

@@ -32,14 +32,24 @@ mock.module("../db/queries/extensions", () => ({
   createExtension: extStore.createExtension,
   getExtensionByName: extStore.getExtensionByName,
   updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
+  deleteExtension: async (id: string) => {
+    uninstallSteps.push("delete-row");
+    return extStore.deleteExtension(id);
+  },
   listExtensions: extStore.listExtensions,
 }));
+
+// Ordered log of the teardown steps an uninstall performs. The ORDER is a
+// contract, not an implementation detail — see the "teardown order" describe
+// near the bottom of this file.
+const uninstallSteps: string[] = [];
 
 mock.module("../extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
-      reload: async () => {},
+      reload: async () => {
+        uninstallSteps.push("reload");
+      },
     }),
   },
 }));
@@ -1093,6 +1103,78 @@ describe("uninstallExtension (stored-data purge)", () => {
     expect(removeExtension("no-such-extension")).rejects.toThrow(
       'Extension "no-such-extension" not found',
     );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// uninstallExtension — teardown ORDER, and honest result flags
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("uninstallExtension (teardown order)", () => {
+  async function seedAndUninstall(name: string, opts: { purgeData?: boolean } = {}) {
+    const installDir = join(TMP_ROOT.root, "data", "extensions", name);
+    const dataDir = join(TMP_ROOT.root, ".ezcorp", "extension-data", name);
+    for (const dir of [installDir, dataDir]) {
+      await mkdir(dir, { recursive: true });
+      await Bun.write(join(dir, "keep.txt"), "payload");
+    }
+    extStore.seed({
+      id: `${name}-id`,
+      name,
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath: installDir,
+    });
+    uninstallSteps.length = 0;
+    const result = await removeExtension(name, opts);
+    return { result, installDir, dataDir };
+  }
+
+  test("the row goes, THEN the registry retires it, THEN the files go", async () => {
+    // Order is load-bearing in both halves.
+    //
+    // Row before reload: `reload()` reads the DB, so it can only drop this
+    // extension once the row is gone.
+    //
+    // Reload before `rm`: until the reload the SUBPROCESS IS STILL LIVE, and
+    // for an MCP-kind extension the data directory being deleted is the
+    // sandbox's only read-write mount — a running child can re-create files
+    // underneath the walk, which makes `dataRemoved: true` a claim about a
+    // directory that exists again.
+    const { installDir } = await seedAndUninstall("order-check", { purgeData: true });
+
+    expect(uninstallSteps).toEqual(["delete-row", "reload"]);
+    // The `rm` really did run after both, not merely get skipped.
+    expect(existsSync(installDir)).toBe(false);
+  });
+
+  test("a failed rm reports `false`, and says so out loud", async () => {
+    // `force: true` suppresses only ENOENT. EACCES/EPERM/EROFS reject, and
+    // the rejection is swallowed so an uninstall never throws after the row
+    // is gone — which is exactly why the flag must not be set optimistically.
+    // A "…its files were deleted too" toast over a directory that is still
+    // there is the failure this guards.
+    const fsPromises = await import("node:fs/promises");
+    const rmSpy = spyOn(fsPromises, "rm").mockImplementation(async () => {
+      throw new Error("EACCES: permission denied");
+    });
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+
+    let result: Awaited<ReturnType<typeof removeExtension>>;
+    try {
+      ({ result } = await seedAndUninstall("rm-fails", { purgeData: true }));
+    } finally {
+      rmSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(result!.installPathRemoved).toBe(false);
+    expect(result!.dataRemoved).toBe(false);
+    expect(warnings.some((w) => w.includes("failed to delete install path"))).toBe(true);
+    expect(warnings.some((w) => w.includes("failed to delete stored data"))).toBe(true);
   });
 });
 

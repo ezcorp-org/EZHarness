@@ -1166,4 +1166,16 @@ describe("activateExtension service (direct)", () => {
 		expect(patch.grantedPermissions).toBeUndefined();
 		expect(patch.installedPermissions).toBeUndefined();
 	});
+
+	test("enabling WITHDRAWS the user's disable — disabledByUser is cleared", async () => {
+		// Enabling is the only thing that clears the flag. Drop it and a row
+		// re-enabled through the UI stays flagged "the user turned this off",
+		// so the NEXT automatic disable (consecutive failures, a gate) is read
+		// by `ensureBundledExtensions` as deliberate and never repaired. That
+		// is the contradictory-intent state the source comment warns about.
+		await activateExtension("ext-1", {}, "admin-1");
+
+		const patch = (mockUpdateExtension.mock.calls[0] as any[])[1];
+		expect(patch.disabledByUser).toBe(false);
+	});
 });

@@ -27,8 +27,31 @@ const sseSchema = z.object({
 
 export const mcpServerSpecSchema = z.discriminatedUnion("transport", [stdioSchema, httpSchema, sseSchema]);
 
+/**
+ * The EXTENSION name an MCP install creates a row under.
+ *
+ * `installMcpExtension` synthesises its manifest and calls `createExtension`
+ * directly, so this is the ONE row writer that never passes through
+ * `manifest.ts`'s validation — and its name reaches the filesystem: it is
+ * what `extensionDataDir()` uses for the sandbox's rw work dir and what an
+ * uninstall's `purgeData` deletes. A `z.string().min(1)` here accepted
+ * `../extension-data/<other-extension>`, i.e. a row whose data directory is
+ * somebody else's.
+ *
+ * Byte-identical to `NAME_REGEX` in `src/extensions/manifest.ts:31`, so
+ * every writer now agrees on what an extension may be called.
+ * `isRemovableDataDir` enforces the same shape independently — this is the
+ * outer of two gates, not the only one.
+ */
+const EXTENSION_NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
+
 export const installMcpServerSchema = z.object({
-  name: z.string().min(1),
+  name: z
+    .string()
+    .regex(
+      EXTENSION_NAME_REGEX,
+      "name must be lowercase alphanumeric, may contain - _ . after the first character, and be at most 64 characters — no path separators or traversal",
+    ),
   description: z.string().optional(),
   server: mcpServerSpecSchema,
 });

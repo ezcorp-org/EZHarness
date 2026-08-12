@@ -1157,16 +1157,29 @@ export async function ensureBundledExtensions(): Promise<void> {
                   description: diskManifest.description ?? "",
                   manifest: refreshed,
                 });
-                await writeCriticalAutoReapprovalAudit(
-                  existing.id,
-                  entry.name,
-                  (existing.manifest as ExtensionManifestV2).version,
-                  diskManifest.version,
-                );
-                log.warn(
-                  "CRITICAL bundled extension version-bumped with permission changes — auto-reapproved (within ceiling), staying enabled",
-                  { name: entry.name },
-                );
+                // The audit row and the log line must describe what ACTUALLY
+                // happened. On a user-disabled row the update above wrote
+                // `enabled: false`, so an unconditional "auto-reapproved …
+                // staying enabled" would put a re-approval that never
+                // occurred into the forensic trail, for the one extension an
+                // operator is most likely to be investigating.
+                if (existing.disabledByUser) {
+                  log.info(
+                    "CRITICAL bundled extension version-bumped — manifest refreshed, but left disabled (user opt-out); no re-approval recorded",
+                    { name: entry.name, extensionId: existing.id },
+                  );
+                } else {
+                  await writeCriticalAutoReapprovalAudit(
+                    existing.id,
+                    entry.name,
+                    (existing.manifest as ExtensionManifestV2).version,
+                    diskManifest.version,
+                  );
+                  log.warn(
+                    "CRITICAL bundled extension version-bumped with permission changes — auto-reapproved (within ceiling), staying enabled",
+                    { name: entry.name },
+                  );
+                }
                 // Grant self-heal on the critical auto-reapprove exit.
                 // This `continue` skips the normal reconcile site below,
                 // so a `critical` row whose tool list changes EVERY boot
@@ -1211,10 +1224,16 @@ export async function ensureBundledExtensions(): Promise<void> {
             });
             await updateExtension(existing.id, { enabled: false });
           } else {
-            log.info("Bundled extension still drifted — already disabled pending re-approval (no change)", {
-              name: entry.name,
-              extensionId: existing.id,
-            });
+            log.info(
+              existing.disabledByUser
+                ? // "Pending re-approval" would send an operator looking for
+                  // an admin action to take. There is none: the user turned
+                  // this off, and the drift is simply unresolved while it
+                  // stays off.
+                  "Bundled extension still drifted — disabled by the user, so no re-approval is pending"
+                : "Bundled extension still drifted — already disabled pending re-approval (no change)",
+              { name: entry.name, extensionId: existing.id },
+            );
           }
           continue;
         }

@@ -180,6 +180,11 @@
 	// agents stop being able to ask questions and the symptom (a looping
 	// agent) never points back here.
 	let disableTarget = $state<ExtensionRecord | null>(null);
+	// Locks the confirm button while the PATCH is in flight. Without it the
+	// button is double-clickable into two disables — harmless server-side,
+	// but the second one races `loadExtensions()` and can leave the card
+	// showing the pre-disable state. `UninstallDialog` has the same guard.
+	let disabling = $state(false);
 
 	async function loadExtensions() {
 		try {
@@ -411,6 +416,8 @@
 	}
 
 	async function disableExtension(ext: ExtensionRecord) {
+		if (disabling) return;
+		disabling = true;
 		try {
 			const res = await fetch(`/api/extensions/${ext.id}`, {
 				method: "PATCH",
@@ -428,7 +435,12 @@
 			// now 404.
 			announceExtensionsChanged();
 		} catch (e) {
+			// `disableTarget` deliberately stays set on failure: the dialog
+			// remains open so the user can retry, rather than closing over an
+			// extension that is still enabled.
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Update failed" });
+		} finally {
+			disabling = false;
 		}
 	}
 
@@ -634,8 +646,8 @@
 			addToast({
 				type: "success",
 				message: purgeData
-					? `${ext.name} uninstalled and its stored data deleted`
-					: `${ext.name} uninstalled — its stored data was kept`,
+					? `${ext.name} uninstalled — its files were deleted too`
+					: `${ext.name} uninstalled — its files were kept`,
 			});
 			await loadExtensions();
 			announceExtensionsChanged();
@@ -1091,8 +1103,8 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-		onkeydown={(e) => { if (e.key === "Escape") disableTarget = null; }}
-		onclick={(e) => { if (e.target === e.currentTarget) disableTarget = null; }}
+		onkeydown={(e) => { if (e.key === "Escape" && !disabling) disableTarget = null; }}
+		onclick={(e) => { if (e.target === e.currentTarget && !disabling) disableTarget = null; }}
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="disable-critical-title"
@@ -1113,16 +1125,18 @@
 			<div class="mt-6 flex justify-end gap-2">
 				<button
 					onclick={() => (disableTarget = null)}
-					class="rounded-md px-3 py-1.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)]"
+					disabled={disabling}
+					class="rounded-md px-3 py-1.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
 				>
 					Keep it on
 				</button>
 				<button
 					onclick={() => disableExtension(ext)}
-					class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-500"
+					disabled={disabling}
+					class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-50"
 					data-testid="disable-critical-confirm"
 				>
-					Turn it off
+					{disabling ? "Turning it off…" : "Turn it off"}
 				</button>
 			</div>
 		</div>

@@ -69,13 +69,17 @@ mock.module("$server/db/queries/extensions", extensionsQueriesMock);
 mock.module("../db/queries/extensions", extensionsQueriesMock);
 
 // ── Installer stub — capture what the route asked for ────────────────
-const uninstallCalls: Array<{ id: string; purgeData: boolean | undefined }> = [];
+const uninstallCalls: Array<{
+  ext: Record<string, unknown>;
+  purgeData: boolean | undefined;
+}> = [];
 const installerMock = () => ({
+  // Capture the WHOLE row, not just its id — see the "passes the row" test.
   uninstallExtension: async (
-    ext: { id: string },
+    ext: Record<string, unknown>,
     opts?: { purgeData?: boolean },
   ) => {
-    uninstallCalls.push({ id: ext.id, purgeData: opts?.purgeData });
+    uninstallCalls.push({ ext, purgeData: opts?.purgeData });
     return { installPathRemoved: true, dataRemoved: opts?.purgeData === true };
   },
 });
@@ -138,7 +142,23 @@ describe("DELETE /api/extensions/[id] — built-in guard", () => {
 
     expect(res.status).toBe(204);
     expect(uninstallCalls).toHaveLength(1);
-    expect(uninstallCalls[0]!.id).toBe("ext-1");
+    expect(uninstallCalls[0]!.ext.id).toBe("ext-1");
+  });
+
+  test("passes the ROW, not just its id", async () => {
+    // `uninstallExtension` reads `name` (to locate the data directory) and
+    // `installPath` (to locate the install directory) off this object.
+    // Handing it `{id}` alone still returns 204 and still deletes the row —
+    // and silently skips BOTH filesystem deletes, degrading uninstall back
+    // to the "unregister" this feature exists to fix. Asserting only the id
+    // could not tell the two apart.
+    await call(DELETE, deleteEvent());
+
+    expect(uninstallCalls[0]!.ext).toMatchObject({
+      id: "ext-1",
+      name: "fake-ext",
+      installPath: "/tmp/fake-ext",
+    });
   });
 });
 

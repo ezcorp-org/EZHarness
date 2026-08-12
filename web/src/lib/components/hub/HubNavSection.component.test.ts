@@ -315,6 +315,37 @@ describe("HubNavSection · extensions:changed invalidation", () => {
 		});
 	});
 
+	test("an event arriving mid-load while COLLAPSED defers to the next expand", async () => {
+		// The `pendingReload` settle path with `expanded === false`. Reached by
+		// collapsing while a load is still in flight: the queued refetch must
+		// NOT fire into a hidden section, but the cache must still be dropped
+		// so the next expand pays for fresh data.
+		let resolveList: (r: Response) => void = () => {};
+		listHandler = () => new Promise<Response>((res) => (resolveList = res));
+
+		const { getByTestId, findAllByTestId } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		const toggle = getByTestId("hub-nav-toggle");
+
+		await fireEvent.click(toggle); // expand → load starts
+		window.dispatchEvent(new CustomEvent("extensions:changed")); // queues a reload
+		await fireEvent.click(toggle); // collapse BEFORE the response lands
+
+		dropCronPage();
+		resolveList(jsonResponse({ pages: LISTING }));
+		await tick();
+		await tick();
+
+		// Deferred, not fired: still exactly the one original request.
+		expect(listGets()).toBe(1);
+
+		await fireEvent.click(toggle); // expand → the dropped cache is refilled
+		await waitFor(() => expect(listGets()).toBe(2));
+		const rows = await findAllByTestId("hub-nav-page");
+		expect(rows.map((r) => r.getAttribute("data-page-id"))).not.toContain("ext:cron:dashboard");
+	});
+
 	test("the listener is removed on unmount (no fetch after teardown)", async () => {
 		const { getByTestId, findAllByTestId, unmount } = render(HubNavSection, {
 			props: { hubBase: "/hub", currentPath: "/hub" },

@@ -380,6 +380,17 @@ export interface ExtensionData {
 	 */
 	installedPermissions: Record<string, unknown> | null;
 	/**
+	 * DERIVED server-side (`src/extensions/list-flags.ts`) from the bundled
+	 * catalog's `critical: true`, and part of the `GET /api/extensions`
+	 * contract. Declared here so a spec that seeds it is type-checked against
+	 * the real field name — while these were absent, a rename on the server
+	 * broke nothing anywhere, because the specs fabricated the field and the
+	 * server tests never asserted it.
+	 */
+	isCritical?: boolean;
+	/** Present only alongside `isCritical` — what turning it off costs. */
+	criticalConsequence?: string;
+	/**
 	 * The CURRENT effective grant. Empty object (= "no grants yet") drives
 	 * the in-chat PermissionGate's 4-scope chooser the next time the
 	 * extension's tool fires. A populated shape with `grantedAt[<cap>]`

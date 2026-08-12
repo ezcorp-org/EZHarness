@@ -1,13 +1,27 @@
 <!--
   UninstallDialog — confirm a full extension delete, and settle what happens
-  to the extension's stored data.
+  to the extension's FILES.
 
-  The data question has no safe default, so this dialog refuses to guess.
-  Keeping the data means a reinstall resumes from the user's notes, tasks and
-  config; deleting it cannot be undone. Neither radio is preselected and
-  "Uninstall" stays disabled until one is chosen — a preselected destructive
-  option is how people delete things they meant to keep, and a preselected
-  safe option leaves orphaned directories nobody remembers to clean up.
+  The scope of the choice is deliberately narrow, and the copy says so.
+  An extension keeps state in two places, and only one of them is
+  negotiable:
+
+    - DATABASE (`extension_storage`, `extension_settings_user`,
+      `extension_secrets`): every one of those tables cascades off the
+      `extensions` row, so uninstalling destroys them whatever the user
+      picks. An earlier draft of this dialog offered to "keep" that state
+      and promised a reinstall would "pick up where you left off" — a
+      promise the schema cannot honour. Saying so plainly is the point:
+      this is a consent surface, and a consent surface that overstates what
+      it preserves is worse than one that offers no choice at all.
+    - FILES under `.ezcorp/extension-data/<name>/`: genuinely optional, and
+      the only thing the radios govern.
+
+  No safe default exists even for the narrowed question, so neither radio is
+  preselected and "Uninstall" stays disabled until one is chosen. A
+  preselected destructive option is how people delete things they meant to
+  keep; a preselected safe one leaves directories nobody remembers to clean
+  up.
 
   Shared by the Extensions library grid and the extension detail page, which
   is why the fetch lives in the caller: this component owns the decision, not
@@ -71,15 +85,17 @@
 				Uninstall {extensionName}
 			</h3>
 			<p class="mt-1 text-sm text-[var(--color-text-secondary)]">
-				This removes the extension, its tools, its permissions and its files.
+				This removes the extension, its tools and its permissions. Its saved
+				settings, secrets and stored keys go with it &mdash; those live in the
+				database and cannot be kept.
 			</p>
 
 			<fieldset class="mt-4">
 				<legend class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-secondary)]">
-					Stored data
+					Its files
 				</legend>
 				<p class="mt-1 text-xs text-[var(--color-text-muted)]">
-					Everything this extension saved &mdash; notes, tasks, settings &mdash; lives in
+					Files this extension wrote &mdash; documents, exports, caches &mdash; live in
 					<code class="rounded bg-[var(--color-surface-tertiary)] px-1 py-0.5">.ezcorp/extension-data/{extensionName}/</code>
 				</p>
 
@@ -98,9 +114,9 @@
 							data-testid="uninstall-keep-data"
 						/>
 						<span>
-							<span class="font-medium text-[var(--color-text-primary)]">Keep stored data</span>
+							<span class="font-medium text-[var(--color-text-primary)]">Keep its files</span>
 							<span class="mt-0.5 block text-xs text-[var(--color-text-muted)]">
-								Reinstalling this extension picks up where you left off.
+								The directory stays on disk. Reinstalling reuses whatever is in it.
 							</span>
 						</span>
 					</label>
@@ -119,9 +135,9 @@
 							data-testid="uninstall-delete-data"
 						/>
 						<span>
-							<span class="font-medium text-red-200">Delete stored data</span>
+							<span class="font-medium text-red-200">Delete its files</span>
 							<span class="mt-0.5 block text-xs text-red-300/80">
-								Removes the directory above. This cannot be undone.
+								Removes the directory above too. This cannot be undone.
 							</span>
 						</span>
 					</label>

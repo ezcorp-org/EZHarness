@@ -20,7 +20,7 @@
  * or the registry.
  */
 
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { getProjectRoot } from "./project-root";
 
 /** Base directory holding every extension's data store, under `root`. */
@@ -43,16 +43,37 @@ export function extensionDataDir(
 }
 
 /**
- * True iff {@link extensionDataDir} for `name` resolves STRICTLY INSIDE
- * the base directory — the containment rule for the uninstall `rm -rf`.
+ * Name pattern an extension data directory may be deleted under.
  *
- * The check is not theatre even though `manifest.ts` already pins
- * installer-side names to `/^[a-z0-9][a-z0-9-_.]{0,63}$/`: this function
- * is handed a name read back out of the DB, and the delete it authorizes
- * is recursive and irreversible. `resolve()` before comparing is what
- * turns `../../etc` and an absolute `/etc` into refusals; the trailing
- * `sep` is what keeps a sibling like `extension-data-backup` out, which a
- * bare `startsWith(base)` would admit.
+ * Deliberately IDENTICAL to `manifest.ts`'s `NAME_REGEX` — restated rather
+ * than imported to keep this module a leaf (see the header; `manifest.ts`
+ * pulls in the whole validation closure). `src/__tests__/extension-data-dir.test.ts`
+ * pins the two together so they cannot drift.
+ */
+const DATA_DIR_NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
+
+/**
+ * True iff `name` names ONE directory directly inside the base — the
+ * containment rule for the uninstall `rm -rf`.
+ *
+ * **Identity, not merely containment.** Containment alone is not enough,
+ * and assuming it was is a real hole this function shipped with: a name
+ * like `../extension-data/task-tracking` walks OUT of the base and back
+ * IN, so it stays "inside" while naming a DIFFERENT extension's store.
+ * `DELETE /api/extensions/:id?purgeData=1` on a row carrying that name
+ * would erase a built-in's task store. The premise that no such name can
+ * exist — `manifest.ts` pins installer-side names — was false, because
+ * `installMcpExtension` synthesises its manifest and never goes through
+ * `manifest.ts`. Requiring a single well-formed segment kills the class
+ * for EVERY writer, present and future, which is why the rule lives here
+ * rather than only in the one schema that was missing it.
+ *
+ * Three independent gates, each redundant with the others on purpose:
+ *   1. the name matches the manifest name pattern (no `/`, `\`, `..`,
+ *      leading dot, or empty string);
+ *   2. its resolved directory's PARENT is exactly the base — the
+ *      structural statement of "one level down, no walking";
+ *   3. it is not the base itself.
  *
  * Deliberately LEXICAL — no `realpath()` — matching
  * `isRemovableInstallPath`: `rm(path, {recursive, force})` on a symlink
@@ -64,10 +85,13 @@ export function isRemovableDataDir(
   name: string | null | undefined,
   root: string = getProjectRoot(),
 ): boolean {
-  // `join(base, "")` is `base` itself, so a blank name would otherwise
-  // resolve to "delete every extension's data".
-  if (typeof name !== "string" || name.length === 0) return false;
+  // Gate 1. Also covers the empty string: `join(base, "")` is `base`, so a
+  // blank name would otherwise mean "delete every extension's data".
+  if (typeof name !== "string" || !DATA_DIR_NAME_REGEX.test(name)) return false;
+  // Gates 2 and 3. `dirname` is the whole fix: `startsWith(base + sep)` is
+  // true for any depth and for any path that walks back in, `dirname(...)
+  // === base` is true only for a direct child.
   const base = resolve(extensionDataBaseDir(root));
   const dir = resolve(extensionDataDir(name, root));
-  return dir !== base && dir.startsWith(base + sep);
+  return dir !== base && dirname(dir) === base;
 }

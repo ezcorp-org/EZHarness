@@ -143,4 +143,17 @@ describe("ensureBundledExtensions — user opt-out", () => {
 
     expect(store.get("ask-user")?.enabled).toBe(false);
   }, 30_000);
+
+  test("control: a critical built-in disabled by anything ELSE is repaired", async () => {
+    // The critical arm needs its own control for the same reason the
+    // non-critical one does (see the helper's note): without it, "stays
+    // disabled" cannot be told apart from "an earlier gate `continue`d
+    // before the branch under test ever ran".
+    const { ensureBundledExtensions } = await import("../extensions/bundled");
+    await seedDisabled("ask-user", false);
+
+    await ensureBundledExtensions();
+
+    expect(store.get("ask-user")?.enabled).toBe(true);
+  }, 30_000);
 });

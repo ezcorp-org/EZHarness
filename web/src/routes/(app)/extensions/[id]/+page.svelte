@@ -323,8 +323,8 @@
 			addToast({
 				type: "success",
 				message: purgeData
-					? `${name} uninstalled and its stored data deleted`
-					: `${name} uninstalled — its stored data was kept`,
+					? `${name} uninstalled — its files were deleted too`
+					: `${name} uninstalled — its files were kept`,
 			});
 			// Same signal the library page sends, so the Hub nav drops this
 			// extension's tabs without a reload.
@@ -1631,7 +1631,7 @@
 				{:else}
 					<p class="mb-3 text-xs text-[var(--color-text-muted)]">
 						Removes {ext.name}, its tools, its permissions and its files. You choose
-						what happens to the data it saved.
+						what happens to the files it wrote.
 					</p>
 					<button
 						onclick={() => (uninstallOpen = true)}

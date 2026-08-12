@@ -53,6 +53,28 @@ describe("/extensions +page.server.ts", () => {
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledWith({ bundled: false });
 	});
 
+	test("a real critical name arrives flagged from the SSR loader too", async () => {
+		// The sentinels above are nameless, so both sides come back
+		// `isCritical: false` and the mapper could be deleted unnoticed. The
+		// SSR paint and the client re-fetch must agree, or the confirm step
+		// appears only after the first `loadExtensions()`.
+		vi.mocked(listExtensions).mockImplementation(async (opts) => {
+			const bundled = typeof opts === "object" && opts && "bundled" in opts && opts.bundled === true;
+			return bundled
+				? ([{ id: "b1", name: "ask-user", isBundled: true }] as any)
+				: ([{ id: "i1", name: "some-user-extension", isBundled: false }] as any);
+		});
+
+		const result = (await load({} as any)) as {
+			bundledExtensions: Array<Record<string, unknown>>;
+			installedExtensions: Array<Record<string, unknown>>;
+		};
+
+		expect(result.bundledExtensions[0]).toMatchObject({ name: "ask-user", isCritical: true });
+		expect(typeof result.bundledExtensions[0]!.criticalConsequence).toBe("string");
+		expect(result.installedExtensions[0]).toMatchObject({ isCritical: false });
+	});
+
 	test("returns empty arrays when no extensions exist (no error path)", async () => {
 		vi.mocked(listExtensions).mockResolvedValue([] as any);
 		const result = (await load({} as any)) as {

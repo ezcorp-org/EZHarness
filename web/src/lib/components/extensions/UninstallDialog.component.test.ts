@@ -113,6 +113,24 @@ describe("UninstallDialog · naming what will be deleted", () => {
 		);
 	});
 
+	test("says plainly that database-held state goes either way", () => {
+		// The consent defect this replaced: the dialog offered to "keep stored
+		// data" and promised a reinstall would "pick up where you left off",
+		// while `extension_storage`, `extension_settings_user` and
+		// `extension_secrets` all CASCADE off the `extensions` row and are
+		// destroyed on every uninstall regardless of the choice. A consent
+		// surface that overstates what it preserves is worse than one that
+		// offers no choice, so the promise is now scoped to the files.
+		const dialog = setup().getByTestId("uninstall-dialog");
+
+		expect(dialog).toHaveTextContent(/settings, secrets and stored keys go with it/i);
+		expect(dialog).toHaveTextContent(/cannot be kept/i);
+		// The radios must not re-broaden the claim.
+		expect(dialog).toHaveTextContent(/Keep its files/);
+		expect(dialog).toHaveTextContent(/Delete its files/);
+		expect(dialog).not.toHaveTextContent(/picks up where you left off/i);
+	});
+
 	test("renders nothing while closed", () => {
 		const { queryByTestId } = setup({ open: false });
 

@@ -300,6 +300,14 @@ test.describe("Extensions List Page", () => {
 
 		await expect.poll(() => deleteUrls.length).toBe(1);
 		expect(deleteUrls[0]).not.toContain("purgeData");
+
+		// See the uninstall THROUGH, not just as far as the request: the
+		// dialog must close, the card must go, and the toast must state which
+		// choice was honoured. Stopping at the fetch leaves the whole
+		// post-204 path — dialog teardown, list refresh, the two different
+		// toast sentences — untested.
+		await expect(page.getByTestId("uninstall-dialog")).toHaveCount(0);
+		await expect(page.getByText(/its files were kept/)).toBeVisible();
 	});
 
 	test("uninstall deleting data sends purgeData=1", async ({ page, mockApi }) => {
@@ -320,6 +328,35 @@ test.describe("Extensions List Page", () => {
 
 		await expect.poll(() => deleteUrls.length).toBe(1);
 		expect(deleteUrls[0]).toContain("purgeData=1");
+
+		// The OTHER toast sentence. The two differ on purpose — an
+		// irreversible delete should say so — so asserting only one of them
+		// lets them collapse into a single message unnoticed.
+		await expect(page.getByTestId("uninstall-dialog")).toHaveCount(0);
+		await expect(page.getByText(/its files were deleted too/)).toBeVisible();
+	});
+
+	test("a failed uninstall keeps the dialog open and says why", async ({ page, mockApi }) => {
+		// The failure path had no coverage on either surface: a 500 must not
+		// look like a success, and closing the dialog over an extension that
+		// is still installed is exactly that.
+		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
+
+		await mockApi({ projects: [proj], extensions: [ext] });
+		await page.route("**/api/extensions/ext-1*", async (route) => {
+			if (route.request().method() !== "DELETE") return route.fallback();
+			return route.fulfill({ status: 500, json: { error: "disk is on fire" } });
+		});
+		await page.goto("/extensions");
+
+		await page.getByTestId("ext-card-uninstall").click();
+		await page.getByTestId("uninstall-keep-data").click();
+		await page.getByTestId("uninstall-confirm").click();
+
+		await expect(page.getByText("disk is on fire")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByTestId("uninstall-dialog")).toBeVisible();
+		// And it is usable again, not stuck mid-request.
+		await expect(page.getByTestId("uninstall-confirm")).toBeEnabled();
 	});
 
 	test("a built-in offers disable, never uninstall", async ({ page, mockApi }) => {
