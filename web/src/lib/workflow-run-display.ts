@@ -68,20 +68,64 @@ export function isExplainableStatus(status: string): boolean {
 }
 
 /**
+ * One field off an `AgentResult`-shaped run result.
+ *
+ * Takes `unknown` because the two surfaces that read a run's result type it
+ * differently — the workflow page holds an SSE `WorkflowRun` with a typed
+ * `result`, the run trace holds the API's `unknown` — and they must not end
+ * up with two readers that disagree about the same row. Anything that is
+ * not an object has no fields, which is the honest answer for a payload
+ * shape the executor does not produce.
+ */
+function resultField(result: unknown, key: "error" | "output"): unknown {
+  if (result === null || typeof result !== "object") return undefined;
+  return (result as Record<string, unknown>)[key];
+}
+
+/** A run's result as either surface holds it. */
+type RunResultView = { status: string; result?: unknown };
+
+/**
  * A non-successful run's loud message (e.g. `Gate "x" failed: …`,
  * `exhausted N iterations…`, `Step "y" requires interactive approval…`).
  * The backend emits either a plain string or a `{ code, message }` object
  * (cancellation, awaiting-approval) — tolerate both, and never render
  * anything for a run that is fine or still going.
  */
-export function runErrorText(run: Pick<WorkflowRun, "status" | "result">): string {
+export function runErrorText(run: RunResultView): string {
   if (!isExplainableStatus(run.status)) return "";
-  const err: unknown = run.result?.error;
+  const err = resultField(run.result, "error");
   if (typeof err === "string") return err;
   if (err && typeof err === "object" && "message" in err) {
     return String((err as { message: unknown }).message);
   }
   return "";
+}
+
+/**
+ * What the run PRODUCED — the `output` of its terminal step's result.
+ *
+ * The run's `result` is an `AgentResult` (`{ success, output, error? }`),
+ * and it is the `output` half a person came to read; `success` is already
+ * on screen as the status and `error` has {@link runErrorText}. Returning
+ * the wrapper instead would bury a one-line answer under two fields the
+ * page has already rendered.
+ *
+ * Worth knowing: a run that FAILED can still carry an output. An
+ * `awaiting_approval` or `suspended` run records the last successful
+ * result deliberately (`workflow-executor.ts` — the handoff payload is what
+ * makes a parked run actionable), so this must not gate on `success`.
+ *
+ * A result that is not the expected wrapper is returned WHOLE rather than
+ * dropped: showing something unexpected beats showing "not recorded" over a
+ * value that exists.
+ */
+export function runOutput(result: unknown): unknown {
+  if (result === null || result === undefined) return undefined;
+  if (typeof result === "object" && "output" in result) {
+    return (result as { output: unknown }).output;
+  }
+  return result;
 }
 
 /**

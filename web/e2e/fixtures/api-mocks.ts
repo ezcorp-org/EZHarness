@@ -28,6 +28,28 @@ export interface MockOverrides {
 	conversations?: ReturnType<typeof makeConversation>[];
 	messages?: ReturnType<typeof makeMessage>[];
 	workflows?: ReturnType<typeof makeWorkflow>[];
+	/**
+	 * PERSISTED workflow run history, served by `GET /api/workflows/runs`
+	 * (filtered on `workflowName`) — the half of the workflow detail page's
+	 * Run History that survives a reload. The live half arrives over SSE and
+	 * is seeded with `emitSse` instead.
+	 *
+	 * `trace` is what `GET /api/workflows/runs/[id]` answers for that run. It
+	 * is optional and separate because the list projection deliberately
+	 * carries neither `input` nor `result` — a spec that only needs a row in
+	 * the list should not have to invent a whole trace for it.
+	 */
+	workflowRuns?: Array<{
+		id: string;
+		workflowName: string;
+		status: string;
+		startedAt: string;
+		finishedAt?: string | null;
+		suspendedReason?: string | null;
+		resumable?: boolean;
+		jobRef?: string | null;
+		trace?: Record<string, unknown>;
+	}>;
 	agentConfigs?: ReturnType<typeof makeAgentConfig>[];
 	memories?: ReturnType<typeof makeMemory>[];
 	kbFiles?: ReturnType<typeof makeKBFile>[];
@@ -288,6 +310,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const conversations = overrides.conversations ?? [DEFAULT_CONV];
 	const messages = overrides.messages ?? [];
 	const workflows = overrides.workflows ?? [];
+	const workflowRuns = overrides.workflowRuns ?? [];
 	const agentConfigs = overrides.agentConfigs ?? [];
 	const mems = overrides.memories ?? [];
 	const kbFiles = overrides.kbFiles ?? [];
@@ -1094,6 +1117,35 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		// Workflows
 		if (path === "/api/workflows" && method === "GET") {
 			return route.fulfill({ json: workflows });
+		}
+		// Persisted run history. MUST precede the single-workflow branch
+		// below, whose `/api/workflows/[^/]+` pattern would otherwise claim
+		// this path and 404 it as "no workflow named runs".
+		if (path === "/api/workflows/runs" && method === "GET") {
+			const name = url.searchParams.get("workflowName");
+			const rows = name === null ? workflowRuns : workflowRuns.filter((r) => r.workflowName === name);
+			return route.fulfill({
+				json: {
+					runs: rows.map(({ trace: _trace, ...row }) => ({
+						projectId: null,
+						userId: "u1",
+						finishedAt: null,
+						suspendedReason: null,
+						resumable: false,
+						jobRef: null,
+						...row,
+					})),
+				},
+			});
+		}
+		// One run's trace. The seeded `trace` verbatim — 404 when the spec
+		// seeded none, exactly as the real route answers for a run this
+		// caller may not read.
+		const runTraceMatch = path.match(/^\/api\/workflows\/runs\/([^/]+)$/);
+		if (runTraceMatch && method === "GET") {
+			const trace = workflowRuns.find((r) => r.id === runTraceMatch[1])?.trace;
+			if (!trace) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			return route.fulfill({ json: trace });
 		}
 		if (path.match(/^\/api\/workflows\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ json: { success: true } });

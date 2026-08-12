@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { page } from "$app/stores";
-	import { statusColor } from "$lib/workflow-run-display";
+	import { runErrorText, runOutput, statusColor } from "$lib/workflow-run-display";
+	import RunPayload from "$lib/components/workflows/RunPayload.svelte";
 	import {
 		canRetryFrom,
 		COST_UNAVAILABLE_HINT,
@@ -12,7 +13,6 @@
 		formatTokens,
 		isLiveRun,
 		pauseNote,
-		payloadView,
 		statusLabel,
 		timelineBars,
 		type RunTrace,
@@ -168,6 +168,32 @@
 			</div>
 		</dl>
 
+		<!-- ── Result ─────────────────────────────────────────────────
+		     What the run PRODUCED, which this page fetched and then dropped
+		     for its whole existence: `run.result` was in the payload and in
+		     the type, and nothing rendered it. It goes above the graph
+		     because it is the reason most people open a finished run — the
+		     DAG and the timeline answer "how", and they are still one scroll
+		     away.
+
+		     Shown for every status, not just success. A failed run's message
+		     is the most actionable string on the page, and a parked run
+		     records the last successful result on purpose (the handoff
+		     payload a human needs to act on), so gating this on `success`
+		     would hide it from exactly the runs that need it. -->
+		<section
+			class="space-y-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+			data-testid="trace-result"
+		>
+			<h3 class="text-sm font-semibold text-[var(--color-text-secondary)]">Result</h3>
+			{#if runErrorText(trace.run)}
+				<p class="text-sm {statusColor(trace.run.status)}" data-testid="trace-error-text">
+					{runErrorText(trace.run)}
+				</p>
+			{/if}
+			<RunPayload label="Output" value={runOutput(trace.run.result)} testId="trace-output" />
+		</section>
+
 		<!-- ── DAG ────────────────────────────────────────────────── -->
 		<section class="space-y-2" data-testid="trace-dag">
 			<h3 class="text-sm font-semibold text-[var(--color-text-secondary)]">Graph</h3>
@@ -299,27 +325,12 @@
 											>
 										{/if}
 
-										{#each [{ label: "Resolved input", view: payloadView(step.resolvedInput), tid: "step-resolved-input" }, { label: "Output", view: payloadView(step.output), tid: "step-output" }] as pane (pane.label)}
-											<div>
-												<p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
-													{pane.label}
-												</p>
-												{#if pane.view.kind === "absent"}
-													<p class="text-xs text-[var(--color-text-muted)]" data-testid={pane.tid}>
-														not recorded
-													</p>
-												{:else if pane.view.kind === "truncated"}
-													<p class="text-xs text-amber-400" data-testid={pane.tid}>
-														Too large to store ({formatTokens(pane.view.bytes)} bytes) — kept as a
-														marker so nothing here pretends to be the real value.
-													</p>
-												{:else}
-													<pre
-														class="max-h-64 overflow-auto rounded-md bg-[var(--color-surface)] p-2 font-mono text-xs text-[var(--color-text-secondary)]"
-														data-testid={pane.tid}>{pane.view.text}</pre>
-												{/if}
-											</div>
-										{/each}
+										<RunPayload
+											label="Resolved input"
+											value={step.resolvedInput}
+											testId="step-resolved-input"
+										/>
+										<RunPayload label="Output" value={step.output} testId="step-output" />
 
 										{#if step.iterationRows.length > 0}
 											<div>

@@ -298,6 +298,33 @@ describe("payloadView", () => {
 		expect((view as { text: string }).text).toContain("\n");
 	});
 
+	test("prose is VERBATIM, not JSON-encoded", () => {
+		// The commonest payload on this surface is an agent step's answer.
+		// Through `JSON.stringify` it arrives as one quoted line with every
+		// newline as a literal backslash-n — the exact value the reader
+		// opened the panel for, made unreadable.
+		const answer = 'Shipped v2.\n\nHighlights:\n- faster "cold" start';
+		const view = payloadView(answer);
+		expect(view).toEqual({ kind: "text", text: answer });
+		expect((view as { text: string }).text).not.toContain("\\n");
+		expect((view as { text: string }).text).not.toContain('\\"');
+	});
+
+	test("an empty string is a payload, distinct from an absent one", () => {
+		// "The run recorded an empty string" and "the run recorded nothing"
+		// are different facts, and this surface exists to keep those apart.
+		expect(payloadView("")).toEqual({ kind: "text", text: "" });
+		expect(payloadView("").kind).not.toBe("absent");
+	});
+
+	test("a bare number or boolean stays JSON — its TYPE is the point", () => {
+		// Rendered verbatim, `42` and `"42"` are the same three glyphs. The
+		// quotes are the only thing distinguishing them, so scalars keep
+		// them.
+		expect(payloadView(42)).toEqual({ kind: "json", text: "42" });
+		expect(payloadView(false)).toEqual({ kind: "json", text: "false" });
+	});
+
 	test("isTruncated rejects everything that is not the sentinel", () => {
 		expect(isTruncated({ __truncated: true, bytes: 1 })).toBe(true);
 		expect(isTruncated({ __truncated: false, bytes: 1 })).toBe(false);

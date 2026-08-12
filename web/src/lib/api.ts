@@ -1,3 +1,5 @@
+import type { RunTrace } from "./workflow-trace-logic.js";
+
 const BASE = "";
 
 /** Check response for errors, showing 429 toast when rate-limited. On
@@ -1235,6 +1237,54 @@ export interface WorkflowVersionSummary {
 
 export async function fetchWorkflowVersions(name: string): Promise<WorkflowVersionSummary[]> {
 	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/versions`);
+	await checkResponse(res);
+	return res.json();
+}
+
+/**
+ * One row of the persisted run list.
+ *
+ * Deliberately lean — the server's projection carries neither `input` nor
+ * `result` (`src/runtime/workflow-run-trace.ts`), because both are
+ * uncapped payload surfaces and a 50-row page has not been asked for
+ * either yet. A caller that wants what a run produced opens THAT run with
+ * {@link fetchWorkflowRunTrace}.
+ *
+ * `startedAt` is an ISO string here and epoch milliseconds on the live SSE
+ * `WorkflowRun`; `mergeRunHistory` is where the two are reconciled.
+ */
+export interface WorkflowRunSummary {
+	id: string;
+	workflowName: string;
+	status: string;
+	projectId: string | null;
+	userId: string | null;
+	startedAt: string;
+	finishedAt: string | null;
+	suspendedReason: string | null;
+	resumable: boolean;
+	jobRef: string | null;
+}
+
+/** Persisted run history, newest first. Server-scoped to the runs this
+ *  caller may see (their own, or everything for an admin) — the client
+ *  never filters by owner. */
+export async function fetchWorkflowRuns(
+	workflowName: string,
+	limit = 25,
+): Promise<WorkflowRunSummary[]> {
+	const params = new URLSearchParams({ workflowName, limit: String(limit) });
+	const res = await fetch(`${BASE}/api/workflows/runs?${params}`);
+	await checkResponse(res);
+	const page = (await res.json()) as { runs?: WorkflowRunSummary[] };
+	return page.runs ?? [];
+}
+
+/** One run's full trace — the run row (INCLUDING its `result`), its steps
+ *  and their iterations. 404 for both "no such run" and "not yours"; the
+ *  API refuses to distinguish them and no caller should either. */
+export async function fetchWorkflowRunTrace(runId: string): Promise<RunTrace> {
+	const res = await fetch(`${BASE}/api/workflows/runs/${encodeURIComponent(runId)}`);
 	await checkResponse(res);
 	return res.json();
 }

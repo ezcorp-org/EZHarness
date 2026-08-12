@@ -10,6 +10,7 @@ import {
   isExplainableStatus,
   kindLabel,
   runErrorText,
+  runOutput,
   statusColor,
 } from "../lib/workflow-run-display";
 
@@ -123,5 +124,61 @@ describe("runErrorText", () => {
         result: { success: false, output: null, error: {} as never },
       }),
     ).toBe("");
+  });
+
+  test("reads an UNTYPED result, so the trace page shares this reader", () => {
+    // The run trace types `result` as `unknown` (it comes straight off the
+    // API), the workflow page holds a typed SSE `WorkflowRun`. Both must go
+    // through this function — two readers of the same column drift, and the
+    // one that drifted last time swallowed the approval message entirely.
+    const fromTheWire: unknown = { success: false, output: null, error: "boom" };
+    expect(runErrorText({ status: "error", result: fromTheWire })).toBe("boom");
+  });
+
+  test("a result that is not an object has no error to read", () => {
+    expect(runErrorText({ status: "error", result: "a bare string" })).toBe("");
+    expect(runErrorText({ status: "error", result: null })).toBe("");
+  });
+});
+
+describe("runOutput", () => {
+  test("unwraps the AgentResult to the value a person came to read", () => {
+    // `success` is already on screen as the status and `error` has its own
+    // line, so returning the wrapper would bury a one-line answer under two
+    // fields the page has already rendered.
+    expect(runOutput({ success: true, output: "published" })).toBe("published");
+    expect(runOutput({ success: true, output: { id: 7 } })).toEqual({ id: 7 });
+  });
+
+  test("a FAILED run's output still surfaces", () => {
+    // Load-bearing: an `awaiting_approval` or `suspended` run records the
+    // last successful result on purpose — that handoff payload is what
+    // makes a parked run actionable. Gating on `success` would hide it from
+    // exactly the runs that need it.
+    expect(
+      runOutput({
+        success: false,
+        output: { draftId: "d-1" },
+        error: { code: "awaiting_approval", message: "needs a human" },
+      }),
+    ).toEqual({ draftId: "d-1" });
+  });
+
+  test("a recorded null output is preserved, not turned into 'absent'", () => {
+    // `{ output: null }` is what a graph whose last step produced nothing
+    // records. It is a measurement; the caller renders it as such.
+    expect(runOutput({ success: true, output: null })).toBeNull();
+  });
+
+  test("a run with no result at all reports undefined", () => {
+    expect(runOutput(undefined)).toBeUndefined();
+    expect(runOutput(null)).toBeUndefined();
+  });
+
+  test("a result that is not the expected wrapper is returned WHOLE", () => {
+    // Showing something unexpected beats showing "not recorded" over a
+    // value that plainly exists.
+    expect(runOutput("just a string")).toBe("just a string");
+    expect(runOutput({ note: "no output key" })).toEqual({ note: "no output key" });
   });
 });

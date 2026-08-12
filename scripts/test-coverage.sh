@@ -352,6 +352,7 @@ run_legs() {
       src/__tests__/api-workflows-name-run.server.test.ts \
       src/__tests__/api-workflows-run-control.server.test.ts \
       src/__tests__/api-workflows-run-trace.server.test.ts \
+      src/__tests__/api-workflows-runs-client-contract.server.test.ts \
       src/__tests__/api-workflows-approvals-list.server.test.ts \
       src/__tests__/api-workflows-approvals-answer.server.test.ts \
       src/__tests__/workflow-approvals-logic.unit.test.ts \
@@ -433,6 +434,8 @@ run_legs() {
       src/lib/ezcorp-config-edit.unit.test.ts \
       src/lib/workflow-run-display.unit.test.ts \
       src/lib/workflow-trace-logic.unit.test.ts \
+      src/lib/workflow-run-history.unit.test.ts \
+      src/__tests__/RunPayload.component.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
       "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
@@ -644,6 +647,8 @@ run_legs() {
       --coverage.include='src/lib/dependency-picker.ts' \
       --coverage.include='src/lib/workflow-run-display.ts' \
       --coverage.include='src/lib/workflow-trace-logic.ts' \
+      --coverage.include='src/lib/workflow-run-history.ts' \
+      --coverage.include='src/lib/components/workflows/RunPayload.svelte' \
       --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
       --coverage.include='src/lib/components/extensions/UsesList.svelte' \
       --coverage.include='src/routes/api/users/+server.ts' \
