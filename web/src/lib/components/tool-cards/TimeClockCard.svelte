@@ -1,18 +1,11 @@
 <script lang="ts">
 	import type { ToolCallState } from '$lib/stores.svelte.js';
-	import {
-		formatClockDate,
-		formatClockDateLabel,
-		formatClockTime,
-		getClockParts,
-		parseTimeClockPayload,
-	} from './time-clock-logic.js';
+	import { formatClockDate, getClockParts, parseTimeClockPayload } from './time-clock-logic.js';
 
 	let { toolCall }: { toolCall: ToolCallState } = $props();
 
 	let nowMs = $state(Date.now());
-	const instanceId = $props.id();
-	const gradientId = `timeClockGlow-${instanceId}`;
+	const gradientId = `timeClockGlow-${Math.random().toString(36).slice(2)}`;
 
 	$effect(() => {
 		const timer = window.setInterval(() => {
@@ -25,8 +18,8 @@
 	let now = $derived(new Date(nowMs));
 	let parts = $derived(payload ? getClockParts(now, payload.locale, payload.timezone) : null);
 	let display = $derived(payload ? formatClockDate(now, payload) : '');
-	let digitalTime = $derived(payload ? formatClockTime(now, payload) : '');
-	let dateLabel = $derived(payload ? formatClockDateLabel(now, payload) : '');
+	let digitalTime = $derived(display.split(' at ').at(-1) ?? display);
+	let dateLabel = $derived(display.includes(' at ') ? display.split(' at ')[0] : payload?.formatted ?? '');
 </script>
 
 {#if !payload || !parts}
@@ -57,9 +50,9 @@
 						transform={`rotate(${index * 30} 60 60)`}
 					/>
 				{/each}
-				<line data-testid="time-clock-hour-hand" class="hand hour-hand" x1="60" y1="60" x2="60" y2="34" transform={`rotate(${parts.hourAngle} 60 60)`} />
-				<line data-testid="time-clock-minute-hand" class="hand minute-hand" x1="60" y1="60" x2="60" y2="23" transform={`rotate(${parts.minuteAngle} 60 60)`} />
-				<line data-testid="time-clock-second-hand" class="hand second-hand" x1="60" y1="66" x2="60" y2="18" transform={`rotate(${parts.secondAngle} 60 60)`} />
+				<line class="hand hour-hand" x1="60" y1="60" x2="60" y2="34" transform={`rotate(${parts.hourAngle} 60 60)`} />
+				<line class="hand minute-hand" x1="60" y1="60" x2="60" y2="23" transform={`rotate(${parts.minuteAngle} 60 60)`} />
+				<line class="hand second-hand" x1="60" y1="66" x2="60" y2="18" transform={`rotate(${parts.secondAngle} 60 60)`} />
 				<circle cx="60" cy="60" r="4.6" class="pin" />
 			</svg>
 		</div>
