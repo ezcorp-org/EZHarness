@@ -231,6 +231,9 @@ describe("(f) non-bundled name → passthrough", () => {
 // `permissions` block) never reads as "clamped".
 
 describe("(g) rbacScopes declarations never trip the clamp", () => {
+  /** Any fixed epoch value; the clamp never reads it, only carries it. */
+  const FROZEN_GRANTED_AT = 1_700_000_000_000;
+
   // The manifest permissions block is cast the same way the
   // drift-reapprove / boot paths cast it before clamping.
   const withDeclaration = (extra: Partial<ExtensionPermissions> = {}): ExtensionPermissions =>
@@ -249,7 +252,16 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
       ],
       storage: true,
       rbacScopes: [{ name: "write-tickets", description: "Create and mutate board tickets from chat" }],
-      grantedAt: { eventSubscriptions: Date.now(), storage: Date.now() },
+      // FROZEN, not `Date.now()`. `clampToBundledCeiling` carries `grantedAt`
+      // through into `effective`, and three tests below compare two separate
+      // clamp results with `toEqual` — so a fresh stamp per call made those
+      // assertions a race against the millisecond boundary. Measured at ~0.36%
+      // (181 mismatches in 50,000 iterations): rare enough to look like an
+      // unrelated CI blip, frequent enough to hit. Pinning the varying term is
+      // the fix the root CLAUDE.md prescribes, and it makes the assertions
+      // STRONGER — they become exact equalities instead of "equal if the two
+      // calls happened to land in the same millisecond".
+      grantedAt: { eventSubscriptions: FROZEN_GRANTED_AT, storage: FROZEN_GRANTED_AT },
       ...extra,
     }) as unknown as ExtensionPermissions;
 

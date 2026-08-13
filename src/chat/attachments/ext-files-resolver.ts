@@ -15,6 +15,7 @@
 
 import { resolve, relative, normalize, sep } from "node:path";
 import { realpathSync } from "node:fs";
+import { extensionDataDir } from "../../extensions/extension-data-dir";
 
 // Hard allowlist. Keep tight — anything added here exposes that extension's
 // disk state to authenticated users AND feeds bytes into the LLM on every
@@ -34,10 +35,15 @@ export const MIME_BY_EXT: Readonly<Record<string, string>> = {
 
 /**
  * Absolute path of the extension's data root under the given project root.
- * Mirrors the layout documented in `docs/extensions/data-storage.md`.
+ *
+ * The layout literal lives in `src/extensions/extension-data-dir.ts` — the
+ * same module the uninstall `rm -rf` and the sandbox work-dir read, so this
+ * resolver cannot drift into serving a directory the other two don't mean.
+ * `resolve` is kept here because this signature takes a `cwd` that may be
+ * relative, which `join` alone would not absolutize.
  */
 export function extensionDataRoot(name: string, cwd: string = process.cwd()): string {
-  return resolve(cwd, ".ezcorp", "extension-data", name);
+  return resolve(extensionDataDir(name, cwd));
 }
 
 /**

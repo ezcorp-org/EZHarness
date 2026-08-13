@@ -188,10 +188,26 @@ const AUTO_ENABLE_NAMES = [
 ];
 const autoEnableSet = new Set(AUTO_ENABLE_NAMES);
 
+/**
+ * Stand-in for the real uninstall, faithful in the two effects the DELETE
+ * tests below assert on: the row goes, and the registry reloads. Stubbed
+ * rather than real because the real one deletes DIRECTORIES, and its own
+ * containment rules are covered where they belong
+ * (`src/__tests__/installer-coverage.test.ts`).
+ */
+const mockUninstallExtension = mock(
+	async (ext: { id: string }, opts?: { purgeData?: boolean }) => {
+		await mockDeleteExtension(ext.id);
+		await mockReload();
+		return { installPathRemoved: true, dataRemoved: opts?.purgeData === true };
+	},
+);
+
 mock.module("$server/extensions/installer", () => ({
 	installFromLocal: mockInstallFromLocal,
 	installFromGitHub: mockInstallFromGitHub,
 	installFromGit: mockInstallFromGit,
+	uninstallExtension: mockUninstallExtension,
 	AUTO_ENABLE_ON_INSTALL: autoEnableSet,
 	shouldAutoEnableOnInstall: (name: string) => autoEnableSet.has(name),
 }));
@@ -302,9 +318,16 @@ function detailReq(id: string) {
 	} as any;
 }
 
-function deleteReq(id: string) {
+/**
+ * `url` is part of the real SvelteKit event and the DELETE handler reads it
+ * for `?purgeData=1` — the opt-in that also deletes the extension's stored
+ * data. `query` lets a test drive that branch.
+ */
+function deleteReq(id: string, query = "") {
+	const href = `http://localhost/api/extensions/${id}${query}`;
 	return {
-		request: new Request(`http://localhost/api/extensions/${id}`, { method: "DELETE" }),
+		request: new Request(href, { method: "DELETE" }),
+		url: new URL(href),
 		params: { id },
 		locals: { user: authUser, apiKeyScopes },
 	} as any;
@@ -731,11 +754,14 @@ describe("PATCH /api/extensions/:id", () => {
 		expect(body.error).toMatch(/POST \/:?id?\/activate|activate/i);
 	});
 
-	test("{enabled:false} → 200 and extension disabled", async () => {
+	test("{enabled:false} → 200, disabled AND recorded as the user's choice", async () => {
 		const res = await (extPATCH(patchReq("ext-1", { enabled: false })) as any);
 		expect(res.status).toBe(200);
 		const call = mockUpdateExtension.mock.calls[0] as any[];
-		expect(call[1]).toEqual({ enabled: false });
+		// `disabledByUser` is what makes the OFF survive a restart: the boot
+		// reconcilers re-enable a disabled BUILT-IN unless this flag says the
+		// user meant it (`ensureBundledExtensions`).
+		expect(call[1]).toEqual({ enabled: false, disabledByUser: true });
 	});
 
 	test("API key lacking 'extensions' scope → 403", async () => {
@@ -885,12 +911,27 @@ describe("DELETE /api/extensions/:id", () => {
 		mockDeleteExtension.mockClear();
 		mockKillAll.mockClear();
 		mockReload.mockClear();
+		mockUninstallExtension.mockClear();
 	});
 
-	test("admin → 204; killAll + deleteExtension + reload all called", async () => {
+	test("?purgeData=1 is what asks for the stored data to go", async () => {
+		// No default worth guessing: keeping the data lets a reinstall
+		// resume, deleting it cannot be undone. The UI asks outright.
+		await (extDELETE(deleteReq("ext-1", "?purgeData=1")) as any);
+		expect(mockUninstallExtension.mock.calls[0]?.[1]).toEqual({ purgeData: true });
+
+		mockUninstallExtension.mockClear();
+		await (extDELETE(deleteReq("ext-1")) as any);
+		expect(mockUninstallExtension.mock.calls[0]?.[1]).toEqual({ purgeData: false });
+	});
+
+	test("admin → 204; deleteExtension + reload, and killAll NEVER", async () => {
 		const res = await (extDELETE(deleteReq("ext-1")) as any);
 		expect(res.status).toBe(204);
-		expect(mockKillAll).toHaveBeenCalledTimes(1);
+		// `killAll()` kills EVERY extension's subprocess, not this one's —
+		// uninstalling one extension took the others down with it. `reload()`
+		// is the correctly-scoped teardown.
+		expect(mockKillAll).not.toHaveBeenCalled();
 		expect(mockDeleteExtension).toHaveBeenCalledWith("ext-1");
 		expect(mockReload).toHaveBeenCalledTimes(1);
 	});
@@ -904,14 +945,17 @@ describe("DELETE /api/extensions/:id", () => {
 		expect(mockReload).not.toHaveBeenCalled();
 	});
 
-	test("killAll throwing is swallowed; delete still proceeds", async () => {
-		mockKillAll.mockImplementationOnce(() => {
-			throw new Error("registry unavailable");
-		});
+	test("a built-in → 409, and nothing is deleted", async () => {
+		// Deleting a built-in's row is undone by the next boot, which
+		// reinstalls it with DEFAULT grants — so the only lasting effect was
+		// silently discarding the admin's permission narrowing. Disabling is
+		// the supported off switch.
+		extensionStore = { ...extensionFixture, isBundled: true };
 		const res = await (extDELETE(deleteReq("ext-1")) as any);
-		expect(res.status).toBe(204);
-		expect(mockDeleteExtension).toHaveBeenCalledWith("ext-1");
-		expect(mockReload).toHaveBeenCalledTimes(1);
+		expect(res.status).toBe(409);
+		expect((await res.json()).error).toMatch(/disable it instead/);
+		expect(mockDeleteExtension).not.toHaveBeenCalled();
+		expect(mockReload).not.toHaveBeenCalled();
 	});
 
 	test("unauthenticated → 401", async () => {
@@ -1121,5 +1165,17 @@ describe("activateExtension service (direct)", () => {
 		expect(patch.enabled).toBe(true);
 		expect(patch.grantedPermissions).toBeUndefined();
 		expect(patch.installedPermissions).toBeUndefined();
+	});
+
+	test("enabling WITHDRAWS the user's disable — disabledByUser is cleared", async () => {
+		// Enabling is the only thing that clears the flag. Drop it and a row
+		// re-enabled through the UI stays flagged "the user turned this off",
+		// so the NEXT automatic disable (consecutive failures, a gate) is read
+		// by `ensureBundledExtensions` as deliberate and never repaired. That
+		// is the contradictory-intent state the source comment warns about.
+		await activateExtension("ext-1", {}, "admin-1");
+
+		const patch = (mockUpdateExtension.mock.calls[0] as any[])[1];
+		expect(patch.disabledByUser).toBe(false);
 	});
 });

@@ -18,12 +18,25 @@
  *     security bound — a ceiling-exceeding extension is NOT
  *     auto-re-enabled; it stays disabled and the ERROR stands so an
  *     operator investigates).
+ *
+ * ONE exception: a row carrying `disabledByUser` was switched off from the
+ * Extensions page on purpose, typically because the user runs their own
+ * replacement for the capability. That is a decision, not a fault, so it is
+ * neither a violation nor remediated. It still logs — at WARN, naming what
+ * the loop loses — because a silently absent `ask-user` is exactly the
+ * harness-smoke-test trap, and an operator debugging a stuck agent needs the
+ * line in the log. Every OTHER route to a disabled critical extension (manual
+ * DB edit, the S9 version gate, a manifest tamper) keeps the ERROR and the
+ * one-time re-enable unchanged.
  */
 
 import { getCriticalBundledExtensions, getProjectRoot } from "../extensions/bundled";
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { loadManifestFresh } from "../extensions/loader";
 import { clampToBundledCeiling } from "../extensions/bundled-ceiling";
+// Shared with the Extensions page's disable dialog — see the module header
+// for why the sentence has exactly one home.
+import { consequenceFor } from "../extensions/critical-consequence";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "../extensions/audit-actions";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
@@ -31,28 +44,6 @@ import { join } from "node:path";
 import { logger } from "../logger";
 
 const log = logger.child("startup/assert-critical-extensions");
-
-/**
- * Per-extension consequence clause for the "critical extension
- * disabled/missing" ERROR. Previously every critical extension's log
- * copy-pasted "agents cannot ask the user", which is wrong for
- * `task-tracking` (it has nothing to do with asking the user). Keep
- * each clause specific to what the loop actually loses without that
- * extension; fall back to a neutral generic phrasing for any future
- * critical extension not enumerated here.
- */
-const CRITICAL_CONSEQUENCE: Record<string, string> = {
-  "ask-user": "agents cannot ask the user for clarification",
-  "task-tracking":
-    "agents cannot self-structure recovery / track multi-step work",
-};
-
-function consequenceFor(name: string): string {
-  return (
-    CRITICAL_CONSEQUENCE[name] ??
-    "agents lose a loop-safety capability"
-  );
-}
 
 export interface CriticalAssertionResult {
   /** Names checked. */
@@ -63,6 +54,12 @@ export interface CriticalAssertionResult {
   remediated: string[];
   /** Disabled + NOT remediated (perms exceed ceiling / disk unreadable). */
   unremediated: string[];
+  /**
+   * Disabled BY THE USER and deliberately left that way. Reported
+   * separately from `violations` so a caller cannot mistake a choice for a
+   * fault — these names are absent from every other array.
+   */
+  userDisabled: string[];
 }
 
 /**
@@ -77,6 +74,7 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
     violations: [],
     remediated: [],
     unremediated: [],
+    userDisabled: [],
   };
 
   for (const entry of critical) {
@@ -107,6 +105,19 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
 
     if (row.enabled === true) {
       continue; // invariant holds
+    }
+
+    // ── Deliberate user opt-out ──────────────────────────────────────
+    // Checked BEFORE the violation branch: re-enabling here would undo
+    // the user's choice on every boot, which is the bug this whole
+    // column exists to fix.
+    if (row.disabledByUser === true) {
+      result.userDisabled.push(entry.name);
+      log.warn(
+        `CRITICAL extension ${entry.name} disabled by the user — ${consequenceFor(entry.name)} unless another extension provides the same tool`,
+        { name: entry.name, extensionId: row.id },
+      );
+      continue;
     }
 
     // ── Violation ────────────────────────────────────────────────────

@@ -170,6 +170,11 @@ describe("PATCH /api/extensions/[id] — happy paths", () => {
     expect(res.status).toBe(200);
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]!.data.enabled).toBe(false);
+    // The disable is recorded as DELIBERATE. Without this flag the boot
+    // reconcilers cannot tell it apart from a gate disable, and
+    // `ensureBundledExtensions` re-enables every disabled built-in — so a
+    // user turning one off got it back on the next restart.
+    expect(updateCalls[0]!.data.disabledByUser).toBe(true);
     expect(resetFailuresCalls).toHaveLength(0);
     expect(reloadCount).toBe(1);
   });
@@ -334,7 +339,13 @@ describe("GET /api/extensions/[id]", () => {
 });
 
 describe("DELETE /api/extensions/[id]", () => {
-  test("existing id → 204, deleteExtension + killAll + reload called", async () => {
+  test("existing id → 204, deleteExtension + reload, and killAll NEVER", async () => {
+    // `killAll()` kills EVERY extension's subprocess, closes every MCP
+    // client and tears down every forward proxy — uninstalling one
+    // extension took the others down with it. The route used to call it
+    // under a comment claiming it was scoped to this extension.
+    // `reload()` is the correctly-scoped teardown: it drops exactly the
+    // removed or runtime-changed entries (see `ExtensionRegistry.reload`).
     const event = createMockEvent({
       method: "DELETE",
       url: "http://localhost/api/extensions/ext-1",
@@ -344,7 +355,7 @@ describe("DELETE /api/extensions/[id]", () => {
     const res = await call(DELETE, event);
     expect(res.status).toBe(204);
     expect(deleteCalls).toEqual(["ext-1"]);
-    expect(killAllCount).toBe(1);
+    expect(killAllCount).toBe(0);
     expect(reloadCount).toBe(1);
   });
 

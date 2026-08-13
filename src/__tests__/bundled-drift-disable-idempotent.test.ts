@@ -102,12 +102,13 @@ beforeEach(() => {
  * `detectAndLogManifestDrift` reports the `network` diff. `scratchpad`
  * is NOT critical, so S9 disables it.
  */
-function seedDriftedScratchpad(enabled: boolean): void {
+function seedDriftedScratchpad(enabled: boolean, disabledByUser = false): void {
   store.set("scratchpad", {
     id: "seed-scratchpad",
     name: "scratchpad",
     description: "stale description",
     enabled,
+    ...(disabledByUser ? { disabledByUser: true } : {}),
     isBundled: true,
     installPath: "docs/extensions/examples/scratchpad",
     version: "0.0.1",
@@ -170,6 +171,26 @@ describe("D4 — already-disabled drifted bundle is idempotent", () => {
     expect(
       auditEntries.some((a) => a.action === "ext:manifest-drifted"),
     ).toBe(false);
+  }, 30_000);
+
+  test("a USER-disabled drifted row is not described as pending re-approval", async () => {
+    // Same de-spammed branch, different reason for being off — and the two
+    // must not read alike in the log. "Pending re-approval" sends an
+    // operator looking for an admin action to take; when the USER turned
+    // the extension off there is none, and the drift is simply unresolved
+    // for as long as it stays off. Behaviour is otherwise identical to the
+    // case above, which is exactly why the wording is the only signal.
+    const { ensureBundledExtensions } = await import("../extensions/bundled");
+    seedDriftedScratchpad(false, true);
+
+    await ensureBundledExtensions();
+
+    expect(store.get("scratchpad")?.enabled).toBe(false);
+    // The opt-out survives: clearing it here would let the next boot's
+    // re-enable branch pick the row up.
+    expect(store.get("scratchpad")?.disabledByUser).toBe(true);
+    expect(scratchpadEnabledWrites()).toBe(0);
+    expect(auditEntries.some((a) => a.action === "ext:manifest-drifted")).toBe(false);
   }, 30_000);
 
   test("drifted-but-ENABLED still takes the full WARN + disable path", async () => {

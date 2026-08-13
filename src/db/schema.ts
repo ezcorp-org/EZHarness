@@ -1401,6 +1401,16 @@ export const extensions = pgTable("extensions", {
   // finding #2 vulnerability (an attacker could install an extension
   // manifested as name:"ai-kit" and inherit bundled trust).
   isBundled: boolean("is_bundled").notNull().default(false),
+  // The user turned this extension OFF on purpose, and that choice must
+  // outlive a restart. `enabled=false` alone cannot say that: the boot
+  // reconcilers write it too (S9 version gate, manifest tamper,
+  // consecutive-failure auto-disable), and `ensureBundledExtensions`
+  // treats any disabled BUNDLED row as damage it should repair — so a
+  // built-in the user switched off came back on every boot. This column
+  // is the one signal that distinguishes "off because something broke"
+  // from "off because the user said so"; only an explicit enable
+  // (`activateExtension`) clears it.
+  disabledByUser: boolean("disabled_by_user").notNull().default(false),
   // Creator attribution for user-authored extensions. Set ONLY by the
   // authored-install path (installAuthoredDraft → installFromLocal);
   // bundled/github/mcp installs leave it NULL. Nullable + ON DELETE SET

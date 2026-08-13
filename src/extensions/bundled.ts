@@ -920,6 +920,20 @@ export function getCriticalBundledExtensions(): Array<{
 }
 
 /**
+ * True for a bundled entry flagged `critical: true`.
+ *
+ * Read by the Extensions page (through the list route's `isCritical` field)
+ * so switching one of these OFF can say what the loop loses first. The user
+ * may still do it — a replacement extension can provide the same tool — but
+ * the choice should not be silent, because a missing `ask-user` presents as
+ * an agent that loops instead of asking a question, and nothing in the UI
+ * would otherwise connect the two.
+ */
+export function isCriticalBundledExtensionName(name: string): boolean {
+  return BUNDLED_EXTENSIONS.some((e) => e.name === name && e.critical === true);
+}
+
+/**
  * Path (relative to the project root) of a bundled extension's on-disk
  * source, or `null` for non-bundled names. Consumed by the admin
  * drift-reapproval heal (`bundled-drift-reapprove.ts`) so it loads the
@@ -1129,7 +1143,13 @@ export async function ensureBundledExtensions(): Promise<void> {
                   ...(await diskChecksumFields(criticalDiskDir, diskManifest, entry.name)),
                 };
                 await updateExtension(existing.id, {
-                  enabled: true,
+                  // `enabled: true` is what "auto-accept" means here — but
+                  // it must not resurrect an extension the USER switched
+                  // off. A version bump is not consent to undo that; the
+                  // manifest/version refresh below still lands, so the row
+                  // converges on disk and re-enabling later gets the new
+                  // code. Preserves the user's OFF across an upgrade.
+                  enabled: !existing.disabledByUser,
                   version: diskManifest.version,
                   // Sync the denormalized description column too — same
                   // gap as the normal refresh path (the UI reads the
@@ -1137,16 +1157,29 @@ export async function ensureBundledExtensions(): Promise<void> {
                   description: diskManifest.description ?? "",
                   manifest: refreshed,
                 });
-                await writeCriticalAutoReapprovalAudit(
-                  existing.id,
-                  entry.name,
-                  (existing.manifest as ExtensionManifestV2).version,
-                  diskManifest.version,
-                );
-                log.warn(
-                  "CRITICAL bundled extension version-bumped with permission changes — auto-reapproved (within ceiling), staying enabled",
-                  { name: entry.name },
-                );
+                // The audit row and the log line must describe what ACTUALLY
+                // happened. On a user-disabled row the update above wrote
+                // `enabled: false`, so an unconditional "auto-reapproved …
+                // staying enabled" would put a re-approval that never
+                // occurred into the forensic trail, for the one extension an
+                // operator is most likely to be investigating.
+                if (existing.disabledByUser) {
+                  log.info(
+                    "CRITICAL bundled extension version-bumped — manifest refreshed, but left disabled (user opt-out); no re-approval recorded",
+                    { name: entry.name, extensionId: existing.id },
+                  );
+                } else {
+                  await writeCriticalAutoReapprovalAudit(
+                    existing.id,
+                    entry.name,
+                    (existing.manifest as ExtensionManifestV2).version,
+                    diskManifest.version,
+                  );
+                  log.warn(
+                    "CRITICAL bundled extension version-bumped with permission changes — auto-reapproved (within ceiling), staying enabled",
+                    { name: entry.name },
+                  );
+                }
                 // Grant self-heal on the critical auto-reapprove exit.
                 // This `continue` skips the normal reconcile site below,
                 // so a `critical` row whose tool list changes EVERY boot
@@ -1191,10 +1224,21 @@ export async function ensureBundledExtensions(): Promise<void> {
             });
             await updateExtension(existing.id, { enabled: false });
           } else {
-            log.info("Bundled extension still drifted — already disabled pending re-approval (no change)", {
-              name: entry.name,
-              extensionId: existing.id,
-            });
+            // Same de-spammed branch, two reasons for being off, and they
+            // must not read alike: "pending re-approval" sends an operator
+            // looking for an admin action to take, and when the USER turned
+            // this off there is none — the drift is simply unresolved for as
+            // long as it stays off.
+            //
+            // Hoisted out of the `log.info(...)` call rather than written
+            // inline: a comment sitting between `?` and its arm becomes a
+            // line bun's coverage emitter records as a zero-hit statement,
+            // and the patch-coverage gate then reports an executed branch as
+            // uncovered.
+            const stillDrifted = existing.disabledByUser
+              ? "Bundled extension still drifted — disabled by the user, so no re-approval is pending"
+              : "Bundled extension still drifted — already disabled pending re-approval (no change)";
+            log.info(stillDrifted, { name: entry.name, extensionId: existing.id });
           }
           continue;
         }
@@ -1319,12 +1363,23 @@ export async function ensureBundledExtensions(): Promise<void> {
         await reconcileBundledGrant(entry, existing);
 
         // If a bundled extension was disabled by a prior runtime check
-        // (e.g. the now-removed integrity gate) or by an operator toggling
-        // it off outside the opt-out env flag, re-enable it on the next
+        // (e.g. the now-removed integrity gate), re-enable it on the next
         // startup — we're the source of truth for "bundled default on".
-        // Operators who genuinely want it off should set the disable flag,
-        // which keeps the extension out of this loop entirely.
-        if (!existing.enabled) {
+        //
+        // EXCEPT when the user turned it off on purpose (`disabledByUser`,
+        // written only by `PATCH /api/extensions/:id`). That case is not
+        // damage to repair: a user who runs their own replacement for a
+        // built-in must be able to switch ours off and have it STAY off.
+        // Before this flag existed the toggle looked like it worked and
+        // silently reverted on the next boot, and the only real off switch
+        // was the `DISABLE_FLAGS` env var — which still works, and still
+        // keeps its extension out of this loop entirely.
+        if (!existing.enabled && existing.disabledByUser) {
+          log.info("Bundled extension left disabled — user opt-out", {
+            name: entry.name,
+            extensionId: existing.id,
+          });
+        } else if (!existing.enabled) {
           await updateExtension(existing.id, {
             enabled: true,
             consecutiveFailures: 0,

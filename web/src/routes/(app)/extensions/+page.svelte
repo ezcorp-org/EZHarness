@@ -3,6 +3,7 @@
 	import { addToast } from "$lib/toast.svelte.js";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
+	import UninstallDialog from "$lib/components/extensions/UninstallDialog.svelte";
 	import {
 		ACTIVE_TAB_STORAGE_KEY,
 		type LibraryTab,
@@ -65,6 +66,15 @@
 		};
 		grantedPermissions: Record<string, unknown>;
 		isBundled?: boolean;
+		/** Derived server-side from the bundled catalog's `critical: true`
+		 *  (see `$lib/server/extensions/list-flags`). Drives the extra
+		 *  confirm step on disable — the browser must not hardcode which
+		 *  built-ins are loop-safety primitives. */
+		isCritical?: boolean;
+		/** Sent only for critical rows — the sentence shown before the user
+		 *  turns one off. Server-supplied so it stays byte-equal to the one
+		 *  the startup invariant logs (`src/extensions/critical-consequence.ts`). */
+		criticalConsequence?: string;
 	}
 
 	interface ReviewSelection {
@@ -160,8 +170,21 @@
 	});
 	let activating = $state(false);
 
-	// Uninstall confirmation
-	let confirmDeleteId = $state<string | null>(null);
+	// Uninstall confirmation — a real dialog, because the delete now reaches
+	// the filesystem and the user has to answer the stored-data question.
+	let uninstallTarget = $state<ExtensionRecord | null>(null);
+	let uninstalling = $state(false);
+
+	// Disabling a `critical` built-in (ask-user, task-tracking) is allowed —
+	// a user may run their own replacement — but not silent: without one,
+	// agents stop being able to ask questions and the symptom (a looping
+	// agent) never points back here.
+	let disableTarget = $state<ExtensionRecord | null>(null);
+	// Locks the confirm button while the PATCH is in flight. Without it the
+	// button is double-clickable into two disables — harmless server-side,
+	// but the second one races `loadExtensions()` and can leave the card
+	// showing the pre-disable state. `UninstallDialog` has the same guard.
+	let disabling = $state(false);
 
 	async function loadExtensions() {
 		try {
@@ -383,6 +406,18 @@
 			openReview(ext);
 			return;
 		}
+		// One extra beat for the loop-safety built-ins; everything else
+		// disables straight away.
+		if (ext.isCritical) {
+			disableTarget = ext;
+			return;
+		}
+		await disableExtension(ext);
+	}
+
+	async function disableExtension(ext: ExtensionRecord) {
+		if (disabling) return;
+		disabling = true;
 		try {
 			const res = await fetch(`/api/extensions/${ext.id}`, {
 				method: "PATCH",
@@ -393,10 +428,35 @@
 				const data = await res.json().catch(() => ({}));
 				throw new Error(data.error || "Failed to update");
 			}
+			disableTarget = null;
 			await loadExtensions();
+			// A disabled extension's Hub tabs are gone server-side the moment
+			// this lands; tell the sidebar so it stops offering links that
+			// now 404.
+			announceExtensionsChanged();
 		} catch (e) {
+			// `disableTarget` deliberately stays set on failure: the dialog
+			// remains open so the user can retry, rather than closing over an
+			// extension that is still enabled.
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Update failed" });
+		} finally {
+			disabling = false;
 		}
+	}
+
+	/**
+	 * Tell the rest of the app that the enabled set moved.
+	 *
+	 * The Hub nav and the Hub tab bar cache `/api/hub/pages`, which is
+	 * filtered by `enabled` server-side — without this they keep showing a
+	 * disabled extension's tab until a full page reload. A window
+	 * CustomEvent rather than a store because the listeners live in
+	 * components this page never renders; same pattern as the existing
+	 * `extensions:installed` re-dispatch in `stores.svelte.ts`.
+	 */
+	function announceExtensionsChanged() {
+		if (typeof window === "undefined") return;
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
 	}
 
 	/**
@@ -562,6 +622,9 @@
 			reviewExt = null;
 			addToast({ type: "success", message: "Extension activated" });
 			await loadExtensions();
+			// Enabling can ADD Hub tabs (declaring a page is the grant), so
+			// the nav needs the same nudge a disable gives it.
+			announceExtensionsChanged();
 		} catch (e) {
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Activation failed" });
 		} finally {
@@ -569,15 +632,29 @@
 		}
 	}
 
-	async function uninstall(id: string) {
+	async function uninstall({ purgeData }: { purgeData: boolean }) {
+		const ext = uninstallTarget;
+		if (!ext) return;
+		uninstalling = true;
 		try {
-			const res = await fetch(`/api/extensions/${id}`, { method: "DELETE" });
-			if (!res.ok && res.status !== 204) throw new Error("Failed to uninstall");
-			confirmDeleteId = null;
-			addToast({ type: "success", message: "Extension uninstalled" });
+			const query = purgeData ? "?purgeData=1" : "";
+			const res = await fetch(`/api/extensions/${ext.id}${query}`, { method: "DELETE" });
+			if (!res.ok && res.status !== 204) {
+				throw new Error(await extractError(res, "Failed to uninstall"));
+			}
+			uninstallTarget = null;
+			addToast({
+				type: "success",
+				message: purgeData
+					? `${ext.name} uninstalled — its files were deleted too`
+					: `${ext.name} uninstalled — its files were kept`,
+			});
 			await loadExtensions();
+			announceExtensionsChanged();
 		} catch (e) {
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Uninstall failed" });
+		} finally {
+			uninstalling = false;
 		}
 	}
 
@@ -944,6 +1021,19 @@
 
 					<p class="mb-3 text-sm text-[var(--color-text-secondary)]">{ext.description || "No description"}</p>
 
+					{#if !ext.enabled && ext.manifest.pages?.length}
+						<!-- Name the side effect where the user caused it. The Hub tab
+						     vanishes from the sidebar the moment this is switched off,
+						     and nothing on the Hub itself explains why. -->
+						<p
+							class="mb-3 text-xs text-[var(--color-text-muted)]"
+							data-testid="ext-card-pages-hidden"
+						>
+							{ext.manifest.pages.length === 1 ? "Its Hub tab is" : "Its Hub tabs are"} hidden
+							while this is off.
+						</p>
+					{/if}
+
 					<div class="flex items-center justify-between">
 						<div class="flex gap-2">
 							<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
@@ -970,26 +1060,22 @@
 								</button>
 							{/if}
 							{#if !ext.isBundled}
-								{#if confirmDeleteId === ext.id}
-									<button
-										onclick={() => uninstall(ext.id)}
-										class="rounded-md bg-red-600 px-2 py-1 text-xs text-white transition-colors hover:bg-red-500"
-									>
-										Confirm
-									</button>
-								{:else}
-									<button
-										onclick={() => { confirmDeleteId = ext.id; setTimeout(() => { if (confirmDeleteId === ext.id) confirmDeleteId = null; }, 3000); }}
-										class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/30"
-									>
-										Uninstall
-									</button>
-								{/if}
+								<button
+									onclick={() => (uninstallTarget = ext)}
+									class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/30"
+									data-testid="ext-card-uninstall"
+								>
+									Uninstall
+								</button>
 							{:else}
-								<!-- Bundled extensions are not user-uninstallable. Settings stay editable. -->
+								<!-- Built-ins ship with the harness: the row is recreated at
+								     every boot, so deleting it would discard the admin's
+								     permission narrowing and change nothing else. The toggle
+								     beside it is the real off switch, and it now survives a
+								     restart. -->
 								<span
 									class="rounded-md bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-muted)]"
-									title="Built-in — uninstall is not available"
+									title="Ships with EZCorp — turn it off with the toggle instead of uninstalling"
 									data-testid="ext-card-builtin-badge"
 								>
 									Built-in
@@ -1003,6 +1089,59 @@
 	{/if}
 	</div>
 </div>
+
+<UninstallDialog
+	open={uninstallTarget !== null}
+	extensionName={uninstallTarget?.name ?? ""}
+	busy={uninstalling}
+	onconfirm={uninstall}
+	oncancel={() => (uninstallTarget = null)}
+/>
+
+{#if disableTarget}
+	{@const ext = disableTarget}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+		onkeydown={(e) => { if (e.key === "Escape" && !disabling) disableTarget = null; }}
+		onclick={(e) => { if (e.target === e.currentTarget && !disabling) disableTarget = null; }}
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="disable-critical-title"
+		data-testid="disable-critical-dialog"
+		tabindex={-1}
+	>
+		<div class="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-xl">
+			<h3 id="disable-critical-title" class="text-base font-semibold text-[var(--color-text-primary)]">
+				Turn off {ext.name}?
+			</h3>
+			<p class="mt-2 text-sm text-[var(--color-text-secondary)]" data-testid="disable-critical-consequence">
+				{ext.criticalConsequence}
+			</p>
+			<p class="mt-2 text-sm text-[var(--color-text-secondary)]">
+				That is fine if another extension provides the same tool — install yours
+				first, then turn this one off.
+			</p>
+			<div class="mt-6 flex justify-end gap-2">
+				<button
+					onclick={() => (disableTarget = null)}
+					disabled={disabling}
+					class="rounded-md px-3 py-1.5 text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50"
+				>
+					Keep it on
+				</button>
+				<button
+					onclick={() => disableExtension(ext)}
+					disabled={disabling}
+					class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-50"
+					data-testid="disable-critical-confirm"
+				>
+					{disabling ? "Turning it off…" : "Turn it off"}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 {#if reviewExt}
 	{@const ext = reviewExt}

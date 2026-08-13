@@ -76,7 +76,7 @@ mock.module("../extensions/bundled", () => ({
   resolveBundledExtensions: () => entries,
 }));
 
-let rows: Map<string, { id: string; enabled: boolean } | null>;
+let rows: Map<string, { id: string; enabled: boolean; disabledByUser?: boolean } | null>;
 let lookupThrowsFor: Set<string>;
 const updateCalls: string[] = [];
 mock.module("../db/queries/extensions", () => ({
@@ -126,8 +126,41 @@ describe("assertBundledNotStranded", () => {
     expect(r.stranded).toEqual([]);
     expect(r.missing).toEqual([]);
     expect(r.unknown).toEqual([]);
+    expect(r.userDisabled).toEqual([]);
     expect(r.checked).toEqual(["web-search", "scratchpad"]);
     expect(warnings()).toEqual([]);
+  });
+
+  test("a USER-disabled row is not stranded and raises no warning", async () => {
+    // "Stranded" means "waiting for an admin to re-approve it". A built-in
+    // the user switched off is waiting for nothing, so telling an operator
+    // to go re-enable it is precisely the boot-time noise this module was
+    // written to delete.
+    rows.set("web-search", { id: "ext-ws", enabled: false, disabledByUser: true });
+    const { assertBundledNotStranded } = await import(
+      "../startup/assert-bundled-not-stranded"
+    );
+    const r = await assertBundledNotStranded();
+
+    expect(r.stranded).toEqual([]);
+    expect(r.userDisabled).toEqual(["web-search"]);
+    expect(warnings()).toEqual([]);
+  });
+
+  test("a user opt-out does not mask a genuinely stranded sibling", async () => {
+    rows.set("web-search", { id: "ext-ws", enabled: false, disabledByUser: true });
+    rows.set("scratchpad", { id: "ext-sp", enabled: false });
+    const { assertBundledNotStranded } = await import(
+      "../startup/assert-bundled-not-stranded"
+    );
+    const r = await assertBundledNotStranded();
+
+    expect(r.stranded).toEqual(["scratchpad"]);
+    expect(r.userDisabled).toEqual(["web-search"]);
+    const w = warnings();
+    expect(w).toHaveLength(1);
+    // The WARN names only the row an admin can act on.
+    expect(w[0]!.stranded).toEqual(["scratchpad"]);
   });
 
   test("a disabled bundled row is reported as stranded", async () => {

@@ -145,7 +145,10 @@ test.describe("Extensions — MCP edit-after-install", () => {
 		});
 
 		await page.goto("/extensions/local-x");
-		await expect(page.getByText("local-ext")).toBeVisible();
+		// Scoped to the heading: the extension NAME also appears in the
+		// uninstall panel's copy and on its button, so a bare `getByText` is
+		// a strict-mode violation.
+		await expect(page.getByRole("heading", { name: "local-ext" })).toBeVisible();
 		await expect(page.getByTestId("mcp-connection-panel")).toHaveCount(0);
 	});
 });

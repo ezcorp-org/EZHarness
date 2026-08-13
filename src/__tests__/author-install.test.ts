@@ -546,7 +546,10 @@ describe("installAuthoredDraft — happy path + enable", () => {
   test("enable:true → updateExtension({enabled:true}) before reload", async () => {
     seed({});
     await installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: true });
-    expect(updateCalls).toEqual([["ext-1", { enabled: true }]]);
+    // `disabledByUser:false` rides along because installing-and-enabling is
+    // an explicit enable: leaving the flag set would have the next boot's
+    // bundled reconciler read the row as "off on purpose" while it is on.
+    expect(updateCalls).toEqual([["ext-1", { enabled: true, disabledByUser: false }]]);
     expect(reloadCalls).toBe(1);
   });
 
@@ -578,7 +581,7 @@ describe("installAuthoredDraft — happy path + enable", () => {
     // Everything else still ran: the draft row is consumed (no orphan)
     // and the enable landed before the failing reload.
     expect(consumeCalls).toEqual([["draft-1", "user-a"]]);
-    expect(updateCalls).toEqual([["ext-1", { enabled: true }]]);
+    expect(updateCalls).toEqual([["ext-1", { enabled: true, disabledByUser: false }]]);
   });
 
   test("enable failure → ENABLE_FAILED (installed-but-disabled is not ok:true)", async () => {
@@ -814,7 +817,7 @@ describe("installAuthoredDraft — granted-permission fold (item A)", () => {
     expect(typeof granted.grantedAt.shell).toBe("number");
     expect(typeof granted.grantedAt.storage).toBe("number");
     // enable path still flips the row on.
-    expect(updateCalls).toEqual([["ext-1", { enabled: true }]]);
+    expect(updateCalls).toEqual([["ext-1", { enabled: true, disabledByUser: false }]]);
   });
 
   test("eventSubscriptions object form is normalized to its events array", async () => {

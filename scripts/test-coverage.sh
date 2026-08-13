@@ -407,6 +407,8 @@ run_legs() {
       src/__tests__/ExtensionToolSelector.component.test.ts \
       src/lib/components/hub/HubPageView.component.test.ts \
       src/lib/components/hub/HubNavSection.component.test.ts \
+      src/lib/components/extensions/UninstallDialog.component.test.ts \
+      src/__tests__/extensions-page-loader.server.test.ts \
       src/lib/components/hub/HubComponentRenderer.component.test.ts \
       src/lib/server/hub-render-pull.page-state.unit.test.ts \
       src/lib/__tests__/project-icon.unit.test.ts \
@@ -602,6 +604,8 @@ run_legs() {
       --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
       --coverage.include='src/lib/components/hub/HubPageView.svelte' \
       --coverage.include='src/lib/components/hub/HubNavSection.svelte' \
+      --coverage.include='src/lib/components/extensions/UninstallDialog.svelte' \
+      --coverage.include='src/routes/**/extensions/+page.server.ts' \
       --coverage.include='src/lib/components/hub/HubInlineForm.svelte' \
       --coverage.include='src/lib/server/hub-render-pull.ts' \
       --coverage.include='src/lib/project-icon.ts' \

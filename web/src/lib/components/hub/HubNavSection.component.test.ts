@@ -233,6 +233,135 @@ describe("HubNavSection · loadPages outcomes", () => {
 	});
 });
 
+describe("HubNavSection · extensions:changed invalidation", () => {
+	// The listing is filtered by `enabled` SERVER-side, and the lazy-once
+	// guard above means it is never refetched — so disabling or uninstalling
+	// an extension used to leave its tab in this list, linking to a route
+	// that now 404s, until a full page reload.
+
+	/** Swap the handler to a listing WITHOUT the cron extension's page. */
+	function dropCronPage(): void {
+		listHandler = () => jsonResponse({ pages: LISTING.filter((p) => p.kind !== "ext") });
+	}
+
+	test("an extensions:changed event refetches and drops the removed page", async () => {
+		const { getByTestId, findAllByTestId } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		await fireEvent.click(getByTestId("hub-nav-toggle"));
+		await findAllByTestId("hub-nav-page");
+		expect(listGets()).toBe(1);
+
+		dropCronPage();
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+
+		await waitFor(() => expect(listGets()).toBe(2));
+		await waitFor(async () => {
+			const rows = await findAllByTestId("hub-nav-page");
+			expect(rows.map((r) => r.getAttribute("data-page-id"))).toEqual([
+				"core:briefing",
+				"core:zephyr",
+			]);
+		});
+	});
+
+	test("while COLLAPSED it drops the cache without fetching; the next expand refetches", async () => {
+		const { getByTestId, findAllByTestId, queryByTestId } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		const toggle = getByTestId("hub-nav-toggle");
+
+		await fireEvent.click(toggle);
+		await findAllByTestId("hub-nav-page");
+		await fireEvent.click(toggle); // collapse
+		await waitFor(() => expect(queryByTestId("hub-nav-pages")).toBeNull());
+		expect(listGets()).toBe(1);
+
+		dropCronPage();
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+		// Collapsed: no request — the work is deferred, not done eagerly.
+		expect(listGets()).toBe(1);
+
+		await fireEvent.click(toggle); // expand → the cache was dropped
+		await waitFor(() => expect(listGets()).toBe(2));
+		const rows = await findAllByTestId("hub-nav-page");
+		expect(rows.map((r) => r.getAttribute("data-page-id"))).not.toContain("ext:cron:dashboard");
+	});
+
+	test("an event DURING a load still ends on fresh data", async () => {
+		// The in-flight response may predate the change, so trusting it would
+		// re-cache the stale listing and reinstate the bug.
+		let resolveList: (r: Response) => void = () => {};
+		listHandler = () => new Promise<Response>((res) => (resolveList = res));
+
+		const { getByTestId, findAllByTestId } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		await fireEvent.click(getByTestId("hub-nav-toggle"));
+
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+		// The stale response lands first...
+		const stale = resolveList;
+		dropCronPage();
+		stale(jsonResponse({ pages: LISTING }));
+
+		// ...and is superseded by a second round the handler queued.
+		await waitFor(() => expect(listGets()).toBe(2));
+		await waitFor(async () => {
+			const rows = await findAllByTestId("hub-nav-page");
+			expect(rows.map((r) => r.getAttribute("data-page-id"))).not.toContain(
+				"ext:cron:dashboard",
+			);
+		});
+	});
+
+	test("an event arriving mid-load while COLLAPSED defers to the next expand", async () => {
+		// The `pendingReload` settle path with `expanded === false`. Reached by
+		// collapsing while a load is still in flight: the queued refetch must
+		// NOT fire into a hidden section, but the cache must still be dropped
+		// so the next expand pays for fresh data.
+		let resolveList: (r: Response) => void = () => {};
+		listHandler = () => new Promise<Response>((res) => (resolveList = res));
+
+		const { getByTestId, findAllByTestId } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		const toggle = getByTestId("hub-nav-toggle");
+
+		await fireEvent.click(toggle); // expand → load starts
+		window.dispatchEvent(new CustomEvent("extensions:changed")); // queues a reload
+		await fireEvent.click(toggle); // collapse BEFORE the response lands
+
+		dropCronPage();
+		resolveList(jsonResponse({ pages: LISTING }));
+		await tick();
+		await tick();
+
+		// Deferred, not fired: still exactly the one original request.
+		expect(listGets()).toBe(1);
+
+		await fireEvent.click(toggle); // expand → the dropped cache is refilled
+		await waitFor(() => expect(listGets()).toBe(2));
+		const rows = await findAllByTestId("hub-nav-page");
+		expect(rows.map((r) => r.getAttribute("data-page-id"))).not.toContain("ext:cron:dashboard");
+	});
+
+	test("the listener is removed on unmount (no fetch after teardown)", async () => {
+		const { getByTestId, findAllByTestId, unmount } = render(HubNavSection, {
+			props: { hubBase: "/hub", currentPath: "/hub" },
+		});
+		await fireEvent.click(getByTestId("hub-nav-toggle"));
+		await findAllByTestId("hub-nav-page");
+		expect(listGets()).toBe(1);
+
+		unmount();
+		window.dispatchEvent(new CustomEvent("extensions:changed"));
+		await tick();
+
+		expect(listGets()).toBe(1);
+	});
+});
+
 describe("HubNavSection · project hub base", () => {
 	test("page hrefs are prefixed by a project hubBase", async () => {
 		const { getByTestId, findAllByTestId } = render(HubNavSection, {

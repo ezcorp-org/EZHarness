@@ -365,6 +365,13 @@ export interface ExtensionData {
 		tools?: Array<{ name: string; description: string; inputSchema?: Record<string, unknown> }>;
 		permissions?: Record<string, unknown>;
 		acceptsCallerCaps?: boolean;
+		/**
+		 * Declared Hub tabs. Declaring a page IS the grant, so this alone
+		 * decides whether the extension contributes a tab — and, because
+		 * `/api/hub/pages` filters on `enabled`, whether disabling it makes
+		 * that tab disappear.
+		 */
+		pages?: Array<{ id: string; title: string; icon?: string; description?: string }>;
 	};
 	/**
 	 * HIGH-2 column: the user's install-time NARROWED choice. `null` means
@@ -372,6 +379,17 @@ export interface ExtensionData {
 	 * manifest. Non-null overrides the manifest as the clamp ceiling.
 	 */
 	installedPermissions: Record<string, unknown> | null;
+	/**
+	 * DERIVED server-side (`src/extensions/list-flags.ts`) from the bundled
+	 * catalog's `critical: true`, and part of the `GET /api/extensions`
+	 * contract. Declared here so a spec that seeds it is type-checked against
+	 * the real field name — while these were absent, a rename on the server
+	 * broke nothing anywhere, because the specs fabricated the field and the
+	 * server tests never asserted it.
+	 */
+	isCritical?: boolean;
+	/** Present only alongside `isCritical` — what turning it off costs. */
+	criticalConsequence?: string;
 	/**
 	 * The CURRENT effective grant. Empty object (= "no grants yet") drives
 	 * the in-chat PermissionGate's 4-scope chooser the next time the

@@ -411,6 +411,11 @@ describe("bundled drift re-approval", () => {
     expect(manifest.permissions?.search).toBe("inherit");
     expect(Array.isArray(manifest.tools)).toBe(true); // tool snapshot present
     expect(row.enabled).toBe(true);
+    // An admin re-approving is an EXPLICIT enable, so it also withdraws any
+    // earlier user opt-out. Leaving the flag set would put the row in the
+    // contradictory state `enabled=true, disabledByUser=true`, which the next
+    // boot's reconcilers read as conflicting intent.
+    expect(row.disabledByUser).toBe(false);
 
     // Audit row written with the admin as actor.
     const audits = auditEntries.filter((a) => a.action === "ext:bundled:drift-reapproved");

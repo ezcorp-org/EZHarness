@@ -65,6 +65,21 @@ describe("extensionDataRoot", () => {
       join(cwd, ".ezcorp", "extension-data", EXT),
     );
   });
+
+  test("an absolute name cannot reset the path out of the data root", () => {
+    // This resolver used to spell the layout itself as
+    // `resolve(cwd, ".ezcorp", "extension-data", name)`, and `resolve` treats
+    // a leading separator as a RESET: an absolute name yielded that absolute
+    // path, escaping the data root entirely. Routing through
+    // `extensionDataDir` (which uses `join`) neutralises it. `resolveExtFilesPath`
+    // validates the name before ever reaching here, so this is defence in
+    // depth — but a silent revert to `resolve` would restore the escape, and
+    // nothing else would notice.
+    expect(extensionDataRoot("/etc", cwd)).toBe(join(cwd, ".ezcorp", "extension-data", "etc"));
+    expect(extensionDataRoot("/etc", cwd).startsWith(join(cwd, ".ezcorp", "extension-data"))).toBe(
+      true,
+    );
+  });
 });
 
 describe("mimeTypeForPath", () => {

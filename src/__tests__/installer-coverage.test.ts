@@ -32,14 +32,24 @@ mock.module("../db/queries/extensions", () => ({
   createExtension: extStore.createExtension,
   getExtensionByName: extStore.getExtensionByName,
   updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
+  deleteExtension: async (id: string) => {
+    uninstallSteps.push("delete-row");
+    return extStore.deleteExtension(id);
+  },
   listExtensions: extStore.listExtensions,
 }));
+
+// Ordered log of the teardown steps an uninstall performs. The ORDER is a
+// contract, not an implementation detail — see the "teardown order" describe
+// near the bottom of this file.
+const uninstallSteps: string[] = [];
 
 mock.module("../extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
-      reload: async () => {},
+      reload: async () => {
+        uninstallSteps.push("reload");
+      },
     }),
   },
 }));
@@ -960,6 +970,211 @@ describe("removeExtension (install-path containment)", () => {
     const warnings = await uninstall("mcp-ext", null);
 
     expect(warnings).toEqual([]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// uninstallExtension — the stored-data purge
+// ═══════════════════════════════════════════════════════════════════════
+//
+// The install directory and the DATA directory are separate decisions.
+// Deleting the install directory is implied by "uninstall"; deleting
+// `.ezcorp/extension-data/<name>/` throws away the user's own content, so
+// it happens only when the caller asks. `TMP_ROOT` puts both under a
+// throwaway root, so these are real filesystem assertions.
+
+describe("uninstallExtension (stored-data purge)", () => {
+  /** Seed an install dir + a data dir for `name`; return both paths. */
+  async function seedBoth(name: string): Promise<{ install: string; data: string }> {
+    const install = join(TMP_ROOT.root, "data", "extensions", name);
+    const data = join(TMP_ROOT.root, ".ezcorp", "extension-data", name);
+    for (const dir of [install, data]) {
+      await mkdir(dir, { recursive: true });
+      await Bun.write(join(dir, "keep.txt"), "payload");
+    }
+    extStore.seed({
+      id: `${name}-id`,
+      name,
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath: install,
+    });
+    return { install, data };
+  }
+
+  const survives = (dir: string) => Bun.file(join(dir, "keep.txt")).exists();
+
+  test("keeps the data directory by default", async () => {
+    const { install, data } = await seedBoth("keeps-data");
+
+    const result = await removeExtension("keeps-data");
+
+    expect(result).toEqual({ installPathRemoved: true, dataRemoved: false });
+    expect(await survives(install)).toBe(false);
+    // The whole point of the default: a reinstall picks this back up.
+    expect(await survives(data)).toBe(true);
+  });
+
+  test("deletes the data directory with purgeData", async () => {
+    const { install, data } = await seedBoth("purges-data");
+
+    const result = await removeExtension("purges-data", { purgeData: true });
+
+    expect(result).toEqual({ installPathRemoved: true, dataRemoved: true });
+    expect(await survives(install)).toBe(false);
+    expect(await survives(data)).toBe(false);
+    expect(existsSync(data)).toBe(false);
+  });
+
+  test("purgeData touches only THIS extension's data directory", async () => {
+    const mine = await seedBoth("purge-scoped");
+    const theirs = join(TMP_ROOT.root, ".ezcorp", "extension-data", "innocent-bystander");
+    await mkdir(theirs, { recursive: true });
+    await Bun.write(join(theirs, "keep.txt"), "payload");
+
+    await removeExtension("purge-scoped", { purgeData: true });
+
+    expect(await survives(mine.data)).toBe(false);
+    expect(await survives(theirs)).toBe(true);
+  });
+
+  test("purgeData on an extension with no data directory is a quiet no-op", async () => {
+    const install = join(TMP_ROOT.root, "data", "extensions", "no-data-ext");
+    await mkdir(install, { recursive: true });
+    extStore.seed({
+      id: "no-data-ext-id",
+      name: "no-data-ext",
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath: install,
+    });
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+    let result: Awaited<ReturnType<typeof removeExtension>>;
+    try {
+      result = await removeExtension("no-data-ext", { purgeData: true });
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    // Nothing was there to delete, so `dataRemoved` must not claim otherwise.
+    expect(result.dataRemoved).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  test("refuses — loudly — to purge data for an escaping name", async () => {
+    // Unreachable through the installer (`manifest.ts` pins names to a
+    // single path segment), but the name arrives from a DB row and the
+    // delete is recursive, so the refusal must exist AND be audible: the
+    // user asked for the data to go and it did not.
+    const escaping = join("..", "extensions", "traversal-ext");
+    const victim = join(TMP_ROOT.root, ".ezcorp", "extensions", "traversal-ext");
+    await mkdir(victim, { recursive: true });
+    await Bun.write(join(victim, "keep.txt"), "payload");
+    extStore.seed({
+      id: "traversal-id",
+      name: escaping,
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath: null,
+    });
+
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+    let result: Awaited<ReturnType<typeof removeExtension>>;
+    try {
+      result = await removeExtension(escaping, { purgeData: true });
+    } finally {
+      warnSpy.mockRestore();
+    }
+
+    expect(result.dataRemoved).toBe(false);
+    expect(await survives(victim)).toBe(true);
+    const refusal = warnings.find((w) => w.includes("stored data was NOT deleted"));
+    expect(refusal).toBeDefined();
+  });
+
+  test("removeExtension still throws on an unknown name", async () => {
+    expect(removeExtension("no-such-extension")).rejects.toThrow(
+      'Extension "no-such-extension" not found',
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// uninstallExtension — teardown ORDER, and honest result flags
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("uninstallExtension (teardown order)", () => {
+  async function seedAndUninstall(name: string, opts: { purgeData?: boolean } = {}) {
+    const installDir = join(TMP_ROOT.root, "data", "extensions", name);
+    const dataDir = join(TMP_ROOT.root, ".ezcorp", "extension-data", name);
+    for (const dir of [installDir, dataDir]) {
+      await mkdir(dir, { recursive: true });
+      await Bun.write(join(dir, "keep.txt"), "payload");
+    }
+    extStore.seed({
+      id: `${name}-id`,
+      name,
+      source: "github:user/repo@v1.0.0",
+      version: "1.0.0",
+      installPath: installDir,
+    });
+    uninstallSteps.length = 0;
+    const result = await removeExtension(name, opts);
+    return { result, installDir, dataDir };
+  }
+
+  test("the row goes, THEN the registry retires it, THEN the files go", async () => {
+    // Order is load-bearing in both halves.
+    //
+    // Row before reload: `reload()` reads the DB, so it can only drop this
+    // extension once the row is gone.
+    //
+    // Reload before `rm`: until the reload the SUBPROCESS IS STILL LIVE, and
+    // for an MCP-kind extension the data directory being deleted is the
+    // sandbox's only read-write mount — a running child can re-create files
+    // underneath the walk, which makes `dataRemoved: true` a claim about a
+    // directory that exists again.
+    const { installDir } = await seedAndUninstall("order-check", { purgeData: true });
+
+    expect(uninstallSteps).toEqual(["delete-row", "reload"]);
+    // The `rm` really did run after both, not merely get skipped.
+    expect(existsSync(installDir)).toBe(false);
+  });
+
+  test("a failed rm reports `false`, and says so out loud", async () => {
+    // `force: true` suppresses only ENOENT. EACCES/EPERM/EROFS reject, and
+    // the rejection is swallowed so an uninstall never throws after the row
+    // is gone — which is exactly why the flag must not be set optimistically.
+    // A "…its files were deleted too" toast over a directory that is still
+    // there is the failure this guards.
+    const fsPromises = await import("node:fs/promises");
+    const rmSpy = spyOn(fsPromises, "rm").mockImplementation(async () => {
+      throw new Error("EACCES: permission denied");
+    });
+    const warnings: string[] = [];
+    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
+      warnings.push(args.join(" ")),
+    );
+
+    let result: Awaited<ReturnType<typeof removeExtension>>;
+    try {
+      ({ result } = await seedAndUninstall("rm-fails", { purgeData: true }));
+    } finally {
+      rmSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+
+    expect(result!.installPathRemoved).toBe(false);
+    expect(result!.dataRemoved).toBe(false);
+    expect(warnings.some((w) => w.includes("failed to delete install path"))).toBe(true);
+    expect(warnings.some((w) => w.includes("failed to delete stored data"))).toBe(true);
   });
 });
 

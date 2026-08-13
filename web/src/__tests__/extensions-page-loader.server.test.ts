@@ -39,11 +39,40 @@ describe("/extensions +page.server.ts", () => {
 			bundledExtensions: { id: string; isBundled: boolean }[];
 			installedExtensions: { id: string; isBundled: boolean }[];
 		};
-		expect(result.bundledExtensions).toEqual([{ id: "b1", isBundled: true }]);
-		expect(result.installedExtensions).toEqual([{ id: "i1", isBundled: false }]);
+		// `isCritical` is attached by the shared mapper so the SSR first paint
+		// and the post-mutation `/api/extensions` re-fetch render the same
+		// card. These sentinels have no `name`, so neither is critical.
+		expect(result.bundledExtensions).toEqual([
+			{ id: "b1", isBundled: true, isCritical: false },
+		]);
+		expect(result.installedExtensions).toEqual([
+			{ id: "i1", isBundled: false, isCritical: false },
+		]);
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledTimes(2);
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledWith({ bundled: true });
 		expect(vi.mocked(listExtensions)).toHaveBeenCalledWith({ bundled: false });
+	});
+
+	test("a real critical name arrives flagged from the SSR loader too", async () => {
+		// The sentinels above are nameless, so both sides come back
+		// `isCritical: false` and the mapper could be deleted unnoticed. The
+		// SSR paint and the client re-fetch must agree, or the confirm step
+		// appears only after the first `loadExtensions()`.
+		vi.mocked(listExtensions).mockImplementation(async (opts) => {
+			const bundled = typeof opts === "object" && opts && "bundled" in opts && opts.bundled === true;
+			return bundled
+				? ([{ id: "b1", name: "ask-user", isBundled: true }] as any)
+				: ([{ id: "i1", name: "some-user-extension", isBundled: false }] as any);
+		});
+
+		const result = (await load({} as any)) as {
+			bundledExtensions: Array<Record<string, unknown>>;
+			installedExtensions: Array<Record<string, unknown>>;
+		};
+
+		expect(result.bundledExtensions[0]).toMatchObject({ name: "ask-user", isCritical: true });
+		expect(typeof result.bundledExtensions[0]!.criticalConsequence).toBe("string");
+		expect(result.installedExtensions[0]).toMatchObject({ isCritical: false });
 	});
 
 	test("returns empty arrays when no extensions exist (no error path)", async () => {

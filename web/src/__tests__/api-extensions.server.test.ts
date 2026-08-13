@@ -89,6 +89,30 @@ describe("GET /api/extensions", () => {
     expect(res.status).toBe(200);
   });
 
+  test("the LIST branch attaches the derived flags, keyed on a real critical name", async () => {
+    // The list branch — not the `?name=` short-circuit below — is what feeds
+    // the Extensions page: `loadExtensions()` replaces the SSR rows on mount.
+    // Asserting only `status` (as the case above does) leaves
+    // `withListFlagsAll` deletable, and with it the extra confirm step before
+    // a user turns off a loop-safety built-in.
+    //
+    // `ask-user` is a REAL `critical: true` catalog entry, so this also pins
+    // the derivation end to end rather than restating the mapper's unit test.
+    vi.mocked(listExtensions).mockResolvedValue([
+      { id: "x", name: "ask-user" },
+      { id: "y", name: "scratchpad" },
+    ] as any);
+
+    const res = await GET(makeEvent({ locals: { user: regularUser } }));
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+
+    expect(body[0]).toMatchObject({ name: "ask-user", isCritical: true });
+    expect(typeof body[0]!.criticalConsequence).toBe("string");
+    expect(body[1]).toMatchObject({ name: "scratchpad", isCritical: false });
+    // Absent, not empty — the page reads its PRESENCE as "needs the confirm".
+    expect("criticalConsequence" in body[1]!).toBe(false);
+  });
+
   test("?name= short-circuits to a single-element array on match", async () => {
     const ext = { id: "ext-1", name: "kokoro-tts" } as any;
     vi.mocked(getExtensionByName).mockResolvedValue(ext);
@@ -100,7 +124,11 @@ describe("GET /api/extensions", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual([ext]);
+    // Same derived flags the full list carries, so the page renders an
+    // identical card whichever surface fed it. `isCritical` comes from the
+    // bundled catalog (`$lib/server/extensions/list-flags`), which the
+    // browser has no business hardcoding.
+    expect(body).toEqual([{ ...ext, isCritical: false }]);
     expect(getExtensionByName).toHaveBeenCalledWith("kokoro-tts");
     expect(listExtensions).not.toHaveBeenCalled();
   });

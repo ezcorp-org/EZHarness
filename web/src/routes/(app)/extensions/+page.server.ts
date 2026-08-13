@@ -1,4 +1,5 @@
 import { listExtensions } from "$server/db/queries/extensions";
+import { withListFlagsAll } from "$server/extensions/list-flags";
 import type { PageServerLoad } from "./$types";
 
 /**
@@ -26,7 +27,12 @@ export const load: PageServerLoad = async () => {
       listExtensions({ bundled: true }),
       listExtensions({ bundled: false }),
     ]);
-    return { bundledExtensions, installedExtensions };
+    // Same derived flags `GET /api/extensions` attaches, so the SSR first
+    // paint and the post-mutation re-fetch render identical cards.
+    return {
+      bundledExtensions: withListFlagsAll(bundledExtensions),
+      installedExtensions: withListFlagsAll(installedExtensions),
+    };
   } catch {
     return { bundledExtensions: [], installedExtensions: [] };
   }

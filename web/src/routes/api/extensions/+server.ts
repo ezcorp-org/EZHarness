@@ -7,6 +7,7 @@ import {
   shouldAutoEnableOnInstall,
 } from "$server/extensions/installer";
 import { activateExtension } from "$lib/server/extensions/activate-extension";
+import { withListFlags, withListFlagsAll } from "$server/extensions/list-flags";
 import { logger } from "$server/logger";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, checkRole } from "$server/auth/middleware";
@@ -39,11 +40,11 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
   const nameFilter = url.searchParams.get("name");
   if (nameFilter !== null) {
     const ext = await getExtensionByName(nameFilter);
-    return cacheableResponse(request, ext ? [redactExtensionSecrets(ext)] : [], { maxAge: 60, staleWhileRevalidate: 300 });
+    return cacheableResponse(request, ext ? [withListFlags(redactExtensionSecrets(ext))] : [], { maxAge: 60, staleWhileRevalidate: 300 });
   }
 
   const extensions = await listExtensions();
-  return cacheableResponse(request, extensions.map(redactExtensionSecrets), { maxAge: 60, staleWhileRevalidate: 300 });
+  return cacheableResponse(request, withListFlagsAll(extensions.map(redactExtensionSecrets)), { maxAge: 60, staleWhileRevalidate: 300 });
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {

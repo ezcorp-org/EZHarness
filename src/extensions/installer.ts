@@ -36,6 +36,11 @@ import {
   downloadedExtensionsDir,
   isRemovableInstallPath,
 } from "./install-roots";
+import {
+  extensionDataBaseDir,
+  extensionDataDir,
+  isRemovableDataDir,
+} from "./extension-data-dir";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
@@ -792,14 +797,84 @@ export async function updateExtension(
 
 // ── Remove Extension ────────────────────────────────────────────────
 
-export async function removeExtension(name: string): Promise<void> {
-  const ext = await getExtensionByName(name);
-  if (!ext) {
-    throw new Error(`Extension "${name}" not found`);
-  }
+/** What {@link uninstallExtension} actually removed, for the caller to report. */
+export interface UninstallResult {
+  /** The install directory was deleted from disk. */
+  installPathRemoved: boolean;
+  /** The `.ezcorp/extension-data/<name>/` store was deleted from disk. */
+  dataRemoved: boolean;
+}
 
-  // Delete DB record
+/**
+ * The fields an uninstall needs off an extension row. Spelled structurally
+ * rather than as `Pick<InstalledExtension, …>` because `installPath` is
+ * NULLABLE on the DB row (MCP-kind extensions have no install directory)
+ * and non-null on `InstalledExtension`.
+ */
+export interface UninstallTarget {
+  id: string;
+  name: string;
+  installPath: string | null;
+}
+
+export interface UninstallOptions {
+  /**
+   * Also delete `<projectRoot>/.ezcorp/extension-data/<name>/` — everything
+   * the extension saved (task stores, note vaults, config).
+   *
+   * OFF by default, and there is no "sensible default" to infer: the data
+   * is the user's, deleting it cannot be undone, and keeping it means a
+   * reinstall picks straight back up. Every caller states an intent — the
+   * HTTP route takes it from an explicit choice in the confirm dialog.
+   */
+  purgeData?: boolean;
+}
+
+/**
+ * Uninstall an extension: unregister the row, then remove what the HOST
+ * created on disk.
+ *
+ * The MECHANISM, with no policy in it. Both callers — `ezcorp ext remove`
+ * and `DELETE /api/extensions/:id` — need every step here, and the HTTP
+ * route used to have none of them: it deleted the row and left the install
+ * directory and the data store behind, so "Uninstall" in the UI was really
+ * "unregister". Policy stays with the callers; the route is the surface
+ * that refuses to uninstall a built-in.
+ *
+ * Order matters. The row goes FIRST so a failure mid-way leaves files
+ * without a row (inert, and re-installable) rather than a row pointing at
+ * deleted files (a broken extension the registry keeps trying to spawn).
+ */
+export async function uninstallExtension(
+  ext: UninstallTarget,
+  opts: UninstallOptions = {},
+): Promise<UninstallResult> {
+  const name = ext.name;
+  const result: UninstallResult = { installPathRemoved: false, dataRemoved: false };
+
+  // Read the registered project paths BEFORE the row goes. This is a DB
+  // query, and once the row is deleted a throw here would strand the whole
+  // teardown: no `rm`, no `reload()`, and (in the HTTP route) no page-cache
+  // invalidation, leaving the registry serving a deleted extension's tools.
+  const projectPaths = ext.installPath ? await registeredProjectPaths() : [];
+
+  // Delete DB record. FK cascades clear the rest of this extension's rows
+  // (storage, secrets, RBAC grants, schedules, webhooks, triggers,
+  // capability calls, quotas, conversation wiring) — see src/db/schema.ts.
   await deleteExtension(ext.id);
+
+  // Retire the running extension BEFORE deleting anything on disk.
+  //
+  // `reload()` reads the DB, so it has to come after the row delete — but it
+  // must come before the `rm`, because the subprocess is still live until it
+  // does. For an MCP-kind extension the data directory being deleted is
+  // literally the sandbox's only read-write mount (`mcp-sandbox.ts`), so a
+  // running child can re-create files underneath the walk; `dataRemoved:
+  // true` would then be a claim about a directory that exists again.
+  // (`retireProcess` still DEFERS the kill while a call is in flight, so a
+  // busy extension can outlive this by the length of that call — bounded,
+  // and strictly better than deleting its files with it running.)
+  await reloadRegistryQuietly();
 
   // Remove the install directory — ONLY when it resolves strictly inside
   // an allowed install root (`isRemovableInstallPath`). Anything else is
@@ -809,7 +884,6 @@ export async function removeExtension(name: string): Promise<void> {
   // to warn about.
   const instPath = ext.installPath;
   if (instPath) {
-    const projectPaths = await registeredProjectPaths();
     // `rm` the RESOLVED path, not the raw one — the same string the
     // predicate decided on. They agree today; spelling it once means a
     // future normalization step cannot make the check and the delete
@@ -817,7 +891,21 @@ export async function removeExtension(name: string): Promise<void> {
     const resolved = resolve(process.cwd(), instPath);
     if (isRemovableInstallPath(instPath, projectPaths)) {
       if (existsSync(resolved)) {
-        await rm(resolved, { recursive: true, force: true }).catch(() => {});
+        // The flag must report what HAPPENED, not what was attempted. The
+        // `rm` is swallowed (an uninstall must not throw once the row is
+        // gone), so claiming success unconditionally would have a
+        // read-only filesystem or an EACCES report `installPathRemoved:
+        // true` over files that are still there.
+        result.installPathRemoved = await rm(resolved, { recursive: true, force: true })
+          .then(() => true)
+          .catch((err) => {
+            console.warn(
+              `[installer] Extension "${name}": failed to delete install path ` +
+                `"${resolved}" — ${String(err)}. The row is unregistered; the ` +
+                `files are still on disk.`,
+            );
+            return false;
+          });
       } else {
         // A RELATIVE install_path always resolves under the CURRENT cwd,
         // so it always passes containment — even when the directory it
@@ -847,11 +935,68 @@ export async function removeExtension(name: string): Promise<void> {
     }
   }
 
+  // The extension's own data store. Opt-in (see `purgeData`) — and the
+  // containment predicate still runs, because `name` arrives from a DB row
+  // and the delete it authorizes is recursive.
+  if (opts.purgeData) {
+    if (isRemovableDataDir(name)) {
+      const dataDir = extensionDataDir(name);
+      if (existsSync(dataDir)) {
+        // Same as the install path above: report the outcome, not the
+        // attempt. This one matters more — the user explicitly asked for
+        // this data to be gone, so a silent failure that reports success
+        // is the difference between "deleted" and "still on disk".
+        result.dataRemoved = await rm(dataDir, { recursive: true, force: true })
+          .then(() => true)
+          .catch((err) => {
+            console.warn(
+              `[installer] Extension "${name}": failed to delete stored data at ` +
+                `"${dataDir}" — ${String(err)}. It is still on disk.`,
+            );
+            return false;
+          });
+      }
+    } else {
+      // Unreachable for any name the installer accepted, but a refused
+      // delete must never be silent — the user asked for the data to go.
+      console.warn(
+        `[installer] Extension "${name}": stored data was NOT deleted — the ` +
+          `name does not resolve inside ${extensionDataBaseDir()}.`,
+      );
+    }
+  }
+
+  return result;
+}
+
+/**
+ * `ExtensionRegistry.reload()`, swallowing failure.
+ *
+ * Never throws: a reload failure in a test environment (or a transient DB
+ * blip) must not abort an uninstall that has already deleted the row —
+ * that would leave the disk work undone with no way to retry it.
+ */
+async function reloadRegistryQuietly(): Promise<void> {
   try {
     await ExtensionRegistry.getInstance().reload();
   } catch {
     // Registry reload may fail in test environments
   }
+}
+
+/**
+ * Uninstall by manifest name. The `ezcorp ext remove <name>` entry point —
+ * a name lookup in front of {@link uninstallExtension}.
+ */
+export async function removeExtension(
+  name: string,
+  opts: UninstallOptions = {},
+): Promise<UninstallResult> {
+  const ext = await getExtensionByName(name);
+  if (!ext) {
+    throw new Error(`Extension "${name}" not found`);
+  }
+  return uninstallExtension(ext, opts);
 }
 
 // ── Check for Updates ───────────────────────────────────────────────

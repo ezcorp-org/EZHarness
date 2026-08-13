@@ -14,13 +14,14 @@
  *   - a critical extension MISSING ⇒ violation + unremediated.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 interface Row {
   id: string;
   name: string;
   enabled: boolean;
+  disabledByUser?: boolean;
 }
 const auditEntries: Array<{ action: string; target?: string }> = [];
 let rows: Map<string, Row>;
@@ -57,6 +58,9 @@ const { assertCriticalExtensions } = await import(
   "../startup/assert-critical-extensions"
 );
 const { getCriticalBundledExtensions } = await import("../extensions/bundled");
+// The SAME source the SUT reads its clause from, so the assertion below
+// pins the log line to the shared text rather than restating it.
+const { consequenceFor } = await import("../extensions/critical-consequence");
 
 afterAll(() => restoreModuleMocks());
 
@@ -129,4 +133,119 @@ describe("assertCriticalExtensions", () => {
   // `assert-critical-extensions-ceiling-exceeds.test.ts` (it must
   // `mock.module` bundled-ceiling, which can't be safely scoped within
   // this multi-test file).
+});
+
+// ── The user's own off switch ─────────────────────────────────────────
+//
+// A critical extension is allowed to be off when the USER turned it off —
+// they may run their own replacement for the capability. Re-enabling it
+// here would undo that choice on every boot, which is the same bug the
+// `disabled_by_user` column fixes in `ensureBundledExtensions`.
+//
+// It is reported under `userDisabled` rather than `violations` so a caller
+// cannot mistake a decision for a fault; the ERROR + remediation still
+// belong to every other route to a disabled critical extension.
+
+/**
+ * Capture the module's own WARN lines off stderr.
+ *
+ * The user-opt-out branch REPLACES an ERROR + a remediation with a single
+ * log line, and the module header calls that line load-bearing: a silently
+ * absent `ask-user` presents as an agent that loops instead of asking, and
+ * this is the only thing that connects the two for an operator. Deleting
+ * the `log.warn` is therefore a real regression, and without this capture
+ * every test here still passes.
+ *
+ * stderr rather than a logger module-mock, for the reason
+ * `assert-bundled-not-stranded.test.ts` documents: the SUT binds
+ * `logger.child()` at its own module-load time, before a mock could win.
+ */
+function captureWarnings(): { lines: string[]; restore: () => void } {
+  const lines: string[] = [];
+  const spy = spyOn(process.stderr, "write").mockImplementation(
+    ((chunk: string | Uint8Array): boolean => {
+      const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+      for (const raw of s.split("\n")) {
+        const line = raw.trim();
+        if (!line) continue;
+        try {
+          const p = JSON.parse(line) as { level?: string; msg?: string; subsystem?: string };
+          if (
+            p.level === "warn" &&
+            typeof p.msg === "string" &&
+            p.subsystem === "startup/assert-critical-extensions"
+          ) {
+            lines.push(p.msg);
+          }
+        } catch {
+          /* non-JSON stderr noise */
+        }
+      }
+      return true;
+    }) as typeof process.stderr.write,
+  );
+  return { lines, restore: () => spy.mockRestore() };
+}
+
+describe("assertCriticalExtensions — user opt-out", () => {
+  test("logs ONE warning naming what the loop loses", async () => {
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+
+    const cap = captureWarnings();
+    try {
+      await assertCriticalExtensions();
+    } finally {
+      cap.restore();
+    }
+
+    const mine = cap.lines.filter((l) => l.includes("ask-user"));
+    expect(mine).toHaveLength(1);
+    // The consequence clause comes from the shared source both this module
+    // and the Extensions page's confirm dialog read.
+    expect(mine[0]).toContain(consequenceFor("ask-user"));
+    expect(mine[0]).toContain("disabled by the user");
+  }, 20_000);
+
+  test("a user-disabled critical extension is left alone", async () => {
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+
+    const r = await assertCriticalExtensions();
+
+    expect(rows.get("ask-user")!.enabled).toBe(false);
+    expect(updateCalls).toEqual([]);
+    expect(r.userDisabled).toContain("ask-user");
+    // Not a violation, and not remediated — those arrays drive the
+    // operator-facing escalation and this is not an incident.
+    expect(r.violations).not.toContain("ask-user");
+    expect(r.remediated).not.toContain("ask-user");
+    expect(r.unremediated).not.toContain("ask-user");
+  }, 20_000);
+
+  test("no auto-reapproval audit row for a user opt-out", async () => {
+    // The audit trail records a SYSTEM decision to re-enable. Nothing was
+    // re-enabled, so writing one would misattribute the user's choice.
+    seedAll(true);
+    Object.assign(rows.get("task-tracking")!, { enabled: false, disabledByUser: true });
+
+    await assertCriticalExtensions();
+
+    expect(auditEntries).toEqual([]);
+  }, 20_000);
+
+  test("the opt-out is per row, not a blanket amnesty", async () => {
+    // One critical extension off by choice must not suppress remediation
+    // of another that is off for a real reason.
+    seedAll(true);
+    Object.assign(rows.get("ask-user")!, { enabled: false, disabledByUser: true });
+    rows.get("task-tracking")!.enabled = false;
+
+    const r = await assertCriticalExtensions();
+
+    expect(rows.get("ask-user")!.enabled).toBe(false);
+    expect(rows.get("task-tracking")!.enabled).toBe(true);
+    expect(r.userDisabled).toEqual(["ask-user"]);
+    expect(r.remediated).toContain("task-tracking");
+  }, 20_000);
 });

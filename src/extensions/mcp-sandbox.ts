@@ -29,6 +29,7 @@ import {
   forbiddenDataDir,
   DEFAULT_RO_SYSTEM_DIRS,
 } from "./preview-jail";
+import { extensionDataDir } from "./extension-data-dir";
 import { getSandboxTier, type SandboxTier } from "./sandbox/capability-probe";
 import { buildLandlockJailSpec } from "./sandbox/landlock";
 import { LANDLOCK_SPEC_ENV } from "./sandbox/landlock-shim";
@@ -39,7 +40,7 @@ import {
   closeSync,
   mkdirSync,
 } from "node:fs";
-import { join, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 /**
  * Audit finding #1 fix: MCP stdio extensions must run under the same
@@ -578,7 +579,7 @@ export async function buildSandboxedMcpSpec(
   // Phase A3 — the per-extension writable workspace (the ONLY rw host path
   // in the jail). Shared by both the bwrap and landlock legs.
   const computeWorkDir = (root: string): string =>
-    join(root, ".ezcorp", "extension-data", manifest.name);
+    extensionDataDir(manifest.name, root);
 
   if (bwrapJailWanted) {
     // Project root is REQUIRED to compute the .ezcorp/data exclusion. Under

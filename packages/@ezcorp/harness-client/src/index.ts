@@ -299,10 +299,24 @@ export class HarnessClient {
 
   /** Uninstall an extension (`DELETE /api/extensions/:id`). Requires an
    *  admin-ROLE key + the `extensions` scope. Destructive + instance-wide:
-   *  kills the subprocess, drops the DB row, invalidates cached Hub pages.
-   *  Resolves (204, no body) on success. */
-  uninstallExtension(extensionId: string): Promise<void> {
-    return this.route("uninstallExtension", { id: extensionId });
+   *  retires the subprocess, drops the DB row, deletes the install directory
+   *  when the host created it, invalidates cached Hub pages. Resolves
+   *  (204, no body) on success.
+   *
+   *  `purgeData` additionally deletes everything the extension stored under
+   *  `.ezcorp/extension-data/<name>/`. It defaults to FALSE and is worth an
+   *  explicit decision: leaving it off means a reinstall resumes from that
+   *  data, turning it on cannot be undone.
+   *
+   *  Built-in (bundled) extensions are refused with 409 — disable them with
+   *  {@link setExtensionEnabled} instead, which now survives a restart. */
+  uninstallExtension(
+    extensionId: string,
+    opts: { purgeData?: boolean } = {},
+  ): Promise<void> {
+    const { httpMethod, pathTemplate } = HARNESS_ROUTES.uninstallExtension;
+    const path = buildPath(pathTemplate, { id: extensionId });
+    return this.request(httpMethod, opts.purgeData ? `${path}?purgeData=1` : path);
   }
 
   /** Replace an extension's granted permissions (`PUT /api/extensions/:id/permissions`).
