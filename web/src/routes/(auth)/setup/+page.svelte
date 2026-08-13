@@ -90,6 +90,7 @@
         <input
           id="name"
           type="text"
+          autocomplete="name"
           bind:value={name}
           required
           aria-invalid={!!nameError}
@@ -105,6 +106,7 @@
         <input
           id="email"
           type="email"
+          autocomplete="username"
           bind:value={email}
           required
           aria-invalid={!!emailError}
@@ -120,6 +122,7 @@
         <input
           id="password"
           type="password"
+          autocomplete="new-password"
           bind:value={password}
           required
           minlength="8"
@@ -140,6 +143,7 @@
         <input
           id="confirmPassword"
           type="password"
+          autocomplete="new-password"
           bind:value={confirmPassword}
           required
           aria-invalid={!!confirmPasswordError}

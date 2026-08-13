@@ -149,6 +149,7 @@
 					<input
 						id="share-user"
 						type="text"
+						autocomplete="off"
 						bind:value={userSearch}
 						placeholder="Enter username or email..."
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"

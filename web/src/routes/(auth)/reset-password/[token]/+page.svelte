@@ -69,6 +69,7 @@
           <input
             id="email"
             type="email"
+            autocomplete="username"
             bind:value={email}
             required
             class="w-full px-3 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-md text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)] focus:border-transparent"
@@ -81,6 +82,7 @@
           <input
             id="password"
             type="password"
+            autocomplete="new-password"
             bind:value={password}
             required
             minlength={8}
@@ -94,6 +96,7 @@
           <input
             id="confirmPassword"
             type="password"
+            autocomplete="new-password"
             bind:value={confirmPassword}
             required
             minlength={8}

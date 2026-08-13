@@ -448,6 +448,7 @@
 								<input
 									use:autofocus
 									type={showKey[p.provider] ? "text" : "password"}
+									autocomplete="off"
 									bind:value={keyInputs[p.provider]}
 									placeholder={info.placeholder}
 									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -505,6 +506,7 @@
 							<div class="relative flex-1">
 								<input
 									type={showKey[p.provider] ? "text" : "password"}
+									autocomplete="off"
 									bind:value={keyInputs[p.provider]}
 									placeholder={info.placeholder}
 									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"

@@ -68,6 +68,26 @@ test.describe("Kilo provider card", () => {
 		}
 	});
 
+	test("the BYOK key field opts out of browser autofill", async ({ page, mockApi }) => {
+		// The key box is a masked field with a show/hide toggle
+		// (`type={showKey[p.provider] ? "text" : "password"}` in
+		// ProviderSettings.svelte), so in its default state a password manager
+		// sees a password input: it offers to fill a saved account password into
+		// the API-key box, and to SAVE the pasted key as a login credential.
+		// `autocomplete="off"` declines both. The ternary is not an exemption —
+		// this asserts the rendered attribute, which is what the browser reads.
+		await mockApi({ providers: providersWithKilo() });
+
+		await page.goto("/settings/models");
+
+		const keyInput = providerCard(page, "Kilo (Gateway)").getByPlaceholder(
+			"Optional — free models need no key",
+		);
+		await expect(keyInput).toBeVisible();
+		await expect(keyInput).toHaveAttribute("type", "password");
+		await expect(keyInput).toHaveAttribute("autocomplete", "off");
+	});
+
 	test("an UNCONFIGURED Kilo card still offers Test + Refresh models", async ({ page, mockApi }) => {
 		// The gap this pins: the Test/Refresh block was gated on
 		// `hasKey || oauthConnected`, which hid both controls on exactly the
