@@ -1091,6 +1091,7 @@
 							{#if mcpTransport !== "stdio"}
 								<textarea
 									bind:value={mcpHeaders}
+									autocomplete="off"
 									data-testid="mcp-edit-headers"
 									placeholder="Headers (one per line). Leave a value blank to keep the existing secret."
 									rows="2"
