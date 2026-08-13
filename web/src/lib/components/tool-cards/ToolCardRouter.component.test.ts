@@ -214,7 +214,7 @@ describe("ToolCardRouter — time-clock routing", () => {
 		};
 	}
 
-	test("cardType='time-clock' mounts TimeClockCard", () => {
+	test("cardType='time-clock' mounts TimeClockCard with finite hand rotations", () => {
 		const toolCall: ToolCallState = {
 			id: "tc-clock-1",
 			toolName: "time-teller.tell-time",
@@ -233,6 +233,41 @@ describe("ToolCardRouter — time-clock routing", () => {
 
 		expect(getByTestId("time-clock-card")).toBeInTheDocument();
 		expect(queryByTestId("tool-card-default")).toBeNull();
+		for (const testId of [
+			"time-clock-hour-hand",
+			"time-clock-minute-hand",
+			"time-clock-second-hand",
+		]) {
+			const transform = getByTestId(testId).getAttribute("transform");
+			expect(transform).toMatch(/^rotate\(-?\d+(?:\.\d+)? 60 60\)$/);
+			expect(transform).not.toContain("NaN");
+		}
+	});
+
+	test("renders finite hand rotations for a locale with non-Latin digits", () => {
+		const toolCall: ToolCallState = {
+			id: "tc-clock-arabic-digits",
+			toolName: "time-teller.tell-time",
+			status: "complete",
+			input: { timezone: "UTC", locale: "ar-EG" },
+			startedAt: 0,
+			duration: 50,
+			cardType: "time-clock",
+			output: JSON.stringify({ ...timeClockPayload(), locale: "ar-EG" }),
+		};
+
+		const { getByTestId } = render(ToolCardRouter, {
+			toolCall,
+			conversationId: "conv-1",
+		});
+
+		for (const testId of [
+			"time-clock-hour-hand",
+			"time-clock-minute-hand",
+			"time-clock-second-hand",
+		]) {
+			expect(getByTestId(testId).getAttribute("transform")).not.toContain("NaN");
+		}
 	});
 
 	test("completed time-clock JSON renders TimeClockCard even when cardType is missing", () => {

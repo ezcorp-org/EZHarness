@@ -1224,16 +1224,21 @@ export async function ensureBundledExtensions(): Promise<void> {
             });
             await updateExtension(existing.id, { enabled: false });
           } else {
-            log.info(
-              existing.disabledByUser
-                ? // "Pending re-approval" would send an operator looking for
-                  // an admin action to take. There is none: the user turned
-                  // this off, and the drift is simply unresolved while it
-                  // stays off.
-                  "Bundled extension still drifted — disabled by the user, so no re-approval is pending"
-                : "Bundled extension still drifted — already disabled pending re-approval (no change)",
-              { name: entry.name, extensionId: existing.id },
-            );
+            // Same de-spammed branch, two reasons for being off, and they
+            // must not read alike: "pending re-approval" sends an operator
+            // looking for an admin action to take, and when the USER turned
+            // this off there is none — the drift is simply unresolved for as
+            // long as it stays off.
+            //
+            // Hoisted out of the `log.info(...)` call rather than written
+            // inline: a comment sitting between `?` and its arm becomes a
+            // line bun's coverage emitter records as a zero-hit statement,
+            // and the patch-coverage gate then reports an executed branch as
+            // uncovered.
+            const stillDrifted = existing.disabledByUser
+              ? "Bundled extension still drifted — disabled by the user, so no re-approval is pending"
+              : "Bundled extension still drifted — already disabled pending re-approval (no change)";
+            log.info(stillDrifted, { name: entry.name, extensionId: existing.id });
           }
           continue;
         }

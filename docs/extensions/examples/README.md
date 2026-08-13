@@ -27,6 +27,7 @@ These examples demonstrate advanced input schema features (combo boxes, tag inpu
 12. **[task-stack](task-stack/)** -- Comprehensive task management (25 tools, filesystem access)
 13. **[kokoro-tts](kokoro-tts/)** -- `messageToolbar` contribution + `appendMessages` reverse-RPC for in-browser TTS
 14. **[weather](weather/)** -- Network-only API fetch + custom web component card for inline weather UI
+15. **[time-teller](time-teller/)** -- Permission-free current-time tool + live analog wall clock with timezone and locale support
 
 ### More Bundled & Reference Extensions
 

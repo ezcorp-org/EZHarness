@@ -73,8 +73,13 @@ export interface ClockParts {
 	secondAngle: number;
 }
 
-export function getClockParts(date: Date, locale: string, timezone: string): ClockParts {
-	const formatter = new Intl.DateTimeFormat(locale || 'en-US', {
+export function getClockParts(date: Date, _locale: string, timezone: string): ClockParts {
+	// Hand geometry needs machine-readable numbers, not localized text. Using the
+	// display locale here breaks Number(...) for locales whose default numbering
+	// system uses non-Latin digits (for example ar-EG), leaving every SVG rotation
+	// as NaN. Keep localization in the digital formatters and force Latin digits
+	// solely for these internal calculations.
+	const formatter = new Intl.DateTimeFormat('en-US-u-nu-latn', {
 		timeZone: timezone,
 		hour: 'numeric',
 		minute: 'numeric',
@@ -82,7 +87,11 @@ export function getClockParts(date: Date, locale: string, timezone: string): Clo
 		hourCycle: 'h23',
 	});
 	const parts = formatter.formatToParts(date);
-	const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+	const get = (type: Intl.DateTimeFormatPartTypes): number => {
+		const value = Number.parseInt(parts.find((part) => part.type === type)?.value ?? '', 10);
+		if (!Number.isFinite(value)) throw new Error(`Clock formatter did not return a numeric ${type}`);
+		return value;
+	};
 	const hour = get('hour');
 	const minute = get('minute');
 	const second = get('second');
@@ -102,6 +111,32 @@ export function formatClockDate(date: Date, payload: TimeClockPayload): string {
 		return new Intl.DateTimeFormat(payload.locale || 'en-US', {
 			dateStyle: 'full',
 			timeStyle: 'long',
+			timeZone: payload.timezone,
+			hour12: payload.hour12,
+		}).format(date);
+	} catch {
+		return payload.formatted;
+	}
+}
+
+/** Localized date-only label. Kept separate from the time formatter because
+ * not every locale joins date and time with the English word "at". */
+export function formatClockDateLabel(date: Date, payload: TimeClockPayload): string {
+	try {
+		return new Intl.DateTimeFormat(payload.locale || 'en-US', {
+			dateStyle: 'full',
+			timeZone: payload.timezone,
+		}).format(date);
+	} catch {
+		return payload.formatted;
+	}
+}
+
+/** Localized live digital readout for the wall-clock card. */
+export function formatClockTime(date: Date, payload: TimeClockPayload): string {
+	try {
+		return new Intl.DateTimeFormat(payload.locale || 'en-US', {
+			timeStyle: 'medium',
 			timeZone: payload.timezone,
 			hour12: payload.hour12,
 		}).format(date);
