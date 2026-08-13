@@ -202,6 +202,27 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-gh-warning")).toBeVisible();
 	});
 
+	test("the connect form's token and board-url fields opt out of browser autofill", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await installGhRoutes(page);
+		await page.goto(CONNECT_PATH);
+
+		// The PAT box is `type="password"`, so a password manager treats it as a
+		// login field: it offers a saved credential to fill, and prompts to save
+		// the token as one. `autocomplete="off"` does NOT stop that — Chrome and
+		// Safari deliberately ignore `off` on password-typed inputs, so the save
+		// prompt fires anyway. `new-password` is the only value that suppresses
+		// both, so a machine credential like a scoped GitHub PAT takes it.
+		const token = page.getByTestId("gh-projects-token");
+		await expect(token).toHaveAttribute("type", "password");
+		await expect(token).toHaveAttribute("autocomplete", "new-password");
+
+		// The board URL is NOT password-typed, so `off` is both honoured and
+		// sufficient here — there is no saved credential a manager could offer,
+		// only a remembered dropdown of previously typed URLs, which is noise.
+		await expect(page.getByTestId("gh-projects-board-url")).toHaveAttribute("autocomplete", "off");
+	});
+
 	test("connect → a connected card appears with the board title + owner avatar", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		await installGhRoutes(page);

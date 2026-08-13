@@ -60,7 +60,7 @@
 	<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end mb-4">
 		<div class="flex-1">
 			<label for="settings-invite-email" class="block text-xs text-[var(--color-text-secondary)] mb-1">Email (optional)</label>
-			<input id="settings-invite-email" type="email" bind:value={inviteEmail} placeholder="user@example.com" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none" />
+			<input id="settings-invite-email" type="email" autocomplete="off" bind:value={inviteEmail} placeholder="user@example.com" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none" />
 		</div>
 		<div>
 			<label for="invite-role" class="block text-xs text-[var(--color-text-secondary)] mb-1">Role</label>

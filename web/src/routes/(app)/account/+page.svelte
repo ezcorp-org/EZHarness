@@ -327,6 +327,7 @@
 					<input
 						id="account-name"
 						type="text"
+						autocomplete="name"
 						bind:value={editName}
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
@@ -336,6 +337,7 @@
 					<input
 						id="account-email"
 						type="email"
+						autocomplete="email"
 						bind:value={editEmail}
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
@@ -343,6 +345,7 @@
 						<p class="mt-1 text-xs text-yellow-400">Email changes require your current password.</p>
 						<input
 							type="password"
+							autocomplete="current-password"
 							bind:value={emailPassword}
 							placeholder="Current password"
 							class="mt-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -371,6 +374,7 @@
 					<input
 						id="current-pw"
 						type="password"
+						autocomplete="current-password"
 						bind:value={currentPassword}
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
@@ -380,6 +384,7 @@
 					<input
 						id="new-pw"
 						type="password"
+						autocomplete="new-password"
 						bind:value={newPassword}
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
@@ -389,6 +394,7 @@
 					<input
 						id="confirm-pw"
 						type="password"
+						autocomplete="new-password"
 						bind:value={confirmPassword}
 						class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
