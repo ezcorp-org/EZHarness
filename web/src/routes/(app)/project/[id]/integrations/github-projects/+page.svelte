@@ -590,7 +590,7 @@
 							<input
 								type="password"
 								bind:value={replaceToken[link.id]}
-								autocomplete="off"
+								autocomplete="new-password"
 								placeholder="github_pat_…"
 								data-testid={`gh-projects-replace-input-${link.id}`}
 								class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
@@ -842,7 +842,7 @@
 				<input
 					type="password"
 					bind:value={token}
-					autocomplete="off"
+					autocomplete="new-password"
 					placeholder="github_pat_…"
 					data-testid="gh-projects-token"
 					class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"

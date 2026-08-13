@@ -68,14 +68,20 @@ test.describe("Kilo provider card", () => {
 		}
 	});
 
-	test("the BYOK key field opts out of browser autofill", async ({ page, mockApi }) => {
+	test("the BYOK key field suppresses autofill with new-password", async ({ page, mockApi }) => {
 		// The key box is a masked field with a show/hide toggle
 		// (`type={showKey[p.provider] ? "text" : "password"}` in
 		// ProviderSettings.svelte), so in its default state a password manager
 		// sees a password input: it offers to fill a saved account password into
 		// the API-key box, and to SAVE the pasted key as a login credential.
-		// `autocomplete="off"` declines both. The ternary is not an exemption —
-		// this asserts the rendered attribute, which is what the browser reads.
+		//
+		// `autocomplete="off"` does NOT decline either. Chrome and Safari
+		// deliberately IGNORE `off` on password-typed inputs — it was too widely
+		// used to defeat password managers — so the save prompt still fires.
+		// `new-password` is the one value that suppresses both the fill and the
+		// save, which is why a machine credential takes it rather than `off`.
+		// The ternary is not an exemption: this asserts the RENDERED attribute,
+		// which is what the browser actually reads.
 		await mockApi({ providers: providersWithKilo() });
 
 		await page.goto("/settings/models");
@@ -85,7 +91,7 @@ test.describe("Kilo provider card", () => {
 		);
 		await expect(keyInput).toBeVisible();
 		await expect(keyInput).toHaveAttribute("type", "password");
-		await expect(keyInput).toHaveAttribute("autocomplete", "off");
+		await expect(keyInput).toHaveAttribute("autocomplete", "new-password");
 	});
 
 	test("an UNCONFIGURED Kilo card still offers Test + Refresh models", async ({ page, mockApi }) => {

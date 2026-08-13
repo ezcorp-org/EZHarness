@@ -142,7 +142,7 @@
 							{:else}
 								<input
 									type="password"
-									autocomplete="off"
+									autocomplete="new-password"
 									placeholder="Paste {provider} API key"
 									bind:value={keyInputs[provider]}
 									data-testid="search-byok-{provider}-input"

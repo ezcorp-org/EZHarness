@@ -21,6 +21,12 @@
  * shell would assert the fixture, not the app — so those three pages are covered
  * by `auth-page-autocomplete.component.test.ts`, which renders the real
  * `+page.svelte` through the Svelte compiler.
+ *
+ * SCOPE is secret-bearing fields, not only auth ones (the filename predates the
+ * widening): the MCP header box on `/extensions` holds an
+ * `Authorization: Bearer …` token and is a `<textarea>`, so it carries no
+ * `type` for the source guard's type-driven sweep to key on. The guard pins it
+ * by anchor; this asserts the same field in a browser.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
@@ -116,6 +122,39 @@ test.describe("credential inputs carry autocomplete in the rendered DOM", () => 
 			expect(
 				testInfo.attachments.some(
 					(a) => a.name === "account-password-autocomplete" && a.contentType === "image/png",
+				),
+			).toBe(true);
+		}
+	});
+
+	test("the MCP header box opts out of autofill @evidence", async ({ page, mockApi }, testInfo) => {
+		// This box holds `Authorization: Bearer <token>` lines. It is a
+		// `<textarea>`, so it has no `type` attribute — the source guard's
+		// type-driven sweep is structurally blind to it and pins it by anchor
+		// instead. Only a rendered assertion proves the attribute reaches the DOM.
+		//
+		// `off` (not `new-password`) is right here precisely BECAUSE it is not a
+		// password-typed field: the ignore-`off` behaviour that forces
+		// `new-password` on the BYOK key and PAT boxes applies to password inputs
+		// only, so on a textarea `off` is both honoured and sufficient.
+		await mockApi({ projects: [proj], extensions: [] });
+		await page.goto("/extensions");
+
+		await page.getByRole("button", { name: "MCP Server" }).click();
+		// The header box exists only for the HTTP/SSE transports — a stdio server
+		// is a local subprocess and carries no HTTP headers at all.
+		await page.locator('select:has(option[value="sse"])').selectOption("http");
+
+		const headers = page.getByPlaceholder("Headers (one per line, e.g. Authorization: Bearer ...)");
+		await expect(headers).toBeVisible();
+		await expect(headers).toHaveAttribute("autocomplete", "off");
+
+		await captureEvidence(page, testInfo, "mcp-headers-autocomplete");
+
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			expect(
+				testInfo.attachments.some(
+					(a) => a.name === "mcp-headers-autocomplete" && a.contentType === "image/png",
 				),
 			).toBe(true);
 		}

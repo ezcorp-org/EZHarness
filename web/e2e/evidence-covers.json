@@ -11,7 +11,8 @@
   ],
   "web/e2e/auth-autocomplete.spec.ts": [
     "web/src/routes/(auth)/reset-password/[token]/+page.svelte",
-    "web/src/routes/(app)/account/+page.svelte"
+    "web/src/routes/(app)/account/+page.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
   ],
   "web/e2e/auto-model-routing.spec.ts": [
     "web/src/lib/components/ChatMessage.svelte",

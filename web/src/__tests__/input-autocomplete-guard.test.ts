@@ -49,18 +49,24 @@ function stripComments(src: string): string {
 }
 
 /**
- * Every `<input …>` tag in a Svelte source, with the byte offset it starts at.
+ * Every `<{tagName} …>` opening tag in a Svelte source, with the byte offset it
+ * starts at.
  *
  * A regex like `/<input[^>]*>/` is wrong here: Svelte attribute values hold
- * arbitrary expressions (`class={a > b ? "x" : "y"}`) and quoted strings that
- * legitimately contain `>`. This walks the tag instead, tracking quote state
- * and `{}` depth, and ends it at the first `>` that is at depth 0 and outside
- * quotes — so a `>` inside an expression or a string cannot truncate the tag
- * and hide the attributes that follow it.
+ * arbitrary expressions (`class={a > b ? "x" : "y"}`, `onkeydown={(e) => …}`)
+ * and quoted strings that legitimately contain `>`. This walks the tag instead,
+ * tracking quote state and `{}` depth, and ends it at the first `>` that is at
+ * depth 0 and outside quotes — so a `>` inside an expression or a string cannot
+ * truncate the tag and hide the attributes that follow it.
+ *
+ * Parameterised by tag name because the secret-bearing fields pinned at the
+ * bottom of this file are not all `<input>`: two are `<textarea>` holding
+ * `Authorization: Bearer …` header blocks, which have no `type` attribute for
+ * the type-driven sweep to key on.
  */
-function inputTags(src: string): { tag: string; index: number }[] {
+function elementTags(src: string, tagName: string): { tag: string; index: number }[] {
 	const out: { tag: string; index: number }[] = [];
-	const re = /<input\b/g;
+	const re = new RegExp(`<${tagName}\\b`, "g");
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(src)) !== null) {
 		const start = m.index;
@@ -80,6 +86,11 @@ function inputTags(src: string): { tag: string; index: number }[] {
 		out.push({ tag: src.slice(start, i + 1), index: start });
 	}
 	return out;
+}
+
+/** Every `<input …>` tag — the population the type-driven sweep walks. */
+function inputTags(src: string): { tag: string; index: number }[] {
+	return elementTags(src, "input");
 }
 
 /** The literal value of a quoted attribute (`name="v"` / `name='v'`), or null. */
@@ -178,6 +189,31 @@ function describeViolation(v: SensitiveInput): string {
 	return `${v.file}:${v.line} — <input type="${v.types.join("|")}"> has no autocomplete`;
 }
 
+/**
+ * The first `<{tagName}>` whose `attr` equals `value`, with its 1-based line.
+ * Returns null when the anchor is absent, so a test can report "the anchor
+ * moved" rather than throwing an opaque TypeError.
+ *
+ * Used by the secret-bearing pins at the bottom: those fields carry no `type`
+ * the sweep can key on, so each is addressed by a stable anchor (`data-testid`
+ * where one exists, `placeholder` otherwise) instead of a line number that
+ * every edit above it would invalidate.
+ */
+function findTagByAttr(
+	src: string,
+	tagName: string,
+	attr: string,
+	value: string,
+): { tag: string; line: number } | null {
+	const clean = stripComments(src);
+	for (const { tag, index } of elementTags(clean, tagName)) {
+		if (staticAttr(tag, attr) === value) {
+			return { tag, line: clean.slice(0, index).split("\n").length };
+		}
+	}
+	return null;
+}
+
 // ── Parser fixtures ────────────────────────────────────────────────────────
 // The sweep below can only be trusted if the scanner detects a violation it is
 // shown. These pin that against known-bad and known-good markup, so a scanner
@@ -260,6 +296,52 @@ describe("credential-input scanner", () => {
 	test("reports the line the tag opens on for a multi-line input", () => {
 		const src = `<div>\n\t<input\n\t\tid="pw"\n\t\ttype="password"\n\t/>\n</div>`;
 		expect(scanSvelte(src, "f.svelte")[0]?.line).toBe(2);
+	});
+
+	test("an arrow-function handler's `=>` does not truncate the tag", () => {
+		// ProviderSettings' OAuth paste box carries
+		// `onkeydown={(e) => { if (e.key === "Enter") … }}`. The `>` of `=>` sits
+		// inside a brace expression, and so does a nested `{…}` block and a
+		// quoted string — if any of those ended the tag, every attribute after
+		// the handler would be invisible and this guard would report a field as
+		// clean while never having seen its autocomplete.
+		const tag = `<input type="text" onkeydown={(e) => { if (e.key === "Enter") go(); }} autocomplete="off" />`;
+		const found = elementTags(tag, "input");
+		expect(found).toHaveLength(1);
+		expect(autocompleteOf(found[0]!.tag)).toBe("off");
+	});
+
+	test("walks <textarea> as well as <input>", () => {
+		// The MCP header boxes are textareas: no `type` attribute exists for the
+		// sweep to key on, so they are reachable only through the generic walker.
+		const src = `<textarea data-testid="mcp-edit-headers" placeholder="Headers"></textarea>`;
+		expect(elementTags(src, "textarea")).toHaveLength(1);
+		expect(elementTags(src, "input")).toHaveLength(0);
+		expect(autocompleteOf(elementTags(src, "textarea")[0]!.tag)).toBeNull();
+	});
+
+	test("the tag-name match is anchored, so <input> does not match <inputmode-ish>", () => {
+		expect(elementTags(`<inputx type="password" />`, "input")).toHaveLength(0);
+		expect(elementTags(`<textareax />`, "textarea")).toHaveLength(0);
+	});
+
+	test("findTagByAttr locates a tag by data-testid or placeholder, else null", () => {
+		const src = [
+			`<textarea data-testid="mcp-edit-headers" autocomplete="off"></textarea>`,
+			`<input placeholder="Paste the callback URL" autocomplete="off" />`,
+		].join("\n");
+		expect(findTagByAttr(src, "textarea", "data-testid", "mcp-edit-headers")?.line).toBe(1);
+		expect(findTagByAttr(src, "input", "placeholder", "Paste the callback URL")?.line).toBe(2);
+		// A moved/renamed anchor reports null rather than throwing.
+		expect(findTagByAttr(src, "textarea", "data-testid", "gone")).toBeNull();
+		// The anchor must match the WHOLE value, not a prefix — otherwise a pin
+		// could silently latch onto a different field.
+		expect(findTagByAttr(src, "input", "placeholder", "Paste the")).toBeNull();
+	});
+
+	test("findTagByAttr ignores an anchor that only appears in a comment", () => {
+		const src = `<!-- <textarea data-testid="mcp-edit-headers"></textarea> -->\n<div />`;
+		expect(findTagByAttr(src, "textarea", "data-testid", "mcp-edit-headers")).toBeNull();
 	});
 
 	test("finds every input in a multi-input form, in document order", () => {
@@ -350,12 +432,23 @@ const EXPECTED: Record<string, string[]> = {
 		"new-password",
 		"new-password",
 	],
-	// Not credentials — a stored secret and an address being typed FOR someone
-	// else. Both must be "off" so no saved login is offered.
-	"web/src/lib/components/settings/SearchBackendSection.svelte": ["off"],
+	// MACHINE credentials in a password-typed box: an API key, a GitHub PAT, a
+	// search-backend key. `autocomplete="off"` is NOT enough here — Chrome and
+	// Safari deliberately ignore `off` on password-typed inputs (it was too
+	// widely used to defeat password managers), so the browser still offers to
+	// save the value as a login. `new-password` is the one value that suppresses
+	// BOTH the fill and the save prompt. `SchemaForm.svelte` below is the
+	// precedent this follows.
+	"web/src/lib/components/settings/SearchBackendSection.svelte": ["new-password"],
+	"web/src/routes/(app)/project/[id]/integrations/github-projects/+page.svelte": [
+		"new-password",
+		"new-password",
+	],
+	"web/src/lib/components/ProviderSettings.svelte": ["new-password", "new-password"],
+	// NOT password-typed: an email address being typed FOR someone else. `off` is
+	// both honoured and correct on a non-password input, and there is no saved
+	// credential a manager could wrongly offer.
 	"web/src/lib/components/settings/InvitesSection.svelte": ["off"],
-	"web/src/routes/(app)/project/[id]/integrations/github-projects/+page.svelte": ["off", "off"],
-	"web/src/lib/components/ProviderSettings.svelte": ["off", "off"],
 	// An extension's secret-typed setting: a value the author supplies, never a
 	// login — "new-password" keeps managers from filling a saved credential.
 	"web/src/lib/components/SchemaForm.svelte": ["new-password"],
@@ -372,6 +465,82 @@ describe("credential screens use the right autocomplete token", () => {
 					.map((v) => v.line)
 					.join(", ")}`,
 			).toEqual(expected);
+		});
+	}
+});
+
+// ── Secret-bearing fields the type-driven sweep cannot see ─────────────────
+// The sweep keys on `type="password"` / `type="email"`, which is the only
+// generic signal a field holds a credential. These three hold live secrets —
+// two `Authorization: Bearer …` header blocks and an OAuth authorization code —
+// but are a `type="text"` input and two `<textarea>`s, so no type signal exists
+// and a tree-wide rule would have to flag every free-text box in the app.
+//
+// They are therefore pinned individually, by a stable ANCHOR rather than a line
+// number: `data-testid` where one exists, `placeholder` otherwise. Nothing else
+// stops someone deleting these attributes, and on these fields autofill means a
+// browser writing a saved credential into a bearer-token box.
+
+interface SecretField {
+	/** Repo-relative source file. */
+	file: string;
+	/** Element to walk (`input` / `textarea`). */
+	tagName: string;
+	/** Anchor attribute + value that identifies the field. */
+	attr: string;
+	value: string;
+	/** Required autocomplete value. */
+	expected: string;
+	/** What the field holds — why autofill on it is a problem. */
+	holds: string;
+}
+
+const SECRET_BEARING_FIELDS: readonly SecretField[] = [
+	{
+		file: "web/src/lib/components/ProviderSettings.svelte",
+		tagName: "input",
+		attr: "placeholder",
+		value: "Paste the callback URL here if automatic redirect didn't work",
+		// `type="text"`, so `off` is honoured (the ignore-`off` rule that forces
+		// `new-password` on the BYOK key fields applies only to password inputs).
+		expected: "off",
+		holds: "a live OAuth authorization code pasted from the address bar",
+	},
+	{
+		file: "web/src/routes/(app)/extensions/+page.svelte",
+		tagName: "textarea",
+		attr: "placeholder",
+		value: "Headers (one per line, e.g. Authorization: Bearer ...)",
+		expected: "off",
+		holds: "MCP request headers, i.e. an `Authorization: Bearer …` token",
+	},
+	{
+		file: "web/src/routes/(app)/extensions/[id]/+page.svelte",
+		tagName: "textarea",
+		attr: "data-testid",
+		value: "mcp-edit-headers",
+		expected: "off",
+		holds: "MCP request headers on the edit path, same bearer token",
+	},
+];
+
+describe("secret-bearing non-password fields opt out of autofill", () => {
+	for (const f of SECRET_BEARING_FIELDS) {
+		test(`${f.file} — ${f.attr}="${f.value}"`, async () => {
+			const src = await Bun.file(join(WEB_SRC, f.file.slice("web/src/".length))).text();
+			const hit = findTagByAttr(src, f.tagName, f.attr, f.value);
+			expect(
+				hit,
+				`no <${f.tagName}> with ${f.attr}="${f.value}" in ${f.file} — the anchor moved or ` +
+					`the field was removed. Re-point this pin at the field that now holds ${f.holds}; ` +
+					`do not delete it.`,
+			).not.toBeNull();
+			expect(
+				hit === null ? "(anchor not found)" : (autocompleteOf(hit.tag) ?? "MISSING"),
+				`${f.file}:${hit?.line} <${f.tagName}> holds ${f.holds} — it must declare ` +
+					`autocomplete="${f.expected}" so the browser neither fills a saved credential ` +
+					`into it nor offers to save its contents as one.`,
+			).toBe(f.expected);
 		});
 	}
 });

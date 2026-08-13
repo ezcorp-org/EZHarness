@@ -237,6 +237,7 @@
 		<div class="mb-2 flex items-center gap-2">
 			<input
 				type="text"
+				autocomplete="off"
 				bind:value={codeInput}
 				placeholder="Paste the callback URL here if automatic redirect didn't work"
 				class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -448,7 +449,7 @@
 								<input
 									use:autofocus
 									type={showKey[p.provider] ? "text" : "password"}
-									autocomplete="off"
+									autocomplete="new-password"
 									bind:value={keyInputs[p.provider]}
 									placeholder={info.placeholder}
 									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
@@ -506,7 +507,7 @@
 							<div class="relative flex-1">
 								<input
 									type={showKey[p.provider] ? "text" : "password"}
-									autocomplete="off"
+									autocomplete="new-password"
 									bind:value={keyInputs[p.provider]}
 									placeholder={info.placeholder}
 									class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"

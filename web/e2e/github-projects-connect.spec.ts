@@ -207,16 +207,19 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await installGhRoutes(page);
 		await page.goto(CONNECT_PATH);
 
-		// The PAT box is `type="password"`, so without an explicit opt-out a
-		// password manager treats it as a login field: it offers a saved
-		// credential to fill, and prompts to save the token as one. Neither is
-		// wanted for a scoped GitHub PAT that lives in the board's own storage.
+		// The PAT box is `type="password"`, so a password manager treats it as a
+		// login field: it offers a saved credential to fill, and prompts to save
+		// the token as one. `autocomplete="off"` does NOT stop that — Chrome and
+		// Safari deliberately ignore `off` on password-typed inputs, so the save
+		// prompt fires anyway. `new-password` is the only value that suppresses
+		// both, so a machine credential like a scoped GitHub PAT takes it.
 		const token = page.getByTestId("gh-projects-token");
 		await expect(token).toHaveAttribute("type", "password");
-		await expect(token).toHaveAttribute("autocomplete", "off");
+		await expect(token).toHaveAttribute("autocomplete", "new-password");
 
-		// The board URL is not a credential, but it is a one-off value per board
-		// — a remembered dropdown of previously typed URLs is noise, not help.
+		// The board URL is NOT password-typed, so `off` is both honoured and
+		// sufficient here — there is no saved credential a manager could offer,
+		// only a remembered dropdown of previously typed URLs, which is noise.
 		await expect(page.getByTestId("gh-projects-board-url")).toHaveAttribute("autocomplete", "off");
 	});
 
