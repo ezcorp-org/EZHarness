@@ -412,7 +412,9 @@ describe("environment escape hatch", () => {
 
   test(`${MCP_TARGET_ALLOW_ENV} is read when no allowlist is injected`, async () => {
     process.env[MCP_TARGET_ALLOW_ENV] = "10.0.0.0/8";
-    await assertMcpTargetUrlAllowed("http://10.0.0.5:6379/", { resolveHost });
+    await expect(
+      assertMcpTargetUrlAllowed("http://10.0.0.5:6379/", { resolveHost }),
+    ).resolves.toBeUndefined();
   });
 
   test("the env default denies when unset", async () => {
@@ -484,6 +486,8 @@ describe("spec-level entry point", () => {
       name: "remote",
       url: "https://pub.test/mcp",
     };
-    await assertMcpTargetAllowed(spec, { resolveHost, allowRaw: "" });
+    await expect(
+      assertMcpTargetAllowed(spec, { resolveHost, allowRaw: "" }),
+    ).resolves.toBeUndefined();
   });
 });
