@@ -59,11 +59,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   try {
+    // `creatorUserId` is the cross-gate stitch: the wire gate
+    // (`canWireExtension`) reads this column to decide whether a non-admin may
+    // attach this MCP row to a conversation. Stamping it here is what makes
+    // the installing admin the row's owner instead of leaving it NULL —
+    // and NULL matches nobody, so an unstamped row stays admin-only forever.
+    // It is the same principal the audit row below records as the actor.
     const ext = await installMcpExtension({
       name,
       description,
       server,
       cachedTools,
+      creatorUserId: locals.user?.id ?? null,
     });
     await ExtensionRegistry.getInstance().reload();
     // Audit AFTER the row exists, so the trail never claims an install that
