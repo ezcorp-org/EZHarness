@@ -403,7 +403,7 @@ describe("PUT /api/mcp-servers/[id]", () => {
     expect(lastClientSpec.headers.Authorization).toBe("Bearer NEW");
   });
 
-  test("stdio edit persists a valid config and never carries headers (mergeHeaders stdio branch)", async () => {
+  test("stdio edit persists a valid config and never carries headers (mergeMcpServerSecrets stdio branch)", async () => {
     const tools = [{ name: "echo" }];
     vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
     mcpListTools.mockResolvedValueOnce(tools as any);
@@ -413,7 +413,7 @@ describe("PUT /api/mcp-servers/[id]", () => {
     expect(res.status).toBe(200);
 
     // The throwaway client (and the persisted config) get the stdio spec
-    // verbatim — no `headers` key is synthesized by mergeHeaders.
+    // verbatim — no `headers` key is synthesized by mergeMcpServerSecrets.
     expect(lastClientSpec.transport).toBe("stdio");
     expect(lastClientSpec.command).toBe("node");
     expect(lastClientSpec.args).toEqual(["v2.js"]);

@@ -50,7 +50,29 @@ Three things are written from that one derivation:
 
 ### Edit-after-install (`PUT /api/mcp-servers/[id]`)
 
-Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (502 on failure leaves the stored config untouched), then `updateMcpExtension(...)`. The extension **name is immutable** (it's the identity); only `description`, the `mcpServers` connection config, the cached `tools`, and the `source` slug change. For `http`/`sse`, `mergeHeaders` treats a **blank header value as "keep the existing secret"** — secrets are never echoed back to the edit form, so blank means unchanged. On success it writes one `ext:mcp:server-updated` row carrying BOTH sides, so a re-pointed connection is diffable.
+Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (502 on failure leaves the stored config untouched), then `updateMcpExtension(...)`. The extension **name is immutable** (it's the identity); only `description`, the `mcpServers` connection config, the cached `tools`, and the `source` slug change. `mergeMcpServerSecrets` treats **any blank credential value as "keep the existing secret"** — header keys, stdio env vars, URL query parameters and argv flags alike, matched BY NAME so an inserted flag can never shift one secret into another's slot. Secrets are never echoed to the edit form, so blank means unchanged; the previous values are rehydrated from the store first, or "blank = keep" would preserve an empty credential and the re-connect would authenticate with nothing. On success it writes one `ext:mcp:server-updated` row carrying BOTH sides, so a re-pointed connection is diffable.
+
+### Credential isolation at rest (`src/extensions/mcp-secret-redaction.ts`)
+
+An MCP server definition is the richest credential carrier in the extension surface, and the row it lives in is broadly readable. So **no credential VALUE is ever persisted in `extensions.manifest`**. Four carriers, one classifier, one rule — every NAME survives, every VALUE is blanked:
+
+| Carrier | At rest | Notes |
+|---|---|---|
+| http/sse `headers` | `{"Authorization": ""}` | every value, including innocuous ones like `Accept` |
+| stdio `env` | `{"GITHUB_TOKEN": ""}` | same rule |
+| URL query values | `?api_key=` | `?api_key=…` is a real MCP convention; the URL's **password** goes too (`svc:pw@h` → `svc:@h`), the username stays |
+| stdio argv | `--token=` , `GITHUB_TOKEN=` | any `NAME=VALUE` token loses its VALUE — the flag form, `-D`-style, and `docker run -e NAME=VALUE` |
+
+The real values go to the AAD-bound `extension_secrets` store under one `mcp:auth` blob per extension (global scope), and are rehydrated **only** server-side: `registry.getMcpClient` calls `rehydrateMcpServerSecrets` BEFORE `buildSandboxedMcpSpec`, so the URL the client dials and the argv it spawns are the real ones. Each whole-value substitution (`url` / `command` / `args`) is guarded by one equality — the stored value is used only when redacting it reproduces what is at rest — so a blob left over from a config the manifest has moved past can never dial a stale host or paste one server's token into another's argv.
+
+Two shapes cannot be blanked by rule and are handled explicitly:
+
+- **The space-separated pair form (`--token SECRET`)** needs a name list, because the token after a flag is indistinguishable from a positional operand — blanking every one would eat `npx -y <package>`. `isSecretFlagName` matches whole `-`/`_`/`.`-separated words (`--gh-pat`, `--api-key`, `--auth-header` match; `--path`, `--pattern`, `--author` deliberately do not).
+- **A URL anywhere in a token** keeps its host and path and loses only its query values, because `mcpNetworkHosts` derives the `network` ceiling from the STORED definition — blanking a host would silently shrink a live grant and deny the connect the admin just authorised.
+
+**Stated residuals.** A BARE positional secret (`npx srv MY-SECRET`) is not redacted: nothing distinguishes it from a package name or a path, and every credential convention in the wild attaches a name. And an admin who genuinely retypes the argv field, leaving a pair-form value blank, may have to re-enter it — the edit form joins argv on spaces, so a `""` slot disappears; the unedited prefill is restored whole by an equality check, and the inline `--flag=` form round-trips in every case.
+
+**Legacy rows** are healed once by `backfillMcpManifestSecrets` (awaited inside `migrate()`, so it completes before the server serves traffic): the plaintext moves to the store and the manifest is rewritten blanked. Its idempotency predicate IS the redactor (`mcpServerHasPlaintextSecret` is `redactMcpServer(s) !== s`), so there is no second definition of "already clean" to drift. A row healed of its `headers`/`env` by an earlier build and re-migrated for its `url`/`args` **merges** into the stored blob rather than replacing it — rebuilding from a manifest that now holds only blanks would delete the auth map it cannot reconstruct. Rows the pass fails on are warned by name and stay plaintext at rest, which is why every row-serving route ALSO scrubs on the way out (`redactExtensionSecrets`): `GET /api/extensions`, `GET /api/extensions/[id]`, the `/extensions` SSR loader, `POST /api/extensions/[id]/reapprove` (deliberately non-admin) and the three admin write routes that echo the row (`permissions`, `activate`, `modifiable`).
 
 ### Refresh cached tools (`POST /api/mcp-servers/[id]/refresh`)
 
@@ -141,7 +163,9 @@ Install, edit and refresh each write exactly one `audit_log` row; uninstall (via
 
 A row is written only after the mutation it describes has succeeded, so a guard rejection or any other connect failure leaves **no** audit row and **no** extension row — the uniform 502 above is the whole response.
 
-`src/extensions/mcp-audit.ts` owns the projection from `McpServerDefinition` to metadata, and it is deliberately narrow: **transport**, a **target** that is the executable (stdio) or the URL's *origin + path* (http/sse — query and fragment are dropped whole, because `?api_key=…` is a real MCP convention), the **argv COUNT** rather than the argv, the **NAMES** of the transport auth entries (stdio `env` / http/sse `headers`), and the **tool count + names**. No header value, env value, argv value or URL query string ever reaches the row. `insertAuditEntry`'s `redactForAudit` is the second net, not the first.
+`src/extensions/mcp-audit.ts` owns the projection from `McpServerDefinition` to metadata, and it is deliberately narrow: **transport**, a **target** that is the executable (stdio, itself URL-query-redacted) or the URL's **origin only** (http/sse — path, query and fragment are all dropped, because `?api_key=…` AND `/services/<opaque-token>` are both real MCP conventions), a **`pathDepth`** that preserves enough shape to tell two endpoints on one host apart without carrying a path byte, the **argv COUNT** rather than the argv, the **NAMES** of the transport auth entries (stdio `env` / http/sse `headers`), and the **tool count + names**. No header value, env value, argv value, path segment or URL query string ever reaches the row. `insertAuditEntry`'s `redactForAudit` is the second net, not the first.
+
+This module's reasoning was correct and the layer beside it was not: until #205 the API served the very `?api_key=…` and `--token=…` values the audit refuses to log. Both carriers are now blanked at rest by the shared classifier (see [Credential isolation at rest](#credential-isolation-at-rest-srcextensionsmcp-secret-redactionts)), so "audited without the credential" and "readable without the credential" finally describe the same system.
 
 | Action | Written by | `oldValue` → `newValue` |
 |---|---|---|
@@ -215,14 +239,15 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - `src/mcp/target-guard.ts` — `assertMcpTargetAllowed` / `parseMcpTargetAllowlist`: the outbound target policy + `EZCORP_MCP_TARGET_ALLOW` parsing.
 - `src/mcp/connect-failure.ts` — `MCP_CONNECT_FAILED_MESSAGE` / `reportMcpConnectFailure`: the uniform 502 body and the server-side diagnosis it replaces.
 - `web/src/routes/api/mcp-servers/+server.ts` — `POST` install: throwaway-verify, cache tools, persist, reload registry.
-- `web/src/routes/api/mcp-servers/[id]/+server.ts` — `PUT` edit-after-install: re-verify, `mergeHeaders` secret-preservation.
+- `web/src/routes/api/mcp-servers/[id]/+server.ts` — `PUT` edit-after-install: re-verify, `mergeMcpServerSecrets` secret-preservation.
 - `web/src/routes/api/mcp-servers/[id]/refresh/+server.ts` — `POST` refresh: `registry.refreshMcpTools(id)`.
 - `web/src/routes/api/mcp-servers/schema.ts` — Zod discriminated union (`stdio`/`http`/`sse`) + install/update schemas.
 - `src/extensions/mcp-sandbox.ts` — `buildSandboxedMcpSpec` (prlimit + namespace + proxy + jail + seccomp + Stage-2 veth) and `runMcpSeccompSoakReader`.
 - `src/extensions/mcp-proxy.ts` — `createMcpProxy`: loopback CONNECT proxy with bearer auth, internal-host deny, DNS-rebind recheck, per-host PDP, quotas.
 - `src/extensions/registry.ts` — `getMcpClient`, `refreshMcpTools`, `<name>__<tool>` namespacing, proxy/veth/soak lifecycle.
 - `src/extensions/tool-executor/executor.ts` — `executeToolCall` MCP branch: per-call PDP gate → `getMcpClient` → `callTool`.
-- `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`, record the install-time grant) + `backfillMcpManifestCapabilities` (one-shot legacy heal).
+- `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`, record the install-time grant), `persistMcpSecret` / `rehydrateMcpServerSecrets` (the `extension_secrets` round trip) + `backfillMcpManifestSecrets` / `backfillMcpManifestCapabilities` (one-shot legacy heals).
+- `src/extensions/mcp-secret-redaction.ts` — the ONE credential classifier: `redactMcpServer` / `redactExtensionSecrets` (at rest + on every read), `redactUrlSecrets` / `redactMcpArgv` / `isSecretFlagName` (the rules), `buildMcpSecretBlob` / `applyMcpSecretBlob` (the guarded store round trip), `mergeMcpServerSecrets` (the edit form's "blank = keep"). Pure — no DB, no fs, no env.
 - `src/extensions/mcp-capabilities.ts` — `mcpNetworkHosts` / `mcpManifestPermissions` / `mcpInstallGrant` / `withMcpToolCapabilities` / `normalizeMcpManifest`: the pure derivation shared by the install path, the registry's read-time normalization and the backfill.
 - `src/extensions/mcp-audit.ts` — `describeMcpServerForAudit` (credential-free `McpServerFacts`) + `buildMcpAuditMetadata`; the projection the four lifecycle audit rows share.
 - `src/auth/extension-wire-authz.ts` — `canWireExtension` / `partitionWirableExtensions`: the fail-closed gate deciding who may attach an MCP extension to a conversation.
