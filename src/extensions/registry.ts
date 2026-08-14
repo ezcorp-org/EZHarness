@@ -302,6 +302,10 @@ export class ExtensionRegistry {
    *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
    *  loopback port (fallback) and gates outbound HTTPS via PDP. */
   private mcpProxies = new Map<string, McpProxyHandle>();
+  /** extension id -> tail of the serialized `tools/list_changed` refresh
+   *  chain for that extension. See `onMcpToolListChanged`; entries clear
+   *  themselves once the tail settles. */
+  private mcpToolRefreshes = new Map<string, Promise<void>>();
   /** extension id -> manifest */
   private manifests = new Map<string, ExtensionManifestV2>();
   /** extension id -> install path */
@@ -1055,6 +1059,7 @@ export class ExtensionRegistry {
     if (typeof client.setLifecycleHooks === "function") {
       client.setLifecycleHooks({
         onClosed: () => this.onMcpTransportClosed(extensionId, client),
+        onToolListChanged: () => this.onMcpToolListChanged(extensionId),
       });
     }
     // Phase 58 / MCP-04 — capture spawnAt BEFORE the (potentially-slow)
@@ -1174,6 +1179,51 @@ export class ExtensionRegistry {
     this.mcpClients.delete(extensionId);
     log.info("MCP transport closed — cached client dropped, next call reconnects", {
       extensionId,
+    });
+  }
+
+  /**
+   * `notifications/tools/list_changed` — the server says its catalog moved.
+   *
+   * Reuses {@link refreshMcpTools}, the SAME entry point
+   * `POST /api/mcp-servers/[id]/refresh` drives, so a server-initiated change
+   * invalidates exactly what an admin refresh invalidates (the manifest at
+   * rest plus `manifests` / `extensionTools` / `toolMap`) instead of a
+   * parallel subset that would drift from it.
+   *
+   * Refreshes are SERIALIZED per extension. A server is free to emit a burst
+   * of notifications, and two overlapping refreshes would interleave a
+   * `tools/list` with the other's row update — leaving the row describing
+   * neither catalog. Chaining also means the LAST notification is the last
+   * writer, which is the only ordering that can be correct.
+   */
+  private onMcpToolListChanged(extensionId: string): void {
+    const prior = this.mcpToolRefreshes.get(extensionId) ?? Promise.resolve();
+    // `prior` never rejects — the inner handlers below settle both arms — so
+    // the chain cannot be broken by one failing refresh.
+    const next = prior.then(() =>
+      this.refreshMcpTools(extensionId).then(
+        (tools) => {
+          log.info("MCP server changed its tool catalog", {
+            extensionId,
+            toolCount: tools.length,
+          });
+        },
+        (err) => {
+          log.warn("MCP tools/list_changed refresh failed", {
+            extensionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      ),
+    );
+    this.mcpToolRefreshes.set(extensionId, next);
+    void next.then(() => {
+      // Only the TAIL of the chain clears the slot; a link that settles
+      // while a later notification is still queued must leave it alone.
+      if (this.mcpToolRefreshes.get(extensionId) === next) {
+        this.mcpToolRefreshes.delete(extensionId);
+      }
     });
   }
 

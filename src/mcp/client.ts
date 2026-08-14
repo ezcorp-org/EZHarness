@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { assertMcpTargetAllowed } from "./target-guard";
 import { createMcpGuardedFetch } from "./guarded-fetch";
 import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../extensions/types";
@@ -80,6 +81,11 @@ export type McpClientHooks = {
    * `isConnected` is already `false` when this runs.
    */
   onClosed?: () => void;
+  /**
+   * The server pushed `notifications/tools/list_changed` — its tool
+   * catalog moved and the cached list at rest is stale.
+   */
+  onToolListChanged?: () => void;
 };
 
 /**
@@ -121,7 +127,7 @@ export class McpClient {
   }
 
   /**
-   * A fresh SDK `Client` with our server-driven listener already wired.
+   * A fresh SDK `Client` with our two server-driven listeners already wired.
    *
    * `onclose` is the fix for the stale-client defect: `connected` used to be
    * cleared ONLY by an explicit `close()`, so a restarted MCP server left a
@@ -136,6 +142,9 @@ export class McpClient {
       this.connected = false;
       this.hooks.onClosed?.();
     };
+    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      this.hooks.onToolListChanged?.();
+    });
     return client;
   }
 
