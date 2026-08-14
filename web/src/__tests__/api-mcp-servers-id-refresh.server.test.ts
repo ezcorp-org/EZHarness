@@ -18,6 +18,11 @@ vi.mock("$server/extensions/registry", () => ({
   },
 }));
 
+// The 502 body is a constant now, so the real reason goes here instead.
+const persistError = vi.fn(async (_opts: Record<string, unknown>) => {});
+vi.mock("$server/db/queries/error-logs", () => ({ persistError }));
+
+const { MCP_CONNECT_FAILED_MESSAGE } = await import("$server/mcp/connect-failure");
 const { POST } = await import("../routes/api/mcp-servers/[id]/refresh/+server");
 
 function makeEvent(opts: {
@@ -87,23 +92,55 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
     expect(refreshMcpTools).toHaveBeenCalledWith("ext-42");
   });
 
-  test("returns 502 when refreshMcpTools throws an Error", async () => {
+  test("returns 502 without echoing the underlying error", async () => {
     refreshMcpTools.mockRejectedValueOnce(new Error("mcp subprocess died"));
     const res = await POST(
       makeEvent({ locals: adminUser, params: { id: "ext-42" } }),
     );
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("mcp subprocess died");
+    // Refresh re-connects to the STORED config, so it echoed the transport's
+    // error for a target the caller chose at install time — the same oracle,
+    // repeatable on demand without creating a new row.
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+    expect(body.error).not.toContain("subprocess");
   });
 
-  test("returns 502 with generic message when refreshMcpTools throws a non-Error", async () => {
+  test("a thrown non-Error returns the same body", async () => {
     refreshMcpTools.mockRejectedValueOnce("pipe closed");
     const res = await POST(
       makeEvent({ locals: adminUser, params: { id: "ext-42" } }),
     );
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Refresh failed");
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+  });
+
+  test("an unknown id is indistinguishable from an unreachable target", async () => {
+    // Both paths throw out of refreshMcpTools. If "not found" answered
+    // differently, a caller could enumerate which extension ids exist.
+    refreshMcpTools.mockRejectedValueOnce(new Error("Extension zzz not found in registry"));
+    const unknown = await POST(makeEvent({ locals: adminUser, params: { id: "zzz" } }));
+
+    refreshMcpTools.mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.5:6379"));
+    const unreachable = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
+
+    expect(unknown.status).toBe(unreachable.status);
+    expect(await unknown.text()).toBe(await unreachable.text());
+  });
+
+  test("the real reason is handed to the server-side sink", async () => {
+    persistError.mockClear();
+    refreshMcpTools.mockRejectedValueOnce(new Error("mcp subprocess died"));
+    await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
+
+    expect(persistError).toHaveBeenCalledTimes(1);
+    const arg = persistError.mock.calls[0]![0] as {
+      message: string;
+      metadata: Record<string, unknown>;
+    };
+    expect(arg.message).toContain("mcp subprocess died");
+    expect(arg.metadata.route).toBe("POST /api/mcp-servers/[id]/refresh");
+    expect(arg.metadata.extension).toBe("ext-42");
   });
 });
