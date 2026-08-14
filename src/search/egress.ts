@@ -114,8 +114,13 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 // ── IP classification ───────────────────────────────────────────────
 
-/** Parse a dotted-quad IPv4 into its four octets, or null if malformed. */
-function parseIpv4(ip: string): [number, number, number, number] | null {
+/** Parse a dotted-quad IPv4 into its four octets, or null if malformed.
+ *
+ *  Exported for `src/mcp/target-guard.ts`, which needs the same
+ *  byte-level view of an address to evaluate CIDR allowlist entries.
+ *  Re-implementing it there would give the MCP guard a second, drifting
+ *  parser for the exact addresses this one classifies. */
+export function parseIpv4(ip: string): [number, number, number, number] | null {
   const parts = ip.split(".");
   if (parts.length !== 4) return null;
   const octets = parts.map((p) => Number(p));
@@ -165,8 +170,11 @@ function isBlockedIpv4(ip: string): boolean {
  * valid per `node:net.isIP`) to its 16 bytes, or null if our parser can't
  * — callers fail CLOSED on null. Handles `::` zero-compression and an
  * embedded dotted-quad in the low 32 bits (e.g. `::ffff:127.0.0.1`).
+ *
+ * Exported for `src/mcp/target-guard.ts` — see `parseIpv4` above for why
+ * the MCP guard borrows these primitives instead of growing its own.
  */
-function ipv6ToBytes(ip: string): number[] | null {
+export function ipv6ToBytes(ip: string): number[] | null {
   let s = ip;
   let v4: number[] | null = null;
   const dot = s.match(/^(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/);
