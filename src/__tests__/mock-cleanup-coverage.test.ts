@@ -332,7 +332,16 @@ describe("mock-cleanup coverage (meta-test)", () => {
       const counts = new Map<string, number>();
       for (const p of paths) counts.set(p, (counts.get(p) ?? 0) + 1);
       for (const raw of paths) {
-        if ((counts.get(raw) ?? 0) >= 2) continue;
+        // The in-file restore rule counts registrations, which for a
+        // `$server/*` alias proves only that the file wrote SOMETHING back —
+        // not that it wrote back the module the alias NAMES. A restore aimed at
+        // the wrong module reads exactly like a good one and leaves the alias
+        // answering for a module nobody asked for. So `$server/*` targets skip
+        // the count short-circuit and must satisfy `isServerPrefixed()` below
+        // (snapshotted tail, or a verified pass-through shim). Measured free
+        // when introduced: all nine `$server/*` in-file restores in the tree
+        // are already one or the other.
+        if (!raw.startsWith("$server/") && (counts.get(raw) ?? 0) >= 2) continue;
         if (isExempt(raw)) continue;
         if (modulePaths.has(raw)) continue;
         if (isServerPrefixed(raw, SERVER_ALIAS_TOP_LEVELS, modulePaths, aliasShims)) continue;
@@ -497,6 +506,20 @@ describe("mock-cleanup coverage (meta-test)", () => {
     const src = `// mock.module(${Q}$server/memory/chunking${Q}, () => require(${Q}../memory/chunking${Q}));`;
 
     expect([...extractServerAliasShims(src, FAKE)]).toEqual([]);
+  });
+
+  test("a $server in-file restore must name the module its alias names", () => {
+    // The two mentions-search suites rely on the in-file restore pattern for
+    // their `$server/*` stubs, and the walker's count short-circuit would have
+    // accepted ANY second registration — including one aimed at a different
+    // module. That is the redirect hazard again, so `$server/*` targets are
+    // excluded from the count rule and re-checked here. Both halves are pinned:
+    // a matching restore is a shim, a mismatched one is not.
+    const good = `mock.module(${Q}$server/runtime/tools/builtin-registry${Q}, () => require(${Q}../runtime/tools/builtin-registry${Q}));`;
+    const bad = `mock.module(${Q}$server/runtime/tools/builtin-registry${Q}, () => require(${Q}../runtime/hub-pages${Q}));`;
+
+    expect(extractServerAliasShims(good, FAKE).has("$server/runtime/tools/builtin-registry")).toBe(true);
+    expect(extractServerAliasShims(bad, FAKE).has("$server/runtime/tools/builtin-registry")).toBe(false);
   });
 
   test("the whole backlog is gone — no frozen $server allowlist remains", () => {
