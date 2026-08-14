@@ -32,6 +32,7 @@ import { z } from "zod";
 import { checkRole } from "$server/auth/middleware";
 import { errorJson } from "$lib/server/http-errors";
 import { activateExtension } from "$lib/server/extensions/activate-extension";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import type { ExtensionPermissions } from "$server/extensions/types";
 import type { RequestHandler } from "./$types";
 
@@ -72,5 +73,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	if (!result.ok) {
 		return errorJson(result.status, result.message);
 	}
-	return json(result.extension);
+	// #205: same scrub as every other row-serving route — see the note on
+	// `PUT /api/extensions/[id]/permissions`.
+	return json(redactExtensionSecrets(result.extension));
 };

@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { getExtension, updateExtension } from "$server/db/queries/extensions";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, checkRole } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
@@ -157,5 +158,10 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
     }
   } catch { /* swallow */ }
 
-  return json(updated);
+  // #205: echoing the whole row hands an MCP extension's connection back to the
+  // caller. Admin-gated, so this is defence in depth behind the at-rest
+  // blanking — but "an admin ROLE" includes an admin-scoped API KEY, and an
+  // installed credential is write-only by design (the edit form never shows
+  // it). Scrub on the way out, like every other row-serving route.
+  return json(updated === null ? null : redactExtensionSecrets(updated));
 };
