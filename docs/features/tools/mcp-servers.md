@@ -26,6 +26,21 @@ It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` 
 4. On success, `installMcpExtension(...)` (`src/db/queries/extensions.ts`) writes an `ExtensionManifestV2` with `kind: "mcp"`, `mcpServers: [server]`, and `tools: cachedTools`, then `createExtension(...)` persists the row (`source: "mcp:<transport>"`, `enabled: true`). The cached `tools` array is what the registry reads at boot — **no** connection happens on cold start.
 5. `ExtensionRegistry.getInstance().reload()` rebuilds the in-memory maps; returns the row with **201**.
 
+### Declared capabilities & the install-time grant (`src/extensions/mcp-capabilities.ts`)
+
+An MCP row is synthesized straight into the DB, so it never passes through the disk loader's `migrateManifestV2ToV3` — the one place a v2 manifest normally acquires its per-tool `capabilities`. `mcp-capabilities.ts` is the derivation that replaces it, and it reads the hosts off the operator's own server definition:
+
+- **`http` / `sse`** — the target `url`'s hostname. Every tool call opens an HTTPS connection from the HOST process to exactly that host, so `network:<host>` literally describes the call. These transports are never sandboxed, so the per-dispatch PDP gate is their only governance.
+- **`stdio`** — every `://` URL on the server's `command` / `args` (e.g. `npx -y mcp-remote https://mcp.example.com/mcp` → `mcp.example.com`). A command line that names no host derives nothing and is **deny-by-default**: the forward proxy refuses every CONNECT because there is no granted host to match.
+
+Three things are written from that one derivation:
+
+1. `manifest.permissions.network` — the CEILING `clampExtensionPermissions` intersects an admin's `PUT /api/extensions/[id]/permissions` submission against, and the source of the "Network Access" checkbox row on the extension detail page.
+2. `manifest.tools[*].capabilities` — the declaration `tool-executor/executor.ts` turns into the needed-cap set at dispatch. Re-derived at read time by the registry (`normalizeMcpManifest`), because `refreshMcpTools` rewrites `manifest.tools` from a fresh wire `tools/list` that carries none.
+3. The install-time grant, recorded as BOTH `grantedPermissions` and `installedPermissions` (the same pairing `activateExtension` writes) so the reapprove flow clamps against the consent collected at install.
+
+`updateMcpExtension` re-issues the grant only when the derived ceiling actually changed — a description-only edit preserves a deliberate admin revocation. Rows installed before this landed are healed once by `backfillMcpManifestCapabilities` (`migrate.ts`), which grants exactly the hosts the row's own stored definition already named: it widens nothing and stops a legacy row from bricking the moment its tools start carrying a needed-cap set.
+
 ### Edit-after-install (`PUT /api/mcp-servers/[id]`)
 
 Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (502 on failure leaves the stored config untouched), then `updateMcpExtension(...)`. The extension **name is immutable** (it's the identity); only `description`, the `mcpServers` connection config, the cached `tools`, and the `source` slug change. For `http`/`sse`, `mergeHeaders` treats a **blank header value as "keep the existing secret"** — secrets are never echoed back to the edit form, so blank means unchanged.
@@ -38,6 +53,7 @@ Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(
 
 - At `loadFromDb()`, every manifest tool is registered as `` `${manifest.name}__${t.name}` `` (double-underscore — Anthropic's tool-name pattern `^[a-zA-Z0-9_-]+$` rejects dots) with `originalName` retained. MCP tools share this namespace with hand-rolled and entity tools, so the LLM and composer treat them identically.
 - When the LLM calls one, `tool-executor/executor.ts:executeToolCall` runs the **per-tool-call PDP gate** (`engine.authorize(...)`, fail-closed) first, then branches on `manifest.kind === "mcp"`: it lazily resolves the `McpClient` via `registry.getMcpClient(extensionId)` and calls `client.callTool(originalName, resolvedInput)`. The same `recordToolCall` audit path runs as for subprocess tools.
+- That gate is only real because the tool carries a capability declaration. Until 2026-08 MCP tools carried none, so the PDP authorized every call against an EMPTY needed set — `firstMissingCapability([], granted)` is always `null` — and allowed it unconditionally. See "Declared capabilities & the install-time grant" above; an ungranted host now raises `PermissionDeniedError` with an `ext:perm:denied` audit row before the wire client is touched.
 
 ### stdio sandbox envelope (`src/extensions/mcp-sandbox.ts`, `src/extensions/mcp-proxy.ts`)
 
@@ -99,7 +115,8 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - `src/extensions/mcp-proxy.ts` — `createMcpProxy`: loopback CONNECT proxy with bearer auth, internal-host deny, DNS-rebind recheck, per-host PDP, quotas.
 - `src/extensions/registry.ts` — `getMcpClient`, `refreshMcpTools`, `<name>__<tool>` namespacing, proxy/veth/soak lifecycle.
 - `src/extensions/tool-executor/executor.ts` — `executeToolCall` MCP branch: per-call PDP gate → `getMcpClient` → `callTool`.
-- `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`).
+- `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`, record the install-time grant) + `backfillMcpManifestCapabilities` (one-shot legacy heal).
+- `src/extensions/mcp-capabilities.ts` — `mcpNetworkHosts` / `mcpManifestPermissions` / `mcpInstallGrant` / `withMcpToolCapabilities` / `normalizeMcpManifest`: the pure derivation shared by the install path, the registry's read-time normalization and the backfill.
 - `src/extensions/types.ts` — `McpServerStdio`/`Http`/`Sse`, `McpServerDefinition`, `ExtensionManifestV2.kind`/`mcpServers`.
 - `web/src/routes/(app)/extensions/+page.svelte` — MCP install form, MCP filter tab, refresh action.
 
@@ -125,7 +142,8 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 
 ## Notes & gotchas
 
-- **`http`/`sse` transports are unsandboxed by design.** `buildSandboxedMcpSpec` returns them untouched — they are network clients, not spawns, so there is no namespace/proxy/jail. The outbound traffic of a remote MCP server is the operator's responsibility (the URL is trusted at install time). Only `stdio` (a local binary) gets the full envelope.
+- **`http`/`sse` transports are unsandboxed by design.** `buildSandboxedMcpSpec` returns them untouched — they are network clients, not spawns, so there is no namespace/proxy/jail. The outbound traffic of a remote MCP server is the operator's responsibility (the URL is trusted at install time). Only `stdio` (a local binary) gets the full envelope. The consequence for governance: the per-dispatch PDP gate is the ONLY control on a remote MCP server, which is why its manifest declares the URL's host as a `network` capability.
+- **A hostless stdio server is still ungated at dispatch.** Its derivation is empty, so its needed-cap set is empty and the PDP allows the call — the same as any extension that declares no permissions. What it is NOT is ungoverned: the binary runs in the filesystem jail and its egress is proxy-denied for want of a granted host. Naming a host on the command line (`mcp-remote https://…`) is what makes both the dispatch gate and the proxy allowance real.
 - **External stdio binaries bypass the SDK's process-poisoning.** Unlike first-party subprocess extensions, an external MCP binary (Python/Go/Rust) does not honor the SDK's `node:fs`/`child_process` poisoning. This is precisely why the bwrap/Landlock filesystem jail (masking `.ezcorp/data` — the PGlite DB + JWT secret) is the load-bearing containment, not the SDK preload.
 - **Default posture fails OPEN.** Without `EZCORP_MCP_REQUIRE_SANDBOX=1`, a host that can't set up netns/veth (common under Docker even `--privileged`) silently runs the MCP at a weaker stage with only a fallback audit row. Operators who need guaranteed isolation must set the flag.
 - **Cached tools can drift.** The tool list is a snapshot taken at install / edit / refresh time and persisted in `manifest.tools`; boot does **not** re-connect. If the upstream server changes its tools, the cached list is stale until an admin hits refresh.
