@@ -73,6 +73,7 @@
       "web/e2e/extension-disable-hides-hub-page.spec.ts",
       "web/e2e/extension-install-granted-caps.spec.ts",
       "web/e2e/extension-secret-settings.spec.ts",
+      "web/e2e/extensions-audit-retention-note.spec.ts",
       "web/e2e/extensions-bundled-drift-reapproval.spec.ts",
       "web/e2e/extensions-mcp-permissions.spec.ts",
       "web/e2e/extensions-mcp-tab.spec.ts",

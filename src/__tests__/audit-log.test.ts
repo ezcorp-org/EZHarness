@@ -50,6 +50,7 @@ import {
 import { createUser } from "../db/queries/users";
 import { auditLog } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { join } from "node:path";
 
 let userId: string;
 
@@ -325,6 +326,28 @@ describe("resolveAuditRetentionDays", () => {
     // mean something different from what the interval means.
     expect(resolveAuditRetentionDays("99999")).toBe(3650);
     expect(resolveAuditRetentionDays("3650")).toBe(3650);
+  });
+
+  test("the extension detail panel quotes THIS default, not a stale copy of it", async () => {
+    // The Audit Trail panel tells an admin the window in prose. Prose and
+    // a constant drift silently, and the panel is the only place a
+    // non-operator learns that rows expire at all.
+    //
+    // Read as TEXT, never imported: a `bun:test` under src/ that imports a
+    // module the vitest coverage leg also measures poisons the merged lcov
+    // (see the merge trap in CLAUDE.md).
+    // `import.meta.dir` + join, NOT `new URL(...).pathname` — the route
+    // path contains `[id]`, which URL percent-encodes into a path that
+    // does not exist.
+    const panel = await Bun.file(
+      join(import.meta.dir, "..", "..", "web/src/routes/(app)/extensions/[id]/+page.svelte"),
+    ).text();
+    const note = panel.match(/audit retention window \((\d+) days by default\)/);
+    expect(note, "the retention sentence is gone from the Audit Trail panel").not.toBeNull();
+    expect(Number(note![1])).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    // The other half of the same sentence: a folded row stands for many, so
+    // the panel must say the count is on the row.
+    expect(panel).toContain("folded into one row that carries the count");
   });
 });
 
