@@ -265,6 +265,28 @@ export class WatchdogManager {
     runMap.set(toolCallId, info);
   }
 
+  /**
+   * Restart a single in-flight tool's execution clock.
+   *
+   * `noteToolStart` fires from the `tool_execution_start` bridge event,
+   * which pi-agent-core emits BEFORE the tool's `execute` body runs — i.e.
+   * before the permission gate opens. Without this, a slow human approval
+   * spends the tool's whole `callTimeoutMs` budget and the watchdog kills
+   * the run the moment execution actually begins. The permission wrapper
+   * calls this once the gate resolves APPROVED, so the budget measures the
+   * tool's execution and not the user's deliberation.
+   *
+   * Per-call by construction: `inflightTools` is
+   * `Map<runId, Map<toolCallId, info>>`, so refreshing one gated call
+   * leaves its parallel siblings' clocks untouched. A no-op for unknown
+   * ids — a wrapper whose `tool_execution_start` never reached the bridge
+   * (tests, suppressed events) must not create a phantom entry.
+   */
+  refreshToolStart(runId: string, toolCallId: string): void {
+    const info = this.inflightTools.get(runId)?.get(toolCallId);
+    if (info) info.startedAt = Date.now();
+  }
+
   /** Drop the in-flight entry once the tool's complete/error event arrives.
    *  Safe to call for unknown ids — the caller (subscribe-bridge) doesn't
    *  always know whether a given event corresponds to a tracked tool. */

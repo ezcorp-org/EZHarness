@@ -646,6 +646,105 @@ describe("Watchdog permission deferral is per-run when the gate names one", () =
   });
 });
 
+// ── refreshToolStart ───────────────────────────────────────────────────
+//
+// `noteToolStart` fires from `tool_execution_start`, which pi-agent-core
+// emits BEFORE the tool body — and therefore before the permission gate.
+// A slow human approval used to spend the tool's whole callTimeoutMs, so
+// the watchdog killed the run the moment execution actually began. The
+// permission wrapper calls `refreshToolStart` once the gate resolves
+// approved. Clock is frozen (`Date.now = () => fakeNow`), so nothing here
+// measures the host.
+
+describe("WatchdogManager.refreshToolStart", () => {
+  test("restarts the gated call's budget from the moment of the refresh", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 60_000 }));
+
+    // 50s of the 60s budget spent waiting on the human.
+    await advanceAndTick(50_000);
+    h.manager.refreshToolStart(RUN_ID, TOOL_CALL_ID);
+
+    // 55s past the refresh — 105s past the ORIGINAL start, so without the
+    // refresh the budget would be long gone and this tick would not defer.
+    await advanceAndTick(55_000);
+    expect(run.status).toBe("running");
+    expect(logLines.at(-1)?.msg).toBe("Watchdog deferring");
+
+    // 10s later the refreshed budget itself lapses: 65s > 60s.
+    await advanceAndTick(10_000);
+    expect(logLines.some((l) => l.msg === "Watchdog deferral ended")).toBe(true);
+  });
+
+  test("without the refresh the same timeline stops deferring at the original budget", async () => {
+    // The control arm for the test above: identical clock, identical
+    // budget, only the refresh removed.
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 60_000 }));
+
+    await advanceAndTick(50_000);
+    await advanceAndTick(55_000); // 105s elapsed > 60s budget
+
+    expect(run.status).toBe("running"); // idle clock has not tripped yet
+    expect(logLines.some((l) => l.msg === "Watchdog deferral ended")).toBe(true);
+  });
+
+  test("leaves a parallel sibling's clock alone", async () => {
+    const h = makeHarness();
+    startRun(h);
+    // Asymmetric budgets so the two clocks are distinguishable: only the
+    // long-budget sibling can still be deferring at the instant we probe.
+    h.manager.noteToolStart(RUN_ID, "call-short", info({ toolName: "short", callTimeoutMs: 60_000 }));
+    h.manager.noteToolStart(RUN_ID, "call-long", info({ toolName: "long", callTimeoutMs: 200_000 }));
+
+    await advanceAndTick(50_000);
+    h.manager.refreshToolStart(RUN_ID, "call-short");
+
+    // t=220s. `short` restarted at 50s → 170s elapsed, expired. `long`
+    // was never refreshed → 220s elapsed, past its 200s budget. Nothing
+    // is in flight, so the deferral must lift.
+    await advanceAndTick(170_000);
+    expect(logLines.some((l) => l.msg === "Watchdog deferral ended")).toBe(true);
+  });
+
+  test("refreshing BOTH keeps the long-budget sibling deferring on the same timeline", async () => {
+    // Same clock, same budgets as above — the ONLY difference is that
+    // `long` is refreshed too. It is therefore 170s into a 200s budget at
+    // t=220s and still holds the run, which is what proves the previous
+    // test observed a real per-call refresh rather than a lapsed timer.
+    const h = makeHarness();
+    startRun(h);
+    h.manager.noteToolStart(RUN_ID, "call-short", info({ toolName: "short", callTimeoutMs: 60_000 }));
+    h.manager.noteToolStart(RUN_ID, "call-long", info({ toolName: "long", callTimeoutMs: 200_000 }));
+
+    await advanceAndTick(50_000);
+    h.manager.refreshToolStart(RUN_ID, "call-short");
+    h.manager.refreshToolStart(RUN_ID, "call-long");
+
+    await advanceAndTick(170_000);
+    expect(logLines.some((l) => l.msg === "Watchdog deferral ended")).toBe(false);
+    expect(logLines.at(-1)?.msg).toBe("Watchdog deferring");
+  });
+
+  test("is a no-op for an unknown run or an unknown toolCallId", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 60_000 }));
+
+    await advanceAndTick(50_000);
+    h.manager.refreshToolStart("run-does-not-exist", TOOL_CALL_ID);
+    h.manager.refreshToolStart(RUN_ID, "call-does-not-exist");
+
+    // Neither call touched the real entry, so the original 60s budget
+    // still lapses on schedule.
+    await advanceAndTick(55_000);
+    expect(run.status).toBe("running");
+    expect(logLines.some((l) => l.msg === "Watchdog deferral ended")).toBe(true);
+  });
+});
+
 // ── Model-aware idle window (reasoning models) ─────────────────────────
 //
 // The watchdog widens its idle-kill ceiling for reasoning models, keyed
