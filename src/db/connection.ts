@@ -270,10 +270,19 @@ async function initPglite(): Promise<void> {
   };
 
   // Circuit breaker: if migrate() failed on the prior boot of THIS exact
-  // image, don't re-run migrate. The DB dir is the restored snapshot, so
+  // image, don't re-run migrate. The DB dir is the restored snapshot, so MOST
   // pre-failure features still work. /api/ready reports 503 so orchestrators
   // know the container is in a bad state, and the UI can display recovery
   // instructions. Disabled when running outside a built image (no SHA).
+  //
+  // NOT a clean degrade for everything, and the exception is worth knowing:
+  // migrate() also carries the one-shot data backfills, so a feature whose
+  // enforcement reads state a backfill was supposed to write behaves as if
+  // that state is absent. Concretely, `kind:"mcp"` extensions installed
+  // before the capability backfill NEED a grant this boot never issues, so
+  // their tool calls deny until the migration is repaired.
+  // `ExtensionRegistry.loadFromDb` logs one actionable error per such row
+  // (see `reportUnhealedMcpRow`) rather than failing open.
   const imageSha = process.env.EZCORP_IMAGE_SHA;
   if (!IS_MEMORY && imageSha) {
     const marker = readMarker();

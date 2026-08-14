@@ -126,7 +126,7 @@ export function mcpNetworkHosts(server: McpServerDefinition): string[] {
 export function mcpManifestPermissions(
   server: McpServerDefinition,
 ): ExtensionManifestV2["permissions"] {
-  return { network: mcpNetworkHosts(server) };
+  return { network: mcpNetworkHosts(server), mcpInvoke: true };
 }
 
 /**
@@ -148,8 +148,10 @@ export function mcpInstallGrant(
   now: number = Date.now(),
 ): ExtensionPermissions {
   const network = mcpNetworkHosts(server);
-  if (network.length === 0) return { grantedAt: {} };
-  return { network, grantedAt: { network: now } };
+  // The sentinel is granted for EVERY MCP row, hostless or not — it is the
+  // capability that makes a revocation bite when there is no host to name.
+  if (network.length === 0) return { mcpInvoke: true, grantedAt: { mcpInvoke: now } };
+  return { network, mcpInvoke: true, grantedAt: { network: now, mcpInvoke: now } };
 }
 
 /**
@@ -197,10 +199,21 @@ export function normalizeMcpManifest(
   if (manifest.kind !== "mcp") return manifest;
   const server = manifest.mcpServers?.[0];
   if (!server) return manifest;
+  const stored = manifest.permissions ?? {};
+  // Per-KEY fallback, not a wholesale overwrite: a stored declaration stays
+  // AUTHORITATIVE (`installMcpExtension` / `updateMcpExtension` keep it in
+  // sync, and it leaves room for an operator-supplied host allowlist later),
+  // while a key the row predates is filled in from the server definition.
+  // Keying on both fields — not just `network` — means a row healed by an
+  // earlier build still acquires the sentinel.
   const permissions =
-    manifest.permissions?.network === undefined
-      ? { ...(manifest.permissions ?? {}), ...mcpManifestPermissions(server) }
-      : manifest.permissions;
+    stored.network === undefined || stored.mcpInvoke === undefined
+      ? {
+          ...stored,
+          network: stored.network ?? mcpNetworkHosts(server),
+          mcpInvoke: stored.mcpInvoke ?? true,
+        }
+      : stored;
   return {
     ...manifest,
     permissions,
