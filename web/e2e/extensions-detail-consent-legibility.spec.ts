@@ -174,6 +174,12 @@ test.describe("Extensions detail — consent legibility", () => {
 		// And it is genuinely readable — the whole host, not an ellipsis.
 		await expect(pill).toContainText(LONG_HOST);
 
+		// Bring the Permissions card into frame before the shot. The default
+		// capture is a VIEWPORT screenshot, and this card sits below the fold —
+		// so without this the attachment was the top of the page, identical to
+		// every other capture in this file and showing nothing of the fix it is
+		// named after. A reviewer reads the picture, not the assertions.
+		await pill.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "mcp-long-host-wraps-inside-card");
 	});
 
@@ -191,6 +197,9 @@ test.describe("Extensions detail — consent legibility", () => {
 		// The affordance that made the notice self-contradicting is present.
 		await expect(page.getByTestId("mcp-edit-connection-button")).toBeVisible();
 
+		// Frame the affordance this test is about — see the note on the
+		// long-host capture above.
+		await page.getByTestId("mcp-edit-connection-button").scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "mcp-no-false-modification-notice");
 	});
 
@@ -240,6 +249,8 @@ test.describe("Extensions detail — consent legibility", () => {
 		await expect(trail).not.toContainText("(network)");
 		await expect(trail).not.toContainText("mcp-install");
 
+		// Frame the audit panel — see the note on the long-host capture above.
+		await trail.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "mcp-audit-rows-read-as-sentences");
 	});
 });
