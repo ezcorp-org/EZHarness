@@ -530,7 +530,11 @@ export function mergeMcpServerSecrets(
     const byName = argvValuesByName(prevArgs);
     const queries = queryValuesByName(prevArgs);
     out.command = mergeToken(next.command, byName, queries, prevStdio?.command);
-    if (next.args) out.args = mergeArgv(next.args, byName, queries, prevArgs);
+    if (next.args) {
+      out.args = isUneditedArgv(next.args, prevArgs)
+        ? [...prevArgs]
+        : mergeArgv(next.args, byName, queries, prevArgs);
+    }
     return out;
   }
   const prevRemote = prev && prev.transport !== "stdio" ? prev : undefined;
@@ -541,6 +545,32 @@ export function mergeMcpServerSecrets(
   const out: McpServerHttp | McpServerSse = { ...next, headers };
   out.url = mergeUrl(next.url, queryValuesByName(prevRemote ? [prevRemote.url] : []), prevRemote?.url);
   return out;
+}
+
+/**
+ * True when the submitted argv is the STORED argv untouched — i.e. the admin
+ * edited something else (a header, the description) and the form merely posted
+ * its prefill back. Then the previous definition is restored WHOLE, which is
+ * lossless where per-name matching cannot be.
+ *
+ * Two accepted shapes, because the edit form renders argv as a single
+ * space-joined string: the redacted array verbatim, and the same array with its
+ * EMPTY tokens dropped — a pair-form value blanked to `""`
+ * (`--api-key` `""`) vanishes in the join and comes back as a missing token,
+ * not an empty one, which would otherwise slide the following operand into the
+ * credential's slot.
+ *
+ * RESIDUAL (stated, and pinned by a test): an admin who genuinely RETYPES the
+ * argv field and leaves a pair-form credential blank gets per-name matching
+ * instead, which cannot recover the slot when a later operand has slid into it.
+ * The inline `--flag=` form round-trips in every case, which is why it is the
+ * shape the redactor produces wherever it has the choice.
+ */
+function isUneditedArgv(next: readonly string[], prevArgs: readonly string[]): boolean {
+  if (prevArgs.length === 0) return false;
+  const redacted = redactMcpArgv(prevArgs);
+  if (sameTokens(next, redacted)) return true;
+  return sameTokens(next, redacted.filter((t) => t.length > 0));
 }
 
 /** One argv/command token's blanks filled from the previous definition. */
