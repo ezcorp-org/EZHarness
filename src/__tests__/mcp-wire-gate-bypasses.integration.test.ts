@@ -251,6 +251,36 @@ describe("F2 — POST /api/tool-invoke dispatched with no wiring and no ownershi
     expect(executeToolCall).toHaveBeenCalledTimes(1);
   });
 
+  test("a PDP denial is a 403 that is NOT retried", async () => {
+    // The gate above decides who may reach the executor; the PDP decides what
+    // the executor may then do. When the PDP refuses, the route used to fall
+    // through to the generic handler, which (a) retried a DETERMINISTIC
+    // refusal MAX_RETRIES times — one denied call writing THREE
+    // `ext:perm:denied` rows and counting as three denials in the /audit
+    // strip — and (b) surfaced it as a 500, which reads as "the server broke"
+    // rather than "you may not do that".
+    const denial = Object.assign(new Error("Missing capability network (x)"), {
+      name: "PermissionDeniedError",
+      reason: "Missing capability network (x)",
+    });
+    executeToolCall.mockImplementationOnce(async () => {
+      throw denial;
+    });
+
+    const res = await toolInvokePOST(invokeEvent(admin, adminConvId, MCP_NAME, "privileged"));
+
+    expect(res.status).toBe(403);
+    const body = await jsonFromResponse(res);
+    expect(body.success).toBe(false);
+    // Names the extension, not its UUID, and carries the PDP's own reason.
+    expect(body.error).toContain(MCP_NAME);
+    expect(body.error).toContain("privileged");
+    expect(body.error).toContain("Missing capability network (x)");
+    // The whole point: attempted ONCE.
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
+    expect(body.retryCount).toBe(0);
+  });
+
   test("a member can still dispatch an ORDINARY extension's tool — no regression", async () => {
     const res = await toolInvokePOST(invokeEvent(member, memberConvId, PLAIN_NAME, "safe"));
     expect(res.status).toBe(200);
