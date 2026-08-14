@@ -135,8 +135,18 @@ test.describe("Extensions — MCP network permission", () => {
 		);
 		await hostBox.uncheck();
 		await page.getByRole("button", { name: "Save Permissions" }).click();
-		const body = (await put).postDataJSON() as { permissions: { network: string[] } };
+		const body = (await put).postDataJSON() as {
+			permissions: { network: string[]; mcpInvoke?: boolean };
+		};
 		expect(body.permissions.network).toEqual([]);
+
+		// The reason `clampExtensionPermissions` treats an ABSENT `mcpInvoke` as
+		// "keep the ceiling" rather than "revoke": this Save posts a FIXED
+		// six-key body and cannot express the dispatch sentinel at all. Under
+		// the usual omitted-key-revokes default, revoking one host here would
+		// also strip `ezcorp:mcp:invoke` and deny EVERY tool on this server.
+		// Only an explicit `mcpInvoke: false` revokes.
+		expect(body.permissions).not.toHaveProperty("mcpInvoke");
 	});
 
 	test("a stdio server naming no host shows the deny-by-default state", async ({

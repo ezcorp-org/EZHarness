@@ -665,12 +665,11 @@ export async function backfillMcpManifestCapabilities(
     // reboots and leaves a hand-narrowed ceiling untouched. Both keys are
     // checked because a row healed by an earlier build declares `network` but
     // not the sentinel.
-    if (
-      manifest.permissions?.network !== undefined &&
-      manifest.permissions?.mcpInvoke !== undefined
-    ) {
-      continue;
-    }
+    // Single-line condition on purpose: a multi-line `if (...)` leaves a
+    // `) {` continuation line that bun's sourcemap fills with a phantom,
+    // never-hit DA record the patch-coverage gate cannot clear.
+    const declared = manifest.permissions ?? {};
+    if (declared.network !== undefined && declared.mcpInvoke !== undefined) continue;
     try {
       const normalized = normalizeMcpManifest(manifest);
       const hosts = normalized.permissions.network ?? [];

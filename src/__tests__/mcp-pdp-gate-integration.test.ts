@@ -14,7 +14,7 @@
  * are the ones that could not be written before the fix.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -516,6 +516,46 @@ describe("legacy MCP rows (permissions: {})", () => {
     expect(calls).toEqual(["probe"]);
 
     await deleteExtension(ext.id);
+  });
+
+  test("(c) an UNHEALED row is reported at load — a REVOKED one is not (F11)", async () => {
+    // The degraded-boot posture. If the backfill never ran (migrate circuit
+    // breaker open, or this row's UPDATE threw), read-time normalization still
+    // derives a needed-cap set while the grant stays empty, so every tool
+    // denies. That direction is deliberate — deriving the GRANT at read time
+    // too could not tell "never consented" from "consented then revoked",
+    // because a revocation writes only `grantedPermissions` and leaves
+    // `installedPermissions` alone, so it would silently re-grant a revoked
+    // row. So it fails closed and says so.
+    const written: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      // `installedPermissions` is NULL here — the marker for "never consented".
+      const unhealed = await insertLegacyRow("pdp-unhealed");
+      await ExtensionRegistry.getInstance().loadFromDb();
+      expect(written.join("")).toContain("MCP extension has no capability grant");
+      await deleteExtension(unhealed.id);
+
+      // A row that WAS healed and then deliberately revoked keeps a non-null
+      // `installedPermissions`, so it must stay silent — otherwise every
+      // intentional revocation would look like a broken migration.
+      written.length = 0;
+      ExtensionRegistry.resetInstance();
+      const revoked = await installMcpExtension({
+        name: "pdp-revoked-quiet",
+        server: { transport: "http", name: "pdp-revoked-quiet", url: REMOTE_URL },
+        cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
+      });
+      await updateExtension(revoked.id, { grantedPermissions: { grantedAt: {} } });
+      await ExtensionRegistry.getInstance().loadFromDb();
+      expect(written.join("")).not.toContain("MCP extension has no capability grant");
+      await deleteExtension(revoked.id);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("(c) a row the backfill cannot write warns by name and never bricks boot", async () => {
