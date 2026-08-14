@@ -473,6 +473,45 @@ describe("legacy MCP rows (permissions: {})", () => {
     await deleteExtension(ext.id);
   });
 
+  test("(c) a row the backfill cannot write warns by name and never bricks boot", async () => {
+    // The per-row try/catch is the only thing between one bad row and a boot
+    // that dies inside `migrate()`. Driven with a stub executor so the failure
+    // is deterministic: the SELECT succeeds, the UPDATE rejects.
+    const rows = [
+      {
+        id: "boom",
+        name: "pdp-backfill-boom",
+        manifest: {
+          schemaVersion: 2,
+          name: "pdp-backfill-boom",
+          version: "0.0.0",
+          description: "",
+          author: { name: "local" },
+          kind: "mcp",
+          mcpServers: [{ transport: "http", name: "boom", url: REMOTE_URL }],
+          tools: [],
+          permissions: {},
+        },
+        grantedPermissions: { grantedAt: {} },
+        installedPermissions: null,
+      },
+    ];
+    const executor = {
+      select: () => ({ from: async () => rows }),
+      update: () => ({
+        set: () => ({
+          where: async () => {
+            throw new Error("write failed");
+          },
+        }),
+      }),
+    } as unknown as Parameters<typeof backfillMcpManifestCapabilities>[0];
+
+    const result = await backfillMcpManifestCapabilities(executor);
+    expect(result.scanned).toBe(1);
+    expect(result.migrated).toBe(0);
+  });
+
   test("(c) the backfill is idempotent — a second pass migrates nothing", async () => {
     const ext = await insertLegacyRow("pdp-legacy-idem");
     const first = await backfillMcpManifestCapabilities();
