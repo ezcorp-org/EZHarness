@@ -37,7 +37,12 @@ describe("installMcpExtension", () => {
     expect(ext.source).toBe("mcp:stdio");
     expect(ext.enabled).toBe(true);
     expect(ext.manifest.kind).toBe("mcp");
-    expect(ext.manifest.tools).toEqual(tools);
+    // Each cached tool now carries the capability declaration the PDP reads
+    // at dispatch (B5). This server's command line names no host, so the
+    // declaration — and therefore the needed-cap set — is empty, which is the
+    // documented deny-by-default posture for a hostless stdio server.
+    expect(ext.manifest.tools).toEqual(tools.map((t) => ({ ...t, capabilities: {} })));
+    expect(ext.manifest.permissions).toEqual({ network: [] });
     expect(ext.manifest.mcpServers?.[0]?.transport).toBe("stdio");
     expect(ext.manifest.schemaVersion).toBe(2);
     expect(ext.grantedPermissions).toEqual({ grantedAt: {} });
@@ -113,7 +118,13 @@ describe("updateMcpExtension", () => {
     expect(updated!.source).toBe("mcp:stdio");
     expect(updated!.description).toBe("v2 desc");
     expect(updated!.manifest.description).toBe("v2 desc");
-    expect(updated!.manifest.tools).toEqual([{ name: "new-tool" }, { name: "second" }]);
+    // Refreshed tools are re-stamped with the (empty, hostless-stdio)
+    // declaration — a bare `{...manifest, tools}` would drop it and put the
+    // PDP back on an undeclared needed set.
+    expect(updated!.manifest.tools).toEqual([
+      { name: "new-tool", capabilities: {} },
+      { name: "second", capabilities: {} },
+    ]);
     const server0 = updated!.manifest.mcpServers?.[0] as { args?: string[] } | undefined;
     expect(server0?.args).toEqual(["v2.js"]);
     // Identity preserved.
@@ -123,8 +134,8 @@ describe("updateMcpExtension", () => {
 
     const roundtrip = await getExtension(ext.id);
     expect((roundtrip!.manifest as any).tools).toEqual([
-      { name: "new-tool" },
-      { name: "second" },
+      { name: "new-tool", capabilities: {} },
+      { name: "second", capabilities: {} },
     ]);
   });
 
