@@ -94,14 +94,25 @@ export function getEzClientToolTimeoutMs(): number {
  * refactor that drops the timer) — the leak detection the watchdog
  * exists for is kept, not switched off.
  *
- * Sized at two watchdog ticks (`WATCHDOG_TICK_MS` = 15s, see
- * `executor-watchdog.ts`): the deferral is re-evaluated only once per
- * tick, so the budget has to outlast the tick that straddles the
+ * **Sizing — two watchdog ticks (`WATCHDOG_TICK_MS` = 15s), and that is a
+ * FLOOR, not the distance to a kill.** The deferral is re-evaluated only
+ * once per tick, so the margin has to outlast the tick that straddles the
  * registry rejection, plus the reject → `tool_execution_end` →
- * `noteToolEnd` propagation on a loaded box. Not imported from the
- * watchdog module on purpose — the tools layer never depends on the
- * watchdog (same posture as `LONG_BLOCKING_WATCHDOG_BUDGET_MS` in
- * `runtime/tools/filter.ts`), and this module is dependency-free so the
+ * `noteToolEnd` propagation on a loaded box. The watchdog does NOT kill at
+ * `callTimeoutMs`: every deferring tick calls `bumpActivity`, so once the
+ * deferral lapses the run still has to sit silent for a WHOLE idle window
+ * before the trip. Real worst case is
+ *
+ *     callTimeoutMs + idleThreshold + up to 2 ticks
+ *
+ * — 330s + 90s + 30s = **450s** for a non-reasoning run, and up to ~21 min
+ * on a reasoning-high run (900s idle window). That hold is deliberate and
+ * bounded; the table with every tier is in
+ * `docs/features/chat/runs-lifecycle.md`.
+ *
+ * Not imported from the watchdog module on purpose — the tools layer never
+ * depends on the watchdog (same posture as `LONG_BLOCKING_WATCHDOG_BUDGET_MS`
+ * in `runtime/tools/filter.ts`), and this module is dependency-free so the
  * `tool-results` API route can import it cheaply.
  */
 export const EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS = 30_000;
