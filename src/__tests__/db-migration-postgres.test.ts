@@ -440,3 +440,80 @@ describe("migration upgrades a pre-existing observability_events", () => {
     expect((row.rows[0] as { run: string }).run).toBe("r1");
   });
 });
+
+/**
+ * The MCP capability backfill's WRITE path, on the external-Postgres
+ * serialization branch.
+ *
+ * Why this belongs here and not with the other MCP suites: `migrate()` runs
+ * the backfill, and this job's database is EMPTY, so the SELECT returns zero
+ * rows and the write never executes. `serializeJsonbFields` also branches on
+ * `getPglite() !== null` — this file never calls `initDb`, so that returns
+ * null and the writes take the **bun-sql branch** (plain object, no
+ * `::jsonb` cast), which is precisely the branch external Postgres uses and
+ * the one no test was exercising for these three columns.
+ *
+ * A double-encoded write here would show up as `jsonb_typeof = 'string'`
+ * rather than `'object'`, which is asserted directly.
+ */
+describe("MCP capability backfill on a Postgres-compatible backend", () => {
+  let pg: PGlite;
+  let db: ReturnType<typeof drizzle>;
+
+  beforeAll(async () => {
+    pg = new PGlite({ extensions: { vector, pg_trgm } });
+    await pg.waitReady;
+    db = drizzle(pg, { schema });
+    // First pass creates the schema. The legacy row can only be seeded once
+    // the table exists, so the backfill is exercised by the SECOND pass —
+    // which `migrate()` supports by being idempotent.
+    await migrate(db);
+    await db.execute(sql`
+      INSERT INTO extensions (id, name, version, description, manifest, source, install_path, enabled, granted_permissions, checksum_verified, consecutive_failures)
+      VALUES (
+        'pg-legacy-mcp', 'pg-legacy-mcp', '0.0.0', '',
+        ${'{"schemaVersion":2,"name":"pg-legacy-mcp","version":"0.0.0","description":"","author":{"name":"local"},"kind":"mcp","mcpServers":[{"transport":"http","name":"pg-legacy-mcp","url":"https://pg.example.com/mcp"}],"tools":[{"name":"probe","description":"p","inputSchema":{}}],"permissions":{}}'}::jsonb,
+        'mcp:http', NULL, true, '{"grantedAt":{}}'::jsonb, false, 0
+      )
+    `);
+    await migrate(db);
+  });
+
+  afterAll(async () => {
+    await pg.close();
+  });
+
+  test("the legacy row's manifest, grant and installed grant are all healed", async () => {
+    const row = await pg.query(
+      `SELECT manifest->'permissions' AS perms,
+              granted_permissions AS granted,
+              installed_permissions AS installed
+       FROM extensions WHERE id = 'pg-legacy-mcp'`,
+    );
+    expect(row.rows.length).toBe(1);
+    const r = row.rows[0] as {
+      perms: { network?: string[]; mcpInvoke?: boolean };
+      granted: { network?: string[]; mcpInvoke?: boolean };
+      installed: { network?: string[]; mcpInvoke?: boolean };
+    };
+    expect(r.perms.network).toEqual(["pg.example.com"]);
+    expect(r.perms.mcpInvoke).toBe(true);
+    expect(r.granted.network).toEqual(["pg.example.com"]);
+    expect(r.granted.mcpInvoke).toBe(true);
+    expect(r.installed.mcpInvoke).toBe(true);
+  });
+
+  test("every written jsonb column is an OBJECT, not a double-encoded string", async () => {
+    // The bun-sql branch of `serializeJsonbFields` passes the plain object and
+    // lets the driver serialize. Passing JSON *text* instead would store a
+    // jsonb STRING scalar, and every reader would then see `undefined` for
+    // `granted.network` until the next boot's repair pass.
+    const types = await pg.query(
+      `SELECT jsonb_typeof(manifest) AS m,
+              jsonb_typeof(granted_permissions) AS g,
+              jsonb_typeof(installed_permissions) AS i
+       FROM extensions WHERE id = 'pg-legacy-mcp'`,
+    );
+    expect(types.rows[0]).toEqual({ m: "object", g: "object", i: "object" });
+  });
+});

@@ -617,6 +617,28 @@ export async function updateMcpExtension(input: {
 export async function backfillMcpManifestCapabilities(
   executor: Database = getDb(),
 ): Promise<{ migrated: number; scanned: number }> {
+  // DELIBERATE FULL SCAN — do not add `WHERE manifest->>'kind' = 'mcp'`.
+  //
+  // It looks free (measured: ~70 ms at 300 rows, all of it inside
+  // `withPostgresMigrateLock`) and it is symmetric with the JS filter below,
+  // which also requires `kind === "mcp"`. It is still wrong, because of
+  // ORDERING on external Postgres:
+  //
+  //   `initDb` runs `withPostgresMigrateLock(() => migrate(_db))` and only
+  //   THEN `repairDoubleEncodedJsonb` (`db/connection.ts`). So while this
+  //   backfill runs, a row written before the jsonb double-encoding fix is
+  //   still a jsonb STRING scalar, and `manifest->>'kind'` on a scalar is
+  //   NULL — verified against PGlite:
+  //     jsonb_typeof → "string", manifest->>'kind' → null,
+  //     so `WHERE manifest->>'kind' = 'mcp'` returns that row's id NOT AT ALL.
+  //   Drizzle still parses the value back into an object for the JS filter,
+  //   so the predicate would skip precisely the corrupted legacy rows that
+  //   most need healing — and only on external Postgres, where it is hardest
+  //   to notice. They would self-heal on the SECOND boot (after the repair),
+  //   leaving one boot in which every MCP tool call denies.
+  //
+  // The same argument applies to `backfillMcpManifestSecrets` above; both
+  // scan, and they stay symmetric.
   const rows = (await executor
     .select({
       id: extensions.id,
