@@ -62,7 +62,20 @@ Bundled extensions call back over loopback with their injected `ezkint_*` key. T
 
 ### SSRF-guarded routes
 
-`POST /api/providers/local/test` and `POST /api/providers/local/models` (both `POST`, both `requireRole(locals, "admin")`-gated) run a user-supplied `baseUrl` through `isPrivateOrLoopback` then `resolveAndValidateHostname` before fetching.
+There are **two** SSRF guards in the repo, with different owners and different reach. Pick by which tree the caller lives in.
+
+| Guard | Owns | Callers |
+|---|---|---|
+| `web/src/lib/server/security/url-validation.ts` (`isPrivateOrLoopback` + `resolveAndValidateHostname`) | user-supplied provider `baseUrl`s | `POST /api/providers/local/test`, `POST /api/providers/local/models` (both `requireRole(locals, "admin")`) |
+| `src/search/egress.ts` (`isBlockedIp`, `guardedFetch`) | host-side outbound fetches from the **backend** tree | the shared search host module (`read-url`, backends) and `src/mcp/target-guard.ts` (every `http`/`sse` MCP connect) |
+
+They are not interchangeable:
+
+- **Reach.** `isBlockedIp` is a strict superset of `isPrivateOrLoopback` — it additionally covers CGNAT (`100.64.0.0/10`), `fec0::/10`, and the v4-compatible / 6to4 / NAT64 v4-in-v6 encodings, and it fails **closed** on any address it cannot parse (`isPrivateOrLoopback` returns `false` for a non-IP hostname, which is why its callers must pair it with the DNS re-check).
+- **Tree.** Backend code under `src/` must **never** import `web/src/lib/**` — wrong dependency direction, and it poisons the coverage merge. So a guard needed on the backend side uses `src/search/egress.ts`.
+- **Carve-out.** `checkLocalProviderTarget` carries a deliberate loopback carve-out for local Ollama. Do **not** reuse that composed function for a new surface; compose `isPrivateOrLoopback` + `resolveAndValidateHostname` directly, or use the backend classifier.
+
+MCP install / edit / refresh are guarded at `McpClient.connect()` — see [MCP server integration](../tools/mcp-servers.md#outbound-target-guard-ssrf) for the policy, the `EZCORP_MCP_TARGET_ALLOW` escape hatch, and why all three routes return one constant 502 body.
 
 ### Env vars & settings keys
 

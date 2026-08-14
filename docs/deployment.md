@@ -451,6 +451,43 @@ exactly which leg to fix.
   `ext:mcp:sandbox-required-refusal` instead of grepping
   `ext:mcp:netns-fallback` spikes.
 
+## Reaching a local or LAN MCP server (`EZCORP_MCP_TARGET_ALLOW`)
+
+Everything above confines an MCP server's *own* outbound traffic. The
+opposite direction — the platform dialing an `http`/`sse` MCP endpoint
+an admin configured — is guarded separately, because a caller-supplied
+URL is an SSRF surface: without a check, `http://169.254.169.254/…`
+(cloud metadata) or `http://10.0.0.5:6379` would be fetched by the
+server itself.
+
+By default every loopback, RFC-1918, link-local, CGNAT and IPv6-internal
+address is **denied** for the `http` and `sse` transports. (`stdio`
+spawns a process rather than dialing an address and is unaffected.)
+
+Self-hosted deployments legitimately run MCP servers on localhost or the
+LAN, so name those targets explicitly:
+
+```sh
+# Comma- or whitespace-separated. Hosts and/or CIDRs.
+EZCORP_MCP_TARGET_ALLOW=127.0.0.1,::1,192.168.1.50,10.0.0.0/8,mcp.lan
+```
+
+- An **IP or CIDR** entry is matched against every resolved address —
+  the safe form; DNS cannot move the target out from under it.
+- A **hostname** entry vouches for the name and skips address
+  validation entirely, so whoever controls DNS for that name controls
+  the target. Prefer the IP/CIDR form.
+- Malformed entries are dropped, which can only deny more.
+- Read per connect; a restart is not required, but treat it as a
+  deploy-time setting like the flags above.
+
+When a target is refused, the API returns the same generic 502 as any
+unreachable server — deliberately, so the response cannot be used to
+map the internal network. The real reason (`blocked`, `reason`,
+`target`) is written to the **error log**, which is where to look when
+an install "just fails". Full rationale:
+[MCP server integration](features/tools/mcp-servers.md#outbound-target-guard-ssrf).
+
 ## 24h conntrack soak — manual verification (RC#2 fallback)
 
 ROADMAP Success Criterion #2 requires: "20 concurrent MCPs × 1000

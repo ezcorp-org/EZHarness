@@ -22,7 +22,7 @@ It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` 
 
 1. `requireRole(locals, "admin")` — admin only.
 2. Body parsed against `installMcpServerSchema` (a discriminated union on `transport`). Validation failure → 400.
-3. A **throwaway** `McpClient` opens (`connect()`), lists tools (`listTools()`), then `close()`s in a `finally`. Any failure → **502** `MCP connect failed: …` so the UI can explain — nothing is persisted.
+3. A **throwaway** `McpClient` opens (`connect()`), lists tools (`listTools()`), then `close()`s in a `finally`. `connect()` runs the [outbound target guard](#outbound-target-guard-ssrf) first, so an `http`/`sse` URL aimed at an internal address never reaches a socket. Any failure — guard rejection, DNS failure, refused connection, timeout, protocol error — returns the **same 502 body** (see [the failure contract](#the-uniform-failure-contract)); nothing is persisted.
 4. On success, `installMcpExtension(...)` (`src/db/queries/extensions.ts`) writes an `ExtensionManifestV2` with `kind: "mcp"`, `mcpServers: [server]`, and `tools: cachedTools`, then `createExtension(...)` persists the row (`source: "mcp:<transport>"`, `enabled: true`). The cached `tools` array is what the registry reads at boot — **no** connection happens on cold start.
 5. `ExtensionRegistry.getInstance().reload()` rebuilds the in-memory maps; returns the row with **201**.
 
@@ -32,7 +32,57 @@ Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (
 
 ### Refresh cached tools (`POST /api/mcp-servers/[id]/refresh`)
 
-Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(...)` (connecting through the full sandbox path for stdio), re-runs `listTools()`, rewrites the in-memory `toolMap` / `extensionTools` under the `<name>__<tool>` namespace, and persists the new manifest. Returns `{ id, tools }`; connection failure → 502.
+Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(...)` (connecting through the full sandbox path for stdio), re-runs `listTools()`, rewrites the in-memory `toolMap` / `extensionTools` under the `<name>__<tool>` namespace, and persists the new manifest. Returns `{ id, tools }`; any failure → the uniform 502. Because refresh re-connects to the **stored** config, it re-runs the target guard too: a config whose hostname has since been rebound to an internal address is refused here, not just at install.
+
+### Outbound target guard (SSRF)
+
+`src/mcp/target-guard.ts` validates every `http`/`sse` target before the transport opens. `stdio` is exempt — it spawns a process rather than dialing an address, and its egress is governed by the sandbox envelope below.
+
+The guard is enforced inside **`McpClient.connect()`**, not in the route handlers. That is the one chokepoint every network connect passes through — install, edit, refresh, registry reload, and lazy tool dispatch — so there is one policy rather than one per call site, and the check is per-CONNECT rather than per-install.
+
+Policy:
+
+1. The URL must parse and be `http:` or `https:`.
+2. The hostname resolves to **every** address (`dns.lookup({ all: true })`). An IP literal is classified directly, never handed to the resolver.
+3. If **any** resolved address is loopback, RFC-1918, link-local (`169.254.0.0/16` — the cloud metadata address), CGNAT (`100.64.0.0/10`), unspecified/`0.0.0.0/8`, or an IPv6 equivalent (`::1`, `::`, `fc00::/7`, `fe80::/10`, `fec0::/10`, and every v4-in-v6 transition encoding: v4-mapped, v4-compatible, 6to4, NAT64), the connect is refused. **All** addresses must clear, so a hostname with a mixed public/private A-record set is denied and round-robin DNS cannot smuggle an internal target past a lucky first answer.
+
+Address classification is **not** re-implemented: `isBlockedIp` (plus the `parseIpv4` / `ipv6ToBytes` primitives) comes from `src/search/egress.ts`, which already owns the repo's block-list for host-side `read-url` fetches. One block-list, two callers.
+
+> **Note on the web-tree guard.** `web/src/lib/server/security/url-validation.ts` (`isPrivateOrLoopback`) is a *different*, older guard used by the local-provider routes. It is a strict subset — it does **not** cover CGNAT, 6to4, NAT64, v4-compatible, or `fec0::/10` — and it lives in the web tree, which backend code under `src/` must never import. MCP uses the `src/search/egress.ts` classifier for both reasons.
+
+#### The escape hatch — `EZCORP_MCP_TARGET_ALLOW`
+
+EZCorp is self-hosted, so an MCP server on `127.0.0.1:3000` or on the LAN is a first-class deployment. A comma/whitespace-separated allowlist of hosts and/or CIDRs re-opens specific targets:
+
+```sh
+EZCORP_MCP_TARGET_ALLOW=127.0.0.1,::1,192.168.1.50,10.0.0.0/8,mcp.lan
+```
+
+An allowlist rather than a single `allow private` boolean, because a boolean is all-or-nothing: an operator who just wants their LAN MCP box would have to re-open `169.254.169.254` — the highest-value SSRF target on a cloud host — to get it.
+
+Two entry kinds, and they are **not** equivalent:
+
+| Entry | Matched against | Notes |
+|---|---|---|
+| IP or CIDR (`10.0.0.0/8`, `::1`) | each **resolved address** | The safe form — DNS cannot move the target out from under it. A v4 CIDR also covers the v4-mapped spelling of the same host. |
+| Hostname (`mcp.lan`) | the **URL host** | Skips address validation entirely: "I vouch for this name, wherever it resolves". Whoever controls DNS for that name controls the target. Prefer the IP/CIDR form. |
+
+Malformed entries are dropped, which can only make the guard stricter. Default posture with the var unset: **metadata and every private range denied**.
+
+#### The uniform failure contract
+
+All three routes previously echoed the raw transport error (`` `MCP connect failed: ${message}` ``). That was a **port-scan oracle**: `ECONNREFUSED` (port closed), a timeout (filtered/no host) and a protocol error (port open, not speaking MCP) are three distinguishable answers, so an admin-scoped key could sweep `http://10.0.0.x:<port>` and map the internal network from the response bodies.
+
+Every failure now collapses to one status and one body (`src/mcp/connect-failure.ts`):
+
+```
+502  {"error":"MCP server unreachable or invalid. If the target is on a private network, allow it with EZCORP_MCP_TARGET_ALLOW."}
+```
+
+- A **guard rejection is indistinguishable from a connect failure**. A separate "blocked by policy" answer would rebuild the oracle across exactly the private/public boundary the guard defends.
+- The message names the env var, and that text is **constant** — returned verbatim for a refused connection to a public host too — so it carries zero bits about the target while still telling a self-hosting admin why their LAN server won't install.
+- **One uniform 502, not 400-for-invalid-URL.** Splitting the status by failure class is the same oracle in a different field. Zod validation errors keep their **400**: those are computed purely from the request body, with no DNS and no socket, so they leak nothing.
+- Diagnosis is not lost — `reportMcpConnectFailure` writes the real cause to the server log **and** to `error_logs` via `persistError`, with `blocked` / `reason` / `target` metadata, so an SSRF attempt is greppable on the admin observability surface even though the HTTP response cannot say so.
 
 ### Namespacing & dispatch (`src/extensions/registry.ts`, `src/extensions/tool-executor/executor.ts`)
 
@@ -60,9 +110,11 @@ Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(
 
 | Method & path | Purpose |
 |---|---|
-| `POST /api/mcp-servers` | Install: verify connectivity, cache `tools/list`, persist a `kind:"mcp"` extension. Body: `{ name, description?, server }`. 201 on success; **502** if the server won't connect. |
+| `POST /api/mcp-servers` | Install: verify connectivity, cache `tools/list`, persist a `kind:"mcp"` extension. Body: `{ name, description?, server }`. 201 on success; **502** (uniform body) if the target is refused by the guard or won't connect. |
 | `PUT /api/mcp-servers/[id]` | Edit-after-install: re-point at a new connection config, re-verify, re-cache tools. `name` immutable; blank header = keep existing secret. 502 leaves stored config untouched. |
-| `POST /api/mcp-servers/[id]/refresh` | Re-list tools from the live server and rewrite the cached snapshot + registry maps. Returns `{ id, tools }`. |
+| `POST /api/mcp-servers/[id]/refresh` | Re-list tools from the live server and rewrite the cached snapshot + registry maps. Returns `{ id, tools }`; 502 on any failure. |
+
+All three 502s share **one constant body** and never echo the underlying error — see [the uniform failure contract](#the-uniform-failure-contract).
 
 `server` is a discriminated union on `transport`:
 
@@ -84,13 +136,16 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 
 ### Env vars / flags
 
+- `EZCORP_MCP_TARGET_ALLOW` — comma/whitespace-separated hosts and/or CIDRs the [outbound target guard](#the-escape-hatch--ezcorp_mcp_target_allow) may dial despite being loopback/private. Unset = metadata + every private range denied.
 - `EZCORP_MCP_REQUIRE_SANDBOX=1` — fail-closed: refuse any stdio spawn that can't reach full isolation.
 - `EZCORP_MCP_STAGE1_TMPFS=0` / `EZCORP_MCP_STAGE1_SECCOMP=0` / `EZCORP_MCP_STAGE1_DNS_RECHECK=0` / `EZCORP_MCP_STAGE2_VETH=0` — operator kill-switches; each emits one `MCP_NETNS_FALLBACK` boot row per process.
 - `EZCORP_PROJECT_ROOT` / `EZCORP_DB_PATH` — host-resolved; drive the data-dir exclusion mask (never overridable by a manifest's `spec.env`).
 
 ## Key files
 
-- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`/`getChildProcess`, `HookedStdioClientTransport`.
+- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`/`getChildProcess`, `HookedStdioClientTransport`. `connect()` is the single SSRF chokepoint.
+- `src/mcp/target-guard.ts` — `assertMcpTargetAllowed` / `parseMcpTargetAllowlist`: the outbound target policy + `EZCORP_MCP_TARGET_ALLOW` parsing.
+- `src/mcp/connect-failure.ts` — `MCP_CONNECT_FAILED_MESSAGE` / `reportMcpConnectFailure`: the uniform 502 body and the server-side diagnosis it replaces.
 - `web/src/routes/api/mcp-servers/+server.ts` — `POST` install: throwaway-verify, cache tools, persist, reload registry.
 - `web/src/routes/api/mcp-servers/[id]/+server.ts` — `PUT` edit-after-install: re-verify, `mergeHeaders` secret-preservation.
 - `web/src/routes/api/mcp-servers/[id]/refresh/+server.ts` — `POST` refresh: `registry.refreshMcpTools(id)`.
@@ -125,10 +180,11 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 
 ## Notes & gotchas
 
-- **`http`/`sse` transports are unsandboxed by design.** `buildSandboxedMcpSpec` returns them untouched — they are network clients, not spawns, so there is no namespace/proxy/jail. The outbound traffic of a remote MCP server is the operator's responsibility (the URL is trusted at install time). Only `stdio` (a local binary) gets the full envelope.
+- **`http`/`sse` transports get no sandbox ENVELOPE, but they are no longer trusted targets.** `buildSandboxedMcpSpec` returns them untouched — they are network clients, not spawns, so there is no namespace/proxy/jail; only `stdio` (a local binary) gets the full envelope. The URL itself is **not** trusted, though: it goes through the [outbound target guard](#outbound-target-guard-ssrf) on every connect. (Before that guard existed, an admin-scoped caller could point install/edit/refresh at `http://169.254.169.254/…` or any internal service and the server would dial it.)
+- **Two egress directions, two policies — on purpose.** `mcp-proxy.ts` governs an MCP *server's own* outbound traffic (an arbitrary third-party binary), where internal hosts are a **hard deny regardless of grant** because nothing it asks for is trusted. `target-guard.ts` governs the platform reaching *in* to an admin-configured endpoint, where the target is operator intent — hence the env allowlist. Don't "unify" them by giving the proxy an allowlist or the guard a hard deny.
 - **External stdio binaries bypass the SDK's process-poisoning.** Unlike first-party subprocess extensions, an external MCP binary (Python/Go/Rust) does not honor the SDK's `node:fs`/`child_process` poisoning. This is precisely why the bwrap/Landlock filesystem jail (masking `.ezcorp/data` — the PGlite DB + JWT secret) is the load-bearing containment, not the SDK preload.
 - **Default posture fails OPEN.** Without `EZCORP_MCP_REQUIRE_SANDBOX=1`, a host that can't set up netns/veth (common under Docker even `--privileged`) silently runs the MCP at a weaker stage with only a fallback audit row. Operators who need guaranteed isolation must set the flag.
 - **Cached tools can drift.** The tool list is a snapshot taken at install / edit / refresh time and persisted in `manifest.tools`; boot does **not** re-connect. If the upstream server changes its tools, the cached list is stale until an admin hits refresh.
-- **DNS-rebind recheck has a documented TOCTOU.** The proxy re-resolves the hostname and rejects internal IPs, but the window between that lookup and `Bun.connect` is a known gap (deferred — would require pinning the connect to the validated IP with SNI plumbing).
+- **DNS-rebind recheck has a documented TOCTOU.** The proxy re-resolves the hostname and rejects internal IPs, but the window between that lookup and `Bun.connect` is a known gap (deferred — would require pinning the connect to the validated IP with SNI plumbing). The `http`/`sse` target guard has the **same** residual: the MCP SDK's transport owns its socket, so the guard cannot IP-pin the way `guardedFetch` does. Re-validating on every connect (not just at install) is what bounds the exposure today.
 - **No dedicated GET/DELETE.** Don't look for `GET`/`DELETE /api/mcp-servers/[id]`; only `PUT` + the `refresh` subroute exist. Listing and deletion go through the general `/api/extensions` surface, where `DELETE /api/extensions/[id]` (`requireScope("extensions")` + `requireAuth` + admin) calls `registry.killAll()` then `registry.reload()` — `reload()` is what stops the now-deleted extension's per-MCP proxy/client (any id no longer live).
 - **`getChildProcess()` reaches into SDK internals.** The seccomp soak reader and Stage-2 veth teardown depend on the undocumented `transport._process` field. A future `@modelcontextprotocol/sdk` rename makes these degrade-soft to no-ops (audit signal goes quiet; nothing in production breaks).
