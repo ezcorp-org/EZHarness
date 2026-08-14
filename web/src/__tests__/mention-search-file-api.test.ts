@@ -32,20 +32,34 @@ mock.module("$lib/server/context", () => ({
 	getWorkflows: () => [],
 }));
 
+// `getDb` is the one the assertions drive; the rest are inert stand-ins so the
+// module's full named-export surface resolves. The wire gate's query modules
+// import `getPglite` from here, and a named export this factory omits is a
+// LOAD-time SyntaxError that fails the file before any test runs.
 mock.module("$server/db/connection", () => ({
 	getDb: () => ({
 		select: () => ({
 			from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
 		}),
 	}),
+	getPglite: () => null,
+	getDbPath: () => ":memory:",
+	getDbMaskDirs: () => [],
+	rawQuery: async () => ({ rows: [] }),
+	initDb: async () => {},
+	closeDb: async () => {},
+	guardDatadirMajor: async () => {},
+	__test: {},
 }));
 
-mock.module("$server/db/schema", () => ({
-	extensions: {},
-	agentConfigs: {},
-}));
+// NOT mocked — see the sibling spec's note on load-time export failures.
 
+// Spread the REAL module and override only the four builders this route calls
+// against the mocked `$server/db/schema` columns — see the sibling
+// `mention-search-cmd-api.test.ts` for why a fixed key list is a load-time
+// hazard once the route's import graph grows.
 mock.module("drizzle-orm", () => ({
+	...(require("drizzle-orm") as Record<string, unknown>),
 	eq: () => ({}),
 	and: () => ({}),
 	or: () => ({}),
