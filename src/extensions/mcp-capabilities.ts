@@ -58,6 +58,11 @@
  */
 
 import { deriveCapsFromExtensionPerms } from "./manifest";
+// One regex for "what is a URL inside a command-line token", shared with the
+// credential redactor. It must not drift: `redactMcpServer` blanks a URL's
+// query values while deliberately PRESERVING its host, precisely so the
+// derivation below still finds every host after redaction.
+import { TOKEN_URL_RE } from "./mcp-secret-redaction";
 import { normalizeHostname } from "./runtime/internal-host";
 import type {
   ExtensionManifestV2,
@@ -65,16 +70,6 @@ import type {
   McpServerDefinition,
   ToolDefinition,
 } from "./types";
-
-/**
- * A `<scheme>://<rest>` run inside a command-line token. Matched as a
- * SUBSTRING rather than anchored, because the operator writes the flag form
- * (`--endpoint=https://api.example.com`) about as often as the bare one, and
- * both name the same host. The scheme grammar is RFC 3986's
- * (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`), so a leading `--endpoint=`
- * can never be mistaken for one.
- */
-const TOKEN_URL_RE = /[a-z][a-z0-9+.-]*:\/\/\S+/i;
 
 /**
  * The hostname a single token names, or `null` when it names none. A bare

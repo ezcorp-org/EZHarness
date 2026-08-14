@@ -27,8 +27,20 @@
  * `insertAuditEntry` routes everything through `redactForAudit` as a second
  * net; this module is the first, and the one that does not depend on a
  * pattern matching the secret.
+ *
+ * ── Issue #205: the invariant this module assumed now holds ─────────────
+ *
+ * The reasoning above was correct and the layer beside it was not: the API
+ * served the very `?api_key=…` and `--token=…` values this module refuses to
+ * log, because `redactMcpServer` blanked only `env`/`headers`. Both carriers
+ * are now blanked at rest and stored in `extension_secrets`
+ * (`mcp-secret-redaction.ts`), so "audited without the credential" and
+ * "readable without the credential" finally describe the same system. The
+ * stdio `target` shares that module's URL redactor rather than re-deriving
+ * one.
  */
 import type { ExtensionAuditMetadata } from "./audit-actions";
+import { redactUrlSecretsInToken } from "./mcp-secret-redaction";
 import type { McpServerDefinition, ToolDefinition } from "./types";
 
 /** The credential-free projection of an MCP server definition. */
@@ -98,7 +110,13 @@ export function describeMcpServerForAudit(
   if (server.transport === "stdio") {
     return {
       transport: "stdio",
-      target: server.command,
+      // The executable, with any embedded URL's query values and password
+      // stripped. A `command` is normally a bare program name, for which this
+      // is the identity — but it is a free-text field the admin types, and the
+      // http/sse branch below would never have written a query string to the
+      // row, so the two branches now agree. Same classifier as the persistence
+      // layer (`mcp-secret-redaction.ts`).
+      target: redactUrlSecretsInToken(server.command),
       argCount: server.args?.length ?? 0,
       authKeys: Object.keys(server.env ?? {}).sort(),
       toolCount: toolNames.length,

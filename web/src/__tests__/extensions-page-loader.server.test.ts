@@ -75,6 +75,54 @@ describe("/extensions +page.server.ts", () => {
 		expect(result.installedExtensions[0]).toMatchObject({ isCritical: false });
 	});
 
+	test("issue #205 — an MCP row's credentials never reach the SSR page data", async () => {
+		// This loader serialises its result into the first-paint HTML for ANY
+		// authenticated user, with no role gate. The client re-fetch through
+		// GET /api/extensions has always been scrubbed; the SSR paint was not.
+		// `redactExtensionSecrets` is imported from the PURE classifier module,
+		// so this test runs the real redaction while every query is mocked.
+		vi.mocked(listExtensions).mockImplementation(async (opts) => {
+			const bundled = typeof opts === "object" && opts && "bundled" in opts && opts.bundled === true;
+			if (bundled) return [] as any;
+			return [
+				{
+					id: "mcp-1",
+					name: "leaky-mcp",
+					isBundled: false,
+					manifest: {
+						kind: "mcp",
+						name: "leaky-mcp",
+						tools: [],
+						permissions: {},
+						mcpServers: [
+							{
+								transport: "http",
+								name: "leaky-mcp",
+								url: "https://mcp.vendor.com/mcp?api_key=SSR-URL-LEAK",
+								headers: { Authorization: "Bearer SSR-HDR-LEAK" },
+							},
+							{
+								transport: "stdio",
+								name: "leaky-stdio",
+								command: "npx",
+								args: ["-y", "srv", "--token=SSR-ARGV-LEAK"],
+							},
+						],
+					},
+				},
+			] as any;
+		});
+
+		const result = (await load({} as any)) as { installedExtensions: unknown[] };
+		const payload = JSON.stringify(result);
+		expect(payload).not.toContain("SSR-URL-LEAK");
+		expect(payload).not.toContain("SSR-HDR-LEAK");
+		expect(payload).not.toContain("SSR-ARGV-LEAK");
+		// The names survive so the connection panel still lists them.
+		expect(payload).toContain("api_key=");
+		expect(payload).toContain("--token=");
+	});
+
 	test("returns empty arrays when no extensions exist (no error path)", async () => {
 		vi.mocked(listExtensions).mockResolvedValue([] as any);
 		const result = (await load({} as any)) as {

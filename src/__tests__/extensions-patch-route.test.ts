@@ -43,8 +43,13 @@ const updateCalls: Array<{ id: string; data: Record<string, unknown> }> = [];
 const resetFailuresCalls: string[] = [];
 const deleteCalls: string[] = [];
 
+/** Set for the #205 GET test: makes the stubbed row an MCP extension whose
+ *  connection carries a credential in the URL query and in argv. */
+let mcpManifestWithSecrets: Record<string, unknown> | null = null;
+
 const fakeExtensionRow = async (id: string) => {
   if (getExtensionReturnsNull) return null;
+  if (mcpManifestWithSecrets) return { id, name: "mcp-ext", manifest: mcpManifestWithSecrets };
   return {
     id,
     name: "fake-ext",
@@ -153,7 +158,67 @@ beforeEach(() => {
   getExtensionReturnsNull = false;
   violationFlag = false;
   storedEnabled = true;
+  mcpManifestWithSecrets = null;
   getPageCache().clear();
+});
+
+describe("GET /api/extensions/[id] — issue #205 credential scrub", () => {
+  // This single-row read is `read`-scope + ANY member role, and it used to
+  // `json(ext)` the raw row while its LIST sibling scrubbed — the widest MCP
+  // credential read in the app. It matters for a legacy row whose manifest
+  // still holds plaintext (the boot backfill has not reached it yet), which is
+  // exactly what the stub returns here.
+  test("an MCP row's url query + argv credentials never reach the response", async () => {
+    mcpManifestWithSecrets = {
+      kind: "mcp",
+      name: "mcp-ext",
+      tools: [],
+      permissions: {},
+      mcpServers: [
+        {
+          transport: "http",
+          name: "mcp-ext",
+          url: "https://mcp.vendor.com/mcp?api_key=GET-URL-LEAK",
+          headers: { Authorization: "Bearer GET-HDR-LEAK" },
+        },
+        {
+          transport: "stdio",
+          name: "mcp-ext-stdio",
+          command: "npx",
+          args: ["-y", "srv", "--token=GET-ARGV-LEAK"],
+        },
+      ],
+    };
+    const event = createMockEvent({
+      method: "GET",
+      url: "http://localhost/api/extensions/mcp-ext",
+      params: { id: "mcp-ext" },
+      user: MEMBER_USER,
+    });
+    const res = await call(GET, event);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain("GET-URL-LEAK");
+    expect(body).not.toContain("GET-HDR-LEAK");
+    expect(body).not.toContain("GET-ARGV-LEAK");
+    // The NAMES survive — the edit form pre-fills them.
+    expect(body).toContain("api_key=");
+    expect(body).toContain("--token=");
+    expect(body).toContain("Authorization");
+  });
+
+  test("a non-MCP row is served unchanged", async () => {
+    const event = createMockEvent({
+      method: "GET",
+      url: "http://localhost/api/extensions/ext-1",
+      params: { id: "ext-1" },
+      user: MEMBER_USER,
+    });
+    const res = await call(GET, event);
+    expect(res.status).toBe(200);
+    const body = await jsonFromResponse(res);
+    expect(body.name).toBe("fake-ext");
+  });
 });
 
 describe("PATCH /api/extensions/[id] — happy paths", () => {

@@ -21,7 +21,7 @@ import {
   backfillMcpManifestSecrets,
   rehydrateMcpServerSecrets,
 } from "../db/queries/extensions";
-import { getSecret } from "../extensions/secrets-store";
+import { getSecret, setSecret } from "../extensions/secrets-store";
 import { getDb } from "../db/connection";
 import { migrate } from "../db/migrate";
 import type { McpServerDefinition } from "../extensions/types";
@@ -82,8 +82,13 @@ describe("backfillMcpManifestSecrets", () => {
     expect(JSON.stringify(row!.manifest)).not.toContain("LEAK");
 
     // The real values live in the encrypted store and rehydrate on connect.
+    // Issue #205 wrapped the payload in a versioned envelope so the same blob
+    // can also carry the URL/argv carriers; `auth` is the transport-auth map.
     const stored = await getSecret("legacy-http", null, "mcp:auth");
-    expect(JSON.parse(stored!)).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
+    expect(JSON.parse(stored!)).toEqual({
+      v: 2,
+      auth: { Authorization: "Bearer LEAK", "X-Api-Key": "k123" },
+    });
     const rehydrated = (await rehydrateMcpServerSecrets("legacy-http", server)) as McpServerDefinition & ServerView;
     expect(rehydrated.headers).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
   });
@@ -100,7 +105,89 @@ describe("backfillMcpManifestSecrets", () => {
     const row = await getExtensionByName("legacy-stdio");
     const server = firstServer(row!.manifest);
     expect(server.env).toEqual({ API_TOKEN: "" });
-    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({ API_TOKEN: "tok-legacy" });
+    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({
+      v: 2,
+      auth: { API_TOKEN: "tok-legacy" },
+    });
+  });
+
+  // ── Issue #205: the two carriers the first version of this backfill missed ──
+
+  test("migrates a legacy URL-QUERY secret and keeps the host", async () => {
+    await insertLegacyMcp("legacy-url-query", {
+      transport: "http",
+      name: "legacy-url-query",
+      url: "https://mcp.vendor.com/mcp?api_key=URL-LEAK&t=9",
+    });
+    expect((await backfillMcpManifestSecrets()).migrated).toBe(1);
+
+    const row = await getExtensionByName("legacy-url-query");
+    const server = firstServer(row!.manifest) as McpServerDefinition & { url: string };
+    expect(server.url).toBe("https://mcp.vendor.com/mcp?api_key=&t=");
+    expect(JSON.stringify(row!.manifest)).not.toContain("URL-LEAK");
+
+    const rehydrated = (await rehydrateMcpServerSecrets("legacy-url-query", server)) as
+      McpServerDefinition & { url: string };
+    expect(rehydrated.url).toBe("https://mcp.vendor.com/mcp?api_key=URL-LEAK&t=9");
+  });
+
+  test("migrates a legacy ARGV secret and keeps every non-credential token", async () => {
+    await insertLegacyMcp("legacy-argv", {
+      transport: "stdio",
+      name: "legacy-argv",
+      command: "npx",
+      args: ["-y", "srv", "--token=ARGV-LEAK", "--api-key", "PAIR-LEAK"],
+    });
+    expect((await backfillMcpManifestSecrets()).migrated).toBe(1);
+
+    const row = await getExtensionByName("legacy-argv");
+    const server = firstServer(row!.manifest) as McpServerDefinition & { args?: string[] };
+    expect(server.args).toEqual(["-y", "srv", "--token=", "--api-key", ""]);
+    const json = JSON.stringify(row!.manifest);
+    expect(json).not.toContain("ARGV-LEAK");
+    expect(json).not.toContain("PAIR-LEAK");
+
+    const rehydrated = (await rehydrateMcpServerSecrets("legacy-argv", server)) as
+      McpServerDefinition & { args?: string[] };
+    expect(rehydrated.args).toEqual(["-y", "srv", "--token=ARGV-LEAK", "--api-key", "PAIR-LEAK"]);
+  });
+
+  test("a row healed by an EARLIER build keeps its stored auth when the url is migrated", async () => {
+    // The dangerous composition: this row's `headers` were already moved to the
+    // store by the pre-#205 backfill, so its manifest holds only blanks there —
+    // but its URL still leaks. Rebuilding the blob from the manifest alone would
+    // carry no `auth` and REPLACE the stored one, destroying a credential this
+    // pass cannot reconstruct. The backfill therefore merges.
+    await insertLegacyMcp("half-healed", {
+      transport: "http",
+      name: "half-healed",
+      url: "https://h/mcp?api_key=STILL-LEAKING",
+      headers: { Authorization: "" },
+    });
+    // Pre-#205 blobs are a BARE auth map with no envelope.
+    await setSecret("half-healed", null, "mcp:auth", JSON.stringify({ Authorization: "Bearer KEEP-ME" }));
+
+    expect((await backfillMcpManifestSecrets()).migrated).toBe(1);
+
+    const row = await getExtensionByName("half-healed");
+    const server = firstServer(row!.manifest);
+    expect(JSON.stringify(row!.manifest)).not.toContain("STILL-LEAKING");
+    const rehydrated = (await rehydrateMcpServerSecrets("half-healed", server)) as
+      McpServerDefinition & ServerView & { url: string };
+    expect(rehydrated.headers).toEqual({ Authorization: "Bearer KEEP-ME" });
+    expect(rehydrated.url).toBe("https://h/mcp?api_key=STILL-LEAKING");
+  });
+
+  test("is idempotent across the NEW carriers too", async () => {
+    await insertLegacyMcp("legacy-idem-205", {
+      transport: "stdio",
+      name: "legacy-idem-205",
+      command: "npx",
+      args: ["--token=ONCE"],
+      env: { K: "v" },
+    });
+    expect((await backfillMcpManifestSecrets()).migrated).toBe(1);
+    expect((await backfillMcpManifestSecrets()).migrated).toBe(0);
   });
 
   test("is idempotent — a second run migrates nothing", async () => {

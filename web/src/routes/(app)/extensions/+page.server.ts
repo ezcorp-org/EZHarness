@@ -1,4 +1,5 @@
 import { listExtensions } from "$server/db/queries/extensions";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { withListFlagsAll } from "$server/extensions/list-flags";
 import type { PageServerLoad } from "./$types";
 
@@ -29,9 +30,12 @@ export const load: PageServerLoad = async () => {
     ]);
     // Same derived flags `GET /api/extensions` attaches, so the SSR first
     // paint and the post-mutation re-fetch render identical cards.
+    // #205: page data is serialized into the SSR HTML for ANY authenticated
+    // user, so it needs the same scrub `GET /api/extensions` applies — the
+    // client re-fetch already got it and the first paint did not.
     return {
-      bundledExtensions: withListFlagsAll(bundledExtensions),
-      installedExtensions: withListFlagsAll(installedExtensions),
+      bundledExtensions: withListFlagsAll(bundledExtensions.map(redactExtensionSecrets)),
+      installedExtensions: withListFlagsAll(installedExtensions.map(redactExtensionSecrets)),
     };
   } catch {
     return { bundledExtensions: [], installedExtensions: [] };

@@ -140,9 +140,13 @@ describe("installMcpExtension — http headers", () => {
     expect(secretRow).toBeDefined();
     expect(secretRow!.ciphertext).not.toContain("TOP-SECRET");
 
-    // Round-trip decrypt for the connect path.
+    // Round-trip decrypt for the connect path. #205 versioned the payload:
+    // `auth` is the transport-auth map, alongside the URL/argv carriers.
     const plaintext = await getSecret("mcp-sec-http", null, "mcp:auth");
-    expect(plaintext).toBe(JSON.stringify({ Authorization: "Bearer TOP-SECRET" }));
+    expect(JSON.parse(plaintext!)).toEqual({
+      v: 2,
+      auth: { Authorization: "Bearer TOP-SECRET" },
+    });
 
     const rehydrated = await rehydrateMcpServerSecrets("mcp-sec-http", stored);
     expect((rehydrated as any).headers).toEqual({ Authorization: "Bearer TOP-SECRET" });
@@ -225,7 +229,10 @@ describe("updateMcpExtension", () => {
 
     // The store now holds the rotated value.
     const plaintext = await getSecret("mcp-sec-upd", null, "mcp:auth");
-    expect(plaintext).toBe(JSON.stringify({ Authorization: "Bearer NEW-TOKEN" }));
+    expect(JSON.parse(plaintext!)).toEqual({
+      v: 2,
+      auth: { Authorization: "Bearer NEW-TOKEN" },
+    });
 
     // Read-path row is clean.
     const roundtrip = await getExtension(ext.id);
