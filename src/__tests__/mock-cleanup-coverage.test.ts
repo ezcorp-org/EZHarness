@@ -107,39 +107,61 @@ function parseModulePaths(source: string): Set<string> {
   return paths;
 }
 
-function loadModulePaths(): Set<string> {
-  return parseModulePaths(rfs(join(import.meta.dir, "helpers", "mock-cleanup.ts"), "utf8"));
+function helperSource(): string {
+  return rfs(join(import.meta.dir, "helpers", "mock-cleanup.ts"), "utf8");
 }
 
-// Top-level `$server/*` namespaces that `restoreModuleMocks()` can serve at
-// all. It derives each alias from a MODULE_PATHS entry (`$server/<rel>` for
-// every `../../<rel>` whose prefix is in the helper's
-// `SERVER_ALIAS_PREFIXES`), so a mock under a namespace missing from this set
-// can never be restored — checking it FIRST keeps the failure message
-// pointed at the right fix. Membership here is necessary, never sufficient:
-// `isServerPrefixed()` below still requires the full tail to be snapshotted
-// or the registration to be a verified pass-through shim.
-const SERVER_ALIAS_TOP_LEVELS = new Set([
-  "db",
-  "auth",
-  "extensions",
-  "providers",
-  "memory",
-  "chat",
-  "lib",
-  "mcp",
-  "routes",
-  "runtime",
-  "observability",
-  // `src/logger.ts` — a top-level MODULE rather than a directory, but served
-  // under `$server/*` exactly like the namespaces above. Route handlers import
-  // it (`web/src/routes/api/knowledge-base/+server.ts`), so any suite mounting
-  // one has to alias it. `../../logger` is in MODULE_PATHS, so the tail check
-  // covers it; the pass-through-shim rule below is the general form of the
-  // "the registration re-exports the REAL module" argument this entry used to
-  // make in prose.
-  "logger",
-]);
+function loadModulePaths(): Set<string> {
+  return parseModulePaths(helperSource());
+}
+
+/** Quoted strings inside a named array/Set literal in the helper. */
+function parseHelperList(source: string, pattern: RegExp): string[] {
+  const body = source.match(pattern);
+  if (!body) return [];
+  return Array.from(stripCommentLines(body[1]!).matchAll(/"([^"]+)"/g), (m) => m[1]!);
+}
+
+const SKIP_RESTORE_LITERAL = /const SKIP_SERVER_ALIAS_RESTORE = new Set<string>\(\[([\s\S]*?)\]\)/;
+
+/**
+ * The `$server/*` aliases `restoreModuleMocks()` ACTUALLY re-registers,
+ * derived from the helper rather than restated here.
+ *
+ * The restore loop walks MODULE_PATHS and, for each `../../<rel>`, registers
+ * `$server/<rel>` — but only when `<rel>` starts with a `SERVER_ALIAS_PREFIXES`
+ * entry and is not in `SKIP_SERVER_ALIAS_RESTORE`. Reading both lists out of
+ * the helper is the point: this file used to keep its own copy of the namespace
+ * list, and the copy had already DRIFTED (it carried `logger`, which is not a
+ * served prefix, so a `$server/logger` mock was passing on a snapshot the
+ * restore loop never uses). A gate that restates the mechanism it checks can
+ * disagree with it silently — the exact failure mode the `$server` tail check
+ * was introduced to close.
+ */
+function loadServedServerAliases(source: string): Set<string> {
+  const prefixes = parseHelperList(source, /const SERVER_ALIAS_PREFIXES = \[([\s\S]*?)\];/);
+  const skipped = new Set(parseHelperList(source, SKIP_RESTORE_LITERAL));
+  const served = new Set<string>();
+  for (const p of parseModulePaths(source)) {
+    if (!p.startsWith("../../")) continue;
+    const rel = p.slice("../../".length);
+    if (prefixes.some((prefix) => rel.startsWith(prefix)) && !skipped.has(rel)) {
+      served.add(`$server/${rel}`);
+    }
+  }
+  return served;
+}
+
+/**
+ * Aliases the helper DELIBERATELY does not restore — the documented-exception
+ * surface. Each entry carries its reason beside it in the helper's
+ * `SKIP_SERVER_ALIAS_RESTORE` docblock (today: `db/connection`, whose lazy
+ * re-registration hangs `phase-2b-e2e.test.ts` at process exit). Reading it
+ * here means an exception is honoured only while it is still written down.
+ */
+function loadSkippedServerAliases(source: string): Set<string> {
+  return new Set(parseHelperList(source, SKIP_RESTORE_LITERAL).map((rel) => `$server/${rel}`));
+}
 
 function listTestFiles(dir: string): string[] {
   const out: string[] = [];
@@ -187,56 +209,96 @@ function isExempt(path: string): boolean {
 }
 
 /**
- * Scrape the `$server/*` PASS-THROUGH ALIAS SHIMS out of a test source.
+ * ── `$server/*` PASS-THROUGH ALIAS SHIMS ─────────────────────────────────
  *
- * A shim is a registration of the exact form
+ * A shim is a registration whose factory returns the module the alias NAMES:
  *
- *     mock.module("$server/a/b", () => require("<path that resolves to src/a/b>"))
+ *     mock.module("$server/a/b", () => require("<path resolving to src/a/b>"))
+ *     const real = require("<…src/a/b>");  mock.module("$server/a/b", () => real)
  *
- * It replaces nothing. Bun has no `$server/*` resolver outside SvelteKit's
- * vite build, so a suite that mounts a route handler has to give the alias a
- * body; handing it the REAL module is the minimum that makes the import
- * resolve. There is no stub to leak, and the lazy `require()` inside the
- * factory re-dispatches at every resolution — so a later file's own
- * `mock.module("../../a/b", …)` still wins through the alias. That is the
- * same mechanism `restoreModuleMocks()` installs (see the "lazy factory is
- * critical" note in `helpers/mock-cleanup.ts`): restoring a shim would
- * write back the byte-identical registration.
+ * It replaces nothing. Bun has no `$server/*` resolver outside SvelteKit's vite
+ * build, so a suite that mounts a route handler has to give the alias a body,
+ * and handing it the REAL module is the minimum that makes the import resolve.
+ * There is no stub to leak, and the lazy `require()` form re-dispatches at every
+ * resolution — so a later file's own `mock.module("../../a/b", …)` still wins
+ * through the alias. That is the same mechanism `restoreModuleMocks()` installs
+ * (see the "lazy factory is critical" note in `helpers/mock-cleanup.ts`):
+ * restoring a shim would write back the byte-identical registration.
  *
- * So a shim is COVERED, and it does not need a MODULE_PATHS snapshot. This
- * is the reasoning the `logger` entry in `SERVER_ALIAS_TOP_LEVELS` already
- * states in prose; it is checked here instead, per call site.
+ * So a shim is COVERED, with no snapshot and regardless of whether the restore
+ * loop serves its namespace. That reasoning used to sit in prose beside the
+ * `logger` entry of a hand-maintained namespace list; it is checked here
+ * instead, per call site.
  *
  * TWO PROPERTIES MAKE THIS A CHECK AND NOT AN EXCUSE, and both matter:
  *
- *  1. The factory must be `() => require("…")` and nothing else. An object
- *     literal, a spread-with-overrides, or a hoisted const is NOT a shim —
- *     those replace exports and must be snapshotted or restored in-file.
- *  2. The required path must resolve to the module the alias NAMES. Without
- *     that, `mock.module("$server/auth/extension-rbac", () =>
- *     require("../../auth/middleware"))` would pass as a shim while
- *     substituting a different module — a redirect, which is exactly the
- *     silent-ALLOW class this file exists to prevent.
+ *  1. The factory must return a whole module — an inline `require()` or a
+ *     resolvable module binding. An object literal or a spread-with-overrides
+ *     REPLACES exports and is not a shim.
+ *  2. That module must be the one the alias NAMES. Otherwise
+ *     `mock.module("$server/auth/extension-rbac", () =>
+ *     require("../auth/middleware"))` would pass as a shim while substituting a
+ *     different module — a redirect, which is exactly the silent-ALLOW class
+ *     this file exists to prevent.
  *
- * Applied to the 16-entry `SERVER_ALIAS_BACKLOG` this replaced, 12 were
- * shims. It also still REJECTS the offender that motivated the tail check:
+ * Applied to the 16-entry `SERVER_ALIAS_BACKLOG` this replaced, 12 were shims.
+ * It still REJECTS the offender that motivated the tail check:
  * `mock.module("$server/auth/extension-wire-authz", …)` was an allow-biased
  * object literal, not a shim.
  */
+
+/**
+ * Whole-module bindings a test file introduces, name → specifier.
+ *
+ * Both forms count, because both are in use: `const realLogger =
+ * require("../logger")` (briefing-api, hub-api, hub-render-pull) and
+ * `import * as realLogger from "../logger"` (extension-events-hub-branch,
+ * which documents the top-level import as the ORDER-SAFE choice for a module
+ * nothing mocks). A factory returning one of these bindings is a shim just as
+ * much as an inline `require()` — resolve the binding rather than pushing four
+ * files onto one spelling.
+ *
+ * A name rebound to a DIFFERENT specifier is dropped: fail closed rather than
+ * guess which binding a factory closed over.
+ */
+function collectModuleBindings(source: string): Map<string, string> {
+  const bindings = new Map<string, string>();
+  const re =
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*"([^"]+)"\s*\)|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+"([^"]+)"/g;
+  for (const m of stripCommentLines(source).matchAll(re)) {
+    const name = m[1] ?? m[3]!;
+    const spec = m[2] ?? m[4]!;
+    if (!bindings.has(name)) bindings.set(name, spec);
+    else if (bindings.get(name) !== spec) bindings.set(name, "");
+  }
+  return bindings;
+}
+
 function classifyServerAliasFactories(
   source: string,
   testFile: string,
 ): Map<string, "shim" | "redirect"> {
+  const stripped = stripCommentLines(source);
+  const bindings = collectModuleBindings(stripped);
   const byAlias = new Map<string, "shim" | "redirect">();
-  const re = /mock\.module\(\s*"(\$server\/[^"]+)"\s*,\s*\(\)\s*=>\s*require\(\s*"([^"]+)"\s*\)\s*,?\s*\)/g;
-  for (const m of stripCommentLines(source).matchAll(re)) {
-    const alias = m[1]!;
+
+  const record = (alias: string, specifier: string | undefined) => {
     const tail = stripJsTsExt(alias.slice("$server/".length));
-    const verdict = canonicalize(m[2]!, testFile) === `../../${tail}` ? "shim" : "redirect";
+    const verdict =
+      specifier && canonicalize(specifier, testFile) === `../../${tail}` ? "shim" : "redirect";
     // Fail closed: one redirect for an alias condemns it even if another
     // registration in the same file is well-formed.
     if (verdict === "redirect" || !byAlias.has(alias)) byAlias.set(alias, verdict);
-  }
+  };
+
+  // `() => require("<specifier>")`
+  const inline = /mock\.module\(\s*"(\$server\/[^"]+)"\s*,\s*\(\)\s*=>\s*require\(\s*"([^"]+)"\s*\)\s*,?\s*\)/g;
+  for (const m of stripped.matchAll(inline)) record(m[1]!, m[2]!);
+
+  // `() => <module binding>`
+  const viaBinding = /mock\.module\(\s*"(\$server\/[^"]+)"\s*,\s*\(\)\s*=>\s*([A-Za-z_$][\w$]*)\s*,?\s*\)/g;
+  for (const m of stripped.matchAll(viaBinding)) record(m[1]!, bindings.get(m[2]!) || undefined);
+
   return byAlias;
 }
 
@@ -250,43 +312,43 @@ function extractServerAliasShims(source: string, testFile: string): Set<string> 
 }
 
 /**
- * A `$server/<tail>` mock is covered iff `../../<tail>` is in MODULE_PATHS,
- * or the registration is a verified pass-through alias shim.
+ * Is a `$server/<tail>` mock covered? Three rules, in order:
  *
- * This used to accept any `$server/<top>/…` whose TOP-LEVEL namespace the
- * restore helper knew about (`auth`, `db`, `extensions`, …), which is far
- * weaker than what `restoreModuleMocks()` actually does: that loop walks
- * MODULE_PATHS and re-registers `$server/<rel>` per ENTRY, so an alias whose
- * relative path was never snapshotted is not restored at all. The gap let
- * `mock.module("$server/auth/extension-wire-authz", …)` — an allow-biased
- * stub of the MCP wire gate — pass this meta-test while its `afterAll`
- * restore was a silent no-op. Checking the full tail closes the class, not
- * just that instance.
+ *  1. NEVER, if the registration is a REDIRECT. `restoreModuleMocks()` only
+ *     ever re-registers `$server/<rel>` → the module at `<rel>`, so it cannot
+ *     undo an alias pointed at a DIFFERENT module. Fail closed even when the
+ *     alias is served, or the snapshot waves the substitution through.
+ *     (Measured when introduced: 78 `require()`-form `$server/*` registrations
+ *     in the tree, 0 redirects.)
+ *  2. YES, if it is a verified pass-through SHIM. Nothing was replaced, so
+ *     there is nothing to restore — `served` is irrelevant here, which is why
+ *     `$server/logger` is fine under a namespace the restore loop never
+ *     touches.
+ *  3. YES, if `restoreModuleMocks()` actually re-registers this alias
+ *     (`served`), or if the helper explicitly and reasonedly declines to
+ *     (`skipped`).
  *
- * `topLevels` is still consulted first: a path under a namespace the restore
- * loop does not serve at all can never be covered, and saying so keeps the
- * failure message pointed at the right fix.
+ * Rule 3 is the one that was a hole in two directions. It accepted any
+ * `$server/<known-top-level>/…` regardless of tail — which let an allow-biased
+ * stub of the MCP wire gate (`$server/auth/extension-wire-authz`) pass while
+ * its `afterAll` restore was a silent no-op — and then, once tightened to the
+ * tail, it accepted a SNAPSHOT the restore loop does not use, because the
+ * namespace list lived here instead of being read from the helper. `served` is
+ * derived from the helper's own two lists, so the gate cannot drift from the
+ * mechanism it is checking.
  */
 function isServerPrefixed(
   path: string,
-  topLevels: Set<string>,
-  modulePaths: Set<string>,
+  served: Set<string>,
+  skipped: Set<string>,
   aliasFactories: Map<string, "shim" | "redirect">,
 ): boolean {
   if (!path.startsWith("$server/")) return false;
-  const tail = stripJsTsExt(path.slice("$server/".length));
-  const top = tail.split("/")[0];
-  if (top === undefined || !topLevels.has(top)) return false;
+  const alias = `$server/${stripJsTsExt(path.slice("$server/".length))}`;
   const factory = aliasFactories.get(path);
-  // A REDIRECT is never covered, snapshot or not. `restoreModuleMocks()` only
-  // ever re-registers `$server/<tail>` → the module at `<tail>`, so it cannot
-  // undo an alias pointed at a DIFFERENT module — the snapshot check would
-  // wave the redirect through while the substitution survives. Fail closed.
-  // Measured when introduced: 78 `require()`-form `$server/*` registrations in
-  // the tree, 0 redirects, so this costs nothing today.
   if (factory === "redirect") return false;
   if (factory === "shim") return true;
-  return modulePaths.has(`../../${tail}`);
+  return served.has(alias) || skipped.has(alias);
 }
 
 /**
@@ -322,7 +384,10 @@ function isWebLibRelativeCovered(path: string, modulePaths: Set<string>): boolea
 
 describe("mock-cleanup coverage (meta-test)", () => {
   test("every mock.module target is either snapshotted or exempt", () => {
-    const modulePaths = loadModulePaths();
+    const helper = helperSource();
+    const modulePaths = parseModulePaths(helper);
+    const served = loadServedServerAliases(helper);
+    const skipped = loadSkippedServerAliases(helper);
     // src/extensions/__tests__/ runs in the same bun-test process, so its
     // mock.module() calls leak the same way — the drafts-handler stub in
     // tool-executor.extensions-installed-emit.test.ts shipped exactly that
@@ -360,14 +425,13 @@ describe("mock-cleanup coverage (meta-test)", () => {
         // not that it wrote back the module the alias NAMES. A restore aimed at
         // the wrong module reads exactly like a good one and leaves the alias
         // answering for a module nobody asked for. So `$server/*` targets skip
-        // the count short-circuit and must satisfy `isServerPrefixed()` below
-        // (snapshotted tail, or a verified pass-through shim). Measured free
-        // when introduced: all nine `$server/*` in-file restores in the tree
-        // are already one or the other.
+        // the count short-circuit and must satisfy `isServerPrefixed()` below.
+        // Measured free when introduced: all nine `$server/*` in-file restores
+        // in the tree resolve to a verified shim.
         if (!raw.startsWith("$server/") && (counts.get(raw) ?? 0) >= 2) continue;
         if (isExempt(raw)) continue;
         if (modulePaths.has(raw)) continue;
-        if (isServerPrefixed(raw, SERVER_ALIAS_TOP_LEVELS, modulePaths, aliasFactories)) continue;
+        if (isServerPrefixed(raw, served, skipped, aliasFactories)) continue;
         if (isLibAliasCovered(raw, modulePaths)) continue;
         if (isWebLibRelativeCovered(raw, modulePaths)) continue;
         const canonical = canonicalize(raw, file);
@@ -457,12 +521,21 @@ describe("mock-cleanup coverage (meta-test)", () => {
   // self-reference the `${` exemption covers).
   const Q = '"';
 
-  /** `isServerPrefixed` against the classified factories of one source. */
-  function covered(source: string, alias: string, snapshotted: string[] = []): boolean {
+  /**
+   * `isServerPrefixed` against the classified factories of one source.
+   * `served` names the aliases `restoreModuleMocks()` would actually
+   * re-register; `skipped` the ones the helper reasonedly declines to.
+   */
+  function covered(
+    source: string,
+    alias: string,
+    served: string[] = [],
+    skipped: string[] = [],
+  ): boolean {
     return isServerPrefixed(
       alias,
-      SERVER_ALIAS_TOP_LEVELS,
-      new Set(snapshotted),
+      new Set(served),
+      new Set(skipped),
       classifyServerAliasFactories(source, FAKE),
     );
   }
@@ -489,7 +562,7 @@ describe("mock-cleanup coverage (meta-test)", () => {
 
     expect([...extractServerAliasShims(src, FAKE)]).toEqual([]);
     expect(covered(src, "$server/auth/extension-rbac")).toBe(false);
-    expect(covered(src, "$server/auth/extension-rbac", ["../../auth/extension-rbac"])).toBe(false);
+    expect(covered(src, "$server/auth/extension-rbac", ["$server/auth/extension-rbac"])).toBe(false);
   });
 
   test("a redirect in the same file condemns a well-formed sibling registration", () => {
@@ -514,21 +587,77 @@ describe("mock-cleanup coverage (meta-test)", () => {
 
     expect([...extractServerAliasShims(stub, FAKE)]).toEqual([]);
     expect(covered(stub, "$server/auth/extension-wire-authz")).toBe(false);
-    // A snapshot is then the only way to cover it — which is where the real
-    // helper puts it today.
+    // An actually-restored alias is then the only way to cover it — which is
+    // where the real helper puts it today.
     expect(
-      covered(stub, "$server/auth/extension-wire-authz", ["../../auth/extension-wire-authz"]),
+      covered(stub, "$server/auth/extension-wire-authz", ["$server/auth/extension-wire-authz"]),
     ).toBe(true);
   });
 
-  test("a shim under an unserved top-level namespace is still not covered", () => {
-    // `restoreModuleMocks()` only derives aliases whose prefix it serves, so a
-    // namespace outside SERVER_ALIAS_TOP_LEVELS can never be restored — the
-    // namespace check stays necessary even for a well-formed shim.
-    const src = `mock.module(${Q}$server/suggest/index${Q}, () => require(${Q}../suggest/index${Q}));`;
+  test("a SNAPSHOT the restore loop never uses does not cover a stub", () => {
+    // `restoreModuleMocks()` derives `$server/<rel>` only for a rel whose prefix
+    // is in the helper's SERVER_ALIAS_PREFIXES. `logger` is not one, so
+    // `../../logger` being in MODULE_PATHS says nothing about the alias — which
+    // is why `served` is derived from the helper instead of restated here. A
+    // stub behind such an alias is uncovered; a SHIM behind it is fine, because
+    // a shim needs no restoration at all.
+    const stub = `mock.module(${Q}$server/logger${Q}, () => ({ extensionLogger: () => ({}) }));`;
+    const shim = `mock.module(${Q}$server/logger${Q}, () => require(${Q}../logger${Q}));`;
 
-    expect([...extractServerAliasShims(src, FAKE)]).toEqual(["$server/suggest/index"]);
-    expect(covered(src, "$server/suggest/index")).toBe(false);
+    expect(covered(stub, "$server/logger")).toBe(false);
+    expect(covered(shim, "$server/logger")).toBe(true);
+    // Pinned against the REAL helper: `logger` genuinely is not served.
+    expect(loadServedServerAliases(helperSource()).has("$server/logger")).toBe(false);
+  });
+
+  test("a module BINDING is as good a shim as an inline require", () => {
+    // Four suites use `const realLogger = require("../logger")` /
+    // `import * as realLogger from "../logger"` and hand the binding to the
+    // factory — extension-events-hub-branch documents the top-level import as
+    // the ORDER-SAFE form. Resolve the binding rather than forcing those files
+    // onto one spelling, and still catch a binding that names another module.
+    const viaConst = [
+      `const realLogger = require(${Q}../logger${Q});`,
+      `mock.module(${Q}$server/logger${Q}, () => realLogger);`,
+    ].join("\n");
+    const viaImport = [
+      `import * as realLogger from ${Q}../logger${Q};`,
+      `mock.module(${Q}$server/logger${Q}, () => realLogger);`,
+    ].join("\n");
+    const wrongModule = [
+      `const realLogger = require(${Q}../runtime/hub-pages${Q});`,
+      `mock.module(${Q}$server/logger${Q}, () => realLogger);`,
+    ].join("\n");
+    const ambiguous = [
+      `const realLogger = require(${Q}../logger${Q});`,
+      `let realLogger = require(${Q}../runtime/hub-pages${Q});`,
+      `mock.module(${Q}$server/logger${Q}, () => realLogger);`,
+    ].join("\n");
+
+    expect(covered(viaConst, "$server/logger")).toBe(true);
+    expect(covered(viaImport, "$server/logger")).toBe(true);
+    expect(covered(wrongModule, "$server/logger")).toBe(false);
+    // Rebound to a different module — fail closed rather than guess.
+    expect(covered(ambiguous, "$server/logger")).toBe(false);
+  });
+
+  test("a documented SKIP_SERVER_ALIAS_RESTORE entry is the only excuse left", () => {
+    // The one alias the helper deliberately does not restore is
+    // `$server/db/connection` (a lazy re-registration there hangs
+    // phase-2b-e2e.test.ts at process exit — the reason is written beside the
+    // entry). Four suites stub it. The gate honours that exception only while
+    // the helper still declares it.
+    const stub = `mock.module(${Q}$server/db/connection${Q}, () => ({ getDb: () => fakeDb }));`;
+
+    expect(covered(stub, "$server/db/connection")).toBe(false);
+    expect(covered(stub, "$server/db/connection", [], ["$server/db/connection"])).toBe(true);
+
+    // Pinned against the REAL helper, both directions.
+    const helper = helperSource();
+    expect(loadSkippedServerAliases(helper).has("$server/db/connection")).toBe(true);
+    expect(loadServedServerAliases(helper).has("$server/db/connection")).toBe(false);
+    // …and a normal namespace IS served, so the derivation is not vacuous.
+    expect(loadServedServerAliases(helper).has("$server/auth/extension-wire-authz")).toBe(true);
   });
 
   test("a commented-out shim does not count as one", () => {
