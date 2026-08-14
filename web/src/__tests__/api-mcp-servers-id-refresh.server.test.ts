@@ -27,7 +27,14 @@ vi.mock("$server/db/queries/error-logs", () => ({ persistError }));
 // throwing on an uninitialized database.
 const getExtension = vi.fn();
 vi.mock("$server/db/queries/extensions", () => ({ getExtension }));
-const insertAuditEntry = vi.fn(async () => "audit-1");
+const insertAuditEntry = vi.fn(
+  async (
+    _userId: string | null,
+    _action: string,
+    _target: string,
+    _metadata: unknown,
+  ) => "audit-1",
+);
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
 
 /** A stored `kind:"mcp"` row carrying `tools` as they were BEFORE the refresh. */
