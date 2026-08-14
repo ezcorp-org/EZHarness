@@ -134,18 +134,25 @@ test.describe("Extensions — MCP lifecycle audit trail", () => {
 		const trail = page.locator("div", { has: page.getByRole("heading", { name: "Audit Trail" }) }).last();
 		await expect(trail).toBeVisible();
 
-		// The three mutations that used to leave no trace at all. The page
-		// renders `action.slice(4)` with dashes spaced, so `ext:mcp:server-
-		// installed` reads "mcp:server installed".
-		await expect(trail).toContainText("mcp:server installed");
-		await expect(trail).toContainText("mcp:server updated");
-		await expect(trail).toContainText("mcp:server refreshed");
+		// The three mutations that used to leave no trace at all, each now a
+		// sentence rather than a mangled slug. Install and edit lead with the
+		// DESTINATION — an audit row about an MCP server that does not say
+		// which server is not an audit row — and refresh leads with the tool
+		// delta, because a refresh leaves the connection alone.
+		await expect(trail).toContainText("MCP server installed — stdio npx");
+		await expect(trail).toContainText("MCP server edited — stdio npx");
+		await expect(trail).toContainText("MCP server refreshed — 1 → 2 tools");
 
-		// Each row names WHY (the reason discriminator a SIEM filters on) and
-		// WHO (from metadata.actor, truncated by the page's shortActor).
-		await expect(trail).toContainText("mcp-install");
-		await expect(trail).toContainText("mcp-update");
-		await expect(trail).toContainText("mcp-refresh");
+		// The generic branch used to render these as
+		// `mcp:server installed (network) — mcp-install`: the raw namespace
+		// colon, a `(network)` that is a SIEM scope field rather than the
+		// permission being granted, and a reason that just repeats the verb.
+		// Assert the leak is gone, not merely that the new copy is present.
+		await expect(trail).not.toContainText("mcp:server");
+		await expect(trail).not.toContainText("(network)");
+
+		// WHO still comes from metadata.actor, truncated by the page's
+		// shortActor.
 		await expect(trail).toContainText(`admin:${ADMIN_ID.slice(0, 8)}`);
 
 		// The empty-state must be gone — otherwise "no rows" would read as a
