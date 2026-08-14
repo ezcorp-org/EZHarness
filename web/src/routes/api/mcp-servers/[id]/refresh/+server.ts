@@ -36,7 +36,17 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     // Snapshot the PRE-refresh tool list first: `refreshMcpTools` writes the
     // new manifest back, so reading after it would diff a row against itself
     // and the audit row would claim every refresh was a no-op.
-    const before = await getExtension(id);
+    //
+    // Guarded on its own, because this read exists ONLY to shape the audit
+    // row. Audit is best-effort by contract (see the insert below and
+    // `permissions-and-grants.md`), so a failing read must degrade the trail,
+    // never the refresh — and certainly never surface as a "server
+    // unreachable" 502, which would blame the MCP server for a database
+    // problem and send the operator hunting the wrong fault.
+    let before: Awaited<ReturnType<typeof getExtension>> = null;
+    try {
+      before = await getExtension(id);
+    } catch { /* non-fatal — the refresh proceeds, unaudited */ }
     const beforeManifest = before?.manifest as ExtensionManifestV2 | undefined;
     const tools = await ExtensionRegistry.getInstance().refreshMcpTools(id);
     // The connection is untouched by a refresh — the diff that matters is the
