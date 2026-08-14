@@ -104,6 +104,19 @@ const MODULE_PATHS = [
   "../../extensions/cancel-run-handler",
   "../../extensions/network-handler",
   "../../extensions/finalize-tool-call-handler",
+  // The last reverse-RPC handler that was missing from this block (issue
+  // #208). TWO suites stub it and both are real polluters:
+  // extension-events-hub-branch.test.ts fakes `handleAppendMessageRpc`
+  // behind the `$server/*` alias, and tool-executor-rpc-delegates
+  // .unit.test.ts stubs the relative path. A leaked stub answers "append
+  // this message to the conversation" with a canned success for every later
+  // file, so a suite asserting a real persist would pass on nothing.
+  // Cheap to preload: its only runtime imports are drizzle-orm, db/connection,
+  // db/schema, db/queries/{conversation-extensions,conversations,tool-calls}
+  // — every one of them already snapshotted above — plus three leaf modules
+  // in extensions/ (rate-limit, capability-flags, json-rpc). No daemon, no
+  // preview graph, nothing that hangs phase-2b-e2e.
+  "../../extensions/append-message-handler",
   "../../extensions/agent-configs-handler",
   "../../extensions/permissions",
   "../../extensions/installer",
@@ -193,6 +206,14 @@ const MODULE_PATHS = [
   "../../runtime/workflow-loader",
   "../../runtime/workflow-runner",
   "../../extensions/triggers-handler",
+  // The dynamic cron/webhook store behind triggers-handler (issue #208).
+  // web/src/routes/api/extensions/__tests__/triggers-route.test.ts stubs
+  // `listDynamicCrons` / `listDynamicWebhooks` with call-recording fakes and
+  // calls restoreModuleMocks() in afterAll, so the snapshot is what makes that
+  // restore real rather than a no-op. Cheap to preload: node:crypto,
+  // db/connection, db/schema, drizzle-orm and extensions/manifest — all
+  // already imported above.
+  "../../extensions/triggers-store",
   "../../runtime/executor-helpers",
   "../../runtime/start-assignment",
   "../../runtime/tools/permissions",
