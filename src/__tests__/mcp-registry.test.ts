@@ -207,9 +207,12 @@ describe("ExtensionRegistry refreshMcpTools", () => {
     // declaration the PDP reads at dispatch (B5). A bare `{...manifest, tools}`
     // would persist the wire list verbatim and silently un-declare every MCP
     // tool on the first "Refresh tools" click. This server's command line
-    // names no host, so the declaration is the empty (deny-by-default) one.
+    // names no host, so the declaration is the `ezcorp:mcp:invoke` sentinel
+    // alone — which is what keeps a hostless row gated at all (F5).
     const row = await getExtension(installed.id);
-    expect(row?.manifest.tools).toEqual(fresh.map((t) => ({ ...t, capabilities: {} })));
+    expect(row?.manifest.tools).toEqual(
+      fresh.map((t) => ({ ...t, capabilities: { custom: { "ezcorp:mcp:invoke": true } } })),
+    );
 
     await deleteExtension(installed.id);
   });
