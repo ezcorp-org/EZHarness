@@ -324,6 +324,52 @@ test("globalStats counts ext:perm:denied rows, which live only in audit_log", as
 	expect(after.totalCalls).toBe(before.totalCalls);
 });
 
+// #206 — a coalesced deny row stands for many refusals, so the headline has
+// to count DECISIONS. With `COUNT(*)` a looping agent against a revoked MCP
+// server reported 2 denials instead of 251: the card an operator watches went
+// DOWN as the problem got worse.
+test("globalStats counts a coalesced deny tail as the refusals it stands for", async () => {
+	const before = await globalStats(24 * 60 * 60 * 1000);
+
+	// The pair the engine writes for one burst: the verbatim head, then the
+	// folded tail carrying the count.
+	await insertAuditEntry(userId, "ext:perm:denied", extA.id, {
+		auditId: "head-206",
+		toolName: "weather-mcp__forecast",
+		capabilityKind: "network",
+		capabilityValue: "api.weather.test",
+		reason: "missing capability network:api.weather.test",
+	});
+	await insertAuditEntry(userId, "ext:perm:denied", extA.id, {
+		auditId: "tail-206",
+		toolName: "weather-mcp__forecast",
+		capabilityKind: "network",
+		capabilityValue: "api.weather.test",
+		reason: "coalesced-deny-tail (249 suppressed in 10000ms) — missing capability network",
+		suppressed: 249,
+		totalInWindow: 250,
+		headAuditId: "head-206",
+	});
+
+	const after = await globalStats(24 * 60 * 60 * 1000);
+	// 1 (head) + 249 (folded) === the 250 refusals that happened. NOT 2 (rows)
+	// and NOT 251 (which would double-count the head via `totalInWindow`).
+	expect(after.denialCount).toBe(before.denialCount + 250);
+});
+
+test("globalStats ignores a non-numeric suppressed value instead of throwing", async () => {
+	// Defensive: `suppressed` is written by one code path, but the column is
+	// free-form JSONB and a cast on a hand-written row must not 500 the
+	// admin dashboard.
+	const before = await globalStats(24 * 60 * 60 * 1000);
+	await insertAuditEntry(userId, "ext:perm:denied", extA.id, {
+		reason: "hand-written row",
+		suppressed: "lots",
+	});
+	const after = await globalStats(24 * 60 * 60 * 1000);
+	expect(after.denialCount).toBe(before.denialCount + 1);
+});
+
 test("globalStats does NOT double-count an SDK rejection that has both rows", async () => {
 	// Every SDK call writes a capability row AND a governance row. The PDP
 	// query is scoped to `ext:perm:denied` precisely so this pair counts once.
