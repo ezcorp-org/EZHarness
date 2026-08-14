@@ -116,6 +116,13 @@ mock.module("$server/auth/middleware", () => ({
     if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
     return u;
   },
+  // `permission-mode-ceiling.ts` imports `isInteractiveSession` from this same
+  // module, so a partial factory here makes the WHOLE mock fail to link:
+  // "Export named 'isInteractiveSession' not found". The messages route reaches
+  // the ceiling module, so the omission reds this file outright rather than
+  // failing an assertion. Cookie/session is the honest answer for these suites
+  // — every one of them drives the route as an interactive user.
+  isInteractiveSession: () => true,
 }));
 
 mock.module("$lib/server/security/api-keys", () => ({
