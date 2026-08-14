@@ -4,6 +4,7 @@
   "src/extensions/sdk/**": 100,
   "src/extensions/call-provenance.ts": 100,
   "src/extensions/install-grant.ts": 100,
+  "src/extensions/mcp-capabilities.ts": 100,
   "src/extensions/install-roots.ts": 100,
   "src/extensions/extension-data-dir.ts": 100,
   "src/extensions/critical-consequence.ts": 100,

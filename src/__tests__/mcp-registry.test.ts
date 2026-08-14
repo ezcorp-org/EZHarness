@@ -203,9 +203,13 @@ describe("ExtensionRegistry refreshMcpTools", () => {
     expect(registry.getToolExtension("refresh-mcp__new-one")).toBe(installed.id);
     expect(registry.getToolExtension("refresh-mcp__new-two")).toBe(installed.id);
 
-    // DB: manifest.tools updated
+    // DB: manifest.tools updated, each re-stamped with the capability
+    // declaration the PDP reads at dispatch (B5). A bare `{...manifest, tools}`
+    // would persist the wire list verbatim and silently un-declare every MCP
+    // tool on the first "Refresh tools" click. This server's command line
+    // names no host, so the declaration is the empty (deny-by-default) one.
     const row = await getExtension(installed.id);
-    expect(row?.manifest.tools).toEqual(fresh);
+    expect(row?.manifest.tools).toEqual(fresh.map((t) => ({ ...t, capabilities: {} })));
 
     await deleteExtension(installed.id);
   });

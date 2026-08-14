@@ -1,6 +1,7 @@
 import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
+import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
 import { verifyPackageChecksums } from "./checksum";
@@ -411,7 +412,16 @@ export class ExtensionRegistry {
     const exts = await listExtensions(true);
 
     for (const ext of exts) {
-      const manifest = ext.manifest as ExtensionManifestV2;
+      // MCP rows are synthesized by `installMcpExtension`, never by the disk
+      // loader, so they NEVER pass through `migrateManifestV2ToV3` — the one
+      // place a v2 manifest normally acquires its per-tool `capabilities`.
+      // Normalizing here is what gives an MCP tool a non-empty needed-cap set
+      // at the PDP, and it is deliberately read-time: `refreshMcpTools`
+      // rewrites `manifest.tools` from a live `tools/list` that carries no
+      // declaration, so an install-time-only derivation would be erased by the
+      // first "Refresh tools" click. Non-MCP manifests are returned by
+      // reference, untouched.
+      const manifest = normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
       this.manifests.set(ext.id, manifest);
       if (ext.installPath) this.installPaths.set(ext.id, ext.installPath);
       this.grantedPerms.set(ext.id, ext.grantedPermissions);
@@ -1079,13 +1089,20 @@ export class ExtensionRegistry {
     const client = await this.getMcpClient(extensionId);
     const tools = await client.listTools();
 
-    const updatedManifest: ExtensionManifestV2 = { ...manifest, tools };
+    // Re-derive the per-tool capability declaration: `tools` is a fresh
+    // `tools/list` from the wire and carries none, so a bare
+    // `{...manifest, tools}` would drop every MCP tool back to an EMPTY
+    // needed-cap set — both in memory and, via the `updateExtension` below,
+    // at rest. The ceiling in `manifest.permissions` is preserved as-is.
+    const updatedManifest: ExtensionManifestV2 = normalizeMcpManifest({ ...manifest, tools });
     this.manifests.set(extensionId, updatedManifest);
 
     const ext = (await listExtensions(false)).find((e) => e.id === extensionId);
     const extName = ext?.name ?? manifest.name;
 
-    const registered: RegisteredTool[] = tools.map((t) => ({
+    // Register the NORMALIZED tools so `getToolsForExtension` /
+    // `getToolsForAgent` expose the same declaration the manifest carries.
+    const registered: RegisteredTool[] = (updatedManifest.tools ?? []).map((t) => ({
       ...t,
       name: `${manifest.name}__${t.name}`,
       originalName: t.name,
