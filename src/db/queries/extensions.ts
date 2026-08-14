@@ -208,7 +208,7 @@ export async function backfillMcpManifestSecrets(
   let scanned = 0;
   for (const row of rows) {
     const manifest = row.manifest as ExtensionManifestV2 | null;
-    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    if (manifest?.kind !== "mcp" || !manifest.mcpServers?.length) continue;
     scanned += 1;
     const server = manifest.mcpServers[0];
     if (!server || !mcpServerHasPlaintextSecret(server)) continue;
@@ -650,7 +650,7 @@ export async function backfillMcpManifestCapabilities(
   let scanned = 0;
   for (const row of rows) {
     const manifest = row.manifest as ExtensionManifestV2 | null;
-    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    if (manifest?.kind !== "mcp" || !manifest.mcpServers?.length) continue;
     scanned += 1;
     // Already declared — nothing to heal. Keeps the pass idempotent across
     // reboots and leaves a hand-narrowed ceiling untouched. Both keys are

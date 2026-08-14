@@ -285,7 +285,7 @@ export function redactMcpServer(server: McpServerDefinition): McpServerDefinitio
  */
 export function redactExtensionSecrets<T extends { manifest: unknown }>(ext: T): T {
   const manifest = ext.manifest as ExtensionManifestV2 | null;
-  if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) return ext;
+  if (manifest?.kind !== "mcp" || !manifest.mcpServers?.length) return ext;
   return {
     ...ext,
     manifest: { ...manifest, mcpServers: manifest.mcpServers.map(redactMcpServer) },
