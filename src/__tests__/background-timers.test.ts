@@ -3,6 +3,15 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
 
+/**
+ * The real `db/queries/audit-log` module, captured before the mock below
+ * shadows it. Only `cleanupOldAuditLog` is stubbed; `resolveAuditRetentionDays`
+ * and the constants come through untouched so the retention-knob tests
+ * exercise production's resolver. Importing it is inert — every query in
+ * that module calls `getDb()` lazily.
+ */
+const realAuditLog = await import("../db/queries/audit-log");
+
 // ── Shared test state ─────────────────────────────────────────────
 
 let intervalCalls: Array<{ fn: (...args: unknown[]) => void; delay: number }> = [];
@@ -13,6 +22,11 @@ let startDecayTimerMock = mock(() => () => {});
 let runCompactionMock = mock(() => Promise.resolve());
 let deleteExpiredSessionsMock = mock(() => Promise.resolve());
 let cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
+// #206: audit_log retention sweep. Only the SWEEP is stubbed — the real
+// `resolveAuditRetentionDays` + constants are spread through from the real
+// module below, so the env-override test drives production's resolver
+// rather than a re-implementation of it that could drift.
+let cleanupOldAuditLogMock = mock((_retainDays: number) => Promise.resolve(0));
 let cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
   llmDays: number;
   memoryDays: number;
@@ -79,7 +93,7 @@ let lastPermSweepDaemonInstance: object | undefined;
 // which belong in this wiring-focused suite (its per-class coverage lives
 // in src/__tests__/embed-worker.test.ts). The stub's start() resolves true
 // and registers NO interval, so the `intervalCalls` length assertions stay
-// at 4. Per-test swaps to `embedWorkerStartMock` cover the failure-isolation
+// at 5. Per-test swaps to `embedWorkerStartMock` cover the failure-isolation
 // paths (start() returns false; start() throws).
 let embedWorkerCtorMock = mock(() => {});
 let embedWorkerStartMock = mock(() => Promise.resolve<boolean>(true));
@@ -93,7 +107,7 @@ let lastEmbedWorkerInstance: object | undefined;
 // wiring suite (its per-class coverage lives in
 // src/__tests__/file-organizer-daemon.test.ts). The stub's start() resolves
 // true and registers NO interval, so the intervalCalls length assertions
-// stay at 4. The `getExtensionByName` + settings/engine/page-cache deps the
+// stay at 5. The `getExtensionByName` + settings/engine/page-cache deps the
 // bootstrap dynamic-imports are stubbed inert so the block doesn't reach the
 // DB. Per-test swaps to `fileOrgDaemonStartMock` / `fileOrgExtMock` cover the
 // failure-isolation + gating paths (not installed; disabled; start throws).
@@ -135,7 +149,7 @@ let githubDaemonStubSingleton: object | null = null;
 // this wiring suite (its per-class coverage lives in
 // src/__tests__/preview-port-watcher.test.ts). The stub's start() resolves
 // true and registers NO interval, so the `intervalCalls` length assertions
-// stay at 4. Per-test swaps to `previewWatcherStartMock` cover the
+// stay at 5. Per-test swaps to `previewWatcherStartMock` cover the
 // failure-isolation paths (start() returns false; start() throws). The
 // source (NetnsPortSource) and consent router (decideOnDetection) the
 // bootstrap also imports are stubbed to inert no-ops so neither pulls in
@@ -209,6 +223,10 @@ function installModuleMocks(): void {
   }));
   mock.module("../db/queries/error-logs", () => ({
     cleanupOldErrors: (retainDays: number) => cleanupOldErrorsMock(retainDays),
+  }));
+  mock.module("../db/queries/audit-log", () => ({
+    ...realAuditLog,
+    cleanupOldAuditLog: (retainDays: number) => cleanupOldAuditLogMock(retainDays),
   }));
   mock.module("../db/queries/sdk-capability-calls", () => ({
     cleanupOldSdkCapabilityCalls: (cfg: {
@@ -315,7 +333,7 @@ function installModuleMocks(): void {
   // Phase 64: stub the EmbedWorker for the same reason — its per-class
   // lifecycle/ING coverage lives in src/__tests__/embed-worker.test.ts, and
   // standing up the real daemon here would acquire a lockfile, hit getDb(),
-  // and arm a 5th setInterval (breaking the intervalCalls length assertions).
+  // and arm a 6th setInterval (breaking the intervalCalls length assertions).
   mock.module("../extensions/embed-worker", () => ({
     EmbedWorker: class {
       constructor() {
@@ -369,7 +387,7 @@ function installModuleMocks(): void {
   // github-projects: stub the GithubProjectsDaemon for the same reason — its
   // per-class coverage lives in
   // src/integrations/github-projects/__tests__/daemon.test.ts, and the real
-  // daemon would arm a 5th setInterval (breaking the intervalCalls length
+  // daemon would arm a 6th setInterval (breaking the intervalCalls length
   // assertions). The stub's start() returns true and registers NO interval.
   // Export the FULL module surface (not just the class) so this stub can't
   // freeze `../integrations/github-projects/daemon` to a partial shape and break
@@ -504,6 +522,7 @@ beforeEach(async () => {
   runCompactionMock = mock(() => Promise.resolve());
   deleteExpiredSessionsMock = mock(() => Promise.resolve());
   cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
+  cleanupOldAuditLogMock = mock((_retainDays: number) => Promise.resolve(0));
   cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
     llmDays: number;
     memoryDays: number;
@@ -599,14 +618,15 @@ describe("startBackgroundTimers", () => {
     // which we stubbed — it would return 0 but the mock still counts the call)
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
 
-    // Four setIntervals are registered directly: sessions, error-logs,
+    // Five setIntervals are registered directly: sessions, error-logs,
     // sdk-capability-calls retention sweep (Phase 50), compaction.
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
     const hourMs = 60 * 60 * 1000;
     expect(intervalCalls[0]!.delay).toBe(hourMs);          // sessions hourly
     expect(intervalCalls[1]!.delay).toBe(hourMs);          // error-logs hourly
-    expect(intervalCalls[2]!.delay).toBe(hourMs);          // sdk-capability sweep hourly
-    expect(intervalCalls[3]!.delay).toBe(6 * hourMs);      // compaction 6h default
+    expect(intervalCalls[2]!.delay).toBe(hourMs);          // audit-log retention hourly (#206)
+    expect(intervalCalls[3]!.delay).toBe(hourMs);          // sdk-capability sweep hourly
+    expect(intervalCalls[4]!.delay).toBe(6 * hourMs);      // compaction 6h default
 
     // Success logs fired with structured fields
     expect(loggerInfoMock).toHaveBeenCalledWith("Decay sweep started", { intervalHours: 1 });
@@ -623,7 +643,7 @@ describe("startBackgroundTimers", () => {
 
     // All three calls combined should still equal the first-call results
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("decay timer failure is logged but compaction still starts", async () => {
@@ -639,9 +659,9 @@ describe("startBackgroundTimers", () => {
       { error: String(new Error("boom")) },
     );
 
-    // Compaction block still ran — 4 setIntervals (sessions, errors,
+    // Compaction block still ran — 5 setIntervals (sessions, errors, audit-log,
     // sdk-capability sweep, compaction)
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 6 });
   });
 
@@ -655,10 +675,10 @@ describe("startBackgroundTimers", () => {
     // Decay did start
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
 
-    // Three cleanup intervals were registered before the compaction
+    // Four cleanup intervals were registered before the compaction
     // block threw (sessions, error-logs, sdk-capability sweep); no
     // compaction interval was added
-    expect(intervalCalls).toHaveLength(3);
+    expect(intervalCalls).toHaveLength(4);
 
     expect(loggerWarnMock).toHaveBeenCalledWith(
       "Failed to start compaction timer",
@@ -678,7 +698,7 @@ describe("startBackgroundTimers", () => {
     await startBackgroundTimers();
 
     const hourMs = 60 * 60 * 1000;
-    const compactionCall = intervalCalls[3]!;
+    const compactionCall = intervalCalls[4]!;
     expect(compactionCall.delay).toBe(2 * hourMs);
 
     expect(loggerInfoMock).toHaveBeenCalledWith("Compaction started", { intervalHours: 2 });
@@ -750,7 +770,7 @@ describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
     expect(_getWorkflowRunnerForTests()).toBeDefined();
     // The stub arms none; this pins that the assertion above is about
     // wiring, not about the real daemon's two timers leaking in.
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("EZCORP_DISABLE_WORKFLOW_RUNNER=1 kill switch: never constructed", async () => {
@@ -778,7 +798,7 @@ describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
     expect(workflowRunnerCtorMock).toHaveBeenCalledTimes(1);
     // Dropped — see the block comment. This is the property, not the log.
     expect(_getWorkflowRunnerForTests()).toBeUndefined();
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
 
     // And because it was dropped, shutdown must not call stop() on it:
     // that would release the live sibling's claims and unlink its lockfile.
@@ -799,7 +819,7 @@ describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
     await startBackgroundTimers();
 
     expect(_getWorkflowRunnerForTests()).toBeUndefined();
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers AWAITS the runner's stop and clears the handle", async () => {
@@ -858,7 +878,7 @@ describe("startBackgroundTimers — WorkflowRunner bootstrap", () => {
 // the daemon is constructed + started + exposed, the kill-switch env
 // gate, and the two fail-safe branches (start() resolving false;
 // start() rejecting) — plus the load-bearing assertion that the new
-// daemon adds NO setInterval here (intervalCalls stays at 4).
+// daemon adds NO setInterval here (intervalCalls stays at 5).
 describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
   const PRIOR = process.env.EZCORP_DISABLE_BRIEFING_DAEMON;
   afterEach(() => {
@@ -879,8 +899,8 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
     expect(exposed).toBeDefined();
     expect(exposed).toBe(lastBriefingDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("BriefingDaemon started", undefined);
-    // The daemon stub adds NO setInterval — count unchanged at 4.
-    expect(intervalCalls).toHaveLength(4);
+    // The daemon stub adds NO setInterval — count unchanged at 5.
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("EZCORP_DISABLE_BRIEFING_DAEMON=1 kill switch: never constructed", async () => {
@@ -896,7 +916,7 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
       "BriefingDaemon disabled via EZCORP_DISABLE_BRIEFING_DAEMON",
       undefined,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() resolving false: handle is dropped, rest of boot ran", async () => {
@@ -911,7 +931,7 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
     expect(briefingDaemonStartMock).toHaveBeenCalledTimes(1);
     expect(mod._getBriefingDaemonForTests()).toBeUndefined();
     expect(loggerInfoMock).not.toHaveBeenCalledWith("BriefingDaemon started", undefined);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
@@ -930,7 +950,7 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
       "Failed to start BriefingDaemon",
       { error: String(bootErr) },
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
@@ -956,7 +976,7 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
 // Loops EZ Mode Phase 4 — bootstrap wiring for WebhookDeliveryDaemon. Mirrors
 // the BriefingDaemon block: assert the daemon is constructed + started +
 // exposed, the kill-switch env gate, teardown, and that it adds NO setInterval
-// here (intervalCalls stays at 4).
+// here (intervalCalls stays at 5).
 describe("startBackgroundTimers — WebhookDeliveryDaemon bootstrap", () => {
   const PRIOR = process.env.EZCORP_DISABLE_WEBHOOK_DAEMON;
   afterEach(() => {
@@ -976,7 +996,7 @@ describe("startBackgroundTimers — WebhookDeliveryDaemon bootstrap", () => {
     expect(exposed).toBeDefined();
     expect(exposed).toBe(lastWebhookDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("WebhookDeliveryDaemon started", undefined);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("EZCORP_DISABLE_WEBHOOK_DAEMON=1 kill switch: never constructed", async () => {
@@ -992,7 +1012,7 @@ describe("startBackgroundTimers — WebhookDeliveryDaemon bootstrap", () => {
       "WebhookDeliveryDaemon disabled via EZCORP_DISABLE_WEBHOOK_DAEMON",
       undefined,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
@@ -1085,7 +1105,7 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
     // The rest of boot still executed — the four prior intervals
     // (sessions, errors, sdk-capability sweep, compaction) are all
     // present. (Surface audit defaults to 0h = disabled.)
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
@@ -1113,7 +1133,7 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
       { error: String(bootErr) },
     );
     // Other boot work was unaffected.
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 });
 
@@ -1160,7 +1180,7 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
       expect.any(Object) as never,
     );
     // The four prior intervals are intact (boot continued).
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
@@ -1179,7 +1199,7 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
       "Failed to start EmbedWorker",
       { error: String(bootErr) },
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the worker", async () => {
@@ -1207,7 +1227,7 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
 // constructed ONLY when the extension is installed+enabled (getExtensionByName
 // non-null) AND its `daemon_enabled` setting is true. The load-bearing
 // assertion from the prior daemon-wiring incident: the daemon's stub
-// registers NO setInterval, so intervalCalls stays at 4.
+// registers NO setInterval, so intervalCalls stays at 5.
 describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
   test("happy-path: daemon constructed, started, exposed; no 5th interval", async () => {
     installModuleMocks();
@@ -1221,7 +1241,7 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
     expect(exposed).toBeDefined();
     expect(exposed).toBe(lastFileOrgDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("FileOrganizerDaemon started", undefined);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("extension not installed: daemon never constructed, boot continues", async () => {
@@ -1233,7 +1253,7 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
 
     expect(fileOrgDaemonCtorMock).not.toHaveBeenCalled();
     expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("extension installed but disabled: daemon never constructed", async () => {
@@ -1256,7 +1276,7 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
 
     expect(fileOrgDaemonCtorMock).toHaveBeenCalledTimes(1);
     expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() rejecting: handle dropped, log.warn carries the error", async () => {
@@ -1272,7 +1292,7 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
       "Failed to start FileOrganizerDaemon",
       { error: String(bootErr) },
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
@@ -1300,7 +1320,7 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
 // throws → handle dropped + warn logged). NB this daemon's start() is
 // SYNCHRONOUS (boolean, not a Promise). The load-bearing assertion from the
 // prior daemon-wiring incident: the daemon's stub registers NO setInterval, so
-// intervalCalls stays at 4.
+// intervalCalls stays at 5.
 describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
   test("happy-path bootstrap: GithubProjectsDaemon is instantiated, started, and exposed", async () => {
     installModuleMocks();
@@ -1314,7 +1334,7 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     expect(exposed).toBeDefined();
     expect(exposed).toBe(lastGithubDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("bootstrap uses the MODULE SINGLETON — the poll-now RPC path's accessor returns the SAME instance", async () => {
@@ -1354,8 +1374,8 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
 
     expect(githubReconcileMock).toHaveBeenCalledTimes(1);
     expect(order).toEqual(["reconcile", "start"]);
-    // The sweep registers NO setInterval — count unchanged at 4.
-    expect(intervalCalls).toHaveLength(4);
+    // The sweep registers NO setInterval — count unchanged at 5.
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("sweep rejection does NOT prevent the daemon start (warn logged, boot continues)", async () => {
@@ -1381,7 +1401,7 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
       "Failed to start GithubProjectsDaemon",
       expect.any(Object) as never,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() returning false (kill-switch): handle is dropped, boot continues", async () => {
@@ -1399,7 +1419,7 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
       "Failed to start GithubProjectsDaemon",
       expect.any(Object) as never,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() throwing: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
@@ -1417,7 +1437,7 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
       "Failed to start GithubProjectsDaemon",
       { error: String(bootErr) },
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the daemon", async () => {
@@ -1445,7 +1465,7 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
 // branches (start() resolving false; start() rejecting) both drop the
 // handle without crashing boot, AND — the load-bearing assertion from the
 // prior daemon-wiring incident — the new daemon must NOT add a 5th
-// setInterval (its stub registers none), so intervalCalls stays at 4.
+// setInterval (its stub registers none), so intervalCalls stays at 5.
 describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
   test("happy-path bootstrap: PreviewPortWatcher is instantiated, started, and exposed", async () => {
     installModuleMocks();
@@ -1459,9 +1479,9 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
     expect(exposed).toBeDefined();
     expect(exposed).toBe(lastPreviewWatcherInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("PreviewPortWatcher started", undefined);
-    // The watcher adds NO setInterval — interval count is unchanged at 4
+    // The watcher adds NO setInterval — interval count is unchanged at 5
     // (sessions, errors, sdk-capability sweep, compaction).
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() resolving false: handle is dropped, no exception bubbles, rest of boot ran", async () => {
@@ -1479,7 +1499,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       "Failed to start PreviewPortWatcher",
       expect.any(Object) as never,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
@@ -1497,7 +1517,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       "Failed to start PreviewPortWatcher",
       { error: String(bootErr) },
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("stopBackgroundTimers() and _resetForTests() tear down the watcher", async () => {
@@ -1523,7 +1543,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
   // The default stub pins mode "static", so only the NetnsPortSource arm was
   // ever exercised. These two variants drive BOTH arms and assert (a) the
   // right source class was constructed and (b) the selection log names it —
-  // while keeping the load-bearing intervalCalls length at 4 (the watcher
+  // while keeping the load-bearing intervalCalls length at 5 (the watcher
   // registers NO setInterval; prior daemon-wiring incident).
   test("capability mode 'uid' selects ProcPortSource (not Netns)", async () => {
     previewCapabilitiesMock = mock(() => ({
@@ -1546,7 +1566,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       expect.objectContaining({ mode: "uid", source: "ProcPortSource" }) as never,
     );
     // The watcher still registers no interval — count unchanged.
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("capability mode 'static' selects NetnsPortSource (default fail-closed arm)", async () => {
@@ -1563,7 +1583,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       "PreviewPortWatcher source selected by capability mode",
       expect.objectContaining({ mode: "static", source: "NetnsPortSource" }) as never,
     );
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   // Phase 3b — idle-reap wiring (audit nice-to-have F). Assert the bootstrap
@@ -1571,7 +1591,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
   // reaped), (b) parses EZCORP_PREVIEW_IDLE_REAP_TICKS per the documented
   // contract (unset→30, "0"→0-disabled, "abc"→30), and (c) exposes the live
   // watcher via the production accessor getPreviewPortWatcher(). The watcher
-  // adds NO setInterval, so intervalCalls stays at 4 throughout.
+  // adds NO setInterval, so intervalCalls stays at 5 throughout.
   describe("idle-reap config wiring", () => {
     const PRIOR = process.env.EZCORP_PREVIEW_IDLE_REAP_TICKS;
     afterEach(() => {
@@ -1589,7 +1609,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(30);
       // onIdleReap is wired (a function, not undefined).
       expect(typeof lastPreviewWatcherConfig!.onIdleReap).toBe("function");
-      expect(intervalCalls).toHaveLength(4);
+      expect(intervalCalls).toHaveLength(5);
     });
 
     test('idleReapTicks "0" disables idle reaping (parsed to 0)', async () => {
@@ -1598,7 +1618,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       const mod = await import("../startup/background-timers");
       await mod.startBackgroundTimers();
       expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(0);
-      expect(intervalCalls).toHaveLength(4);
+      expect(intervalCalls).toHaveLength(5);
     });
 
     test('a non-numeric idleReapTicks ("abc") falls back to 30', async () => {
@@ -1607,7 +1627,7 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       const mod = await import("../startup/background-timers");
       await mod.startBackgroundTimers();
       expect(lastPreviewWatcherConfig!.idleReapTicks).toBe(30);
-      expect(intervalCalls).toHaveLength(4);
+      expect(intervalCalls).toHaveLength(5);
     });
 
     test("getPreviewPortWatcher() exposes the live watcher (production accessor)", async () => {
@@ -1620,6 +1640,93 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
       expect(live).toBeDefined();
       expect(live).toBe(mod._getPreviewPortWatcherForTests() as never);
       expect(live).toBe(lastPreviewWatcherInstance as never);
+    });
+  });
+});
+
+// #206: audit_log retention-sweep wiring. `audit_log` had NO sweep — the
+// table grew for the life of the instance — while every table beside it was
+// pruned. These cases pin that the timer is ARMED and that its tick
+// actually calls the sweep: deleting the `cleanupOldAuditLog(...)` call
+// reds the first test, and deleting the whole interval reds every
+// `intervalCalls` length assertion in this file.
+describe("startBackgroundTimers — audit_log retention sweep (#206)", () => {
+  const PRIOR = process.env.EZCORP_AUDIT_RETENTION_DAYS;
+  afterEach(() => {
+    if (PRIOR === undefined) delete process.env.EZCORP_AUDIT_RETENTION_DAYS;
+    else process.env.EZCORP_AUDIT_RETENTION_DAYS = PRIOR;
+  });
+
+  test("an hourly tick sweeps audit_log with the 180-day default", async () => {
+    delete process.env.EZCORP_AUDIT_RETENTION_DAYS;
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    // Third interval registered — right after sessions + error-logs, the
+    // sweep it is modelled on.
+    const sweep = intervalCalls[2]!;
+    expect(sweep.delay).toBe(60 * 60 * 1000);
+    // Armed but not yet fired.
+    expect(cleanupOldAuditLogMock).toHaveBeenCalledTimes(0);
+
+    sweep.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cleanupOldAuditLogMock).toHaveBeenCalledTimes(1);
+    expect(cleanupOldAuditLogMock.mock.calls[0]![0]).toBe(180);
+    // The effective window is logged, so an operator can confirm the knob
+    // took without reading the table.
+    expect(loggerInfoMock).toHaveBeenCalledWith("Audit-log retention sweep started", {
+      retentionDays: 180,
+    });
+  });
+
+  test("EZCORP_AUDIT_RETENTION_DAYS overrides the window", async () => {
+    process.env.EZCORP_AUDIT_RETENTION_DAYS = "365";
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[2]!.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cleanupOldAuditLogMock.mock.calls[0]![0]).toBe(365);
+    expect(loggerInfoMock).toHaveBeenCalledWith("Audit-log retention sweep started", {
+      retentionDays: 365,
+    });
+  });
+
+  test("a nonsense knob keeps the default rather than purging", async () => {
+    // Fail-safe direction: `=0` reads as "keep forever", and must never
+    // become "delete everything older than today".
+    process.env.EZCORP_AUDIT_RETENTION_DAYS = "0";
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[2]!.fn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(cleanupOldAuditLogMock.mock.calls[0]![0]).toBe(180);
+  });
+
+  test("a sweep failure is logged and does not crash the timer", async () => {
+    cleanupOldAuditLogMock = mock(() => Promise.reject(new Error("db down")));
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(() => intervalCalls[2]!.fn()).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loggerWarnMock).toHaveBeenCalledWith("audit-log cleanup failed", {
+      error: String(new Error("db down")),
     });
   });
 });
@@ -1639,7 +1746,7 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
     await startBackgroundTimers();
 
     // Sweep is the third interval registered (after sessions + errors).
-    const sweepCall = intervalCalls[2]!;
+    const sweepCall = intervalCalls[3]!;
     const hourMs = 60 * 60 * 1000;
     expect(sweepCall.delay).toBe(hourMs);
 
@@ -1670,7 +1777,7 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
     const { startBackgroundTimers } = await import("../startup/background-timers");
     await startBackgroundTimers();
 
-    intervalCalls[2]!.fn();
+    intervalCalls[3]!.fn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(cleanupOldSdkCapabilityCallsMock).toHaveBeenCalledTimes(1);
@@ -1689,7 +1796,7 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
     const { startBackgroundTimers } = await import("../startup/background-timers");
     await startBackgroundTimers();
 
-    intervalCalls[2]!.fn();
+    intervalCalls[3]!.fn();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const arg = cleanupOldSdkCapabilityCallsMock.mock.calls[0]![0]!;
@@ -1703,7 +1810,7 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
     const { startBackgroundTimers } = await import("../startup/background-timers");
     await startBackgroundTimers();
 
-    intervalCalls[2]!.fn();
+    intervalCalls[3]!.fn();
     // Two microtask flushes: one for the inner async IIFE, one for the
     // .catch() handler that follows.
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1720,7 +1827,7 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
 // lazy-importing ../memory/embeddings and fire-and-forgetting warmupEmbeddings()
 // so the MiniLM model loads at boot instead of blocking the first suggest
 // request. Because it is fire-and-forget it registers NO setInterval — the
-// load-bearing intervalCalls length stays at 4 (prior daemon-wiring incident).
+// load-bearing intervalCalls length stays at 5 (prior daemon-wiring incident).
 // The throwing-warmup case guards the never-block-boot contract: a broken model
 // load must not stop the maintenance timers/daemons below from arming.
 describe("startBackgroundTimers — embedding warm-up", () => {
@@ -1733,7 +1840,7 @@ describe("startBackgroundTimers — embedding warm-up", () => {
     expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
     expect(loggerInfoMock).toHaveBeenCalledWith("Embedding warmup kicked", undefined);
     // Fire-and-forget → no 5th interval.
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("repeated start() calls kick the warm-up only once (idempotent)", async () => {
@@ -1746,7 +1853,7 @@ describe("startBackgroundTimers — embedding warm-up", () => {
 
     // The started-guard short-circuits the 2nd/3rd calls before the warm-up.
     expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
   });
 
   test("a throwing warm-up is logged but never blocks boot (timers + daemons still start)", async () => {
@@ -1769,7 +1876,7 @@ describe("startBackgroundTimers — embedding warm-up", () => {
     // Boot continued past the failed warm-up: decay started, all four
     // intervals armed, and a downstream daemon was still constructed.
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
-    expect(intervalCalls).toHaveLength(4);
+    expect(intervalCalls).toHaveLength(5);
     expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
   });
 });

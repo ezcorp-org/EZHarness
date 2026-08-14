@@ -8,7 +8,9 @@
  *
  * Stats strip aggregates over the 24h window:
  *   - denialCount: SUM(success=false) over sdk_capability_calls PLUS the
- *     `ext:perm:denied` PDP rows in audit_log (two sources, no overlap)
+ *     `ext:perm:denied` PDP DECISIONS in audit_log (two sources, no
+ *     overlap). Decisions, not rows: a coalesced tail row stands for
+ *     `metadata.suppressed` refusals that got no row of their own (#206).
  *   - top-3 chattiest extensions by call count
  *   - top-3 LLM spenders by extension (cost_usd is approximate; the
  *     UI carries the same disclaimer the per-extension stats strip does)
@@ -259,8 +261,25 @@ export async function globalStats(rangeMs: number): Promise<GlobalStats> {
   // query already found. A PDP decision has no capability-call row — it is a
   // tool-call authorization, not an SDK call — which is exactly why it was
   // missing and why adding it is additive rather than duplicative.
+  // Counts DECISIONS, not rows (#206). A repeated identical refusal is
+  // burst-coalesced by `perm-audit-coalescer.ts`: the first is written
+  // verbatim and the tail becomes ONE row carrying `metadata.suppressed`.
+  // `COUNT(*)` would therefore report a looping agent's 250 refusals against
+  // a revoked MCP server as 2 — the headline card an operator watches would
+  // go DOWN as the problem got worse.
+  //
+  // A tail row contributes `suppressed` (the decisions that got no row of
+  // their own); every other row contributes 1, including the verbatim head
+  // that opened the window. Deliberately NOT `totalInWindow`, which counts
+  // the head as well and would double it. The regex guard keeps a
+  // hand-written or corrupted metadata value from breaking the cast.
   const pdpRows = await getDb().execute(sql`
-    SELECT COUNT(*)::int AS pdp_denials
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN metadata->>'suppressed' ~ '^[0-9]+$' THEN (metadata->>'suppressed')::int
+        ELSE 1
+      END
+    ), 0)::int AS pdp_denials
     FROM audit_log
     WHERE created_at >= ${since.toISOString()}
       AND action = ${AUDIT_PERM_DENIED}

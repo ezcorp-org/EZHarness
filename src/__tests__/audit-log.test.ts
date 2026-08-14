@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => {
   const { eq } = require("drizzle-orm");
@@ -39,8 +39,18 @@ mock.module("../db/queries/settings", () => {
 
 mockDbConnection();
 
-import { insertAuditEntry, listAuditLog } from "../db/queries/audit-log";
+import {
+  AUDIT_RETENTION_ENV,
+  cleanupOldAuditLog,
+  DEFAULT_AUDIT_RETENTION_DAYS,
+  insertAuditEntry,
+  listAuditLog,
+  resolveAuditRetentionDays,
+} from "../db/queries/audit-log";
 import { createUser } from "../db/queries/users";
+import { auditLog } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { join } from "node:path";
 
 let userId: string;
 
@@ -253,5 +263,140 @@ describe("listAuditLog", () => {
     expect(typeof entry.action).toBe("string");
     expect(entry.createdAt).toBeInstanceOf(Date);
     // userId, target, metadata are nullable
+  });
+});
+
+// ── retention sweep (#206) ────────────────────────────────────────────
+//
+// `audit_log` had no sweep at all — unlike `error_logs`, which
+// `background-timers.ts` prunes hourly — so the table grew for the life of
+// the instance. These cases pin BEHAVIOUR (which rows survive a sweep),
+// not just the constant: asserting a constants object proves the constant
+// exists, never that anything uses it.
+
+/** Insert a row and backdate it, so a sweep has something old to find. */
+async function agedEntry(action: string, daysAgo: number): Promise<string> {
+  const id = await insertAuditEntry(userId, action);
+  const at = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  await getTestDb().update(auditLog).set({ createdAt: at }).where(eq(auditLog.id, id));
+  return id;
+}
+
+async function exists(id: string): Promise<boolean> {
+  const rows = await getTestDb()
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(eq(auditLog.id, id));
+  return rows.length === 1;
+}
+
+describe("resolveAuditRetentionDays", () => {
+  test("an unset or empty knob means the default window", () => {
+    expect(resolveAuditRetentionDays(undefined)).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    expect(resolveAuditRetentionDays("")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    expect(resolveAuditRetentionDays("   ")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+  });
+
+  test("the documented default is 180 days — longer than any telemetry table", () => {
+    // error_logs keeps 30; the longest SDK bucket keeps 90. The governance
+    // record earns more than the telemetry beside it.
+    expect(DEFAULT_AUDIT_RETENTION_DAYS).toBe(180);
+    expect(AUDIT_RETENTION_ENV).toBe("EZCORP_AUDIT_RETENTION_DAYS");
+  });
+
+  test("a plain number is honoured, fractions floor", () => {
+    expect(resolveAuditRetentionDays("30")).toBe(30);
+    expect(resolveAuditRetentionDays("365")).toBe(365);
+    expect(resolveAuditRetentionDays("45.9")).toBe(45);
+  });
+
+  test("garbage, zero and negatives keep the DEFAULT rather than clamping to 1", () => {
+    // The fail-safe direction. `=0` is what an operator writes meaning
+    // "keep forever"; clamping it to 1 would purge all but today's
+    // governance record, which is the one outcome this knob must never
+    // produce by accident.
+    expect(resolveAuditRetentionDays("abc")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    expect(resolveAuditRetentionDays("0")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    expect(resolveAuditRetentionDays("-5")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    expect(resolveAuditRetentionDays("NaN")).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+  });
+
+  test("the ceiling is the shared SQL-interval bound, not a new one", () => {
+    // `safeIntervalCount` clamps at 3650, so a bigger number here would
+    // mean something different from what the interval means.
+    expect(resolveAuditRetentionDays("99999")).toBe(3650);
+    expect(resolveAuditRetentionDays("3650")).toBe(3650);
+  });
+
+  test("the extension detail panel quotes THIS default, not a stale copy of it", async () => {
+    // The Audit Trail panel tells an admin the window in prose. Prose and
+    // a constant drift silently, and the panel is the only place a
+    // non-operator learns that rows expire at all.
+    //
+    // Read as TEXT, never imported: a `bun:test` under src/ that imports a
+    // module the vitest coverage leg also measures poisons the merged lcov
+    // (see the merge trap in CLAUDE.md).
+    // `import.meta.dir` + join, NOT `new URL(...).pathname` — the route
+    // path contains `[id]`, which URL percent-encodes into a path that
+    // does not exist.
+    const panel = await Bun.file(
+      join(import.meta.dir, "..", "..", "web/src/routes/(app)/extensions/[id]/+page.svelte"),
+    ).text();
+    const note = panel.match(/audit retention window \((\d+) days by default\)/);
+    expect(note, "the retention sentence is gone from the Audit Trail panel").not.toBeNull();
+    expect(Number(note![1])).toBe(DEFAULT_AUDIT_RETENTION_DAYS);
+    // The other half of the same sentence: a folded row stands for many, so
+    // the panel must say the count is on the row.
+    expect(panel).toContain("folded into one row that carries the count");
+  });
+});
+
+describe("cleanupOldAuditLog", () => {
+  test("deletes rows past the default window and keeps everything inside it", async () => {
+    const ancient = await agedEntry("retention.ancient", DEFAULT_AUDIT_RETENTION_DAYS + 20);
+    const justOver = await agedEntry("retention.just-over", DEFAULT_AUDIT_RETENTION_DAYS + 1);
+    const justUnder = await agedEntry("retention.just-under", DEFAULT_AUDIT_RETENTION_DAYS - 1);
+    const fresh = await insertAuditEntry(userId, "retention.fresh");
+
+    const deleted = await cleanupOldAuditLog();
+
+    expect(deleted).toBeGreaterThanOrEqual(2);
+    expect(await exists(ancient)).toBe(false);
+    expect(await exists(justOver)).toBe(false);
+    // The boundary the other direction — a sweep that took this row would
+    // be silently shortening the forensic window.
+    expect(await exists(justUnder)).toBe(true);
+    expect(await exists(fresh)).toBe(true);
+  });
+
+  test("an explicit shorter window is respected", async () => {
+    // This file shares one DB, so drain the backdated rows the case above
+    // left behind first — otherwise the exact count below would measure
+    // the neighbours instead of this sweep.
+    await cleanupOldAuditLog(1);
+    const old = await agedEntry("retention.override.old", 3);
+    const recent = await agedEntry("retention.override.recent", 1 / 24);
+
+    const deleted = await cleanupOldAuditLog(2);
+
+    expect(deleted).toBe(1);
+    expect(await exists(old)).toBe(false);
+    expect(await exists(recent)).toBe(true);
+  });
+
+  test("a nonsense window keeps the default rather than purging", async () => {
+    const recent = await agedEntry("retention.bad-window", 5);
+
+    // 0 would be "delete everything older than now" if it reached the SQL.
+    const deleted = await cleanupOldAuditLog(0);
+
+    expect(deleted).toBe(0);
+    expect(await exists(recent)).toBe(true);
+  });
+
+  test("a sweep with nothing stale deletes nothing and returns 0", async () => {
+    const fresh = await insertAuditEntry(userId, "retention.noop");
+    expect(await cleanupOldAuditLog(3650)).toBe(0);
+    expect(await exists(fresh)).toBe(true);
   });
 });
