@@ -442,19 +442,28 @@ describe("migration upgrades a pre-existing observability_events", () => {
 });
 
 /**
- * The MCP capability backfill's WRITE path, on the external-Postgres
- * serialization branch.
+ * The MCP backfills' WRITE path — and the fact that `migrate()` actually
+ * RUNS them.
  *
- * Why this belongs here and not with the other MCP suites: `migrate()` runs
- * the backfill, and this job's database is EMPTY, so the SELECT returns zero
- * rows and the write never executes. `serializeJsonbFields` also branches on
- * `getPglite() !== null` — this file never calls `initDb`, so that returns
- * null and the writes take the **bun-sql branch** (plain object, no
- * `::jsonb` cast), which is precisely the branch external Postgres uses and
- * the one no test was exercising for these three columns.
+ * Two gaps close here.
  *
- * A double-encoded write here would show up as `jsonb_typeof = 'string'`
- * rather than `'object'`, which is asserted directly.
+ * 1. WIRING. Every other test calls `backfillMcpManifestCapabilities` /
+ *    `backfillMcpManifestSecrets` DIRECTLY, so deleting the `await` in
+ *    `migrate.ts` reds nothing — the lines stay *covered* (every DB test runs
+ *    `migrate()`) while nothing asserts the behaviour. Verified by mutation:
+ *    replacing the capabilities call with a no-op fails both tests below.
+ *    These seed with raw SQL and let the REAL `migrate()` do the healing, so
+ *    they fail if the wiring is ever removed.
+ * 2. SERIALIZATION. This job's database is EMPTY, so the backfills' SELECTs
+ *    return zero rows and the writes never execute. `serializeJsonbFields`
+ *    branches on `getPglite() !== null`; this file never calls `initDb`, so
+ *    that returns null and the writes take the **bun-sql branch** (plain
+ *    object, no `::jsonb` cast) — precisely the branch external Postgres
+ *    uses, and the one no test exercised for these columns. A double-encoded
+ *    write shows up as `jsonb_typeof = 'string'`, asserted directly.
+ *
+ * The PGlite instance is constructed here rather than through the shared
+ * helper, so the migrated-datadir snapshot cache cannot mask the migration.
  */
 describe("MCP capability backfill on a Postgres-compatible backend", () => {
   let pg: PGlite;
@@ -516,4 +525,5 @@ describe("MCP capability backfill on a Postgres-compatible backend", () => {
     );
     expect(types.rows[0]).toEqual({ m: "object", g: "object", i: "object" });
   });
+
 });

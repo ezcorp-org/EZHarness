@@ -47,20 +47,34 @@ function mcpExt(opts: { args: string[]; network: string[]; granted: string[] }) 
 					name: "search",
 					description: "Search pages",
 					inputSchema: {},
-					// The declaration the PDP turns into the needed-cap set.
-					capabilities: opts.network.length > 0 ? { network: { hosts: opts.network } } : {},
+					// The declaration the PDP turns into the needed-cap set. The
+					// `ezcorp:mcp:invoke` sentinel is present even when no host is
+					// declared — an empty declaration flattens to an empty needed set,
+					// which `firstMissingCapability` can never fail.
+					capabilities: {
+						...(opts.network.length > 0 ? { network: { hosts: opts.network } } : {}),
+						custom: { "ezcorp:mcp:invoke": true },
+					},
 				},
 			],
-			permissions: { network: opts.network },
+			permissions: { network: opts.network, mcpInvoke: true },
 		},
 		grantedPermissions:
 			opts.granted.length > 0
-				? { network: opts.granted, grantedAt: { network: 1_700_000_000_000 } }
-				: { grantedAt: {} },
+				? {
+						network: opts.granted,
+						mcpInvoke: true,
+						grantedAt: { network: 1_700_000_000_000, mcpInvoke: 1_700_000_000_000 },
+					}
+				: { mcpInvoke: true, grantedAt: { mcpInvoke: 1_700_000_000_000 } },
 		installedPermissions:
 			opts.granted.length > 0
-				? { network: opts.granted, grantedAt: { network: 1_700_000_000_000 } }
-				: { grantedAt: {} },
+				? {
+						network: opts.granted,
+						mcpInvoke: true,
+						grantedAt: { network: 1_700_000_000_000, mcpInvoke: 1_700_000_000_000 },
+					}
+				: { mcpInvoke: true, grantedAt: { mcpInvoke: 1_700_000_000_000 } },
 		createdAt: "2026-01-01T00:00:00.000Z",
 	};
 }
