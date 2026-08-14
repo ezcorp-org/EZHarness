@@ -5,6 +5,9 @@ import { McpClient } from "$server/mcp/client";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
+import { buildMcpAuditMetadata, describeMcpServerForAudit } from "$server/extensions/mcp-audit";
 import { installMcpServerSchema } from "./schema";
 import type { RequestHandler } from "./$types";
 
@@ -47,6 +50,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       cachedTools,
     });
     await ExtensionRegistry.getInstance().reload();
+    // Audit AFTER the row exists, so the trail never claims an install that
+    // did not happen. `insertAuditEntry` never throws by contract; the guard
+    // matches the sibling install route and keeps an audit hiccup from
+    // failing a completed install.
+    try {
+      await insertAuditEntry(
+        locals.user?.id ?? null,
+        EXT_AUDIT_ACTIONS.MCP_SERVER_INSTALLED,
+        ext.id,
+        buildMcpAuditMetadata({
+          extensionName: ext.name,
+          actorUserId: locals.user?.id ?? "unknown",
+          reason: "mcp-install",
+          before: null,
+          after: describeMcpServerForAudit(server, cachedTools),
+        }),
+      );
+    } catch { /* non-fatal — audit is observability, not a gate */ }
     return json(ext, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "MCP install failed";

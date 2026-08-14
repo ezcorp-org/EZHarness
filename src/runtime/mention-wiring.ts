@@ -1,9 +1,10 @@
 import { realpath } from "node:fs/promises";
 import { parseMentions, STRUCTURED_NAME_CHAR_CLASS } from "../../web/src/lib/mention-logic";
 import type { InputField, InputSchema } from "../types";
-import { getExtensionsByNames } from "../db/queries/extensions";
+import { getExtension, getExtensionsByNames } from "../db/queries/extensions";
 import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
 import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
+import { loadWireActor, partitionWirableExtensions } from "../auth/extension-wire-authz";
 import { validatePath } from "./tools/validate";
 import { realpathInsideRoot } from "./fs/scan-fs";
 
@@ -978,13 +979,41 @@ export async function resolveMentionedTeams(
 }
 
 /**
+ * The acting principal for a wiring decision, as the chat turn knows it: the
+ * conversation OWNER's id (the route has already proved the sender owns the
+ * conversation) and the conversation's project.
+ *
+ * Both fields are nullable and both nulls are FAIL-CLOSED, not "any": a turn
+ * with no resolvable owner wires no MCP extension at all. Required rather
+ * than optional so a future call site cannot silently inherit the
+ * no-principal path.
+ */
+export interface MentionWireActor {
+  userId: string | null;
+  projectId: string | null;
+}
+
+/**
  * Parse mentions from a message and wire the referenced extensions into the
  * conversation so their tools become available.
+ *
+ * Authorization: every candidate — whether named directly by `![ext:…]` or
+ * pulled in through an `![agent:…]` config's `extensions` list — is put
+ * through `partitionWirableExtensions`. Gating the agent branch too is not
+ * belt-and-braces: an agent config's `extensions` array is user-authored, so
+ * skipping it would leave `![agent:mine]` as a one-hop bypass of the direct
+ * mention gate.
+ *
+ * A denied extension is dropped SILENTLY. That is the binding mention-grammar
+ * contract — an unknown target is a no-op, never an error — and it is also
+ * the non-leaking answer: an error would tell the sender that an extension by
+ * that name exists.
  */
 export async function wireMentionedExtensions(
   conversationId: string,
   messageContent: string,
   messageId: string,
+  actor: MentionWireActor,
 ): Promise<string[]> {
   const mentions = parseMentions(messageContent);
   if (mentions.length === 0) return [];
@@ -1022,12 +1051,27 @@ export async function wireMentionedExtensions(
 
   if (newIds.length === 0) return [];
 
+  // Re-read each candidate as a ROW so the gate sees the columns it decides
+  // on (kind / isBundled / creatorUserId). Reading by id also covers the
+  // agent branch uniformly, which only ever produced ids. A row that vanished
+  // since the name lookup simply drops out — strictly safer than wiring it.
+  const rows = await Promise.all(newIds.map(id => getExtension(id)));
+  const candidates = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (candidates.length === 0) return [];
+
+  const { allowed } = await partitionWirableExtensions(
+    candidates,
+    await loadWireActor(actor.userId, actor.projectId),
+  );
+  const wiredIds = allowed.map(ext => ext.id);
+  if (wiredIds.length === 0) return [];
+
   await addConversationExtensions(
     conversationId,
-    newIds.map(extensionId => ({ extensionId, messageId })),
+    wiredIds.map(extensionId => ({ extensionId, messageId })),
   );
 
-  return newIds;
+  return wiredIds;
 }
 
 // ─── Path mentions (files + directories) ───────────────────────────

@@ -1229,7 +1229,19 @@ export async function setupTools(
           projectId: options.projectId,
           pendingPermissions: host.pendingPermissions,
         });
-        await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
+        // The acting principal for the wire-authz gate is the conversation
+        // OWNER — the send route has already proved the sender owns this
+        // conversation, and `convRecord.userId` is the same identity every
+        // other on-behalf-of path here uses (`toolExec.setCurrentUserId`
+        // below). A sub-conversation carries `userId: null`, which the gate
+        // reads as "no principal" and so wires no MCP extension: correct,
+        // since a spawned run must inherit reach, never acquire it.
+        await wireMentionedExtensions(
+          conversationId,
+          userMessage,
+          options.parentMessageId ?? run.id,
+          { userId: convRecord?.userId ?? null, projectId: options.projectId ?? null },
+        );
         const convExtIds = await getConversationExtensionIds(conversationId);
         if (convExtIds.length > 0) {
           const registry = ExtensionRegistry.getInstance();

@@ -89,6 +89,24 @@ describe("wireMentionedExtensions", () => {
   const mockGetConvExtIds = mock(() => Promise.resolve([] as string[]));
   const mockAddConvExts = mock(() => Promise.resolve());
 
+  // Wire-authz re-reads each candidate as a ROW (it decides on
+  // kind / isBundled / creatorUserId, which the name-keyed Map does not
+  // carry). Rows registered here win; anything else synthesizes a plain
+  // NON-MCP row, because every test below is about mention parsing and
+  // dedupe rather than authorization — a non-MCP row is allowed by rule 2
+  // of the gate with zero DB hits, so those tests keep asserting exactly
+  // what they always asserted. The MCP cases register their rows
+  // explicitly.
+  let extRowsById = new Map<string, unknown>();
+  const mockGetExtension = mock(async (id: string) =>
+    extRowsById.get(id) ?? { id, name: id, manifest: {}, source: "local", isBundled: false, creatorUserId: null },
+  );
+
+  /** No acting user + no project: `loadWireActor` short-circuits without
+   *  touching the DB (none is mocked here), and every MCP candidate is
+   *  denied fail-closed. */
+  const NO_ACTOR = { userId: null, projectId: null };
+
   /**
    * Build a Map from name → row that the batch helpers would have
    * returned. Names not in the record are absent from the Map (matches
@@ -105,10 +123,13 @@ describe("wireMentionedExtensions", () => {
     mockGetAgentsByNames.mockClear();
     mockGetConvExtIds.mockClear();
     mockAddConvExts.mockClear();
+    mockGetExtension.mockClear();
+    extRowsById = new Map<string, unknown>();
 
     // Reset module mocks
     mock.module("../db/queries/extensions", () => ({
       getExtensionsByNames: mockGetExtsByNames,
+      getExtension: mockGetExtension,
     }));
     mock.module("../db/queries/agent-configs", () => ({
       getAgentConfigsByNames: mockGetAgentsByNames,
@@ -131,7 +152,7 @@ describe("wireMentionedExtensions", () => {
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
-    const result = await wire("conv-1", "![ext:analyzer] do stuff", "msg-1");
+    const result = await wire("conv-1", "![ext:analyzer] do stuff", "msg-1", NO_ACTOR);
 
     expect(mockGetExtsByNames).toHaveBeenCalledWith(["analyzer"]);
     expect(mockAddConvExts).toHaveBeenCalledWith("conv-1", [
@@ -147,7 +168,7 @@ describe("wireMentionedExtensions", () => {
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
-    const result = await wire("conv-1", "![agent:Helper] help", "msg-1");
+    const result = await wire("conv-1", "![agent:Helper] help", "msg-1", NO_ACTOR);
 
     expect(result).toEqual(expect.arrayContaining(["ext-a", "ext-b"]));
   });
@@ -157,7 +178,7 @@ describe("wireMentionedExtensions", () => {
     mockGetConvExtIds.mockResolvedValue(["ext-123"]);
 
     const wire = await loadWire();
-    const result = await wire("conv-1", "![ext:analyzer] do stuff", "msg-1");
+    const result = await wire("conv-1", "![ext:analyzer] do stuff", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
     expect(mockAddConvExts).not.toHaveBeenCalled();
@@ -165,7 +186,7 @@ describe("wireMentionedExtensions", () => {
 
   test("returns empty for no mentions", async () => {
     const wire = await loadWire();
-    const result = await wire("conv-1", "normal message", "msg-1");
+    const result = await wire("conv-1", "normal message", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
     expect(mockGetExtsByNames).not.toHaveBeenCalled();
@@ -174,7 +195,7 @@ describe("wireMentionedExtensions", () => {
   test("skips unknown extension names gracefully", async () => {
     mockGetExtsByNames.mockResolvedValueOnce(new Map() as any);
     const wire = await loadWire();
-    const result = await wire("conv-1", "![ext:nonexistent] stuff", "msg-1");
+    const result = await wire("conv-1", "![ext:nonexistent] stuff", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
   });
@@ -182,14 +203,14 @@ describe("wireMentionedExtensions", () => {
   test("skips unknown agent names gracefully", async () => {
     mockGetAgentsByNames.mockResolvedValueOnce(new Map() as any);
     const wire = await loadWire();
-    const result = await wire("conv-1", "![agent:Unknown] stuff", "msg-1");
+    const result = await wire("conv-1", "![agent:Unknown] stuff", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
   });
 
   test("ignores @[file:…] mentions (does not wire any extension)", async () => {
     const wire = await loadWire();
-    const result = await wire("conv-1", "read @[file:src/app.ts]", "msg-1");
+    const result = await wire("conv-1", "read @[file:src/app.ts]", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
     expect(mockGetExtsByNames).not.toHaveBeenCalled();
@@ -202,7 +223,7 @@ describe("wireMentionedExtensions", () => {
     // conversation. The kind filter is what prevents it — no DB round
     // trip is even attempted.
     const wire = await loadWire();
-    const result = await wire("conv-1", "run ![workflow:analyzer]", "msg-1");
+    const result = await wire("conv-1", "run ![workflow:analyzer]", "msg-1", NO_ACTOR);
 
     expect(result).toEqual([]);
     expect(mockGetExtsByNames).not.toHaveBeenCalled();
@@ -221,10 +242,102 @@ describe("wireMentionedExtensions", () => {
       "conv-1",
       "![workflow:analyzer] then ![ext:analyzer]",
       "msg-1",
+      NO_ACTOR,
     );
 
     // Only the ext token contributed a name to the lookup.
     expect(mockGetExtsByNames).toHaveBeenCalledWith(["analyzer"]);
     expect(result).toEqual(["ext-123"]);
+  });
+
+  // ── Wire-authz (B1): a denied extension is a SILENT no-op ──────────
+  //
+  // The mention-grammar contract is binding: an unknown target is a no-op,
+  // never an error. A denied target must be indistinguishable from it —
+  // an error would tell the sender that an MCP server by that name exists.
+  describe("MCP wire gate", () => {
+    const MCP_ROW = {
+      id: "ext-mcp",
+      name: "weather-mcp",
+      manifest: { kind: "mcp" },
+      source: "mcp:stdio",
+      isBundled: false,
+      creatorUserId: null,
+    };
+
+    test("an ![ext:…] MCP mention with NO acting user wires nothing, silently", async () => {
+      extRowsById.set("ext-mcp", MCP_ROW);
+      mockGetExtsByNames.mockResolvedValueOnce(
+        mapFromRecord({ "weather-mcp": { id: "ext-mcp", name: "weather-mcp" } }) as any,
+      );
+      mockGetConvExtIds.mockResolvedValue([]);
+
+      const wire = await loadWire();
+      const result = await wire("conv-1", "![ext:weather-mcp] forecast?", "msg-1", NO_ACTOR);
+
+      // Resolved as a real name (no throw, no error surface) — and dropped.
+      expect(mockGetExtsByNames).toHaveBeenCalledWith(["weather-mcp"]);
+      expect(result).toEqual([]);
+      expect(mockAddConvExts).not.toHaveBeenCalled();
+    });
+
+    test("an ![agent:…] config referencing an MCP extension is gated too (no one-hop bypass)", async () => {
+      extRowsById.set("ext-mcp", MCP_ROW);
+      mockGetAgentsByNames.mockResolvedValueOnce(
+        mapFromRecord({
+          Sneaky: { id: "agent-1", name: "Sneaky", extensions: ["ext-mcp"] },
+        }) as any,
+      );
+      mockGetConvExtIds.mockResolvedValue([]);
+
+      const wire = await loadWire();
+      const result = await wire("conv-1", "![agent:Sneaky] go", "msg-1", NO_ACTOR);
+
+      expect(result).toEqual([]);
+      expect(mockAddConvExts).not.toHaveBeenCalled();
+    });
+
+    test("a denied MCP mention does not block the allowed extensions beside it", async () => {
+      extRowsById.set("ext-mcp", MCP_ROW);
+      mockGetExtsByNames.mockResolvedValueOnce(
+        mapFromRecord({
+          "weather-mcp": { id: "ext-mcp", name: "weather-mcp" },
+          analyzer: { id: "ext-123", name: "analyzer" },
+        }) as any,
+      );
+      mockGetConvExtIds.mockResolvedValue([]);
+
+      const wire = await loadWire();
+      const result = await wire(
+        "conv-1",
+        "![ext:weather-mcp] and ![ext:analyzer]",
+        "msg-1",
+        NO_ACTOR,
+      );
+
+      // Partial, not all-or-nothing: the mention path drops unknown targets
+      // one by one, and a denial behaves exactly like one.
+      expect(result).toEqual(["ext-123"]);
+      expect(mockAddConvExts).toHaveBeenCalledWith("conv-1", [
+        { extensionId: "ext-123", messageId: "msg-1" },
+      ]);
+    });
+
+    test("a row deleted between the name lookup and the gate drops out", async () => {
+      // `getExtension` returning null is the only way the synthesized
+      // fallback is bypassed — it proves the null filter is live rather
+      // than dead defensive code.
+      mockGetExtsByNames.mockResolvedValueOnce(
+        mapFromRecord({ ghost: { id: "ext-gone", name: "ghost" } }) as any,
+      );
+      mockGetConvExtIds.mockResolvedValue([]);
+      mockGetExtension.mockResolvedValueOnce(null as never);
+
+      const wire = await loadWire();
+      const result = await wire("conv-1", "![ext:ghost] hi", "msg-1", NO_ACTOR);
+
+      expect(result).toEqual([]);
+      expect(mockAddConvExts).not.toHaveBeenCalled();
+    });
   });
 });

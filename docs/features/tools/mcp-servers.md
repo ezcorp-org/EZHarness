@@ -25,6 +25,7 @@ It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` 
 3. A **throwaway** `McpClient` opens (`connect()`), lists tools (`listTools()`), then `close()`s in a `finally`. Any failure → **502** `MCP connect failed: …` so the UI can explain — nothing is persisted.
 4. On success, `installMcpExtension(...)` (`src/db/queries/extensions.ts`) writes an `ExtensionManifestV2` with `kind: "mcp"`, `mcpServers: [server]`, and `tools: cachedTools`, then `createExtension(...)` persists the row (`source: "mcp:<transport>"`, `enabled: true`). The cached `tools` array is what the registry reads at boot — **no** connection happens on cold start.
 5. `ExtensionRegistry.getInstance().reload()` rebuilds the in-memory maps; returns the row with **201**.
+6. One `ext:mcp:server-installed` audit row is written (after the row exists, so the trail never claims an install that failed). Metadata is built by `src/extensions/mcp-audit.ts` — see [Audit trail](#audit-trail-mcp-lifecycle) below.
 
 ### Declared capabilities & the install-time grant (`src/extensions/mcp-capabilities.ts`)
 
@@ -43,11 +44,24 @@ Three things are written from that one derivation:
 
 ### Edit-after-install (`PUT /api/mcp-servers/[id]`)
 
-Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (502 on failure leaves the stored config untouched), then `updateMcpExtension(...)`. The extension **name is immutable** (it's the identity); only `description`, the `mcpServers` connection config, the cached `tools`, and the `source` slug change. For `http`/`sse`, `mergeHeaders` treats a **blank header value as "keep the existing secret"** — secrets are never echoed back to the edit form, so blank means unchanged.
+Mirrors install: admin-gated, `updateMcpServerSchema`, throwaway-client verify (502 on failure leaves the stored config untouched), then `updateMcpExtension(...)`. The extension **name is immutable** (it's the identity); only `description`, the `mcpServers` connection config, the cached `tools`, and the `source` slug change. For `http`/`sse`, `mergeHeaders` treats a **blank header value as "keep the existing secret"** — secrets are never echoed back to the edit form, so blank means unchanged. On success it writes one `ext:mcp:server-updated` row carrying BOTH sides, so a re-pointed connection is diffable.
 
 ### Refresh cached tools (`POST /api/mcp-servers/[id]/refresh`)
 
-Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(...)` (connecting through the full sandbox path for stdio), re-runs `listTools()`, rewrites the in-memory `toolMap` / `extensionTools` under the `<name>__<tool>` namespace, and persists the new manifest. Returns `{ id, tools }`; connection failure → 502.
+Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(...)` (connecting through the full sandbox path for stdio), re-runs `listTools()`, rewrites the in-memory `toolMap` / `extensionTools` under the `<name>__<tool>` namespace, and persists the new manifest. Returns `{ id, tools }`; connection failure → 502. Writes one `ext:mcp:server-refreshed` row whose before/after differ only in the tool snapshot — the pre-refresh manifest is read **before** `refreshMcpTools` writes the new one back, or both sides would show the new list.
+
+### Audit trail (MCP lifecycle)
+
+Install, edit and refresh each write exactly one `audit_log` row; uninstall (via the generic `DELETE /api/extensions/[id]`) writes `ext:uninstalled`. Until 2026-08 all four were silent, which made configuring a credentialed connection to a third-party server the one privileged extension mutation with no trail.
+
+`src/extensions/mcp-audit.ts` owns the projection from `McpServerDefinition` to metadata, and it is deliberately narrow: **transport**, a **target** that is the executable (stdio) or the URL's *origin + path* (http/sse — query and fragment are dropped whole, because `?api_key=…` is a real MCP convention), the **argv COUNT** rather than the argv, the **NAMES** of the transport auth entries (stdio `env` / http/sse `headers`), and the **tool count + names**. No header value, env value, argv value or URL query string ever reaches the row. `insertAuditEntry`'s `redactForAudit` is the second net, not the first.
+
+| Action | Written by | `oldValue` → `newValue` |
+|---|---|---|
+| `ext:mcp:server-installed` | `POST /api/mcp-servers` | `null` → post-install facts |
+| `ext:mcp:server-updated` | `PUT /api/mcp-servers/[id]` | pre-edit facts → post-edit facts |
+| `ext:mcp:server-refreshed` | `POST /api/mcp-servers/[id]/refresh` | facts w/ old tools → facts w/ new tools |
+| `ext:uninstalled` | `DELETE /api/extensions/[id]` | `{version, source, isBundled}` → `null` |
 
 ### Namespacing & dispatch (`src/extensions/registry.ts`, `src/extensions/tool-executor/executor.ts`)
 
@@ -117,6 +131,8 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - `src/extensions/tool-executor/executor.ts` — `executeToolCall` MCP branch: per-call PDP gate → `getMcpClient` → `callTool`.
 - `src/db/queries/extensions.ts` — `installMcpExtension` / `updateMcpExtension` (build the `kind:"mcp"` manifest, store `cachedTools`, record the install-time grant) + `backfillMcpManifestCapabilities` (one-shot legacy heal).
 - `src/extensions/mcp-capabilities.ts` — `mcpNetworkHosts` / `mcpManifestPermissions` / `mcpInstallGrant` / `withMcpToolCapabilities` / `normalizeMcpManifest`: the pure derivation shared by the install path, the registry's read-time normalization and the backfill.
+- `src/extensions/mcp-audit.ts` — `describeMcpServerForAudit` (credential-free `McpServerFacts`) + `buildMcpAuditMetadata`; the projection the four lifecycle audit rows share.
+- `src/auth/extension-wire-authz.ts` — `canWireExtension` / `partitionWirableExtensions`: the fail-closed gate deciding who may attach an MCP extension to a conversation.
 - `src/extensions/types.ts` — `McpServerStdio`/`Http`/`Sse`, `McpServerDefinition`, `ExtensionManifestV2.kind`/`mcpServers`.
 - `web/src/routes/(app)/extensions/+page.svelte` — MCP install form, MCP filter tab, refresh action.
 
@@ -126,11 +142,12 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - [[sandbox-and-isolation]] — stdio MCP servers reuse the same tier-gated jail / namespace / seccomp machinery as subprocess extensions.
 - [[runtime-and-rpc]] — MCP tools are dispatched through the same `tool-executor` path and audit pipeline as subprocess and entity tools.
 - [[overview-and-authoring]] — MCP servers are `kind:"mcp"` extension rows; they live in the same registry and UI as authored extensions.
-- [[audit-and-observability]] — `MCP_HOST_BLOCKED`, `MCP_NETNS_CREATED/FALLBACK`, `MCP_VETH_CREATED`, `MCP_SECCOMP_VIOLATION`, `MCP_CONNTRACK_HIGH`, `MCP_SANDBOX_REQUIRED_REFUSAL` rows land in `/audit`.
+- [[audit-and-observability]] — `MCP_HOST_BLOCKED`, `MCP_NETNS_CREATED/FALLBACK`, `MCP_VETH_CREATED`, `MCP_SECCOMP_VIOLATION`, `MCP_CONNTRACK_HIGH`, `MCP_SANDBOX_REQUIRED_REFUSAL` rows land in `/audit`, alongside the four lifecycle rows above.
 - [[admin-surfaces]] — install / edit / refresh are all `requireRole(admin)`; the install UI lives on the admin-facing extensions page.
 - [[rbac-and-permission-modes]] — the per-tool-call PDP gate runs under the active permission mode before any `callTool`.
 - [[api-security]] — MCP management routes are admin-gated; deletion flows through the scope-gated `/api/extensions/[id]` route.
-- [[mention-grammar]] — installed MCP tools surface under the `!ext` mention namespace alongside other extension tools.
+- [[mention-grammar]] — installed MCP tools surface under the `!ext` mention namespace alongside other extension tools. A `![ext:…]` mention the caller may not wire is dropped **silently**, exactly like an unknown target.
+- [[rbac-and-permission-modes]] — §5's `extension_rbac_grants` `use` verb is the finer grant that lets a non-admin member wire one named MCP server in one project.
 
 ## Related docs
 
@@ -146,6 +163,8 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - **A hostless stdio server is still ungated at dispatch.** Its derivation is empty, so its needed-cap set is empty and the PDP allows the call — the same as any extension that declares no permissions. What it is NOT is ungoverned: the binary runs in the filesystem jail and its egress is proxy-denied for want of a granted host. Naming a host on the command line (`mcp-remote https://…`) is what makes both the dispatch gate and the proxy allowance real.
 - **External stdio binaries bypass the SDK's process-poisoning.** Unlike first-party subprocess extensions, an external MCP binary (Python/Go/Rust) does not honor the SDK's `node:fs`/`child_process` poisoning. This is precisely why the bwrap/Landlock filesystem jail (masking `.ezcorp/data` — the PGlite DB + JWT secret) is the load-bearing containment, not the SDK preload.
 - **Default posture fails OPEN.** Without `EZCORP_MCP_REQUIRE_SANDBOX=1`, a host that can't set up netns/veth (common under Docker even `--privileged`) silently runs the MCP at a weaker stage with only a fallback audit row. Operators who need guaranteed isolation must set the flag.
+- **Installing an MCP server is admin-only, and so is WIRING one.** Attaching an extension to a conversation is what makes its tools callable by an LLM turn, and an MCP extension's credential is spent by every such call. Both wiring surfaces (`POST /api/conversations/[id]/extensions` and `![ext:…]` / `![agent:…]` mentions) therefore run `canWireExtension`: admin, the row's `creatorUserId`, or a `use` grant — anything else is refused. A refusal is shaped as a MISS (the route's unknown-name 404; a silent drop in the mention path) so a member cannot enumerate installed MCP servers by probing names. `requireScope(locals,"extensions")` is NOT a second line of defence here: it is a no-op for cookie sessions.
+- **A NULL `creatorUserId` matches nobody.** Every MCP row installed before the creator stamp existed has `creator_user_id = NULL`, and those are admin-only. The comparison is against the actor's id (a non-empty string), so a null-equals-null accident cannot open them to everyone.
 - **Cached tools can drift.** The tool list is a snapshot taken at install / edit / refresh time and persisted in `manifest.tools`; boot does **not** re-connect. If the upstream server changes its tools, the cached list is stale until an admin hits refresh.
 - **DNS-rebind recheck has a documented TOCTOU.** The proxy re-resolves the hostname and rejects internal IPs, but the window between that lookup and `Bun.connect` is a known gap (deferred — would require pinning the connect to the validated IP with SNI plumbing).
 - **No dedicated GET/DELETE.** Don't look for `GET`/`DELETE /api/mcp-servers/[id]`; only `PUT` + the `refresh` subroute exist. Listing and deletion go through the general `/api/extensions` surface, where `DELETE /api/extensions/[id]` (`requireScope("extensions")` + `requireAuth` + admin) calls `registry.killAll()` then `registry.reload()` — `reload()` is what stops the now-deleted extension's per-MCP proxy/client (any id no longer live).
