@@ -2,6 +2,11 @@ import { json } from "@sveltejs/kit";
 import { getExtension, rehydrateMcpServerSecrets, updateMcpExtension } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
+import {
+  MCP_CONNECT_FAILED_MESSAGE,
+  MCP_CONNECT_FAILED_STATUS,
+  reportMcpConnectFailure,
+} from "$server/mcp/connect-failure";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
@@ -60,15 +65,21 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   const server = mergeHeaders(parsed.data.server, prevServer);
 
   // Verify connectivity + pull the live tool list with a throwaway client
-  // BEFORE persisting. Failure surfaces as 502 with no mutation.
+  // BEFORE persisting. `client.connect()` runs the SSRF target guard, and
+  // every failure returns the one uniform 502 body (see the install route
+  // and `connect-failure.ts`). Failure means no mutation.
   const client = new McpClient(server);
   let cachedTools: Awaited<ReturnType<typeof client.listTools>>;
   try {
     await client.connect();
     cachedTools = await client.listTools();
   } catch (e) {
-    const message = e instanceof Error ? e.message : "MCP connect failed";
-    return errorJson(502, `MCP connect failed: ${message}`);
+    await reportMcpConnectFailure(e, {
+      route: "PUT /api/mcp-servers/[id]",
+      extension: existing.name,
+      transport: server.transport,
+    });
+    return errorJson(MCP_CONNECT_FAILED_STATUS, MCP_CONNECT_FAILED_MESSAGE);
   } finally {
     await client.close().catch(() => {});
   }

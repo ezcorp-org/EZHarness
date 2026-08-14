@@ -27,6 +27,12 @@ vi.mock("$server/db/queries/extensions", () => ({
   installMcpExtension: vi.fn(),
 }));
 
+// The handler now records the REAL failure reason server-side (that is what
+// pays for the constant response body). Stub the sink so these unit tests
+// stay DB-free.
+const persistError = vi.fn(async () => {});
+vi.mock("$server/db/queries/error-logs", () => ({ persistError }));
+
 // ExtensionRegistry singleton mock.
 const registryReload = vi.fn(async () => undefined);
 vi.mock("$server/extensions/registry", () => ({
@@ -36,6 +42,7 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 
 const { installMcpExtension } = await import("$server/db/queries/extensions");
+const { MCP_CONNECT_FAILED_MESSAGE } = await import("$server/mcp/connect-failure");
 const { POST } = await import("../routes/api/mcp-servers/+server");
 
 function makeEvent(opts: {
@@ -138,28 +145,32 @@ describe("POST /api/mcp-servers", () => {
     expect(res.status).toBe(400);
   });
 
-  test("returns 502 when McpClient.connect() fails", async () => {
+  test("returns 502 when McpClient.connect() fails, without echoing the errno", async () => {
     mcpConnect.mockRejectedValueOnce(new Error("ECONNREFUSED"));
     const res = await POST(
       makeEvent({ locals: adminUser, body: validStdioBody() }),
     );
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("MCP connect failed");
-    expect(body.error).toContain("ECONNREFUSED");
+    // The errno used to be echoed. Distinguishing ECONNREFUSED from a
+    // timeout is the port-scan oracle, so the body is now one constant.
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+    expect(body.error).not.toContain("ECONNREFUSED");
     expect(mcpClose).toHaveBeenCalled();
     expect(installMcpExtension).not.toHaveBeenCalled();
   });
 
-  test("returns 502 when listTools() fails", async () => {
+  test("returns 502 when listTools() fails, with the same body", async () => {
     mcpListTools.mockRejectedValueOnce(new Error("tools/list not supported"));
     const res = await POST(
       makeEvent({ locals: adminUser, body: validStdioBody() }),
     );
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("MCP connect failed");
-    expect(body.error).toContain("tools/list not supported");
+    // A different failure STAGE must not be observable either: reaching
+    // tools/list proves the port is open and speaking MCP.
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+    expect(body.error).not.toContain("tools/list");
   });
 
   test("returns 400 when installMcpExtension throws (persist failure)", async () => {
@@ -201,13 +212,32 @@ describe("POST /api/mcp-servers", () => {
     expect(mcpClose).toHaveBeenCalled();
   });
 
-  test("falls back to generic message when McpClient throws a non-Error", async () => {
+  test("a thrown non-Error returns the same body as everything else", async () => {
     mcpConnect.mockRejectedValueOnce("pipe closed");
     const res = await POST(
       makeEvent({ locals: adminUser, body: validStdioBody() }),
     );
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("MCP connect failed: MCP connect failed");
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+  });
+
+  test("every failure class produces a byte-identical 502", async () => {
+    // The oracle collapse, asserted directly: three different underlying
+    // causes, one indistinguishable response. A future change that
+    // reintroduces per-error detail fails here first.
+    mcpConnect.mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.5:6379"));
+    const refused = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    mcpConnect.mockRejectedValueOnce(new Error("connect ETIMEDOUT 10.0.0.6:6379"));
+    const timedOut = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    mcpListTools.mockRejectedValueOnce(new Error("HTTP 401 Unauthorized"));
+    const protocolError = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    expect(refused.status).toBe(timedOut.status);
+    expect(refused.status).toBe(protocolError.status);
+    const bodies = await Promise.all([refused.text(), timedOut.text(), protocolError.text()]);
+    expect(new Set(bodies).size).toBe(1);
   });
 });
