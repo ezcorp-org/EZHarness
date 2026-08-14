@@ -13,6 +13,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 
 function makeExt(overrides: Record<string, unknown> = {}) {
 	return {
@@ -119,10 +120,10 @@ test.describe("Extensions — MCP tab", () => {
 		await expect(banner).toContainText("db-mcp");
 	});
 
-	test("a maximum-length name truncates instead of wrecking the card layout", async ({
+	test("@evidence a maximum-length name truncates instead of wrecking the card layout", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		// 64 chars is LEGAL: `EXTENSION_NAME_REGEX` admits `[a-z0-9][a-z0-9-_.]{0,63}`,
 		// and the install input accepts up to exactly that. Before `min-w-0` +
 		// `truncate` + `shrink-0`, such a name wrapped to four lines, pushed the
@@ -181,5 +182,10 @@ test.describe("Extensions — MCP tab", () => {
 		const toggle = card.getByTitle(/Disable|Enable/);
 		const toggleBox = await toggle.boundingBox();
 		expect(Math.round(toggleBox!.width)).toBe(44);
+
+		// The assertions above pin the geometry; the shot is what lets a
+		// reviewer see that the card still READS as a card — one-line name with
+		// an ellipsis, badge beside it, toggle intact.
+		await captureEvidence(page, testInfo, "mcp-card-max-length-name");
 	});
 });
