@@ -99,16 +99,16 @@ export function getEzClientToolTimeoutMs(): number {
  * once per tick, so the margin has to outlast the tick that straddles the
  * registry rejection, plus the reject → `tool_execution_end` →
  * `noteToolEnd` propagation on a loaded box. The watchdog does NOT kill at
- * `callTimeoutMs`: every deferring tick calls `bumpActivity`, so once the
- * deferral lapses the run still has to sit silent for a WHOLE idle window
- * before the trip. Real worst case is
+ * `callTimeoutMs`: every deferring tick calls `bumpActivity`, so the clock
+ * that matters starts at the LAST DEFERRING TICK and then has to run a
+ * WHOLE idle window. Real kill time is
  *
- *     callTimeoutMs + idleThreshold + up to 2 ticks
+ *     callTimeoutMs + idleThreshold ± one tick
  *
- * — 330s + 90s + 30s = **450s** for a non-reasoning run, and up to ~21 min
- * on a reasoning-high run (900s idle window). That hold is deliberate and
- * bounded; the table with every tier is in
- * `docs/features/chat/runs-lifecycle.md`.
+ * — measured at **405s** for a non-reasoning run (330 + 90 − 15), and up to
+ * ~21 min on a reasoning-high run (900s idle window). That hold is
+ * deliberate and bounded; the per-tier table, and the tests that pin these
+ * numbers, are in `docs/features/chat/runs-lifecycle.md`.
  *
  * Not imported from the watchdog module on purpose — the tools layer never
  * depends on the watchdog (same posture as `LONG_BLOCKING_WATCHDOG_BUDGET_MS`

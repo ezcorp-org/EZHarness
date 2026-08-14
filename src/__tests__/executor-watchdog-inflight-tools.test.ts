@@ -805,6 +805,57 @@ describe("Watchdog deferral logging (one line per state change)", () => {
   });
 });
 
+// ── Worst-case hold (the table in docs/features/chat/runs-lifecycle.md) ─
+
+describe("Worst-case hold for a wedged tool call", () => {
+  /** Drive 15s ticks until the run trips; return the elapsed fake ms.
+   *  `thinking` selects the model-aware idle window via a fake Agent. */
+  async function timeToKill(
+    callTimeoutMs: number,
+    thinking?: "medium" | "high",
+  ): Promise<number> {
+    const h = makeHarness();
+    const startedAt = fakeNow;
+    if (thinking) h.host.activeAgents.set(RUN_ID, fakeAgent(true, thinking) as never);
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs, startedAt }));
+    for (let i = 0; i < 200 && run.status === "running"; i++) {
+      await advanceAndTick(15_000);
+    }
+    expect(run.status).toBe("error");
+    return fakeNow - startedAt;
+  }
+
+  test("a 330s budget (the Ez client tools) holds a non-reasoning run for 405s", async () => {
+    // Pins the published number instead of trusting arithmetic. The
+    // deferral bumps activity every tick, so the kill is the LAST DEFERRING
+    // TICK plus a whole idle window — not `startedAt + callTimeoutMs`.
+    // 330s budget → last defer at 315s → +90s idle → trip at 405s, i.e.
+    // budget + idle MINUS one tick when the call starts on a tick boundary.
+    expect(await timeToKill(330_000)).toBe(405_000);
+    // The doc's bound: budget + idle ± one tick, whatever the phase.
+    expect(405_000).toBeGreaterThanOrEqual(330_000 + 90_000 - 15_000);
+    expect(405_000).toBeLessThan(330_000 + 90_000 + 15_000);
+  });
+
+  test("the pre-fix 90s budget killed the same run at 165s — the left column of that table", async () => {
+    // The bug, reproduced: an Ez client tool on the undeclared default died
+    // at 165s, well inside the gate's own 300s, so the gate's concrete
+    // "Timed out waiting for Ez client tool result" could never fire.
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS)).toBe(165_000);
+  });
+
+  test("the reasoning rows of the table hold too (wider idle window, same shape)", async () => {
+    // Every remaining cell of the published table, measured. The reasoning
+    // tiers cost the most because the idle window — not the budget — is the
+    // dominant term.
+    expect(await timeToKill(330_000, "medium")).toBe(615_000);
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS, "medium")).toBe(375_000);
+    expect(await timeToKill(330_000, "high")).toBe(1_215_000);
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS, "high")).toBe(975_000);
+  });
+});
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 describe("Public constants", () => {
