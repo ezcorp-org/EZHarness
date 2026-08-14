@@ -31,7 +31,8 @@
  *   • `http` / `sse` — the target `url`'s hostname. Calling any tool on such
  *     a server makes the HOST process open an HTTPS connection to exactly
  *     that host, so `network:<host>` is a literal description of the call.
- *   • `stdio` — every `://` URL the operator typed into `command` / `args`.
+ *   • `stdio` — every `://` URL the operator typed into `command` / `args`,
+ *     bare (`https://x`) or flag-attached (`--endpoint=https://x`).
  *     This is what makes the stdio grant non-vacuous: `npx mcp-remote
  *     https://mcp.example.com/mcp` declares (and grants) `mcp.example.com`,
  *     which is precisely the host the proxy will be asked to CONNECT to.
@@ -66,16 +67,27 @@ import type {
 } from "./types";
 
 /**
- * The hostname a single token names, or `null` when the token is not a URL.
- * Deliberately strict: the token must parse as a whole URL and carry a
- * non-empty host. A bare flag (`--verbose`), a package name
- * (`@modelcontextprotocol/server-github`) or a path never yields a host.
+ * A `<scheme>://<rest>` run inside a command-line token. Matched as a
+ * SUBSTRING rather than anchored, because the operator writes the flag form
+ * (`--endpoint=https://api.example.com`) about as often as the bare one, and
+ * both name the same host. The scheme grammar is RFC 3986's
+ * (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`), so a leading `--endpoint=`
+ * can never be mistaken for one.
+ */
+const TOKEN_URL_RE = /[a-z][a-z0-9+.-]*:\/\/\S+/i;
+
+/**
+ * The hostname a single token names, or `null` when it names none. A bare
+ * flag (`--verbose`), a package name (`@modelcontextprotocol/server-github`),
+ * a path, or a URL with no authority (`file:///srv/mcp`) all yield `null`.
  */
 function hostOfToken(token: unknown): string | null {
-  if (typeof token !== "string" || !token.includes("://")) return null;
+  if (typeof token !== "string") return null;
+  const match = TOKEN_URL_RE.exec(token);
+  if (!match) return null;
   let parsed: URL;
   try {
-    parsed = new URL(token);
+    parsed = new URL(match[0]);
   } catch {
     return null;
   }

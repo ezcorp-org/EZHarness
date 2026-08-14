@@ -111,6 +111,17 @@ describe("mcpNetworkHosts", () => {
     ).toEqual(["b.example.com", "a.example.com"]);
   });
 
+  test("stdio derives a flag-attached url too (--endpoint=https://…)", () => {
+    expect(
+      mcpNetworkHosts(stdio({ args: ["--endpoint=https://flag.example.com/mcp"] })),
+    ).toEqual(["flag.example.com"]);
+  });
+
+  test("a flag whose value only LOOKS like a scheme derives nothing", () => {
+    // `://` with no RFC-3986 scheme in front of it is not a URL.
+    expect(mcpNetworkHosts(stdio({ args: ["--path=://nope"] }))).toEqual([]);
+  });
+
   test("stdio with no url in its command line is DENY-BY-DEFAULT (empty)", () => {
     expect(mcpNetworkHosts(stdio({ args: ["-y", "@modelcontextprotocol/server-github"] }))).toEqual(
       [],
