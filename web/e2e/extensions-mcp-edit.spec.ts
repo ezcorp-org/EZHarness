@@ -112,6 +112,81 @@ test.describe("Extensions — MCP edit-after-install", () => {
 		await expect(delta).toContainText("alerts");
 	});
 
+	// The uniform 502 body from src/mcp/connect-failure.ts. Hardcoded here on
+	// purpose: this asserts what an ADMIN READS on screen, and the string is
+	// pinned to the source constant by exact equality in
+	// src/__tests__/mcp-connect-failure.test.ts.
+	const UNIFORM_FAILURE =
+		"MCP server unreachable or invalid. If the target is on a private network, " +
+		"allow it with EZCORP_MCP_TARGET_ALLOW.";
+
+	test("a blocked SSRF target shows the uniform failure and changes nothing", async ({
+		page,
+		mockApi,
+	}) => {
+		// An admin re-points an installed MCP server at the cloud metadata
+		// endpoint. The server refuses it, and the UI must show the same
+		// message it shows for any other connect failure — the admin learns
+		// nothing about whether the address was internal, and neither would an
+		// attacker holding an admin-scoped key.
+		const current = baseExt([
+			{ name: "forecast", description: "Get forecast" },
+			{ name: "alerts", description: "Severe alerts" },
+		]);
+
+		await mockApi({
+			projects: [proj],
+			extensions: [current],
+			routes: {
+				[`/api/extensions/${EXT_ID}`]: (url) => {
+					const p = url.pathname;
+					if (p === `/api/extensions/${EXT_ID}`) return current;
+					if (p.endsWith("/settings")) return { schema: {}, userValues: {} };
+					if (p.endsWith("/expired-grants")) return { grants: [] };
+					if (p.endsWith("/audit")) return { entries: [] };
+					if (p.endsWith("/violations")) return [];
+					return {};
+				},
+			},
+		});
+
+		// Registered AFTER mockApi so it wins: the mock `routes` map always
+		// fulfills 200, and this case is specifically about a 502 body.
+		let putBody: unknown;
+		await page.route(`**/api/mcp-servers/${EXT_ID}`, async (route) => {
+			putBody = route.request().postDataJSON();
+			await route.fulfill({ status: 502, json: { error: UNIFORM_FAILURE } });
+		});
+
+		await page.goto(`/extensions/${EXT_ID}`);
+		await expect(page.getByTestId("mcp-connection-panel")).toBeVisible();
+
+		await page.getByTestId("mcp-edit-connection-button").click();
+		await page.getByTestId("mcp-edit-transport").selectOption("http");
+		await page.getByTestId("mcp-edit-url").fill("http://169.254.169.254/latest/meta-data/");
+		await page.getByTestId("mcp-test-save-button").click();
+
+		// The admin sees the one constant message.
+		await expect(page.getByText(UNIFORM_FAILURE)).toBeVisible();
+
+		// And nothing in it names the target, the range, or a transport errno.
+		const banner = await page.getByText(UNIFORM_FAILURE).textContent();
+		expect(banner).not.toContain("169.254");
+		expect(banner).not.toContain("ECONNREFUSED");
+		expect(banner).not.toContain("blocked");
+
+		// The request really was the metadata URL, so this exercised the
+		// blocked path rather than a typo somewhere earlier.
+		expect(JSON.stringify(putBody)).toContain("169.254.169.254");
+
+		// Nothing committed: the edit panel stays open for the admin to fix
+		// the target, there is no success banner, and no tool-delta note (all
+		// three only appear after a save that actually persisted).
+		await expect(page.getByTestId("mcp-edit-panel")).toBeVisible();
+		await expect(page.getByText("Connection updated")).toHaveCount(0);
+		await expect(page.getByTestId("mcp-tool-delta")).toHaveCount(0);
+	});
+
 	test("Connection panel is hidden for a non-MCP extension", async ({ page, mockApi }) => {
 		const local = {
 			id: "local-x",
