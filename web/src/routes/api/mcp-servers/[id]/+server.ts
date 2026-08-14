@@ -13,7 +13,8 @@ import { errorJson } from "$lib/server/http-errors";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import { buildMcpAuditMetadata, describeMcpServerForAudit } from "$server/extensions/mcp-audit";
-import type { ExtensionManifestV2, McpServerDefinition } from "$server/extensions/types";
+import { mergeMcpServerSecrets } from "$server/extensions/mcp-secret-redaction";
+import type { ExtensionManifestV2 } from "$server/extensions/types";
 import { updateMcpServerSchema } from "../schema";
 import type { RequestHandler } from "./$types";
 
@@ -49,20 +50,20 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   if (manifest.kind !== "mcp") return errorJson(404, "Extension is not an MCP extension");
 
   const { description } = parsed.data;
-  // Merge headers: a blank (or omitted) header value preserves the existing
-  // secret for that key. Existing keys not present in the incoming map are
-  // also preserved. stdio transports carry no headers, so this is a no-op
-  // for them.
+  // Merge credentials: a blank (or omitted) value preserves the existing secret
+  // for that NAME — header keys, stdio env vars, URL query parameters and argv
+  // flags alike (issue #205; `mergeMcpServerSecrets` owns the rule). Existing
+  // names not present in the incoming definition are also preserved.
   //
-  // The stored manifest keeps only value-BLANKED header keys (secrets live in
+  // The stored manifest keeps only value-BLANKED names (the real values live in
   // the extension_secrets store), so rehydrate the real previous values first —
-  // otherwise "blank = keep existing" would preserve an empty header and the
-  // re-connect below would authenticate with no token.
+  // otherwise "blank = keep existing" would preserve an empty credential and
+  // the re-connect below would authenticate with no token.
   const prevRedacted = manifest.mcpServers?.[0];
   const prevServer = prevRedacted
     ? await rehydrateMcpServerSecrets(existing.name, prevRedacted)
     : undefined;
-  const server = mergeHeaders(parsed.data.server, prevServer);
+  const server = mergeMcpServerSecrets(parsed.data.server, prevServer);
 
   // Verify connectivity + pull the live tool list with a throwaway client
   // BEFORE persisting. `client.connect()` runs the SSRF target guard, and
@@ -90,8 +91,8 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   await ExtensionRegistry.getInstance().reload();
   // `prevRedacted` is the value-blanked stored definition — exactly the
   // credential-free view the audit wants, so the before/after diff shows a
-  // re-pointed connection without ever holding a secret. `mergeHeaders` runs
-  // on the rehydrated copy, never on this one.
+  // re-pointed connection without ever holding a secret.
+  // `mergeMcpServerSecrets` runs on the rehydrated copy, never on this one.
   try {
     await insertAuditEntry(
       locals.user?.id ?? null,
@@ -108,26 +109,3 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   } catch { /* non-fatal — audit is observability, not a gate */ }
   return json(updated);
 };
-
-/**
- * For http/sse transports, fill in any blank/absent header values from the
- * previous server config so the edit form never has to re-enter secrets.
- * stdio transports have no headers and pass through unchanged.
- */
-function mergeHeaders(
-  next: McpServerDefinition,
-  prev: McpServerDefinition | undefined,
-): McpServerDefinition {
-  if (next.transport === "stdio") return next;
-  const prevHeaders =
-    prev && prev.transport !== "stdio" ? (prev.headers ?? {}) : {};
-  const merged: Record<string, string> = { ...prevHeaders };
-  for (const [k, v] of Object.entries(next.headers ?? {})) {
-    // Blank value = "keep existing" (only overwrite when a fresh value is
-    // supplied). A non-blank value replaces; a key with no prior value and a
-    // blank new value drops to empty (harmless).
-    if (v.trim() === "") continue;
-    merged[k] = v;
-  }
-  return { ...next, headers: merged };
-}
