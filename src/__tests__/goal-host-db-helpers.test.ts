@@ -36,10 +36,24 @@ interface FakeConversationRow {
 }
 
 const convosById = new Map<string, FakeConversationRow>();
-const dbUpdates: Array<{ id: string; metadata: Record<string, unknown> | null }> = [];
+/** Every atomic metadata write the persistence helpers delegate. */
+const metadataWrites: Array<{ id: string; patch: Record<string, unknown> }> = [];
+const metadataDeletes: string[] = [];
 let scanReturn: Array<Record<string, unknown>> = [];
 let aggregateReturn: Array<Record<string, unknown>> = [];
 let lastReadId = "unknown";
+
+// The atomic merge itself is engine behaviour, asserted against a real PGlite
+// in `conversation-metadata.test.ts`. Here it is a boundary: this file's whole
+// point is exercising goal-host's live helper bodies without a real DB.
+mock.module("../db/queries/conversation-metadata", () => ({
+  mergeConversationMetadata: async (id: string, patch: Record<string, unknown>) => {
+    metadataWrites.push({ id, patch });
+  },
+  deleteGoalMetadata: async (id: string) => {
+    metadataDeletes.push(id);
+  },
+}));
 
 mock.module("../db/queries/conversations", () => ({
   getConversation: async (id: string) => {
@@ -61,38 +75,11 @@ mock.module("../db/queries/conversations", () => ({
   getConversationPath: async () => [],
 }));
 
+// `goal-host.ts` no longer issues a single `getDb().update(...)` — the two
+// metadata writers delegate to the atomic helpers mocked above — so this fake
+// is down to the one method the live bodies still use.
 mock.module("../db/connection", () => ({
   getDb: () => ({
-    update: (_table: unknown) => ({
-      set: (data: { metadata: Record<string, unknown> | null }) => ({
-        where: async (whereClause: unknown) => {
-          // The `eq(conversations.id, X)` clause is a drizzle SQL node
-          // (cyclic — can't JSON.stringify). Extract the literal id by
-          // walking the drizzle binary-op shape; fall back to the most
-          // recently seen conv id when the structure changes.
-          let id = lastReadId;
-          if (
-            typeof whereClause === "object" &&
-            whereClause !== null &&
-            "right" in whereClause
-          ) {
-            const right = (whereClause as { right: unknown }).right;
-            if (
-              typeof right === "object" &&
-              right !== null &&
-              "value" in right &&
-              typeof (right as { value: unknown }).value === "string"
-            ) {
-              id = (right as { value: string }).value;
-            }
-          }
-          dbUpdates.push({ id, metadata: data.metadata });
-          if (convosById.has(id)) {
-            convosById.set(id, { id, metadata: data.metadata });
-          }
-        },
-      }),
-    }),
     execute: async (q: unknown) => {
       // Distinguish the FR-9 aggregate from the boot-sweep scan by
       // walking the drizzle SQL `queryChunks` array for a chunk whose
@@ -126,7 +113,8 @@ mock.module("../db/connection", () => ({
 
 beforeEach(() => {
   convosById.clear();
-  dbUpdates.length = 0;
+  metadataWrites.length = 0;
+  metadataDeletes.length = 0;
   scanReturn = [];
   aggregateReturn = [];
 });
@@ -169,54 +157,58 @@ describe("readPersistedGoal / writePersistedGoal / deletePersistedGoal", () => {
     expect(await readPersistedGoal("c1")).toBeUndefined();
   });
 
-  test("writePersistedGoal: missing conv → no-op (no update fires)", async () => {
-    await writePersistedGoal("nope", { condition: "x", lastReason: null, createdAt: "2026" });
-    expect(dbUpdates.length).toBe(0);
-  });
+  // ── write/delete are now ATOMIC, so these assert the DELEGATION ─────
+  //
+  // They used to assert the read-modify-write's no-op shape ("missing conv →
+  // no update fires", "conv without `goal` → no update fires") and the merged
+  // object handed to `.set()`. None of that exists any more: both helpers
+  // issue ONE `UPDATE … metadata = COALESCE(metadata,'{}') || …` with no
+  // preceding SELECT, so an unknown id is a no-op because it matches no row —
+  // and there is no JS-side object to inspect. The merge semantics those tests
+  // were really about (preserve siblings, delete only the named key, unknown
+  // id changes nothing) are asserted against a real engine in
+  // `conversation-metadata.test.ts`, where they can be checked on the stored
+  // row instead of on a mock's argument.
 
-  test("writePersistedGoal: preserves other metadata keys", async () => {
-    convosById.set("c1", {
-      id: "c1",
-      metadata: { spawnDepth: 3, other: "keep" },
-    });
+  test("writePersistedGoal: merges ONLY the `goal` key, with no read first", async () => {
+    convosById.set("c1", { id: "c1", metadata: { spawnDepth: 3, other: "keep" } });
+    lastReadId = "unread-sentinel";
+
     await writePersistedGoal("c1", { condition: "y", lastReason: null, createdAt: "2026" });
-    expect(dbUpdates.length).toBe(1);
-    const last = dbUpdates[0]!.metadata!;
-    expect(last.spawnDepth).toBe(3);
-    expect(last.other).toBe("keep");
-    expect(last.goal).toEqual({ condition: "y", lastReason: null, createdAt: "2026" });
+
+    expect(metadataWrites).toEqual([
+      { id: "c1", patch: { goal: { condition: "y", lastReason: null, createdAt: "2026" } } },
+    ]);
+    // The lost update came from the SELECT this no longer does.
+    expect(lastReadId).toBe("unread-sentinel");
   });
 
-  test("writePersistedGoal: conv with null metadata → fresh bag", async () => {
-    convosById.set("c2", { id: "c2", metadata: null });
-    await writePersistedGoal("c2", { condition: "z", lastReason: null, createdAt: "2026" });
-    expect(dbUpdates.length).toBe(1);
-    expect(dbUpdates[0]!.metadata).toEqual({
-      goal: { condition: "z", lastReason: null, createdAt: "2026" },
-    });
+  test("writePersistedGoal: an unknown conversation still issues the merge", async () => {
+    // No `if (!conv) return` guard any more — the WHERE clause is the guard,
+    // and it costs one statement instead of a statement plus a race.
+    await writePersistedGoal("nope", { condition: "x", lastReason: null, createdAt: "2026" });
+
+    expect(metadataWrites).toEqual([
+      { id: "nope", patch: { goal: { condition: "x", lastReason: null, createdAt: "2026" } } },
+    ]);
   });
 
-  test("deletePersistedGoal: missing conv → no-op", async () => {
-    await deletePersistedGoal("nope");
-    expect(dbUpdates.length).toBe(0);
-  });
-
-  test("deletePersistedGoal: conv without `goal` key → no-op", async () => {
-    convosById.set("c3", { id: "c3", metadata: { spawnDepth: 1 } });
-    await deletePersistedGoal("c3");
-    expect(dbUpdates.length).toBe(0);
-  });
-
-  test("deletePersistedGoal: removes the `goal` key but preserves others", async () => {
+  test("deletePersistedGoal: deletes the `goal` key atomically", async () => {
     convosById.set("c4", {
       id: "c4",
       metadata: { goal: { condition: "x", lastReason: null, createdAt: "z" }, spawnDepth: 7 },
     });
+    lastReadId = "unread-sentinel";
+
     await deletePersistedGoal("c4");
-    expect(dbUpdates.length).toBe(1);
-    const last = dbUpdates[0]!.metadata!;
-    expect("goal" in last).toBe(false);
-    expect(last.spawnDepth).toBe(7);
+
+    expect(metadataDeletes).toEqual(["c4"]);
+    expect(lastReadId).toBe("unread-sentinel");
+  });
+
+  test("deletePersistedGoal: an unknown conversation still issues the delete", async () => {
+    await deletePersistedGoal("nope");
+    expect(metadataDeletes).toEqual(["nope"]);
   });
 });
 

@@ -45,6 +45,11 @@ const MODULE_PATHS = [
   "../../auth/extension-wire-authz",
   "../../db/queries/settings",
   "../../db/queries/conversations",
+  // goal-host-db-helpers.test.ts stubs the atomic metadata writers to assert
+  // the delegation without a DB. A leaked stub would make every later file's
+  // `conversations.metadata` write a silent no-op — the writes would look
+  // like they landed and nothing would be stored.
+  "../../db/queries/conversation-metadata",
   // Phase 63 Plan 03: message-embed-outbox.test.ts mocks this to inject a
   // throw seam into createMessage's transaction (atomicity test). Snapshot
   // so restoreModuleMocks() re-registers the real upsert helper in afterAll

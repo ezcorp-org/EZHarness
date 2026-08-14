@@ -44,12 +44,12 @@
  * by this Phase 1 delivery.
  */
 
-import { eq } from "drizzle-orm";
 import { logger } from "../logger";
 import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
 import type { AgentEvents, AgentRun } from "../types";
 import * as convQueries from "../db/queries/conversations";
+import { deleteGoalMetadata, mergeConversationMetadata } from "../db/queries/conversation-metadata";
 import { getDb } from "../db/connection";
 import { conversations, messages, runs } from "../db/schema";
 import { sql } from "drizzle-orm";
@@ -179,21 +179,17 @@ export async function readPersistedGoal(
 }
 
 /** Upsert `metadata.goal` preserving all other metadata keys. No DDL —
- *  the column is a plain JSONB bag (D3). */
+ *  the column is a plain JSONB bag (D3).
+ *
+ *  Atomic: this fires on EVERY evaluator cycle, so it is the writer most
+ *  likely to be racing another owner of the bag. A single-statement jsonb
+ *  merge means a concurrent `spawnDepth` write can no longer erase the
+ *  user's goal (or vice versa). */
 export async function writePersistedGoal(
   conversationId: string,
   goal: PersistedGoal,
 ): Promise<void> {
-  const conv = await convQueries.getConversation(conversationId);
-  if (!conv) return;
-  const meta = {
-    ...((conv.metadata ?? {}) as Record<string, unknown>),
-    goal,
-  };
-  await getDb()
-    .update(conversations)
-    .set({ metadata: meta })
-    .where(eq(conversations.id, conversationId));
+  await mergeConversationMetadata(conversationId, { goal });
 }
 
 /** DELETE `metadata.goal` — the canonical disarm op (R11). Preserves
@@ -202,15 +198,7 @@ export async function writePersistedGoal(
 export async function deletePersistedGoal(
   conversationId: string,
 ): Promise<void> {
-  const conv = await convQueries.getConversation(conversationId);
-  if (!conv) return;
-  const meta = { ...((conv.metadata ?? {}) as Record<string, unknown>) };
-  if (!("goal" in meta)) return;
-  delete meta.goal;
-  await getDb()
-    .update(conversations)
-    .set({ metadata: meta })
-    .where(eq(conversations.id, conversationId));
+  await deleteGoalMetadata(conversationId);
 }
 
 // ── Slash-prefix parser (FR-2 / U1) ─────────────────────────────────
@@ -866,6 +854,9 @@ export interface GoalHostOptions {
   getMessages?: typeof convQueries.getMessages;
   /** Override for tests — defaults to the live `convQueries`. */
   createMessage?: typeof convQueries.createMessage;
+  /** Override for tests — defaults to the live `convQueries`. Supplies the
+   *  continuation turn's `projectId` / `agentConfigId` / `modeId`. */
+  getConversation?: typeof convQueries.getConversation;
   /** Override for tests — defaults to the live SQL aggregator. */
   computeTokenSpend?: (
     conversationId: string,
@@ -900,6 +891,7 @@ export class GoalHost {
   private readonly completeFn: CompleteFn;
   private readonly getMessagesFn: typeof convQueries.getMessages;
   private readonly createMessageFn: typeof convQueries.createMessage;
+  private readonly getConversationFn: typeof convQueries.getConversation;
   private readonly computeTokenSpendFn: (
     conversationId: string,
     armedAt: number,
@@ -928,6 +920,7 @@ export class GoalHost {
     this.completeFn = opts.complete ?? piComplete;
     this.getMessagesFn = opts.getMessages ?? convQueries.getMessages;
     this.createMessageFn = opts.createMessage ?? convQueries.createMessage;
+    this.getConversationFn = opts.getConversation ?? convQueries.getConversation;
     this.computeTokenSpendFn = opts.computeTokenSpend ?? computeTokenSpendSinceArmed;
     this.readGoalFn = opts.readGoal ?? readPersistedGoal;
     this.writeGoalFn = opts.writeGoal ?? writePersistedGoal;
@@ -1371,9 +1364,28 @@ export class GoalHost {
     record!.inFlightRunId = newRunId;
     const continuation = buildContinuationPrompt(evalResult.reason);
     this.emitUpdate(conversationId, "active", record!, stillPersisted!);
+    // An autopilot turn must see the SAME tool surface as the turn that armed
+    // the goal. `setup-tools` gates the built-in project tools on
+    // `options.projectId` and the agent's extension tools on
+    // `options.agentConfigId`, and `modeId` selects the mode's tool
+    // confinement — so re-entering with `{ runId }` alone silently ran the
+    // continuation with a materially different, and less confined, toolset than
+    // the user's own turn. These are the same three fields the messages route
+    // passes; they come off the conversation row, so a null one means the
+    // arming turn did not have it either.
+    const conv = await this.getConversationFn(conversationId).catch((err) => {
+      log.warn("goal-host: conversation read for continuation context failed", {
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
     try {
       const streamPromise = this.executor.streamChat(conversationId, continuation, {
         runId: newRunId,
+        projectId: conv?.projectId,
+        agentConfigId: conv?.agentConfigId ?? undefined,
+        modeId: conv?.modeId ?? undefined,
       });
       streamPromise.catch((err) => {
         log.error("goal-host: streamChat error", {
