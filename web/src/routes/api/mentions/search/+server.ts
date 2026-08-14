@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { getExecutor, getCommandRegistry, getWorkflows } from "$lib/server/context";
 import { requireAuth } from "$server/auth/middleware";
+import { partitionWirableExtensionsForUser } from "$server/auth/extension-wire-authz";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getDb } from "$server/db/connection";
 import { extensions, agentConfigs } from "$server/db/schema";
@@ -534,12 +535,42 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		if (q) {
 			conditions.push(or(ilike(extensions.name, pattern), ilike(extensions.description, pattern))!);
 		}
+		// The gate decides on COLUMNS (kind / isBundled / creatorUserId), so
+		// select them — `enabled` alone was the only filter here.
 		const exts = await getDb()
-			.select({ name: extensions.name, description: extensions.description })
+			.select({
+				id: extensions.id,
+				name: extensions.name,
+				description: extensions.description,
+				manifest: extensions.manifest,
+				source: extensions.source,
+				isBundled: extensions.isBundled,
+				creatorUserId: extensions.creatorUserId,
+			})
 			.from(extensions)
 			.where(and(...conditions))
 			.limit(remaining);
+		// Don't OFFER what the user cannot USE. `![ext:…]` wiring drops a
+		// denied extension silently — correct, because an error there would be
+		// an existence oracle — but the composer was advertising the very
+		// extensions that would then do nothing: the user picks a suggestion
+		// and the product produces no tool, no message and no signal. Filtering
+		// discovery leaves the silent no-op applying only to a name typed by
+		// hand, which is exactly the case the mention-grammar contract
+		// describes. The actor is resolved at most ONCE per request, and not at
+		// all when no MCP extension matched (see
+		// `partitionWirableExtensionsForUser`).
+		const { deniedNames } = await partitionWirableExtensionsForUser(exts, {
+			userId: user.id,
+			projectId,
+		});
+		// Filter by the denied NAME set rather than iterating `allowed`: the
+		// row type here carries `description`, which the gate's minimal
+		// `WirableExtension` shape does not, and `deniedNames` is a plain
+		// `string[]` either way.
+		const denied = new Set(deniedNames);
 		for (const e of exts) {
+			if (denied.has(e.name)) continue;
 			results.push({ name: e.name, description: e.description, kind: "extension" });
 		}
 	}

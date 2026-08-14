@@ -24,11 +24,22 @@
  * `src/auth/extension-rbac.ts` for the decision semantics.
  */
 
-/** The five core verbs every extension supports. Custom scopes come from
+/** The six core verbs every extension supports. Custom scopes come from
  *  an extension's manifest (`permissions.rbacScopes`) and are implicitly
  *  namespaced per-extension; they must match {@link RBAC_SCOPE_NAME_RE}
- *  and must NOT collide with these verbs. */
-export const CORE_RBAC_SCOPES = ["use", "configure", "secrets", "approve-runs", "manage"] as const;
+ *  and must NOT collide with these verbs.
+ *
+ *  `mcp-wire` is deliberately SEPARATE from `use`. `use` means "may act
+ *  with this extension" and is asked on advisory rungs (github-projects
+ *  poll-now / dashboard-data, `ctx.rbac.check`). Attaching an MCP
+ *  extension is a different right: it spends an ADMIN-INSTALLED
+ *  credential the holder never sees. Folding that into `use` would
+ *  silently upgrade every pre-existing `use` grant — and because
+ *  `grantCovers` is NULL-covers-all, ONE wildcard row
+ *  (`projectId: null, extensionId: null, scopes: ["use"]`) would
+ *  authorize every MCP server on the instance. A distinct verb means an
+ *  operator has to say that, in those words, on purpose. */
+export const CORE_RBAC_SCOPES = ["use", "configure", "secrets", "approve-runs", "manage", "mcp-wire"] as const;
 
 export type CoreRbacScope = (typeof CORE_RBAC_SCOPES)[number];
 

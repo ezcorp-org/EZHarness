@@ -63,7 +63,7 @@ describe("describeMcpServerForAudit — stdio", () => {
 });
 
 describe("describeMcpServerForAudit — http / sse", () => {
-  test("the URL is reduced to origin + path, dropping query and fragment", () => {
+  test("the URL is reduced to its ORIGIN, dropping path, query and fragment", () => {
     const http = {
       transport: "http",
       name: "remote",
@@ -73,7 +73,8 @@ describe("describeMcpServerForAudit — http / sse", () => {
 
     const facts = describeMcpServerForAudit(http, TOOLS);
     expect(facts.transport).toBe("http");
-    expect(facts.target).toBe("https://mcp.example.com/v1/rpc");
+    expect(facts.target).toBe("https://mcp.example.com");
+    expect(facts.pathDepth).toBe(2);
     expect(facts.authKeys).toEqual(["Authorization", "X-Trace"]);
     expect(facts.argCount).toBeUndefined();
     expect(JSON.stringify(facts)).not.toContain(SECRET);
@@ -87,11 +88,46 @@ describe("describeMcpServerForAudit — http / sse", () => {
     } as McpServerDefinition;
     expect(describeMcpServerForAudit(sse)).toEqual({
       transport: "sse",
-      target: "https://mcp.example.com/events",
+      target: "https://mcp.example.com",
+      pathDepth: 1,
       authKeys: [],
       toolCount: 0,
       toolNames: [],
     });
+  });
+
+  test("F7: a credential embedded in the PATH never reaches the audit row", () => {
+    // The Slack/Zapier webhook shape. `redactForAudit` cannot save us here —
+    // its pattern set anchors on `key=`-style assignments and an opaque path
+    // segment has nothing to match — so this projection is the only net.
+    const PATH_TOKEN = "QQQQopaqueTOKEN99";
+    const hook = {
+      transport: "http",
+      name: "hooks",
+      url: `https://hooks.example.com/services/T0001/B0002/${PATH_TOKEN}`,
+    } as McpServerDefinition;
+
+    const facts = describeMcpServerForAudit(hook, TOOLS);
+    expect(facts.target).toBe("https://hooks.example.com");
+    // Shape is kept; bytes are not.
+    expect(facts.pathDepth).toBe(4);
+    const serialized = JSON.stringify(facts);
+    expect(serialized).not.toContain(PATH_TOKEN);
+    expect(serialized).not.toContain("T0001");
+    expect(serialized).not.toContain("services");
+  });
+
+  test("two endpoints on one host stay distinguishable by pathDepth", () => {
+    // What the dropped path cost us, and the floor under it: an operator can
+    // still see that a connection was re-pointed at a different endpoint.
+    const shallow = describeMcpServerForAudit(
+      { transport: "http", name: "a", url: "https://mcp.example.com/rpc" } as McpServerDefinition,
+    );
+    const deep = describeMcpServerForAudit(
+      { transport: "http", name: "a", url: "https://mcp.example.com/v2/team/rpc" } as McpServerDefinition,
+    );
+    expect(shallow.target).toBe(deep.target);
+    expect(shallow.pathDepth).not.toBe(deep.pathDepth);
   });
 
   test("an unparseable URL is replaced, never echoed", () => {
@@ -100,6 +136,7 @@ describe("describeMcpServerForAudit — http / sse", () => {
     const broken = { transport: "http", name: "b", url: `not a url ${SECRET}` } as McpServerDefinition;
     const facts = describeMcpServerForAudit(broken);
     expect(facts.target).toBe("<unparseable-url>");
+    expect(facts.pathDepth).toBe(0);
     expect(JSON.stringify(facts)).not.toContain(SECRET);
   });
 });

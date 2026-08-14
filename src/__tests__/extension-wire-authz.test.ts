@@ -42,6 +42,7 @@ const {
   loadWireActor,
   canWireExtension,
   partitionWirableExtensions,
+  partitionWirableExtensionsForUser,
 } = await import("../auth/extension-wire-authz");
 
 type Row = Parameters<typeof canWireExtension>[0];
@@ -195,7 +196,11 @@ describe("canWireExtension — rule 3 (MCP) and rule 4 (fail-closed)", () => {
     // row UUID — querying by `ext.id` would silently match nothing and the
     // grant escape hatch would be dead on arrival.
     expect(query).toEqual({ projectId: "proj-1", extensionId: "weather-mcp", scope: MCP_WIRE_SCOPE });
-    expect(MCP_WIRE_SCOPE).toBe("use");
+    // The dedicated verb, NOT `use`: `grantCovers` is NULL-covers-all, so
+    // asking for `use` would have let ONE wildcard grant authorize every MCP
+    // server on the instance and would have retro-authorized every grant
+    // that already existed.
+    expect(MCP_WIRE_SCOPE).toBe("mcp-wire");
   });
 
   test("a member without the grant is denied", async () => {
@@ -255,5 +260,55 @@ describe("partitionWirableExtensions", () => {
     // The route folds these into its unknown-name 404; the mention path drops
     // them. Neither ever surfaces the id.
     expect(deniedNames).toEqual(["weather-mcp"]);
+  });
+});
+
+describe("partitionWirableExtensionsForUser (lazy actor)", () => {
+  test("a batch with NO MCP candidate resolves no principal at all", async () => {
+    // `/api/mentions/search` calls this on every keystroke of an `!` token,
+    // and the overwhelmingly common case is "nothing here is MCP". Rules 1-2
+    // answer without a principal, so paying for a `users` read would be pure
+    // waste on the hottest path that uses this gate.
+    const { allowed, deniedNames } = await partitionWirableExtensionsForUser(
+      [localRow({ id: "a", name: "alpha" }), localRow({ id: "b", name: "bravo" })],
+      { userId: "member-1", projectId: "proj-1" },
+    );
+    expect(allowed.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(deniedNames).toEqual([]);
+    expect(mockGetUserById).not.toHaveBeenCalled();
+    expect(mockHasExtensionScope).not.toHaveBeenCalled();
+  });
+
+  test("one MCP candidate resolves the principal exactly ONCE for the whole batch", async () => {
+    userRows.set("member-1", { id: "member-1", role: "member", status: "active" });
+    grantAnswer = true;
+    const batch = [
+      localRow({ id: "a", name: "alpha" }),
+      mcpRow({ id: "b", name: "bravo" }),
+      mcpRow({ id: "c", name: "charlie" }),
+    ];
+    const { allowed } = await partitionWirableExtensionsForUser(batch, {
+      userId: "member-1",
+      projectId: "proj-1",
+    });
+    expect(allowed.map((e) => e.id)).toEqual(["a", "b", "c"]);
+    // One principal resolution, not one per candidate.
+    expect(mockGetUserById).toHaveBeenCalledTimes(1);
+  });
+
+  test("it is the same DECISION as the eager form — no principal means MCP denied", async () => {
+    const { allowed, deniedNames } = await partitionWirableExtensionsForUser(
+      [localRow({ id: "a", name: "alpha" }), mcpRow({ id: "b", name: "bravo" })],
+      { userId: null, projectId: null },
+    );
+    expect(allowed.map((e) => e.id)).toEqual(["a"]);
+    expect(deniedNames).toEqual(["bravo"]);
+  });
+
+  test("an empty batch short-circuits", async () => {
+    expect(
+      await partitionWirableExtensionsForUser([], { userId: "member-1", projectId: null }),
+    ).toEqual({ allowed: [], deniedNames: [] });
+    expect(mockGetUserById).not.toHaveBeenCalled();
   });
 });

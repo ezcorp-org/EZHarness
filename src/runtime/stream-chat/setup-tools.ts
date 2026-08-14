@@ -1053,7 +1053,26 @@ export async function setupTools(
       if (options.agentConfigId) {
         try {
           const registry = ExtensionRegistry.getInstance();
-          const extTools = await registry.getToolsForAgent(options.agentConfigId);
+          // Wire-authz on the agent config's `extensions[]` (sec: F3).
+          // Those ids are author-supplied through a `chat`-scoped route and
+          // were previously attached to the turn with no per-extension
+          // check at all — a member could name an admin-installed MCP
+          // extension's id and its tools would be handed to their LLM.
+          // Same decision, same actor derivation as the mention path.
+          // Resolved ONCE per turn rather than per extension.
+          const { loadWireActor, canWireExtension } = await import("../../auth/extension-wire-authz");
+          const { getExtension } = await import("../../db/queries/extensions");
+          const agentWireActor = await loadWireActor(
+            convRecord?.userId ?? null,
+            options.projectId ?? null,
+          );
+          const extTools = await registry.getToolsForAgent(options.agentConfigId, {
+            allowExtension: async (extId) => {
+              const row = await getExtension(extId);
+              // A vanished row is fail-closed, matching the mention path.
+              return row ? await canWireExtension(row, agentWireActor) : false;
+            },
+          });
           if (extTools.length > 0) {
             const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
             wireHostPendingPermissions(toolExec, host);
@@ -1233,9 +1252,19 @@ export async function setupTools(
         // OWNER — the send route has already proved the sender owns this
         // conversation, and `convRecord.userId` is the same identity every
         // other on-behalf-of path here uses (`toolExec.setCurrentUserId`
-        // below). A sub-conversation carries `userId: null`, which the gate
-        // reads as "no principal" and so wires no MCP extension: correct,
-        // since a spawned run must inherit reach, never acquire it.
+        // below).
+        //
+        // In a SPAWNED run this is the INHERITED ancestor owner, not null.
+        // `start-assignment.ts` resolves `resolveConversationOwnerUserId`
+        // (which walks the parent chain) and stamps it on the
+        // sub-conversation at creation; `POST /api/conversations` stamps
+        // `user.id` even when a `parentConversationId` is supplied. So a
+        // child run gets exactly its parent owner's reach — it inherits,
+        // never acquires. `userId: null` is the LEGACY row shape only
+        // (pre-Wave-0 sub-conversations), and `migrate()` reassigns every
+        // ownerless conversation to the first admin at boot; the gate reads
+        // that residual null as "no principal" and denies, which is the
+        // fail-closed direction.
         await wireMentionedExtensions(
           conversationId,
           userMessage,

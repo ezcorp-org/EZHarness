@@ -372,7 +372,7 @@ describe("the wire gate and the PDP chain rather than shadow each other", () => 
     return conv!.id;
   }
 
-  test("a `use`-granted member wires it and the granted network cap carries the dispatch", async () => {
+  test("a `mcp-wire`-granted member wires it and the granted network cap carries the dispatch", async () => {
     process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
     const ext = await jsonFromResponse(await installFixture("chain-granted"));
 
@@ -382,7 +382,7 @@ describe("the wire gate and the PDP chain rather than shadow each other", () => 
       userId: MEMBER_USER.id,
       projectId,
       extensionId: "chain-granted", // the NAME — the column stores the slug
-      scopes: ["use"],
+      scopes: ["mcp-wire"],
       grantedByUserId: ADMIN_USER.id,
     });
     const convId = await memberConversation();
@@ -414,7 +414,7 @@ describe("the wire gate and the PDP chain rather than shadow each other", () => 
       userId: MEMBER_USER.id,
       projectId,
       extensionId: "chain-no-cap",
-      scopes: ["use"],
+      scopes: ["mcp-wire"],
       grantedByUserId: ADMIN_USER.id,
     });
     const convId = await memberConversation();
@@ -505,14 +505,14 @@ describe("legacy rows after the backfill", () => {
     ).resolves.toBe(false);
   }, 20_000);
 
-  test("a legacy row is not bricked — an explicit `use` grant still opens it", async () => {
+  test("a legacy row is not bricked — an explicit `mcp-wire` grant still opens it", async () => {
     const ext = await createLegacyRow("legacy-mcp-granted");
     await backfillMcpManifestCapabilities();
     await upsertGrant({
       userId: MEMBER_USER.id,
       projectId,
       extensionId: "legacy-mcp-granted",
-      scopes: ["use"],
+      scopes: ["mcp-wire"],
       grantedByUserId: ADMIN_USER.id,
     });
 

@@ -6,6 +6,7 @@ import { getExecutor } from "$lib/server/context";
 import { createAgentConfigSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
+import { rejectUnauthorizedExtensions } from "$lib/server/agent-config-extension-gate";
 import type { AgentConfig } from "$server/types";
 import type { RequestHandler } from "./$types";
 
@@ -25,6 +26,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return validationError(result.error);
   }
   const body = result.data;
+
+  const extErr = await rejectUnauthorizedExtensions(body.extensions, user);
+  if (extErr) return extErr;
 
   // createAgentConfig's declared parameter type (derived from
   // AgentConfig) is narrower than what createAgentConfigSchema

@@ -6,6 +6,7 @@ import { configToAgent } from "$server/runtime/config-to-agent";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { getExecutor } from "$lib/server/context";
 import { requireScope } from "$lib/server/security/api-keys";
+import { rejectUnauthorizedExtensions } from "$lib/server/agent-config-extension-gate";
 import type { AgentConfig } from "$server/types";
 import type { RequestHandler } from "./$types";
 
@@ -69,6 +70,14 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
   }
+  // The schema is `.passthrough()`, so `extensions` reaches the query layer
+  // untyped and unvalidated — an edit is exactly as strong a way to attach an
+  // MCP extension to an agent as a create is (sec: F3).
+  const extErr = await rejectUnauthorizedExtensions(
+    (parsed.data as { extensions?: unknown }).extensions,
+    user,
+  );
+  if (extErr) return extErr;
   const updated = await agentConfigQueries.updateAgentConfig(params.id, parsed.data);
   if (!updated) return errorJson(404, "Not found");
 

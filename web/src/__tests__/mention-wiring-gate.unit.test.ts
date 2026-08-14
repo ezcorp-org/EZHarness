@@ -54,7 +54,12 @@ const MCP_ROW: Row = {
   name: "weather-mcp",
   source: "mcp:http",
   isBundled: false,
-  creatorUserId: "admin-1",
+  // A THIRD id — neither the admin nor the member principal used below.
+  // It was `admin-1` (the admin's own id), which confounded the admin test:
+  // that case passed under BOTH the drop-admin-rung and drop-creator-rung
+  // mutations, so it proved "the gate allowed it" without saying which rung
+  // did. Each rung now has exactly one case that can explain it.
+  creatorUserId: "installer-admin-9",
   manifest: { kind: "mcp" },
 };
 const PLAIN_ROW: Row = {
@@ -91,7 +96,10 @@ function user(id: string, role: "admin" | "member") {
 }
 
 describe("wireMentionedExtensions — the wire gate", () => {
-  test("an admin's MCP mention is wired", async () => {
+  test("an admin's MCP mention is wired — by the ADMIN rung alone", async () => {
+    // `admin-1` is not the row's creator and `hasExtensionScope` is false
+    // (the beforeEach default), so the admin rung is the ONLY thing that can
+    // explain this pass.
     getUserById.mockResolvedValue(user("admin-1", "admin"));
 
     const wired = await wireMentionedExtensions(
@@ -105,6 +113,41 @@ describe("wireMentionedExtensions — the wire gate", () => {
     expect(addConversationExtensions).toHaveBeenCalledWith("conv-1", [
       { extensionId: "ext-mcp", messageId: "msg-1" },
     ]);
+    // Pin the isolation: an admin resolves through the RBAC_ALL_SCOPES
+    // sentinel, so the grants store is never consulted.
+    expect(hasExtensionScope).not.toHaveBeenCalled();
+  });
+
+  test("the row's CREATOR is wired even as a plain member — by the creator rung alone", async () => {
+    // A member, no grant, and the id matches `MCP_ROW.creatorUserId`. Only
+    // the creator rung can explain this pass, which is what makes the admin
+    // case above a genuine test of the admin rung rather than a duplicate.
+    getUserById.mockResolvedValue(user("installer-admin-9", "member"));
+
+    const wired = await wireMentionedExtensions(
+      "conv-1",
+      "check ![ext:weather-mcp] please",
+      "msg-1",
+      { userId: "installer-admin-9", projectId: "proj-1" },
+    );
+
+    expect(wired).toEqual(["ext-mcp"]);
+    expect(hasExtensionScope).not.toHaveBeenCalled();
+  });
+
+  test("a member whose id merely RESEMBLES the creator's is not the creator", async () => {
+    // Guards the comparison itself: it must be equality on the id, not a
+    // prefix/truthiness accident.
+    getUserById.mockResolvedValue(user("installer-admin-99", "member"));
+
+    const wired = await wireMentionedExtensions(
+      "conv-1",
+      "check ![ext:weather-mcp] please",
+      "msg-1",
+      { userId: "installer-admin-99", projectId: "proj-1" },
+    );
+
+    expect(wired).toEqual([]);
   });
 
   test("a member with no grant has the MCP mention dropped SILENTLY", async () => {
@@ -137,9 +180,12 @@ describe("wireMentionedExtensions — the wire gate", () => {
     expect(wired).toEqual(["ext-mcp"]);
     // The grant is looked up by the manifest NAME (the stable slug), at the
     // conversation's project coordinate — never by row id, never from the body.
+    // The verb is the DEDICATED `mcp-wire`, not `use`: matching is
+    // NULL-covers-all, so asking for `use` would have let one wildcard grant
+    // authorize every MCP server on the instance.
     expect(hasExtensionScope).toHaveBeenCalledWith(
       { id: "member-1", role: "member" },
-      { projectId: "proj-1", extensionId: "weather-mcp", scope: "use" },
+      { projectId: "proj-1", extensionId: "weather-mcp", scope: "mcp-wire" },
     );
   });
 

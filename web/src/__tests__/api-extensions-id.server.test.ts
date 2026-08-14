@@ -25,6 +25,26 @@ vi.mock("$server/extensions/registry", () => ({
 	},
 }));
 
+// The uninstall audit row. This MUST be mocked for the DELETE assertions
+// below to mean anything: unmocked, the real `insertAuditEntry` calls
+// `getDb()`, throws "Database not initialized", and the route's own
+// try/catch swallows it — so deleting the entire audit call from the
+// handler changed nothing observable and the mutation survived. The
+// swallow is correct behaviour (audit is observability, never a gate);
+// the test just has to look at the seam rather than at the outcome.
+// Typed with its real parameter list so `mock.calls[0]![3]` is indexable —
+// a zero-arg `vi.fn()` gives calls the type `[][]` and every arg assertion
+// becomes a TS2493 (the same fix as commit e4d7b359).
+const insertAuditEntry = vi.fn(
+	async (
+		_userId: string | null,
+		_action: string,
+		_target?: string,
+		_metadata?: Record<string, unknown>,
+	) => "audit-1",
+);
+vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
+
 const { getExtension, getExtensionByRef, updateExtension, deleteExtension } =
 	await import("$server/db/queries/extensions");
 const { GET, PATCH, DELETE } = await import(
@@ -36,9 +56,11 @@ function makeEvent(opts: {
 	locals?: Record<string, unknown>;
 	body?: unknown;
 	method?: string;
+	/** Query string WITHOUT the leading `?` — DELETE reads `purgeData=1`. */
+	search?: string;
 }) {
 	const id = opts.id ?? "ext-1";
-	const href = `http://localhost/api/extensions/${id}`;
+	const href = `http://localhost/api/extensions/${id}${opts.search ? `?${opts.search}` : ""}`;
 	return makeRequestEvent(href, {
 	  locals: opts.locals ?? {},
 	  params: { id },
@@ -59,6 +81,12 @@ const ext = {
 	name: "weather",
 	description: "weather tools",
 	enabled: true,
+	// The three columns the uninstall audit row snapshots as `oldValue`.
+	// Real values, so the DELETE assertions compare against something other
+	// than `undefined === undefined`.
+	version: "1.2.3",
+	source: "mcp:stdio",
+	isBundled: false,
 };
 
 describe("GET /api/extensions/[id]", () => {
@@ -234,6 +262,7 @@ describe("DELETE /api/extensions/[id]", () => {
 		vi.mocked(deleteExtension).mockReset();
 		reload.mockClear();
 		killAll.mockClear();
+		insertAuditEntry.mockClear();
 	});
 
 	test("rejects 401 when locals.user is missing", async () => {
@@ -302,5 +331,63 @@ describe("DELETE /api/extensions/[id]", () => {
 		expect(body.error).toMatch(/disable it instead/);
 		expect(vi.mocked(deleteExtension)).not.toHaveBeenCalled();
 		expect(reload).not.toHaveBeenCalled();
+	});
+
+	// ── Uninstall audit row ───────────────────────────────────────────
+	//
+	// This is the destructive end of the MCP lifecycle: an uninstall
+	// cascade-deletes `extension_secrets`, i.e. the stored transport
+	// credential. Install / edit / refresh all leave a row; without these
+	// assertions the uninstall row could be deleted outright and the whole
+	// suite would stay green, because `insertAuditEntry` never throws by
+	// contract and the route swallows its failure.
+	test("writes an ext:uninstalled audit row naming the actor, the target and the row's identity", async () => {
+		vi.mocked(getExtension).mockResolvedValue(ext as any);
+		vi.mocked(deleteExtension).mockResolvedValue(true as any);
+		const res = await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
+		expect(res.status).toBe(204);
+
+		expect(insertAuditEntry).toHaveBeenCalledTimes(1);
+		const [userId, action, target, metadata = {}] = insertAuditEntry.mock.calls[0]!;
+		expect(userId).toBe(admin.id);
+		expect(action).toBe("ext:uninstalled");
+		// `audit_log.target` is a plain text column with no FK, so the trail
+		// outlives the row it describes.
+		expect(target).toBe(ext.id);
+		expect(metadata.actor).toBe(admin.id);
+		expect(metadata.extensionName).toBe(ext.name);
+		expect(metadata.reason).toBe("uninstall");
+		expect(metadata.newValue).toBeNull();
+		expect(metadata.oldValue).toEqual({
+			version: ext.version,
+			source: ext.source,
+			isBundled: ext.isBundled,
+		});
+	});
+
+	test("purgeData in the audit row reflects the ?purgeData=1 query", async () => {
+		// The irreversible half of the uninstall — whether the extension's own
+		// data store was destroyed — is exactly what an investigator needs and
+		// is not recoverable from anywhere else afterwards.
+		vi.mocked(getExtension).mockResolvedValue(ext as any);
+		vi.mocked(deleteExtension).mockResolvedValue(true as any);
+
+		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin }, search: "purgeData=1" }));
+		expect(insertAuditEntry.mock.calls[0]![3]?.purgeData).toBe(true);
+
+		insertAuditEntry.mockClear();
+		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
+		expect(insertAuditEntry.mock.calls[0]![3]?.purgeData).toBe(false);
+	});
+
+	test("a refused uninstall writes NO audit row", async () => {
+		// The trail must never claim a removal that did not happen.
+		vi.mocked(getExtension).mockResolvedValue({ ...ext, isBundled: true } as any);
+		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
+		expect(insertAuditEntry).not.toHaveBeenCalled();
+
+		vi.mocked(getExtension).mockResolvedValue(null as any);
+		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
+		expect(insertAuditEntry).not.toHaveBeenCalled();
 	});
 });

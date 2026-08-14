@@ -563,7 +563,29 @@ export class ExtensionRegistry {
    *  contributes ALL its tools; a non-empty array narrows it to just those.
    *  Matched defensively against both the namespaced name and the original
    *  (unnamespaced) name, mirroring the mode filter. */
-  async getToolsForAgent(agentConfigId: string): Promise<ToolDefinition[]> {
+  async getToolsForAgent(
+    agentConfigId: string,
+    opts?: {
+      /**
+       * Per-extension authorization hook, applied BEFORE an extension's
+       * tools join the returned set (sec: F3).
+       *
+       * `agent_configs.extensions` holds RAW extension ids that the author
+       * supplies through `POST /api/agent-configs` (scope `chat`, any
+       * authenticated member) and that this method has always trusted
+       * verbatim — no wiring, no ownership, no per-extension check. That
+       * made "create an agent config naming an admin-installed MCP
+       * extension id, then chat with it" a complete bypass of the wire
+       * gate. The caller passes `canWireExtension` here; a rejected id is
+       * skipped exactly as an unloaded one is.
+       *
+       * Async because the decision reads the extension row and, for a
+       * member, the grants table. Returning false (or throwing, which the
+       * caller's try/catch turns into an empty tool set) is fail-closed.
+       */
+      allowExtension?: (extensionId: string) => Promise<boolean>;
+    },
+  ): Promise<ToolDefinition[]> {
     const rows = await getDb()
       .select({ extensions: agentConfigs.extensions, extensionTools: agentConfigs.extensionTools })
       .from(agentConfigs)
@@ -578,6 +600,7 @@ export class ExtensionRegistry {
     for (const extId of extensionIds) {
       const extTools = this.extensionTools.get(extId);
       if (!extTools) continue;
+      if (opts?.allowExtension && !(await opts.allowExtension(extId))) continue;
       const subset = perTool[extId];
       for (const rt of extTools) {
         if (subset && subset.length > 0

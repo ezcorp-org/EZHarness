@@ -151,6 +151,7 @@
   "web/src/routes/api/workflows/approvals/[id]/+server.ts": 100,
   "web/src/lib/workflow-approvals-logic.ts": 100,
   "web/src/lib/server/delegation-consent.ts": 100,
+  "web/src/lib/server/agent-config-extension-gate.ts": 100,
   "web/src/routes/api/workflows/delegations/+server.ts": 100,
   "web/src/routes/api/workflows/delegations/[id]/+server.ts": 100,
   "web/src/routes/api/workflows/delegations/preview/+server.ts": 100,
