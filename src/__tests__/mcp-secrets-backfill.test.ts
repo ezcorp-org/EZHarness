@@ -82,8 +82,13 @@ describe("backfillMcpManifestSecrets", () => {
     expect(JSON.stringify(row!.manifest)).not.toContain("LEAK");
 
     // The real values live in the encrypted store and rehydrate on connect.
+    // Issue #205 wrapped the payload in a versioned envelope so the same blob
+    // can also carry the URL/argv carriers; `auth` is the transport-auth map.
     const stored = await getSecret("legacy-http", null, "mcp:auth");
-    expect(JSON.parse(stored!)).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
+    expect(JSON.parse(stored!)).toEqual({
+      v: 2,
+      auth: { Authorization: "Bearer LEAK", "X-Api-Key": "k123" },
+    });
     const rehydrated = (await rehydrateMcpServerSecrets("legacy-http", server)) as McpServerDefinition & ServerView;
     expect(rehydrated.headers).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
   });
@@ -100,7 +105,10 @@ describe("backfillMcpManifestSecrets", () => {
     const row = await getExtensionByName("legacy-stdio");
     const server = firstServer(row!.manifest);
     expect(server.env).toEqual({ API_TOKEN: "" });
-    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({ API_TOKEN: "tok-legacy" });
+    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({
+      v: 2,
+      auth: { API_TOKEN: "tok-legacy" },
+    });
   });
 
   test("is idempotent — a second run migrates nothing", async () => {
