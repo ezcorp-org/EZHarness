@@ -38,21 +38,24 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 22 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
-    // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration, ez:client-tool moved to the scoped set)", () => {
+    // 21 entries: 13 from the prereqs audit + extensions:installed
+    // (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
     // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
     // (Sessions P4 rewind/checkpoint) + loops:approval_pending +
     // loops:approval_resolved + loops:auto_disabled (Loops EZ Mode Phase 2 —
     // optional carriers).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(22);
+    //
+    // Was 22 with `ez:client-tool` (Phase 48 Wave 3), which moved to
+    // SCOPED_RUNTIME_EVENT_TYPES: membership here is extension-subscribable
+    // and fails OPEN, and the LLM's raw client-tool arguments are neither.
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(21);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
       "tool:permission_request", "tool:permission_mode_change",
       "obs:turn", "ask-user:answer",
-      "ez:client-tool",
       "task:snapshot", "task:assignment_update",
       "extensions:installed",
       "goal:update",
@@ -90,6 +93,19 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(false);
     }
+  });
+
+  test("does NOT include ez:client-tool — this set is the extension-subscription allowlist", () => {
+    // The regression that matters is a re-add here, not a removal there:
+    // putting it back would silently make the LLM's raw client-tool arguments
+    // (selectors + values destined for the user's live page) declarable in an
+    // extension manifest's `permissions.eventSubscriptions`, and would put
+    // their delivery back on the fail-OPEN authorization path.
+    expect(DIRECT_CARRIER_EVENT_TYPES.has("ez:client-tool")).toBe(false);
+    expect(SCOPED_RUNTIME_EVENT_TYPES.has("ez:client-tool")).toBe(true);
+    // Still authorization-filtered, so the move is a tightening and not a
+    // hole: the event did not fall out of the filter altogether.
+    expect(isDirectCarrierEvent("ez:client-tool")).toBe(true);
   });
 });
 
@@ -814,10 +830,13 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "agent:spawn", "agent:status", "agent:complete",
     "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
     "workflow:approval_request",
+    // Not run-scoped — a plain conversation carrier that belongs here for the
+    // set's OTHER two properties (fail-closed, not extension-subscribable).
+    "ez:client-tool",
   ] as const;
 
-  test("enumerates the 14 scoped runtime events", () => {
-    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(14);
+  test("enumerates the 15 scoped runtime events", () => {
+    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(15);
     for (const name of MEMBERS) {
       expect(SCOPED_RUNTIME_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -840,6 +859,59 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     expect(registerExtensionEvent("agent", "spawn")).toBe(false);
     expect(registerExtensionEvent("workflow", "start")).toBe(false);
     __clearExtensionEventRegistryForTests();
+  });
+
+  test("an extension named 'ez' cannot shadow ez:client-tool either", () => {
+    // Moving the event across sets must not open a re-registration path: an
+    // extension whose manifest name is `ez` would otherwise be able to declare
+    // `ez:client-tool` as its OWN namespaced event and get it back.
+    expect(registerExtensionEvent("ez", "client-tool")).toBe(false);
+    __clearExtensionEventRegistryForTests();
+  });
+});
+
+describe("shouldDeliverEvent — ez:client-tool is conversation-scoped and fails CLOSED", () => {
+  // The payload's `input` is the LLM's raw client-tool arguments — the
+  // selectors and values it wants typed into the user's live page. It used to
+  // ride DIRECT_CARRIER_EVENT_TYPES, whose conv-scope branch fails OPEN.
+  const payload = (conversationId: string) => ({
+    conversationId,
+    toolCallId: "tc-1",
+    toolName: "fill_form",
+    input: { formId: "login", fields: { password_hint: "hunter2" } },
+  });
+
+  test("reaches the conversation owner", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "owner" }, get)).toBe(true);
+  });
+
+  test("is DROPPED for a subscriber who does not own the conversation", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "intruder" }, get)).toBe(false);
+  });
+
+  test("is DROPPED on a DB error rather than broadcast (the fail-open regression)", async () => {
+    // Under the old membership this returned TRUE — a transient lookup failure
+    // handed the tool arguments to every connected subscriber. Contrasted
+    // against a legacy carrier in the same assertion so the difference is the
+    // point being pinned, not an accident of the stub.
+    const getThrowing = async (): Promise<FakeRow> => { throw new Error("db down"); };
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "u" }, getThrowing)).toBe(false);
+    expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
+  });
+
+  test("is DROPPED when the conversation row is missing", async () => {
+    const get = makeGetConversation({});
+    expect(await shouldDeliverEvent("ez:client-tool", payload("ghost"), { userId: "u" }, get)).toBe(false);
+  });
+
+  test("an empty conversationId is DROPPED, not broadcast", async () => {
+    // The legacy path treated a falsy conversationId as "not scoped" and fell
+    // through to the broadcast branch — the exact shape a forged or malformed
+    // emit takes. Unattributable now means dropped.
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload(""), { userId: "owner" }, get)).toBe(false);
   });
 });
 

@@ -139,6 +139,32 @@ describe("clampExtensionPermissions — capability tier", () => {
     expect(out.eventSubscriptions).toBeUndefined();
   });
 
+  test("eventSubscriptions: ez:client-tool is clamped away even when manifest and grant agree", () => {
+    // It left DIRECT_CARRIER_EVENT_TYPES (the third leg of the intersection),
+    // so an install that declares AND submits it now grants nothing — the LLM's
+    // raw client-tool arguments are not an extension-facing surface. Paired
+    // with a surviving direct carrier so the assertion distinguishes "this one
+    // event was dropped" from "the whole branch produced nothing".
+    const out = clampExtensionPermissions(
+      { eventSubscriptions: ["ez:client-tool", DCE_EVENT] },
+      { eventSubscriptions: ["ez:client-tool", DCE_EVENT] },
+    );
+    expect(out.eventSubscriptions).toEqual([DCE_EVENT]);
+  });
+
+  test("eventSubscriptions: an extension NAMED ez cannot reclaim ez:client-tool as its own namespace", () => {
+    // The own-namespace leg (`isOwnNamespaceEvent`) accepts any
+    // `<manifest.name>:<event>`, so without the platform-set check ahead of it
+    // an extension named `ez` would be the one caller that still gets the
+    // event. `registerExtensionEvent` refuses the same pair at the dispatcher.
+    const out = clampExtensionPermissions(
+      { eventSubscriptions: ["ez:client-tool"] },
+      { eventSubscriptions: ["ez:client-tool"] },
+      { name: "ez" },
+    );
+    expect(out.eventSubscriptions).toBeUndefined();
+  });
+
   test("eventSubscriptions: OWN-namespace custom events survive when the manifest name is supplied", () => {
     // The ez-code-factory init_gate regression: the manifest declares the
     // extension's own custom events, the activate path clamps them, and the

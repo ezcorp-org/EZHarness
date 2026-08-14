@@ -197,6 +197,39 @@ describe("EventSubscriptionDispatcher — registerExtension filtering", () => {
       resolve();
     }, 10));
   });
+
+  test("ez:client-tool is NOT extension-subscribable — a manifest naming it wires nothing", () => {
+    // It carries a top-level conversationId and used to sit in
+    // DIRECT_CARRIER_EVENT_TYPES, which is branch 1's allowlist — so an
+    // extension could name it in `permissions.eventSubscriptions` and receive
+    // the LLM's raw client-tool arguments for every conversation it is wired
+    // to. Registration is where that has to stop: the extension IS wired to
+    // c1 here, so a delivery would prove the subscription took.
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const dispatcher = new EventSubscriptionDispatcher(
+      bus,
+      // The manifest-aware registry, so a rejection cannot be an artifact of
+      // branch 2 short-circuiting on a missing manifest. `ez` is even the
+      // extension's own namespace here — the most favorable case for it.
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "ez" } }),
+      wireLookup({ "c1": ["ext-a"] }),
+    );
+    dispatcher.registerExtension("ext-a", ["ez:client-tool"]);
+    dispatcher.start();
+
+    bus.emit("ez:client-tool", {
+      conversationId: "c1",
+      toolCallId: "tc-1",
+      toolName: "fill_form",
+      input: { formId: "login" },
+    });
+
+    return new Promise<void>((resolve) => setTimeout(() => {
+      expect(proc.calls).toHaveLength(0);
+      resolve();
+    }, 10));
+  });
 });
 
 // ── Happy path ──────────────────────────────────────────────────────
