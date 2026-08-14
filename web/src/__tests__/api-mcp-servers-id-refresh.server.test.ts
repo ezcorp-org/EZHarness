@@ -51,6 +51,7 @@ function storedRow(tools: Array<{ name: string; description: string }>) {
 }
 
 const { MCP_CONNECT_FAILED_MESSAGE } = await import("$server/mcp/connect-failure");
+const { McpTargetBlockedError } = await import("$server/mcp/target-guard");
 const { POST } = await import("../routes/api/mcp-servers/[id]/refresh/+server");
 
 function makeEvent(opts: {
@@ -161,6 +162,39 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
 
     expect(unknown.status).toBe(unreachable.status);
     expect(await unknown.text()).toBe(await unreachable.text());
+  });
+
+  test("an SSRF-blocked target is byte-identical to a plain connect failure", async () => {
+    // `src/mcp/connect-failure.ts` states this as a binding invariant: if a
+    // guard rejection had its own answer, the caller could still separate
+    // private from public targets and the port-scan oracle would be rebuilt
+    // across exactly the boundary the guard defends.
+    //
+    // Refresh re-connects to the STORED config and can be replayed on
+    // demand, so it is the cheapest place to run that probe — and it was the
+    // one route with no regression test for it. A mutation that gave this
+    // route a different (still-502) body left every other suite green.
+    refreshMcpTools.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const blocked = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
+
+    refreshMcpTools.mockRejectedValueOnce(new Error("connect ECONNREFUSED 93.184.216.34:443"));
+    const connectFailure = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
+
+    expect(blocked.status).toBe(connectFailure.status);
+    expect(await blocked.text()).toBe(await connectFailure.text());
+  });
+
+  test("the blocked target never appears in the response body", async () => {
+    refreshMcpTools.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
+    const body = await res.text();
+    expect(body).not.toContain("169.254");
+    expect(body).not.toContain("mcp.lan");
+    expect(body).not.toContain("private-address");
   });
 
   test("the real reason is handed to the server-side sink", async () => {

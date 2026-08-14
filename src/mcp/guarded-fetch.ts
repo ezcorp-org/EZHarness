@@ -50,6 +50,7 @@
  * credentials on a cross-origin redirect; so do we.
  */
 
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   assertMcpTargetUrlAllowed,
   McpTargetBlockedError,
@@ -72,11 +73,9 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
-/** The URL string from whatever shape the SDK passed as `input`. */
-function urlFromInput(input: URL | RequestInfo): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.href;
-  return input.url;
+/** The URL string from either shape the SDK's `FetchLike` may pass. */
+function urlFromInput(input: string | URL): string {
+  return typeof input === "string" ? input : input.href;
 }
 
 /**
@@ -109,7 +108,7 @@ function stripCredentialsIfCrossOrigin(
 export interface McpGuardedFetchDeps extends McpTargetGuardDeps {
   /** Injected transport, so tests drive redirect chains without a socket.
    *  Defaults to the global `fetch`. */
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
 }
 
 /**
@@ -124,12 +123,12 @@ export interface McpGuardedFetchDeps extends McpTargetGuardDeps {
  * was constructed is refused on the next request, not merely on the next
  * client.
  */
-export function createMcpGuardedFetch(deps: McpGuardedFetchDeps = {}): typeof fetch {
+export function createMcpGuardedFetch(deps: McpGuardedFetchDeps = {}): FetchLike {
   const { fetchImpl, ...guardDeps } = deps;
-  const transport = fetchImpl ?? ((globalThis as { fetch: typeof fetch }).fetch);
+  const transport: FetchLike = fetchImpl ?? ((url, init) => globalThis.fetch(url, init));
 
   return async function mcpGuardedFetch(
-    input: URL | RequestInfo,
+    input: string | URL,
     init?: RequestInit,
   ): Promise<Response> {
     let url = urlFromInput(input);

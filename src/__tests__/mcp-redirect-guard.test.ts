@@ -27,13 +27,15 @@
  * unless named in the allowlist — so the only way to reach it is the bypass.
  */
 import { test, expect, describe, afterEach } from "bun:test";
-import type { Server } from "bun";
 import { McpClient } from "../mcp/client";
 import { MCP_TARGET_ALLOW_ENV, McpTargetBlockedError } from "../mcp/target-guard";
 import { createMcpGuardedFetch, MCP_MAX_REDIRECTS } from "../mcp/guarded-fetch";
+import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
+
+type TestServer = ReturnType<typeof Bun.serve>;
 
 const allowEnvAtStart = process.env[MCP_TARGET_ALLOW_ENV];
-const servers: Server[] = [];
+const servers: TestServer[] = [];
 
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.stop(true);
@@ -41,7 +43,7 @@ afterEach(async () => {
   else process.env[MCP_TARGET_ALLOW_ENV] = allowEnvAtStart;
 });
 
-function track<T extends Server>(s: T): T {
+function track<T extends TestServer>(s: T): T {
   servers.push(s);
   return s;
 }
@@ -283,13 +285,13 @@ describe("a reachable MCP server cannot redirect the platform onto a blocked add
 function scriptedFetch(steps: Array<Response | ((url: string, init: RequestInit) => Response)>) {
   const calls: Array<{ url: string; init: RequestInit }> = [];
   let i = 0;
-  const impl = (async (input: URL | RequestInfo, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const impl: FetchLike = async (input, init) => {
+    const url = typeof input === "string" ? input : input.href;
     calls.push({ url, init: init ?? {} });
     const step = steps[Math.min(i, steps.length - 1)];
     i++;
     return typeof step === "function" ? step(url, init ?? {}) : step!;
-  }) as typeof fetch;
+  };
   return { impl, calls };
 }
 
@@ -479,11 +481,13 @@ describe("createMcpGuardedFetch", () => {
     expect(res.status).toBe(200);
   });
 
-  test("accepts a URL object and a Request as input", async () => {
+  test("accepts both shapes the SDK's FetchLike may pass", async () => {
+    // `FetchLike` is `(url: string | URL, init?) => Promise<Response>` — the
+    // SDK never passes a `Request`, so neither does the wrapper's contract.
     const { impl, calls } = scriptedFetch([Response.json({ ok: true })]);
     const f = createMcpGuardedFetch({ fetchImpl: impl, resolveHost: publicResolver, allowRaw: "" });
     await f(new URL("http://vendor.test/a"));
-    await f(new Request("http://vendor.test/b"));
+    await f("http://vendor.test/b");
     expect(calls.map((c) => c.url)).toEqual(["http://vendor.test/a", "http://vendor.test/b"]);
   });
 
