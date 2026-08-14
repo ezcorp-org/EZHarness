@@ -276,6 +276,52 @@ describe("merge-lcov: a measured miss outvotes a span fill", () => {
     expect(da.get(10)).toBe(0);
   });
 
+  // The "measured" verdict has to be STICKY, not last-writer-wins: whether the
+  // filling shard is folded in before or after the measuring one is decided by
+  // `Glob.scan` order, which nothing in the pipeline controls. Two record
+  // BLOCKS for the same SF inside one input file pin both orders
+  // deterministically (each block is folded independently, so this is the same
+  // code path a two-shard scan takes, minus the ordering coin flip).
+  for (const order of ["measured-first", "fill-first"] as const) {
+    test(`the measured verdict wins when the fill is folded ${order === "measured-first" ? "second" : "first"}`, async () => {
+      const src = writeSource(`order-${order}/early-return.ts`, EARLY_RETURN);
+      const measuredBlock = [
+        "TN:",
+        `SF:${src}`,
+        "DA:1,3",
+        "DA:2,3",
+        "DA:3,3",
+        "DA:5,0",
+        "DA:7,0",
+        "DA:10,3",
+        "end_of_record",
+      ];
+      const fillBlock = [
+        "TN:",
+        `SF:${src}`,
+        ...Array.from({ length: 10 }, (_, i) => `DA:${i + 1},0`),
+        "end_of_record",
+      ];
+      const blocks =
+        order === "measured-first"
+          ? [...measuredBlock, ...fillBlock]
+          : [...fillBlock, ...measuredBlock];
+      const shardDir = join(root, `order-${order}`, "cov_0");
+      mkdirSync(shardDir, { recursive: true });
+      writeFileSync(join(shardDir, "lcov.info"), [...blocks, ""].join("\n"));
+      // A straddling shard, so the drop is otherwise armed for lines 4–9.
+      writeShards(`order-${order}`, src, [
+        { name: "cov_1", records: ["DA:3,9", "DA:10,9"] },
+      ]);
+      const { da } = await merge(
+        join(root, `order-${order}`, "*", "lcov.info"),
+        `order-${order}.info`,
+      );
+      expect(da.get(5)).toBe(0);
+      expect(da.get(7)).toBe(0);
+    });
+  }
+
   test("a short zero run is a measurement, not a fill", async () => {
     const src = writeSource("case5/early-return.ts", EARLY_RETURN);
     // Two-record zero run (5, 7) inside a file another shard straddles: below
