@@ -25,7 +25,7 @@
  * companion, not a duplicate: keep behavioural depth in the vitest suite.
  */
 
-import { test, expect, describe, mock } from "bun:test";
+import { test, expect, describe, afterAll, mock } from "bun:test";
 
 // ── Mock the SvelteKit aliases the +server.ts route imports ─────────
 // Must be registered BEFORE importing the route module.
@@ -80,6 +80,28 @@ mock.module("drizzle-orm", () => ({
 mock.module("$server/runtime/tools/builtin-registry", () => ({
   getBuiltInCategories: () => [],
 }));
+
+// ── Un-poison the two `$server/*` aliases this file STUBS (issue #208) ──
+//
+// The other registrations above are pass-through shims — the alias resolves to
+// the real module, so nothing leaks. These two are not: `listEzActions` returns
+// this file's mutable fixture array and `getBuiltInCategories` returns `[]`, and
+// a later file that mounts the mentions-search route would read them. This file
+// does not call `restoreModuleMocks()` (nor should it — a global restore would
+// re-register every MODULE_PATHS alias, which is documented as harmful in
+// `helpers/mock-cleanup.ts`), so it un-poisons exactly what it poisoned.
+//
+// The LAZY `require()` in the factory is the whole trick, and it is the same
+// form `restoreModuleMocks()` installs: it re-dispatches at every resolution,
+// so a later file's own `mock.module` still wins through the alias. Nothing is
+// loaded here at module-load time. The mock-cleanup coverage meta-test
+// recognises this ≥2-registrations shape as the in-file restore pattern.
+afterAll(() => {
+  mock.module("$server/runtime/ez-actions/registry", () => require("../runtime/ez-actions/registry"));
+  mock.module("$server/runtime/tools/builtin-registry", () =>
+    require("../runtime/tools/builtin-registry"),
+  );
+});
 
 // Import AFTER mocks.
 const { GET } = await import(
