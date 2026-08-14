@@ -69,6 +69,20 @@ class HookedStdioClientTransport extends StdioClientTransport {
 }
 
 /**
+ * Server-driven lifecycle events the owner (the extension registry) reacts
+ * to. Both are attached with {@link McpClient.setLifecycleHooks} BEFORE
+ * `connect()` — a transport can die during the handshake.
+ */
+export type McpClientHooks = {
+  /**
+   * The transport is gone: the MCP server restarted, the stdio child
+   * exited, the HTTP/SSE stream dropped, or `close()` was called.
+   * `isConnected` is already `false` when this runs.
+   */
+  onClosed?: () => void;
+};
+
+/**
  * Thin wrapper around @modelcontextprotocol/sdk's Client that
  * speaks one of the three supported transports and exposes the
  * app's `ToolDefinition` + `ToolCallResult` shapes.
@@ -80,13 +94,49 @@ class HookedStdioClientTransport extends StdioClientTransport {
 export class McpClient {
   private client: Client;
   private connected = false;
+  /**
+   * This SDK `Client` has already owned a transport, so it can never take
+   * another one: `Protocol.connect()` throws "Already connected to a
+   * transport" while the transport is live, and a closed one still carries
+   * the previous session's negotiated capabilities. A RECONNECT therefore
+   * gets a brand-new `Client` (see `connect()`).
+   */
+  private spent = false;
+  private hooks: McpClientHooks = {};
 
   constructor(private readonly spec: McpServerDefinition) {
-    this.client = new Client({ name: "ezcorp-ai", version: "1.0.0" }, { capabilities: {} });
+    this.client = this.newClient();
   }
 
   get isConnected(): boolean {
     return this.connected;
+  }
+
+  /**
+   * Attach the owner's lifecycle hooks. Replaces any previously attached
+   * set; call before `connect()`.
+   */
+  setLifecycleHooks(hooks: McpClientHooks): void {
+    this.hooks = hooks;
+  }
+
+  /**
+   * A fresh SDK `Client` with our server-driven listener already wired.
+   *
+   * `onclose` is the fix for the stale-client defect: `connected` used to be
+   * cleared ONLY by an explicit `close()`, so a restarted MCP server left a
+   * cached DEAD client behind until the harness itself restarted. The SDK
+   * fires `Protocol.onclose` from `_onclose()` — which runs BEFORE the
+   * in-flight requests are rejected — so a caller that sees a `callTool`
+   * rejection already sees `isConnected === false`.
+   */
+  private newClient(): Client {
+    const client = new Client({ name: "ezcorp-ai", version: "1.0.0" }, { capabilities: {} });
+    client.onclose = () => {
+      this.connected = false;
+      this.hooks.onClosed?.();
+    };
+    return client;
   }
 
   /**
@@ -102,11 +152,19 @@ export class McpClient {
    * that resolved public when it was installed and resolves private later
    * is refused on the next connect (see `target-guard.ts` on the residual
    * TOCTOU window). `stdio` specs are a no-op in the guard.
+   *
+   * Re-entrant after a death: once the transport has closed, `listTools` /
+   * `callTool` come back through here and RECONNECT. The guard re-runs, so
+   * a reconnect is authorized on the same terms as the first connect.
    */
   async connect(): Promise<void> {
     if (this.connected) return;
     await assertMcpTargetAllowed(this.spec);
+    if (this.spent) this.client = this.newClient();
     const transport = this.buildTransport();
+    // Marked BEFORE the handshake: a `Client` whose `connect()` threw has
+    // still taken ownership of a transport and must not be handed another.
+    this.spent = true;
     await this.client.connect(transport);
     this.connected = true;
   }

@@ -1046,6 +1046,17 @@ export class ExtensionRegistry {
     }
 
     const client = existing ?? new McpClient(sandboxedSpec);
+    // Server-driven lifecycle. Attached BEFORE `connect()` because a
+    // transport can die during the handshake.
+    //
+    // Defensive `typeof` guard: test fixtures stub McpClient with bare
+    // { connect, close, listTools, callTool } objects — same tolerance as
+    // the `getChildProcess` probe below.
+    if (typeof client.setLifecycleHooks === "function") {
+      client.setLifecycleHooks({
+        onClosed: () => this.onMcpTransportClosed(extensionId, client),
+      });
+    }
     // Phase 58 / MCP-04 — capture spawnAt BEFORE the (potentially-slow)
     // connect() so the journalctl --since window in the soak reader
     // is anchored to actual spawn time, not post-handshake. connect()
@@ -1140,6 +1151,30 @@ export class ExtensionRegistry {
       }
     }
     return client;
+  }
+
+  /**
+   * The extension's MCP transport is gone — the server restarted, the stdio
+   * child exited, or the stream dropped.
+   *
+   * Dropping the cache entry is what makes the recovery COMPLETE. Clearing
+   * `connected` alone would let the next `getMcpClient` fall through to the
+   * rebuild path and hand the same instance back (`existing ?? new
+   * McpClient`), reconnecting against a spec built for the dead child — a
+   * forward proxy that has since been replaced, a veth slot that has been
+   * released. With the entry gone, the next call rebuilds the whole sandbox
+   * envelope and constructs a client from the fresh spec.
+   *
+   * The identity check is not paranoia: a reconnect can already have
+   * replaced the entry by the time a late close event lands, and an
+   * unconditional delete would evict the LIVE client.
+   */
+  private onMcpTransportClosed(extensionId: string, client: McpClient): void {
+    if (this.mcpClients.get(extensionId) !== client) return;
+    this.mcpClients.delete(extensionId);
+    log.info("MCP transport closed — cached client dropped, next call reconnects", {
+      extensionId,
+    });
   }
 
   /**
