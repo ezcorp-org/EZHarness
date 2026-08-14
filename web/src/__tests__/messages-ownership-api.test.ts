@@ -142,12 +142,22 @@ mock.module("$server/db/queries/attachments", () => ({
 }));
 mock.module("$server/db/queries/projects", () => ({ getProject: mock(async () => null) }));
 
+const { isInteractiveSession } = await import("$server/auth/middleware");
+
+// `isInteractiveSession` is re-exported from the REAL module rather than
+// re-implemented: `mock.module` REPLACES the whole module object, so a
+// partial factory turns any other export into a load-time
+// `SyntaxError: Export named '…' not found`. The messages route reaches it
+// through `auth/permission-mode-ceiling.ts`, which landed after this mock
+// was written — a re-implementation here would just re-break on the next
+// export the ceiling grows.
 mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: { user?: unknown }) => {
     const u = locals?.user;
     if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
     return u;
   },
+  isInteractiveSession,
 }));
 mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
 mock.module("$lib/server/security/resource-quotas", () => ({
