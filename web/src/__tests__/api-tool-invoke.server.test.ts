@@ -414,4 +414,80 @@ describe("POST /api/tool-invoke — per-extension wire authorization", () => {
     expect(res.status).toBe(200);
     expect(executeToolCall).toHaveBeenCalledTimes(1);
   });
+
+});
+
+// ── sec U5: a capability denial is a REFUSAL, not a server fault ──────
+//
+// The PDP's `PermissionDeniedError` fell through to the generic catch, which
+// (a) retried it MAX_RETRIES times — one denied call wrote THREE
+// `ext:perm:denied` audit rows and counted as three denials in /audit — and
+// (b) returned 500, which reads as "the server broke" to every client.
+describe("POST /api/tool-invoke — capability denial", () => {
+  const body = {
+    extensionName: "probe-http",
+    toolName: "echo",
+    input: {},
+    conversationId: "c1",
+    invocationId: "i1",
+  };
+
+  /** Shaped like `tool-executor/errors.ts`'s class: the route matches on
+   *  `name`, because the module is mocked at the alias boundary here and
+   *  `instanceof` would compare against a different class identity. */
+  function permissionDenied(reason: string) {
+    const e = new Error(
+      `Permission denied for tool "echo" from extension "710da8a9-1111-2222-3333-444455556666" — ${reason}`,
+    );
+    e.name = "PermissionDeniedError";
+    (e as Error & { reason?: string }).reason = reason;
+    return e;
+  }
+
+  test("returns 403, not 500", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).success).toBe(false);
+  });
+
+  test("is NOT retried — one denied call, one dispatch attempt", async () => {
+    // The audit consequence is the point: each retry wrote its own
+    // `ext:perm:denied` row, so a single refusal read as three denials.
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    await POST(makeEvent({ locals: authedUser, body }));
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
+  });
+
+  test("names the extension, not its UUID, and keeps the reason", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    const err = (await res.json()).error as string;
+    expect(err).toContain('from extension "probe-http"');
+    expect(err).toContain("Missing capability network (127.0.0.1)");
+    // The raw message embedded the row UUID, which names nothing to whoever
+    // reads the response.
+    expect(err).not.toContain("710da8a9");
+  });
+
+  test("a NON-permission error still retries and still 500s", async () => {
+    // The retry exists for a crashed extension subprocess; that path is
+    // unchanged.
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(new Error("subprocess died"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(500);
+    expect(executeToolCall).toHaveBeenCalledTimes(3);
+  });
+
+  test("a tool-level failure still RESOLVES 200 — the harness contract is unchanged", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockResolvedValue({ isError: true, content: [{ type: "text", text: "boom" }] });
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(false);
+  });
 });
