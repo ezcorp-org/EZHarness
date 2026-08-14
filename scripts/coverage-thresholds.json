@@ -239,6 +239,7 @@
   "docs/extensions/examples/github-projects/contract.ts": 100,
   "docs/extensions/examples/task-tracking/task-dependencies.ts": 100,
   "src/mcp/target-guard.ts": 100,
+  "src/mcp/guarded-fetch.ts": 100,
   "src/mcp/connect-failure.ts": 100,
   "src/search/egress.ts": 100,
   "src/search/providers.ts": 100,

@@ -81,6 +81,19 @@ services:
       # used. `EZCORP_SUGGEST_OLLAMA_URL` below is a plain fetch and is
       # unaffected. See src/search/egress.ts#pickPinnedAddress.
       - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://127.0.0.1:8889}
+      # Outbound MCP target allowlist. This service enumerates env
+      # explicitly (no `env_file:`), so without this line an operator who
+      # follows .env.example gets a container that never receives the
+      # variable — indistinguishable from setting it wrong, because a
+      # denied MCP target returns the same opaque 502 as an unreachable
+      # one. Empty default = the shipped deny-by-default posture.
+      #
+      # This stack is `network_mode: host`, so a dev MCP server on
+      # localhost is exactly the case that needs it. Note the same
+      # IPv4/IPv6 trap as SEARXNG_BASE_URL above: a URL saying
+      # `localhost` resolves to BOTH `127.0.0.1` and `::1`, and the guard
+      # requires EVERY resolved address to be allowed — list both.
+      - EZCORP_MCP_TARGET_ALLOW=${EZCORP_MCP_TARGET_ALLOW:-}
       # Composer suggestions: local model endpoint for the prompt-enhancement
       # half (the tool-suggestion half is in-process embeddings and needs no
       # sidecar). Same host-network reasoning as SEARXNG_BASE_URL — use the

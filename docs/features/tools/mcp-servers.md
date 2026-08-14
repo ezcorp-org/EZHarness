@@ -60,7 +60,36 @@ Admin-gated. Calls `ExtensionRegistry.refreshMcpTools(id)`, which `getMcpClient(
 
 `src/mcp/target-guard.ts` validates every `http`/`sse` target before the transport opens. `stdio` is exempt — it spawns a process rather than dialing an address, and its egress is governed by the sandbox envelope below.
 
-The guard is enforced inside **`McpClient.connect()`**, not in the route handlers. That is the one chokepoint every network connect passes through — install, edit, refresh, registry reload, and lazy tool dispatch — so there is one policy rather than one per call site, and the check is per-CONNECT rather than per-install.
+The guard is enforced in the backend, not in the route handlers, so there is one policy rather than one per call site. There are two enforcement points and the difference matters:
+
+| Where | Runs | Covers |
+|---|---|---|
+| `McpClient.connect()` | once per **client** — `connect()` returns early on `this.connected`, and `getMcpClient` on `isConnected`, so on a long-lived registry client this is effectively once per process | fail-fast before a transport is built |
+| `src/mcp/guarded-fetch.ts` | on **every HTTP request** the `http`/`sse` transport makes, and on **every redirect hop** | install, edit, refresh, registry reload, `tools/list`, and every `tools/call` on an already-connected client |
+
+The second is the load-bearing one. Do not read "guarded at connect" as "guarded once per install" — nor as "re-validated on every lazy tool dispatch by `connect()`", which it is not; the *fetch* is what covers dispatch.
+
+#### Redirects (`src/mcp/guarded-fetch.ts`)
+
+Validating the configured URL was **not** enough on its own, and this was a real, reproduced bypass rather than a theoretical one. The MCP SDK owns the socket and its `fetch` followed redirects with default semantics, so a server we were allowed to reach could answer:
+
+```
+307 Location: http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+and the platform dialed it — on install, edit, refresh, **and every lazy tool dispatch**. Measured against real local servers before the fix: with `302` the method downgrades to GET and the request still lands on the blocked address; with `307` method and body are preserved and a full bidirectional MCP session runs, whose `tools/list` flows back into the platform and therefore into the LLM turn. The attacker is the operator of any configured remote MCP server — exactly the party this guard exists to distrust. It also re-opened the port-scan oracle, via redirect-target timing.
+
+Both transports accept a custom `fetch` (`opts.fetch`), and both route *every* request through it — the streamable POST/GET/DELETE, the SSE stream, and the SSE endpoint POST. So `McpClient` hands them one that:
+
+- sets `redirect: "manual"` and re-runs the full target policy on each `Location` hop, resolving relative and protocol-relative values against the current URL;
+- caps the chain at `MCP_MAX_REDIRECTS` (3), refusing with reason `redirect-limit`;
+- applies standard method/body downgrade (`301`/`302`/`303` → GET, `307`/`308` preserve) so legitimate same-origin redirects keep working;
+- **strips `Authorization` / `Cookie` on a cross-origin hop**, so a vendor cannot harvest its own bearer token by redirecting us to a host it controls;
+- returns the terminal response with its body **unread**, so an MCP `text/event-stream` keeps streaming.
+
+That last point is why `guardedFetch` from `src/search/egress.ts` is not reused wholesale: its `enforceBodyCap` reads the response to completion, which would hang a live MCP event stream forever, and its IP-pinning rewrites the URL host, which breaks TLS SNI for a vendor https endpoint. The address **policy** is still shared — every hop goes through `assertMcpTargetUrlAllowed`, i.e. the same `isBlockedIp` block-list.
+
+The SSE transport's own endpoint-event origin check (`sdk/…/client/sse.js`) already rejects an endpoint whose origin differs from the connection, so that path is not duplicated here.
 
 Policy:
 
@@ -181,7 +210,8 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 
 ## Key files
 
-- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`/`getChildProcess`, `HookedStdioClientTransport`. `connect()` is the single SSRF chokepoint.
+- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`/`getChildProcess`, `HookedStdioClientTransport`. `connect()` fail-fasts the guard; `buildTransport()` injects the guarded fetch.
+- `src/mcp/guarded-fetch.ts` — `createMcpGuardedFetch`: `redirect: "manual"`, per-hop revalidation, hop cap, cross-origin credential stripping, streaming preserved.
 - `src/mcp/target-guard.ts` — `assertMcpTargetAllowed` / `parseMcpTargetAllowlist`: the outbound target policy + `EZCORP_MCP_TARGET_ALLOW` parsing.
 - `src/mcp/connect-failure.ts` — `MCP_CONNECT_FAILED_MESSAGE` / `reportMcpConnectFailure`: the uniform 502 body and the server-side diagnosis it replaces.
 - `web/src/routes/api/mcp-servers/+server.ts` — `POST` install: throwaway-verify, cache tools, persist, reload registry.
@@ -231,6 +261,9 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 - **Installing an MCP server is admin-only, and so is WIRING one.** Attaching an extension to a conversation is what makes its tools callable by an LLM turn, and an MCP extension's credential is spent by every such call. Both wiring surfaces (`POST /api/conversations/[id]/extensions` and `![ext:…]` / `![agent:…]` mentions) therefore run `canWireExtension`: admin, the row's `creatorUserId`, or a `use` grant — anything else is refused. A refusal is shaped as a MISS (the route's unknown-name 404; a silent drop in the mention path) so a member cannot enumerate installed MCP servers by probing names. `requireScope(locals,"extensions")` is NOT a second line of defence here: it is a no-op for cookie sessions.
 - **A NULL `creatorUserId` matches nobody.** Every MCP row installed before the creator stamp existed has `creator_user_id = NULL`, and those are admin-only. The comparison is against the actor's id (a non-empty string), so a null-equals-null accident cannot open them to everyone.
 - **Cached tools can drift.** The tool list is a snapshot taken at install / edit / refresh time and persisted in `manifest.tools`; boot does **not** re-connect. If the upstream server changes its tools, the cached list is stale until an admin hits refresh.
-- **DNS-rebind recheck has a documented TOCTOU.** The proxy re-resolves the hostname and rejects internal IPs, but the window between that lookup and `Bun.connect` is a known gap (deferred — would require pinning the connect to the validated IP with SNI plumbing). The `http`/`sse` target guard has the **same** residual: the MCP SDK's transport owns its socket, so the guard cannot IP-pin the way `guardedFetch` does. Re-validating on every connect (not just at install) is what bounds the exposure today.
+- **DNS-rebind recheck has a documented TOCTOU.** The proxy re-resolves the hostname and rejects internal IPs, but the window between that lookup and `Bun.connect` is a known gap (deferred — would require pinning the connect to the validated IP with SNI plumbing). The `http`/`sse` target guard has the **same** residual, at per-REQUEST granularity: we resolve, then the SDK's socket resolves again, and we cannot IP-pin (it would break TLS SNI for a vendor https endpoint). Re-validating every request *and* every redirect hop is what bounds it; closing it entirely needs a pinned-dispatcher transport.
+- **The DNS lookup is deadline-bounded (5s).** `dns.lookup` has no timeout of its own — against a blackholed nameserver a single lookup was measured at ~24s, which is an API handler occupied for half a minute and a visibly stalled chat turn on the first tool dispatch. A timeout is reported as `no-address`, i.e. the same uniform 502.
+- **A mistyped allowlist entry is only visible in the log.** A denied target returns the same opaque 502 as an unreachable one, by design — so if an operator's entry is not understood, the *only* signal is the `mcp-target-guard` warning naming the offending value. `192.168.1.50:8080`, `http://192.168.1.50` and a `/`-with-spaces CIDR are all rejected there rather than silently reclassified.
+- **At tool-dispatch time the raw block reason DOES reach the chat tool card** (e.g. `MCP target blocked (private-address): 127.0.0.1 → 127.0.0.1`), because that path is not the admin API and has no oracle to protect — the caller already controls the target. The uniform-502 contract applies to install/edit/refresh only.
 - **No dedicated GET/DELETE.** Don't look for `GET`/`DELETE /api/mcp-servers/[id]`; only `PUT` + the `refresh` subroute exist. Listing and deletion go through the general `/api/extensions` surface, where `DELETE /api/extensions/[id]` (`requireScope("extensions")` + `requireAuth` + admin) calls `registry.killAll()` then `registry.reload()` — `reload()` is what stops the now-deleted extension's per-MCP proxy/client (any id no longer live).
 - **`getChildProcess()` reaches into SDK internals.** The seccomp soak reader and Stage-2 veth teardown depend on the undocumented `transport._process` field. A future `@modelcontextprotocol/sdk` rename makes these degrade-soft to no-ops (audit signal goes quiet; nothing in production breaks).

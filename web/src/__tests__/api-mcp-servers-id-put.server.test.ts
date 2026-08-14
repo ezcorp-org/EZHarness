@@ -56,6 +56,7 @@ const { getExtension, updateMcpExtension, rehydrateMcpServerSecrets } = await im
   "$server/db/queries/extensions"
 );
 const { MCP_CONNECT_FAILED_MESSAGE } = await import("$server/mcp/connect-failure");
+const { McpTargetBlockedError } = await import("$server/mcp/target-guard");
 const { PUT } = await import("../routes/api/mcp-servers/[id]/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
@@ -335,6 +336,37 @@ describe("PUT /api/mcp-servers/[id]", () => {
       server: Record<string, unknown>;
     };
     expect("headers" in persisted.server).toBe(false);
+  });
+
+  test("an SSRF-blocked target is byte-identical to a plain connect failure", async () => {
+    // Edit is the route an attacker would use to re-point an EXISTING row at
+    // an internal address, so its oracle closure needs its own pin rather
+    // than relying on the install route's.
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const blocked = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(new Error("connect ECONNREFUSED 93.184.216.34:443"));
+    const connectFailure = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    expect(blocked.status).toBe(connectFailure.status);
+    expect(await blocked.text()).toBe(await connectFailure.text());
+    // And no mutation on either path.
+    expect(updateMcpExtension).not.toHaveBeenCalled();
+  });
+
+  test("the blocked target never appears in the response body", async () => {
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+    const body = await res.text();
+    expect(body).not.toContain("169.254");
+    expect(body).not.toContain("private-address");
   });
 
   test("a thrown non-Error returns the same body as everything else", async () => {

@@ -3,6 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { assertMcpTargetAllowed } from "./target-guard";
+import { createMcpGuardedFetch } from "./guarded-fetch";
 import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../extensions/types";
 
 /**
@@ -190,9 +191,17 @@ export class McpClient {
     }
     const url = new URL(this.spec.url);
     const headers = this.spec.headers;
+    // Every request either transport makes goes through this fetch — the
+    // streamable POST/GET/DELETE, the SSE stream, and the SSE endpoint POST.
+    // It re-runs the target guard on each `Location` hop, which is what
+    // stops a reachable MCP server from redirecting us onto an internal
+    // address (see guarded-fetch.ts). Without it the guard below only ever
+    // saw the FIRST url and the SDK followed redirects for us.
+    const fetch = createMcpGuardedFetch();
+    const opts = { fetch, ...(headers ? { requestInit: { headers } } : {}) };
     if (this.spec.transport === "http") {
-      return new StreamableHTTPClientTransport(url, headers ? { requestInit: { headers } } : undefined);
+      return new StreamableHTTPClientTransport(url, opts);
     }
-    return new SSEClientTransport(url, headers ? { requestInit: { headers } } : undefined);
+    return new SSEClientTransport(url, opts);
   }
 }
