@@ -85,7 +85,7 @@ this table's **Enforced** column as the source of truth and re-verify with the
 2. **SDK bundle shard** — `packages/@ezcorp/sdk/test/` + `…/src/entities/__tests__/` run bundled (mock.module-free, preserving 100% module-load instrumentation parity).
 3. **harness-client shard** — `packages/@ezcorp/harness-client/`.
 4. **Node-vitest leg** — the vitest-only `web/src/lib/**` files (Svelte-rune-importing modules bun can't compile) run under `npx vitest run … --coverage.provider=v8`, because `@vitest/coverage-v8` needs node:inspector's Coverage domain, which Bun does not implement — so CI provisions node 22 before the job. SF paths are re-rooted (`SF:src/` → `SF:web/src/`).
-5. `scripts/merge-lcov.ts` unions all shard lcovs into `coverage/lcov.info`; `scripts/check-coverage.ts` enforces thresholds. (`scripts/lcov-noise-filter.ts` strips spurious DA spans.)
+5. `scripts/merge-lcov.ts` unions all shard lcovs into `coverage/lcov.info`; `scripts/check-coverage.ts` enforces thresholds. (`scripts/lcov-noise-filter.ts` strips spurious DA spans.) The union sums hits per `(SF, line)`, with one exception: a zero that only an **importing-only** shard span-filled, on a line some shard executed straight across and no shard measured per statement, is dropped as **no evidence** instead of counted as a miss (`src/__tests__/merge-lcov-shard-vote.test.ts`).
 
 **Three diff-scoped enforcement layers** (all share `scripts/coverage-config.ts` for the lcov parser, source-file classification, and `EXCLUDES`):
 
@@ -178,7 +178,7 @@ This feature is experienced through Git/GitHub and CI, not an app UI.
 - `scripts/coverage-thresholds.json` — per-glob threshold map (~170 keys); the ratcheted policy surface.
 - `scripts/test.sh` — backend test runner (per-file bun process isolation; avoids the 553-file `mock.module` deadlock).
 - `scripts/test-coverage.sh` — coverage runner: host/example/SDK/harness-client bun shards + node-vitest leg → merge → `check-coverage.ts`.
-- `scripts/merge-lcov.ts` — unions per-shard lcov files into `coverage/lcov.info`.
+- `scripts/merge-lcov.ts` — unions per-shard lcov files into `coverage/lcov.info` (summing hits per line, dropping an importing-only shard's span-filled zeros as no evidence).
 - `scripts/lcov-noise-filter.ts` — strips spurious zero-hit DA spans (iface sigs, switch labels) from merged lcov.
 - `scripts/regenerate-manifest-lock.ts` — re-derives / `--check`s `manifest.lock.json` from bundled `ezcorp.config.ts` files.
 - `scripts/typecheck.sh` — backend + web typecheck.
