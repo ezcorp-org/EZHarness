@@ -94,6 +94,11 @@ import type { SpawnAssignmentContext } from "../extensions/spawn-assignment-hand
 import type { ExtensionPermissions } from "../extensions/types";
 import type { AgentEvents } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** The `run_workflow` wire now takes the per-turn permission-gate context;
+ *  this suite asserts the DEPTH guard, not the gate. */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 // ── Fixtures ───────────────────────────────────────────────────────
 
@@ -1038,6 +1043,7 @@ describe("spawn-assignment — orchestration depth is normalized, never caller-c
       const agentTools: Array<{ name: string }> = [];
       const builtinToolDefsMap = new Map();
       await wireRunWorkflowIfEligible({
+        permissionDeps,
         agentTools: agentTools as never,
         builtinToolDefsMap,
         conversationId: "conv-spawned",

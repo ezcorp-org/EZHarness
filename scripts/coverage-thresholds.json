@@ -167,6 +167,7 @@
   "src/runtime/workflow-tools-host.ts": 100,
   "src/runtime/tools/run-workflow.ts": 100,
   "src/runtime/tools/agent-tool.ts": 100,
+  "src/runtime/tools/permission-wrap.ts": 100,
   "src/runtime/workflow/runtime-registry.ts": 100,
   "src/extensions/workflows-handler.ts": 100,
   "src/extensions/perm-audit-coalescer.ts": 100,

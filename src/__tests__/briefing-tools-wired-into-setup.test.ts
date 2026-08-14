@@ -46,6 +46,13 @@ import {
   type SetupToolsConvRecord,
 } from "../runtime/stream-chat/setup-tools";
 import type { BuiltinToolDef } from "../runtime/tools/types";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 afterAll(() => {
   mock.module("../runtime/briefing/agent-config", () => realAgentConfig);
@@ -79,6 +86,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
   test("briefing conversation turn → the 3 briefing read tools registered", async () => {
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-briefing",
@@ -98,6 +106,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
   test("NEGATIVE: a conversation on another agent config gets none of the 3", async () => {
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-other-agent",
@@ -112,6 +121,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
   test("NEGATIVE: a regular conversation with no agent config gets none of the 3", async () => {
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-regular",
@@ -123,6 +133,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
   test("NEGATIVE: a null convRecord is a no-op", async () => {
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-null-record",
@@ -134,6 +145,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
   test("NEGATIVE: missing userId skips the wire (reads could not be ownership-scoped)", async () => {
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-no-user",
@@ -146,6 +158,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
     stubBriefingAgentId = null;
     const turn = freshTurn();
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-unbootstrapped",
@@ -158,6 +171,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
     const turn = freshTurn();
     for (let i = 0; i < 2; i++) {
       await wireBriefingToolsIfBriefingConversation({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-briefing",
@@ -178,6 +192,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
       const turn = freshTurn();
       await expect(
         wireBriefingToolsIfBriefingConversation({
+          permissionDeps,
           agentTools: turn.agentTools,
           builtinToolDefsMap: turn.builtinToolDefsMap,
           conversationId: "conv-briefing",
@@ -207,6 +222,7 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
     turn.builtinToolDefsMap.set("shell", { name: "shell", category: "execute" } as BuiltinToolDef);
 
     await wireBriefingToolsIfBriefingConversation({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-briefing",
