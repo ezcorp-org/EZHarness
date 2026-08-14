@@ -22,6 +22,34 @@ export async function getMode(id: string): Promise<DbMode | undefined> {
   return rows[0];
 }
 
+/**
+ * The single-row form of {@link listModes}'s visibility rule: a caller sees a
+ * mode when it is `builtin` or their own. Use this — never bare `getMode` —
+ * wherever a caller-supplied mode id is about to be WRITTEN to a row, so the
+ * two forms of "which modes are mine" can never disagree.
+ *
+ * An ownerless non-builtin mode (`userId === null`) stays visible to everyone.
+ * That is deliberate, not an oversight: `modes.userId` is `ON DELETE SET NULL`,
+ * so deleting a user orphans their modes rather than deleting them, and
+ * refusing orphans would take working modes away from every conversation
+ * already using one. `listModes` is narrower here — its `or(builtin, userId =
+ * caller)` never matches a NULL owner — but a mode you cannot list is not the
+ * same as a mode you must not keep using, and the conversations that already
+ * reference one are exactly the callers who need it.
+ *
+ * Returns `null` for both "no such mode" and "not yours" so callers answer a
+ * single fail-closed 404 and the endpoint is not an existence oracle.
+ */
+export async function getVisibleMode(
+  id: string,
+  userId: string,
+): Promise<DbMode | null> {
+  const mode = await getMode(id);
+  if (!mode) return null;
+  if (!mode.builtin && mode.userId && mode.userId !== userId) return null;
+  return mode;
+}
+
 export async function getModeBySlug(slug: string): Promise<DbMode | undefined> {
   const rows = await getDb().select().from(modes).where(eq(modes.slug, slug));
   return rows[0];

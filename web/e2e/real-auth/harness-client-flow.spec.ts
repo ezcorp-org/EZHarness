@@ -93,4 +93,48 @@ test.describe("external harness — remote control end-to-end", () => {
     const stored = (await readRes.json()) as { modeId: string | null };
     expect(stored.modeId).toBe(mode!.id);
   });
+
+  test("PUT /api/conversations/:id resolves modeId through the same visibility gate", async ({ request }) => {
+    // The update path used to write `modeId` with no existence and no owner
+    // check, leaning on the FK — so it was looser than the create path that
+    // resolves the id through `getVisibleMode`. Both halves are proven here
+    // against real PGlite because "the FK will catch it" was exactly the
+    // assumption that made an unknown id a 500 rather than a 404.
+    const seedRes = await request.post("/api/__test/seed", { data: { title: "e2e-put-mode" } });
+    expect(seedRes.status(), await seedRes.text()).toBe(201);
+    const { conversationId } = (await seedRes.json()) as { conversationId: string };
+
+    // A mode this caller owns. Created through the API, so its id is a real
+    // UUID — the seeded builtins are text literals (`builtin-plan`) that
+    // `updateConversationSchema`'s `z.string().uuid()` rejects outright.
+    const modeRes = await request.post("/api/modes", {
+      data: {
+        name: "E2E Put Mode",
+        slug: `e2e-put-mode-${Date.now()}`,
+        systemPromptInstruction: "Be brief.",
+      },
+    });
+    expect(modeRes.status(), await modeRes.text()).toBe(201);
+    const ownMode = (await modeRes.json()) as { id: string };
+
+    const okRes = await request.put(`/api/conversations/${conversationId}`, {
+      data: { modeId: ownMode.id },
+    });
+    expect(okRes.status(), await okRes.text()).toBe(200);
+    expect(((await okRes.json()) as { modeId: string | null }).modeId).toBe(ownMode.id);
+
+    // An id no mode carries: one fail-closed 404, not an FK explosion.
+    const ghostRes = await request.put(`/api/conversations/${conversationId}`, {
+      data: { modeId: "00000000-0000-4000-8000-0000000000ff" },
+    });
+    expect(ghostRes.status()).toBe(404);
+    expect((await ghostRes.json()) as { error?: string }).toMatchObject({
+      error: "Mode not found",
+    });
+
+    // The refused write left the previous mode in place.
+    const afterRes = await request.get(`/api/conversations/${conversationId}`);
+    expect(afterRes.status(), await afterRes.text()).toBe(200);
+    expect(((await afterRes.json()) as { modeId: string | null }).modeId).toBe(ownMode.id);
+  });
 });

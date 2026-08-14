@@ -149,6 +149,26 @@ const memoriesMock = () => ({
 mock.module("$server/db/queries/memories", memoriesMock);
 mock.module("../../db/queries/memories", memoriesMock);
 
+// Modes: the conversation PUT resolves a caller-supplied `modeId` through
+// `getVisibleMode` before writing it. Re-implementing the visibility RULE here
+// would let the mock and the real query drift, so the fake is a store plus the
+// real predicate's shape only — `modes.test.ts` owns the rule itself against a
+// real DB. Keyed by id; `null` means "not visible to this caller".
+type Mode = { id: string; slug: string; builtin: boolean; userId: string | null };
+let modeStore: Map<string, Mode>;
+
+const modesMock = () => ({
+  getMode: async (id: string) => modeStore.get(id),
+  getVisibleMode: async (id: string, userId: string) => {
+    const mode = modeStore.get(id);
+    if (!mode) return null;
+    if (!mode.builtin && mode.userId && mode.userId !== userId) return null;
+    return mode;
+  },
+});
+mock.module("$server/db/queries/modes", modesMock);
+mock.module("../../db/queries/modes", modesMock);
+
 // embeddings is imported lazily by the PUT handler if content changes;
 // stub to an inert shape so the dynamic import doesn't pull in real deps.
 const embeddingsMock = () => ({
@@ -187,6 +207,11 @@ afterAll(() => {
   restoreModuleMocks();
 });
 
+const MODE_OWNED_A = "00000000-0000-4000-8000-0000000000a1";
+const MODE_OWNED_B = "00000000-0000-4000-8000-0000000000b1";
+const MODE_BUILTIN = "00000000-0000-4000-8000-0000000000c1";
+const MODE_ORPHAN = "00000000-0000-4000-8000-0000000000d1";
+
 beforeEach(() => {
   convStore = new Map<string, Conversation>([
     // Conversation owned by user-a
@@ -209,6 +234,17 @@ beforeEach(() => {
         projectId: null,
       },
     ],
+  ]);
+  // `updateConversationSchema.modeId` is `z.string().uuid()`, so every id here
+  // must be a real UUID or the handler 400s at validation before reaching the
+  // visibility gate. (The SEEDED builtins are text literals — `builtin-plan`,
+  // `builtin-ez` — and therefore cannot be set through PUT at all today; the
+  // `MODE_BUILTIN` row below stands in for the shape, not for a seeded id.)
+  modeStore = new Map<string, Mode>([
+    [MODE_OWNED_A, { id: MODE_OWNED_A, slug: "a-private", builtin: false, userId: "user-a" }],
+    [MODE_OWNED_B, { id: MODE_OWNED_B, slug: "b-private", builtin: false, userId: "user-b" }],
+    [MODE_BUILTIN, { id: MODE_BUILTIN, slug: "plan", builtin: true, userId: null }],
+    [MODE_ORPHAN, { id: MODE_ORPHAN, slug: "orphan", builtin: false, userId: null }],
   ]);
   memoryStore = new Map<string, Memory>([
     [
@@ -397,6 +433,101 @@ describe("sec-H3: PUT /api/conversations/[id]", () => {
     );
     expect(res.status).toBe(404);
     expect(convStore.get("conv-null-owner")?.title).toBe("Unowned (legacy) conversation");
+  });
+});
+
+// ── modeId visibility on PUT ──────────────────────────────────────
+//
+// Owning the CONVERSATION is not the whole authorization: the caller also
+// supplies the MODE id being written into it. This route used to check neither
+// existence nor owner and leaned on the FK, which made it the looser half of a
+// pair — `POST /api/conversations` resolves the same id through the same
+// `getVisibleMode`, and a create path stricter than the update path is not a
+// boundary, it is two calls. Every arm below is user-a acting on user-a's OWN
+// conversation, so the only thing under test is the mode.
+//
+// This matters past tidiness: a per-key confinement that compares the
+// PERSISTED `conv.modeId` against a locked mode is only as good as the writes
+// that can reach that column.
+describe("sec-H3: PUT /api/conversations/[id] — modeId must be visible to the caller", () => {
+  const putMode = (modeId: unknown) =>
+    call(
+      convPut as any,
+      createMockEvent({
+        method: "PUT",
+        url: "http://localhost/api/conversations/conv-owned-a",
+        params: { id: "conv-owned-a" },
+        body: { modeId },
+        user: USER_A as any,
+      }),
+    );
+
+  test("another user's private mode → 404, and the column is NOT written", async () => {
+    const res = await putMode(MODE_OWNED_B);
+    expect(res.status).toBe(404);
+    const body = await jsonFromResponse(res);
+    // Same message as a missing mode: the route must not confirm the id exists.
+    expect(body.error).toBe("Mode not found");
+    expect(convStore.get("conv-owned-a")?.modeId).toBeUndefined();
+  });
+
+  test("a mode that does not exist → the SAME 404 (no existence oracle)", async () => {
+    const res = await putMode("00000000-0000-4000-8000-00000000dead");
+    expect(res.status).toBe(404);
+    expect(await jsonFromResponse(res)).toEqual(
+      expect.objectContaining({ error: "Mode not found" }),
+    );
+    expect(convStore.get("conv-owned-a")?.modeId).toBeUndefined();
+  });
+
+  test("the caller's OWN private mode → 200 and persisted", async () => {
+    const res = await putMode(MODE_OWNED_A);
+    expect(res.status).toBe(200);
+    expect(convStore.get("conv-owned-a")?.modeId).toBe(MODE_OWNED_A);
+  });
+
+  test("a builtin mode → 200 whoever authored it", async () => {
+    const res = await putMode(MODE_BUILTIN);
+    expect(res.status).toBe(200);
+    expect(convStore.get("conv-owned-a")?.modeId).toBe(MODE_BUILTIN);
+  });
+
+  test("an ownerless non-builtin mode → 200 (userId is ON DELETE SET NULL)", async () => {
+    // Deleting a mode's author orphans the row rather than deleting it.
+    // Refusing orphans here would take a working mode away from every
+    // conversation already using one — a bigger hole than the one being
+    // closed, so the guard fires only on a mode owned by SOMEONE ELSE.
+    const res = await putMode(MODE_ORPHAN);
+    expect(res.status).toBe(200);
+    expect(convStore.get("conv-owned-a")?.modeId).toBe(MODE_ORPHAN);
+  });
+
+  test("modeId: null clears the mode without a lookup", async () => {
+    // Clearing needs no authorization beyond the conversation ownership already
+    // checked — and a null must never be fed to the visibility gate, which
+    // would 404 a legitimate reset.
+    convStore.get("conv-owned-a")!.modeId = MODE_OWNED_A;
+    const res = await putMode(null);
+    expect(res.status).toBe(200);
+    expect(convStore.get("conv-owned-a")?.modeId).toBeNull();
+  });
+
+  test("a PUT that does not mention modeId is untouched by the gate", async () => {
+    convStore.get("conv-owned-a")!.modeId = MODE_OWNED_A;
+    const res = await call(
+      convPut as any,
+      createMockEvent({
+        method: "PUT",
+        url: "http://localhost/api/conversations/conv-owned-a",
+        params: { id: "conv-owned-a" },
+        body: { title: "Renamed by the owner" },
+        user: USER_A as any,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(convStore.get("conv-owned-a")?.title).toBe("Renamed by the owner");
+    // The existing mode survives a title-only edit.
+    expect(convStore.get("conv-owned-a")?.modeId).toBe(MODE_OWNED_A);
   });
 });
 

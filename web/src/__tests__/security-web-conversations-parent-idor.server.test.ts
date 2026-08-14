@@ -25,14 +25,14 @@ vi.mock("$server/db/queries/agent-configs", () => ({
   getAgentConfig: vi.fn(),
 }));
 vi.mock("$server/db/queries/modes", () => ({
-  getMode: vi.fn(),
+  getVisibleMode: vi.fn(),
 }));
 vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(),
 }));
 
 const { createConversation } = await import("$server/db/queries/conversations");
-const { getMode } = await import("$server/db/queries/modes");
+const { getVisibleMode } = await import("$server/db/queries/modes");
 const { resolveRootConversationForOwnership } = await import(
   "$lib/server/conversation-ownership"
 );
@@ -103,25 +103,23 @@ describe("IDOR: POST /api/conversations parentConversationId ownership", () => {
 describe("IDOR: POST /api/conversations modeId ownership", () => {
   // Sibling of the parent guard above, and newly load-bearing: this route
   // validated `modeId` and then dropped it, so naming another user's private
-  // mode was inert. Now that the create PERSISTS it, the create is the one
-  // call that could adopt a mode the caller cannot even list — `listModes`
-  // returns `builtin OR userId = caller`.
+  // mode was inert. Now that the create PERSISTS it, the create could adopt a
+  // mode the caller cannot even list.
+  //
+  // The visibility RULE itself (builtin / own / orphaned / foreign) belongs to
+  // `getVisibleMode` and is pinned against a real database in
+  // `src/__tests__/modes.test.ts`. What is asserted HERE is the route's half:
+  // that it asks with the CALLER's id, and what it does with each answer.
   const MODE_ID = "00000000-0000-4000-8000-00000000aaaa";
 
   beforeEach(() => {
     vi.mocked(createConversation).mockReset();
-    vi.mocked(getMode).mockReset();
+    vi.mocked(getVisibleMode).mockReset();
     vi.mocked(resolveRootConversationForOwnership).mockReset();
   });
 
-  test("another user's private mode → 404 and no conversation is created", async () => {
-    vi.mocked(getMode).mockResolvedValue({
-      id: MODE_ID,
-      slug: "someone-elses",
-      name: "Private",
-      builtin: false,
-      userId: "u-a",
-    } as any);
+  test("a mode the caller cannot see → 404 and no conversation is created", async () => {
+    vi.mocked(getVisibleMode).mockResolvedValue(null);
 
     const res = await POST(makeEvent({ projectId: PROJECT_ID, modeId: MODE_ID }));
     expect(res.status).toBe(404);
@@ -129,10 +127,13 @@ describe("IDOR: POST /api/conversations modeId ownership", () => {
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Mode not found");
     expect(vi.mocked(createConversation)).not.toHaveBeenCalled();
+    // Asked on behalf of the CALLER. A regression that passed a constant, or
+    // the owner of the mode, would still return null here and look fine.
+    expect(vi.mocked(getVisibleMode)).toHaveBeenCalledWith(MODE_ID, user.id);
   });
 
-  test("a private mode the caller OWNS is accepted and forwarded", async () => {
-    vi.mocked(getMode).mockResolvedValue({
+  test("a visible mode is accepted and forwarded to the create", async () => {
+    vi.mocked(getVisibleMode).mockResolvedValue({
       id: MODE_ID,
       slug: "mine",
       name: "Mine",
@@ -144,38 +145,14 @@ describe("IDOR: POST /api/conversations modeId ownership", () => {
     const res = await POST(makeEvent({ projectId: PROJECT_ID, modeId: MODE_ID }));
     expect(res.status).toBe(201);
     expect(vi.mocked(createConversation).mock.calls[0]![1]!.modeId).toBe(MODE_ID);
+    expect(vi.mocked(getVisibleMode)).toHaveBeenCalledWith(MODE_ID, user.id);
   });
 
-  test("a builtin mode is accepted whoever authored it", async () => {
-    vi.mocked(getMode).mockResolvedValue({
-      id: MODE_ID,
-      slug: "plan",
-      name: "Plan",
-      builtin: true,
-      userId: "u-a",
-    } as any);
+  test("no modeId → the mode gate is never consulted", async () => {
     vi.mocked(createConversation).mockResolvedValue({ id: "c-new" } as any);
 
-    const res = await POST(makeEvent({ projectId: PROJECT_ID, modeId: MODE_ID }));
+    const res = await POST(makeEvent({ projectId: PROJECT_ID }));
     expect(res.status).toBe(201);
-    expect(vi.mocked(createConversation).mock.calls[0]![1]!.modeId).toBe(MODE_ID);
-  });
-
-  test("an ownerless non-builtin mode stays accepted (legacy rows carry userId NULL)", async () => {
-    // `modes.userId` is ON DELETE SET NULL, so deleting an author orphans the
-    // row rather than the mode. Rejecting orphans would take working modes
-    // away from everyone — a bigger hole than the one being closed. The guard
-    // fires only on a mode owned by SOMEONE ELSE.
-    vi.mocked(getMode).mockResolvedValue({
-      id: MODE_ID,
-      slug: "orphan",
-      name: "Orphan",
-      builtin: false,
-      userId: null,
-    } as any);
-    vi.mocked(createConversation).mockResolvedValue({ id: "c-new" } as any);
-
-    const res = await POST(makeEvent({ projectId: PROJECT_ID, modeId: MODE_ID }));
-    expect(res.status).toBe(201);
+    expect(vi.mocked(getVisibleMode)).not.toHaveBeenCalled();
   });
 });

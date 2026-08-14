@@ -34,7 +34,7 @@ vi.mock("$server/db/queries/agent-configs", () => ({
 }));
 
 vi.mock("$server/db/queries/modes", () => ({
-  getMode: vi.fn(),
+  getVisibleMode: vi.fn(),
 }));
 
 vi.mock("$server/db/queries/projects", () => ({
@@ -48,7 +48,7 @@ vi.mock("$server/chat/attachments/storage", () => ({
 const { getConversation, createConversation, updateConversation } = await import(
   "$server/db/queries/conversations"
 );
-const { getMode } = await import("$server/db/queries/modes");
+const { getVisibleMode } = await import("$server/db/queries/modes");
 
 const { POST } = await import("../routes/api/conversations/+server");
 const { PUT } = await import("../routes/api/conversations/[id]/+server");
@@ -95,6 +95,7 @@ describe("PUT /api/conversations/[id] — Ez mode lock", () => {
   beforeEach(() => {
     vi.mocked(getConversation).mockReset();
     vi.mocked(updateConversation).mockReset();
+    vi.mocked(getVisibleMode).mockReset();
   });
 
   test("rejects 403 when client tries to change modeId on an Ez conversation", async () => {
@@ -170,6 +171,15 @@ describe("PUT /api/conversations/[id] — Ez mode lock", () => {
       kind: "regular",
       modeId: null,
     } as any);
+    // Visible to this caller — the mode gate is a separate axis from the Ez
+    // lock and must not be what makes this arm pass or fail. Its own arms live
+    // in `src/__tests__/security/h3-conversations-memories-idor.test.ts`.
+    vi.mocked(getVisibleMode).mockResolvedValue({
+      id: REGULAR_MODE_ID,
+      slug: "plan",
+      builtin: true,
+      userId: null,
+    } as any);
     vi.mocked(updateConversation).mockResolvedValue({
       id: "regular-conv",
       userId: user.id,
@@ -193,11 +203,11 @@ describe("PUT /api/conversations/[id] — Ez mode lock", () => {
 describe("POST /api/conversations — Ez mode reservation", () => {
   beforeEach(() => {
     vi.mocked(createConversation).mockReset();
-    vi.mocked(getMode).mockReset();
+    vi.mocked(getVisibleMode).mockReset();
   });
 
   test("rejects 403 when modeId points at the seeded Ez mode (slug='ez')", async () => {
-    vi.mocked(getMode).mockResolvedValue({
+    vi.mocked(getVisibleMode).mockResolvedValue({
       id: "builtin-ez",
       slug: "ez",
       name: "Ez",
@@ -218,8 +228,10 @@ describe("POST /api/conversations — Ez mode reservation", () => {
     expect(vi.mocked(createConversation)).not.toHaveBeenCalled();
   });
 
-  test("returns 404 when modeId references a non-existent mode", async () => {
-    vi.mocked(getMode).mockResolvedValue(undefined as any);
+  test("returns 404 when modeId names a mode the caller cannot see (missing or foreign)", async () => {
+    // `getVisibleMode` returns null for BOTH, deliberately, so the route has
+    // one answer and cannot become an existence oracle.
+    vi.mocked(getVisibleMode).mockResolvedValue(null);
     const res = await POST(
       makePostEvent({
         body: { projectId: PROJECT_ID, modeId: "ghost-mode-id" },
@@ -231,7 +243,7 @@ describe("POST /api/conversations — Ez mode reservation", () => {
   });
 
   test("happy path: a regular (non-Ez) modeId is accepted AND reaches the create call", async () => {
-    vi.mocked(getMode).mockResolvedValue({
+    vi.mocked(getVisibleMode).mockResolvedValue({
       id: REGULAR_MODE_ID,
       slug: "plan",
       name: "Plan",
@@ -259,7 +271,7 @@ describe("POST /api/conversations — Ez mode reservation", () => {
     });
   });
 
-  test("when modeId is omitted entirely, the lookup is skipped (no getMode call)", async () => {
+  test("when modeId is omitted entirely, the lookup is skipped (no mode query)", async () => {
     vi.mocked(createConversation).mockResolvedValue({ id: "c-new" } as any);
     await POST(
       makePostEvent({
@@ -267,7 +279,7 @@ describe("POST /api/conversations — Ez mode reservation", () => {
         locals: { user },
       }),
     );
-    expect(vi.mocked(getMode)).not.toHaveBeenCalled();
+    expect(vi.mocked(getVisibleMode)).not.toHaveBeenCalled();
     expect(vi.mocked(createConversation)).toHaveBeenCalledTimes(1);
     // Nothing invented for the caller who named no mode.
     expect(vi.mocked(createConversation).mock.calls[0]?.[1]).toMatchObject({

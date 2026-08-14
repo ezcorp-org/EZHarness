@@ -1,7 +1,7 @@
 import { json } from "@sveltejs/kit";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
-import { getMode } from "$server/db/queries/modes";
+import { getVisibleMode } from "$server/db/queries/modes";
 import { requireAuth } from "$server/auth/middleware";
 import { createConversationSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
@@ -67,22 +67,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // ez-kind conversations and uses getOrCreateEzConversation; allowing the
   // ez modeId here would let a buggy client mint a non-ez conversation
   // wired to the concierge persona/allowlist, defeating the lock.
+  //
+  // `getVisibleMode` (not `getMode`) collapses "no such mode" and "someone
+  // else's private mode" into one fail-closed 404 — the same call the PUT
+  // sibling makes, so the create and update paths cannot drift on which modes
+  // a caller may write.
   if (body.modeId) {
-    const mode = await getMode(body.modeId);
+    const mode = await getVisibleMode(body.modeId, user.id);
     if (!mode) return errorJson(404, "Mode not found");
     if (mode.slug === "ez") {
       return errorJson(
         403,
         "The 'ez' mode is reserved for the Ez concierge. Open the Ez panel instead of creating a regular conversation in this mode.",
       );
-    }
-    // A private mode belongs to its author. `listModes(userId)` shows a caller
-    // only `builtin OR userId = caller`, so anything else is a mode they can't
-    // see — and until this route actually PERSISTED modeId, naming one here
-    // did nothing. Fail-closed 404 (not 403) to match the sibling routes and
-    // keep the endpoint from answering "does this mode id exist".
-    if (!mode.builtin && mode.userId && mode.userId !== user.id) {
-      return errorJson(404, "Mode not found");
     }
   }
 

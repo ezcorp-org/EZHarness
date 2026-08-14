@@ -44,6 +44,7 @@ mockDbConnection();
 import {
   listModes,
   getMode,
+  getVisibleMode,
   getModeBySlug,
   createMode,
   updateMode,
@@ -55,6 +56,7 @@ import {
   resolveSystemPrompt,
 } from "../db/queries/conversations";
 import { createProject } from "../db/queries/projects";
+import { createUser } from "../db/queries/users";
 import { upsertSetting, deleteSetting } from "../db/queries/settings";
 
 let projectId: string;
@@ -108,6 +110,78 @@ describe("modes CRUD", () => {
     const mode = await getModeBySlug("nonexistent");
     expect(mode).toBeUndefined();
   });
+});
+
+// ── Mode visibility (the write-side gate) ─────────────────────────────
+//
+// `getVisibleMode` is the single-row form of `listModes(userId)`'s rule, and
+// it is what both `POST /api/conversations` and `PUT /api/conversations/[id]`
+// resolve a caller-supplied mode id through before writing it to a row. The
+// arms below are the whole rule; each is asserted against a REAL seeded or
+// created row, so a schema change (e.g. dropping `builtin`) reds here rather
+// than silently widening what a caller may assign.
+
+describe("getVisibleMode", () => {
+  // Real user rows: `modes.userId` is a FK, so a string id that names no user
+  // cannot be inserted at all.
+  let ownerId: string;
+  let strangerId: string;
+
+  beforeAll(async () => {
+    const owner = await createUser({ email: `vis-owner-${crypto.randomUUID()}@t.com`, passwordHash: "h", name: "Owner" });
+    const stranger = await createUser({ email: `vis-stranger-${crypto.randomUUID()}@t.com`, passwordHash: "h", name: "Stranger" });
+    ownerId = owner.id;
+    strangerId = stranger.id;
+  });
+
+  test("a builtin mode is visible to anyone", async () => {
+    const mode = await getVisibleMode("builtin-plan", strangerId);
+    expect(mode).not.toBeNull();
+    expect(mode!.slug).toBe("plan");
+  });
+
+  test("a private mode is visible to its owner", async () => {
+    const created = await createMode({
+      name: "Mine",
+      slug: `visible-mine-${crypto.randomUUID()}`,
+      systemPromptInstruction: "mine",
+      userId: ownerId,
+    });
+    const mode = await getVisibleMode(created.id, ownerId);
+    expect(mode).not.toBeNull();
+    expect(mode!.id).toBe(created.id);
+  });
+
+  test("a private mode is NOT visible to another user", async () => {
+    const created = await createMode({
+      name: "Theirs",
+      slug: `visible-theirs-${crypto.randomUUID()}`,
+      systemPromptInstruction: "theirs",
+      userId: ownerId,
+    });
+    expect(await getVisibleMode(created.id, strangerId)).toBeNull();
+    // The row itself still exists — the null is an authorization answer, not
+    // a missing row, and the caller turns BOTH into the same 404 so the
+    // endpoint never becomes an existence oracle.
+    expect(await getMode(created.id)).not.toBeUndefined();
+  });
+
+  test("an ownerless non-builtin mode stays visible (userId is ON DELETE SET NULL)", async () => {
+    const created = await createMode({
+      name: "Orphan",
+      slug: `visible-orphan-${crypto.randomUUID()}`,
+      systemPromptInstruction: "orphan",
+    });
+    expect(created.userId).toBeNull();
+    expect(await getVisibleMode(created.id, strangerId)).not.toBeNull();
+  });
+
+  test("a missing mode is null", async () => {
+    expect(await getVisibleMode("nonexistent", ownerId)).toBeNull();
+  });
+});
+
+describe("modes CRUD (continued)", () => {
 
   test("createMode creates a custom mode", async () => {
     const mode = await createMode({
