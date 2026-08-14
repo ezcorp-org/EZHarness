@@ -507,7 +507,12 @@ describe("ConversationToolsSelector — caller-executed tools", () => {
 			onreset: vi.fn(),
 		});
 		await fireEvent.click(getByTestId("conversation-tools-trigger"));
-		await findByTestId("conv-tool-caller-open_app");
+		// The mode attaches ext-1 only, and a mode CANNOT name a caller tool
+		// (modes reference extension ids), so the section has to be appended
+		// rather than filtered in by the mode allowlist.
+		const open = (await findByTestId("conv-tool-caller-open_app")) as HTMLInputElement;
+		expect(open.checked).toBe(true);
+		expect((await findByTestId("conv-ext-toggle-caller")) as HTMLInputElement).toBeChecked();
 	});
 
 	test("toggling one flows through the UNMODIFIED tool-scope logic", async () => {
