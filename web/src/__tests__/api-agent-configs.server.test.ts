@@ -25,6 +25,16 @@ vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({ registerAgent }),
 }));
 
+// sec F3: `extensions[]` is now authorized at write time. The gate module has
+// its own unit suite (agent-config-extension-gate.server.test.ts); here it is
+// a seam so this file keeps testing the ROUTE — and so the forwarding test
+// below is not silently answered by a real DB lookup.
+let extensionGateResponse: Response | null = null;
+const rejectUnauthorizedExtensions = vi.fn(async () => extensionGateResponse);
+vi.mock("$lib/server/agent-config-extension-gate", () => ({
+  rejectUnauthorizedExtensions: () => rejectUnauthorizedExtensions(),
+}));
+
 const { listAgentConfigs, createAgentConfig } = await import(
   "$server/db/queries/agent-configs"
 );
@@ -81,6 +91,8 @@ describe("POST /api/agent-configs", () => {
   beforeEach(() => {
     vi.mocked(createAgentConfig).mockReset();
     registerAgent.mockReset();
+    rejectUnauthorizedExtensions.mockClear();
+    extensionGateResponse = null;
   });
 
   test("rejects unauthenticated request with 401", async () => {
@@ -170,6 +182,37 @@ describe("POST /api/agent-configs", () => {
         extensionTools: { "ext-1": ["alpha"] },
       }),
     );
+  });
+
+  // sec F3 — `agent_configs.extensions` holds raw ids that
+  // `registry.getToolsForAgent` hands to an LLM turn, and this route is
+  // scope `chat` (any member). A member could name an admin-installed MCP
+  // extension's id here and reach its tools by chatting with the agent.
+  test("a denied extension id is refused BEFORE the row is created", async () => {
+    extensionGateResponse = new Response(
+      JSON.stringify({ error: "Unknown or unavailable extension(s)", unknown: ["ext-mcp"] }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    );
+    const res = await POST(
+      makeEvent({ locals: { user }, body: { name: "a", prompt: "p", extensions: ["ext-mcp"] } }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { unknown?: string[] }).unknown).toEqual(["ext-mcp"]);
+    // Nothing persisted, and no agent registered with the executor.
+    expect(createAgentConfig).not.toHaveBeenCalled();
+    expect(registerAgent).not.toHaveBeenCalled();
+  });
+
+  test("the gate runs even when the body carries no extensions (it decides, not the route)", async () => {
+    vi.mocked(createAgentConfig).mockResolvedValue({
+      id: "cfg-x", name: "a", prompt: "p", description: null, capabilities: [],
+      inputSchema: null, outputFormat: null, provider: null, model: null,
+      temperature: null, maxTokens: null,
+    } as never);
+    await POST(makeEvent({ locals: { user }, body: { name: "a", prompt: "p" } }));
+    // Keeping the call unconditional means the route can never grow a path
+    // that skips authorization by accident; the helper short-circuits.
+    expect(rejectUnauthorizedExtensions).toHaveBeenCalledTimes(1);
   });
 
   test("rejects 400 when extensionTools value is not a string array", async () => {

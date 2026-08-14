@@ -186,12 +186,72 @@ function isExempt(path: string): boolean {
   return EXEMPT_PATTERNS.some((re) => re.test(path));
 }
 
-function isServerPrefixed(path: string, topLevels: Set<string>): boolean {
+/**
+ * A `$server/<tail>` mock is covered iff `../../<tail>` is itself in
+ * MODULE_PATHS.
+ *
+ * This used to accept any `$server/<top>/…` whose TOP-LEVEL namespace the
+ * restore helper knew about (`auth`, `db`, `extensions`, …), which is far
+ * weaker than what `restoreModuleMocks()` actually does: that loop walks
+ * MODULE_PATHS and re-registers `$server/<rel>` per ENTRY, so an alias whose
+ * relative path was never snapshotted is not restored at all. The gap let
+ * `mock.module("$server/auth/extension-wire-authz", …)` — an allow-biased
+ * stub of the MCP wire gate — pass this meta-test while its `afterAll`
+ * restore was a silent no-op. Checking the full tail closes the class, not
+ * just that instance.
+ *
+ * `topLevels` is still consulted first: a path under a namespace the restore
+ * loop does not serve at all can never be covered, and saying so keeps the
+ * failure message pointed at the right fix.
+ */
+function isServerPrefixed(path: string, topLevels: Set<string>, modulePaths: Set<string>): boolean {
   if (!path.startsWith("$server/")) return false;
-  const tail = path.slice("$server/".length);
+  const tail = stripJsTsExt(path.slice("$server/".length));
   const top = tail.split("/")[0];
-  return top !== undefined && topLevels.has(top);
+  if (top === undefined || !topLevels.has(top)) return false;
+  if (modulePaths.has(`../../${tail}`)) return true;
+  return SERVER_ALIAS_BACKLOG.has(path);
 }
+
+/**
+ * FROZEN backlog — `$server/*` mock targets that predate the tail check and
+ * are NOT snapshotted. Their `afterAll` restore is a silent no-op today.
+ *
+ * This list may only SHRINK. Do not add to it: a new `$server/a/b` mock
+ * belongs in `MODULE_PATHS` as `../../a/b` (which is also what makes the
+ * alias restorable — `restoreModuleMocks()` derives `$server/<rel>` per
+ * MODULE_PATHS entry). Clearing an entry means adding that path to
+ * MODULE_PATHS and deleting the line here.
+ *
+ * Why a ratchet and not a fix: the tail check found 16 pre-existing
+ * offenders across the briefing, hub-pages, ez-actions and workflow-
+ * delegation suites. Several cannot simply be snapshotted — an eager
+ * preload import of some of those graphs is what the `phase-2b-e2e` hang
+ * notes in `helpers/mock-cleanup.ts` document — so clearing them is its own
+ * piece of work. Freezing the known set still closes the CLASS going
+ * forward, which is the property that matters: the hole this replaced let
+ * an allow-biased stub of the MCP wire gate
+ * (`$server/auth/extension-wire-authz`) pass the meta-test entirely,
+ * because the old check only looked at the `auth` namespace.
+ */
+const SERVER_ALIAS_BACKLOG = new Set<string>([
+  "$server/db/queries/briefing-configs",
+  "$server/db/queries/workflow-delegations",
+  "$server/extensions/append-message-handler",
+  "$server/extensions/page-schema",
+  "$server/extensions/triggers-store",
+  "$server/extensions/types",
+  "$server/memory/chunking",
+  "$server/routes/tool-permission",
+  "$server/runtime/briefing/config-validation",
+  "$server/runtime/briefing/run",
+  "$server/runtime/briefing/runtime-registry",
+  "$server/runtime/ez-actions/registry",
+  "$server/runtime/hub-pages",
+  "$server/runtime/scan/feature-scan",
+  "$server/runtime/tools/builtin-registry",
+  "$server/runtime/workflow-delegation-consent",
+]);
 
 /**
  * `$lib/foo` is covered when `../../../web/src/lib/foo` is in MODULE_PATHS
@@ -261,7 +321,7 @@ describe("mock-cleanup coverage (meta-test)", () => {
         if ((counts.get(raw) ?? 0) >= 2) continue;
         if (isExempt(raw)) continue;
         if (modulePaths.has(raw)) continue;
-        if (isServerPrefixed(raw, SERVER_ALIAS_TOP_LEVELS)) continue;
+        if (isServerPrefixed(raw, SERVER_ALIAS_TOP_LEVELS, modulePaths)) continue;
         if (isLibAliasCovered(raw, modulePaths)) continue;
         if (isWebLibRelativeCovered(raw, modulePaths)) continue;
         const canonical = canonicalize(raw, file);

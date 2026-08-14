@@ -35,6 +35,14 @@ const MODULE_PATHS = [
   // gate's grant branch without a DB. Snapshot it: a leaked stub would answer
   // the RBAC scope question for every later file, which is a silent ALLOW.
   "../../auth/extension-rbac",
+  // The wire gate itself. `conversation-extensions-route.test.ts` stubs
+  // `partitionWirableExtensions` with an ALLOW-BIASED fake (it allows every
+  // candidate the test did not explicitly deny). A leaked stub would answer
+  // "may this user attach this MCP extension" for every later file — the
+  // exact silent-ALLOW class this helper exists to prevent. Snapshotting it
+  // is also what makes the `$server/auth/extension-wire-authz` ALIAS
+  // restorable: the restore loop below derives the alias from this list.
+  "../../auth/extension-wire-authz",
   "../../db/queries/settings",
   "../../db/queries/conversations",
   // Phase 63 Plan 03: message-embed-outbox.test.ts mocks this to inject a
@@ -125,6 +133,10 @@ const MODULE_PATHS = [
   "../../extensions/sdk/verify",
   "../../extensions/entities/migrate",
   "../../extensions/audit-actions",
+  // The MCP audit-metadata projection. Two suites stub it to assert the
+  // routes' call shape; it is a pure module with no heavy import graph, so
+  // snapshotting it is free.
+  "../../extensions/mcp-audit",
   "../../extensions/secrets-store",
   // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
