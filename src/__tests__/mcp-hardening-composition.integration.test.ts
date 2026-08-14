@@ -254,6 +254,101 @@ describe("the guard and the capability derivation compose", () => {
 
     registry.killAll();
   }, 30_000);
+
+  test("BOTH the host cap and the mcp:invoke sentinel are required — revoking either denies", async () => {
+    // The seam between the two round-2 changes: the derivation now emits a
+    // sentinel alongside the host, so a dispatch needs BOTH. Granting one and
+    // withholding the other is the case neither cap's own suite can show —
+    // each proves its cap in isolation, and an AND that silently degraded to
+    // an OR would pass both of them.
+    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
+    const ext = await jsonFromResponse(await installFixture("compose-both-caps"));
+    const granted = ext.grantedPermissions as Record<string, unknown>;
+    // Precondition: the install really did record both halves.
+    expect(granted.network).toEqual([fixture.host]);
+    expect(granted.mcpInvoke).toBe(true);
+
+    // (a) Host granted, sentinel revoked.
+    await updateExtension(ext.id, {
+      grantedPermissions: { network: [fixture.host], grantedAt: { network: Date.now() } },
+    });
+    ExtensionRegistry.resetInstance();
+    _resetPermissionEngineForTests();
+    let registry = await bootRegistry();
+    await expect(
+      makeExecutor(registry).executeToolCall("compose-both-caps__echo", { text: "x" }, adminConvId, null),
+    ).rejects.toThrow(/ezcorp:mcp:invoke/);
+    registry.killAll();
+
+    // (b) Sentinel granted, host revoked. A different missing cap, so the
+    // reason must name the HOST rather than the sentinel.
+    await updateExtension(ext.id, {
+      grantedPermissions: { mcpInvoke: true, grantedAt: { mcpInvoke: Date.now() } },
+    });
+    ExtensionRegistry.resetInstance();
+    _resetPermissionEngineForTests();
+    registry = await bootRegistry();
+    await expect(
+      makeExecutor(registry).executeToolCall("compose-both-caps__echo", { text: "x" }, adminConvId, null),
+    ).rejects.toThrow(new RegExp(`Missing capability network \\(${fixture.host}\\)`));
+    registry.killAll();
+
+    // (c) Both granted — the same call now succeeds, so (a) and (b) failed on
+    // the grant and not on something incidental to the fixture.
+    await updateExtension(ext.id, {
+      grantedPermissions: {
+        network: [fixture.host],
+        mcpInvoke: true,
+        grantedAt: { network: Date.now(), mcpInvoke: Date.now() },
+      },
+    });
+    ExtensionRegistry.resetInstance();
+    _resetPermissionEngineForTests();
+    registry = await bootRegistry();
+    const ok = await makeExecutor(registry).executeToolCall(
+      "compose-both-caps__echo",
+      { text: "both" },
+      adminConvId,
+      null,
+    );
+    expect(ok.isError).toBe(false);
+    expect(JSON.stringify(ok)).toContain("echoed:both");
+    registry.killAll();
+  }, 40_000);
+
+  test("the target guard re-runs on every REQUEST, not just at connect", async () => {
+    // The guard moved into the transport's `fetch` seam, so a target that
+    // stops being permitted is refused on the NEXT CALL rather than on the
+    // next client. Proven against an ALREADY-CONNECTED client — a connect-time
+    // check would have banked its answer and let this call through, which is
+    // the DNS-rebind window the move exists to close.
+    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
+    await installFixture("compose-revalidate");
+    const registry = await bootRegistry();
+    const executor = makeExecutor(registry);
+
+    const first = await executor.executeToolCall(
+      "compose-revalidate__echo",
+      { text: "before" },
+      adminConvId,
+      null,
+    );
+    expect(first.isError).toBe(false);
+
+    // Same live client, same conversation — only the policy changed.
+    delete process.env[MCP_TARGET_ALLOW_ENV];
+    const second = await executor.executeToolCall(
+      "compose-revalidate__echo",
+      { text: "after" },
+      adminConvId,
+      null,
+    );
+    expect(second.isError).toBe(true);
+    // And it failed as a POLICY refusal, not as a transport hiccup.
+    expect(JSON.stringify(second)).not.toContain("echoed:after");
+
+    registry.killAll();
+  }, 40_000);
 });
 
 describe("audit fires only after a successful mutation", () => {
