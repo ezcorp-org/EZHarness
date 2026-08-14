@@ -508,6 +508,50 @@ describe("subscribe-bridge — Ez client-side tools carry the gate's wait", () =
   });
 });
 
+// ── Family guard: ask_user's escape from the same inversion ────────────
+//
+// `ask_user_question` is the other tool that legitimately waits longer
+// than the 90s idle window. It escapes the inversion by a DIFFERENT
+// route: it's an extension tool, its manifest sets `requiresUserInput`,
+// and the bridge copies that flag onto the inflight entry, which defers
+// the kill indefinitely. That flag is the whole protection — the ask-user
+// manifest declares no `resources.callTimeoutMs`, so if the flag ever
+// stopped reaching the watchdog the tool would silently fall back to the
+// same 90s default that killed the Ez client tools. Nothing pinned that
+// hop before; this does.
+
+describe("subscribe-bridge — requiresUserInput reaches the watchdog (ask_user)", () => {
+  test("ask-user__ask_user_question → noteToolStart carries requiresUserInput", () => {
+    ExtensionRegistry.getInstance().registerToolForTest("ask-user__ask_user_question", {
+      name: "ask-user__ask_user_question",
+      description: "ask the user",
+      inputSchema: { type: "object" },
+      extensionId: "ask-user-ext",
+      extensionName: "ask-user",
+      originalName: "ask_user_question",
+      cardType: "ask-user-question",
+      requiresUserInput: true,
+    });
+    const h = buildBridgeHarness(new Map());
+
+    h.piAgent.fire({ type: "turn_start" });
+    h.piAgent.fire({
+      type: "tool_execution_start",
+      toolCallId: "tc-ask",
+      toolName: "ask-user__ask_user_question",
+      args: { question: "Which one?" },
+    });
+
+    expect(h.noteCalls).toHaveLength(1);
+    const info = h.noteCalls[0]!.info;
+    expect(info.requiresUserInput).toBe(true);
+    // The numeric budget is the inert 90s default (no manifest
+    // callTimeoutMs) — the flag, not the number, is what keeps the run
+    // alive. Lose the flag and ask_user inherits the Ez inversion.
+    expect(info.callTimeoutMs).toBe(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+  });
+});
+
 // ── F1: long-blocking orchestration tools get a widened, BOUNDED budget ─
 //
 // A synchronous `collect_agent_result` blocks the orchestrator's turn while
