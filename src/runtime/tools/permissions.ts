@@ -150,19 +150,133 @@ interface ExtensionGateMeta {
 const pendingApprovals = new Map<string, PendingApproval>();
 
 /**
+ * Optional bounds on a built-in tool gate. EVERY field is optional and
+ * omitting the whole object reproduces the historical "park a bare promise
+ * until someone answers" behaviour byte-for-byte — see
+ * {@link createPermissionGate}.
+ */
+export interface PermissionGateOptions {
+  /**
+   * Wall-clock bound (ms). On expiry the gate rejects with
+   * {@link PermissionGateTimeoutError} and drops out of `pendingApprovals`,
+   * so an unanswered gate can no longer park its run forever.
+   */
+  timeoutMs?: number;
+  /**
+   * Cancellation signal. When it fires — or if it is ALREADY aborted at
+   * creation time — the gate rejects with {@link PermissionGateAbortedError}
+   * and drops out of `pendingApprovals`.
+   */
+  signal?: AbortSignal;
+  /**
+   * Refuse (rather than park) a gate opened where no human can answer it.
+   * The VALUE is the capability kind recorded on the refusing scope and
+   * reported by {@link NonInteractiveScopeHandle.takeDenial} — e.g.
+   * `"caller-tool"`. Unset (the default) keeps the historical behaviour:
+   * a built-in gate parks even inside a non-interactive scope.
+   */
+  nonInteractiveGuard?: string;
+}
+
+/**
+ * Refuse a permission gate that NOBODY could answer, or return `undefined`
+ * when the gate is legitimately answerable.
+ *
+ * The three checks (ambient scope, scope-key registry, reserved id-space)
+ * and the order they run in are the contract described in the block comment
+ * above {@link NON_INTERACTIVE_KEY_PREFIX}. Extracted so the built-in gate
+ * and the extension gate share ONE implementation — a second copy would be
+ * a second thing to keep in sync with that contract.
+ *
+ * `capabilityKind` is typed `string`, not the `"shell" | "fs.write"` union
+ * the extension request carries: `NonInteractiveScope.deniedCapabilityKind`
+ * and `NonInteractiveApprovalRequiredError.capabilityKind` are both already
+ * `string`, so callers outside the extension path (built-in tools, caller
+ * tools) need no widening anywhere.
+ */
+export function refuseIfNonInteractive(
+  conversationId: string,
+  capabilityKind: string,
+): NonInteractiveApprovalRequiredError | undefined {
+  const scope =
+    nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(conversationId);
+  if (scope) {
+    scope.deniedCapabilityKind = capabilityKind;
+    return new NonInteractiveApprovalRequiredError(capabilityKind, conversationId);
+  }
+  // No live scope claims it, but the id itself names no conversation —
+  // a stale/foreign `workflow-run:` key from a run that already ended.
+  // Unanswerable by construction, so refuse rather than park forever.
+  if (conversationId.startsWith(NON_INTERACTIVE_KEY_PREFIX)) {
+    return new NonInteractiveApprovalRequiredError(capabilityKind, conversationId);
+  }
+  return undefined;
+}
+
+/**
  * Create a permission gate that blocks until the user approves or denies.
  * Returns a promise that resolves on approval or rejects on denial.
  *
  * `conversationId` (optional) is stored alongside the gate so the route
  * handler can look up the conversation owner for a sec-H2 ownership check
  * before calling `resolvePermission`. Callers in the executor pass it.
+ *
+ * `opts` (optional) bounds the gate — see {@link PermissionGateOptions}.
+ * OMITTING IT IS THE DEFAULT AND IS BYTE-FOR-BYTE THE OLD BEHAVIOUR: the
+ * entry parked in `pendingApprovals` carries exactly `{resolve, reject,
+ * conversationId}`, with no `cleanup` and no `hardReject`, so even
+ * `abortPendingApprovalsForScope` treats it exactly as it always has.
  */
 export function createPermissionGate(
   toolCallId: string,
   conversationId?: string,
+  opts?: PermissionGateOptions,
 ): Promise<void> {
+  if (opts?.nonInteractiveGuard !== undefined) {
+    // Fail FAST, never park — same posture as the extension gate.
+    const refusal = refuseIfNonInteractive(
+      conversationId ?? "",
+      opts.nonInteractiveGuard,
+    );
+    if (refusal) return Promise.reject(refusal);
+  }
   return new Promise<void>((resolve, reject) => {
-    pendingApprovals.set(toolCallId, { resolve, reject, conversationId });
+    if (opts?.timeoutMs === undefined && opts?.signal === undefined) {
+      pendingApprovals.set(toolCallId, { resolve, reject, conversationId });
+      return;
+    }
+    // Settle-once + self-cleanup, the shape already proven by
+    // `createExtensionPermissionGate` (`resolvePermission` deletes the
+    // entry itself, so a settled gate can never be re-settled here).
+    const settleWithError = (err: Error): void => {
+      const pending = pendingApprovals.get(toolCallId);
+      if (!pending) return;
+      pendingApprovals.delete(toolCallId);
+      pending.cleanup?.();
+      reject(err);
+    };
+    const onAbort = (): void => settleWithError(new PermissionGateAbortedError());
+    const timer =
+      opts.timeoutMs !== undefined
+        ? setTimeout(
+            () => settleWithError(new PermissionGateTimeoutError(opts.timeoutMs as number)),
+            opts.timeoutMs,
+          )
+        : undefined;
+    if (opts.signal) opts.signal.addEventListener("abort", onAbort, { once: true });
+    pendingApprovals.set(toolCallId, {
+      resolve,
+      reject,
+      conversationId,
+      hardReject: reject,
+      cleanup: () => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
+      },
+    });
+    // An ALREADY-aborted signal never fires `abort`, so check after the
+    // entry exists (settleWithError is a no-op without one).
+    if (opts.signal?.aborted) onAbort();
   });
 }
 
@@ -438,22 +552,8 @@ export function createExtensionPermissionGate(
   // hang the caller until the process dies. Three checks, in order of
   // precision — see the block comment above `NON_INTERACTIVE_KEY_PREFIX`
   // for why key matching alone is not sufficient.
-  const scope =
-    nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(req.conversationId);
-  if (scope) {
-    scope.deniedCapabilityKind = req.capabilityKind;
-    return Promise.reject(
-      new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
-    );
-  }
-  // No live scope claims it, but the id itself names no conversation —
-  // a stale/foreign `workflow-run:` key from a run that already ended.
-  // Unanswerable by construction, so refuse rather than park forever.
-  if (req.conversationId.startsWith(NON_INTERACTIVE_KEY_PREFIX)) {
-    return Promise.reject(
-      new NonInteractiveApprovalRequiredError(req.capabilityKind, req.conversationId),
-    );
-  }
+  const refusal = refuseIfNonInteractive(req.conversationId, req.capabilityKind);
+  if (refusal) return Promise.reject(refusal);
 
   return new Promise<ApprovalResolution>((resolve, reject) => {
     // Settle-once + self-cleanup wrapper shared by the timeout and abort

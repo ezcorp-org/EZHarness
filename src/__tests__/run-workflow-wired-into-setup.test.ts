@@ -36,6 +36,13 @@ mock.module("../db/queries/users", () => ({
 }));
 
 import { applyToolFilters } from "../runtime/tools/filter";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 import { wireRunWorkflowForTurn } from "../runtime/workflow-tools-host";
 import {
   wireRunWorkflowIfEligible,
@@ -83,6 +90,7 @@ describe("wireRunWorkflowForTurn — registration", () => {
   test("registers run_workflow into agentTools AND builtinToolDefsMap", () => {
     const turn = freshTurn();
     wireRunWorkflowForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -100,6 +108,7 @@ describe("wireRunWorkflowForTurn — registration", () => {
     // DEFAULT_BUILTIN_CALL_TIMEOUT_MS (90s) and kills the turn mid-workflow.
     const turn = freshTurn();
     wireRunWorkflowForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -113,6 +122,7 @@ describe("wireRunWorkflowForTurn — registration", () => {
   test("the pushed AgentTool carries an executable schema, not just a name", () => {
     const turn = freshTurn();
     wireRunWorkflowForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -127,6 +137,7 @@ describe("wireRunWorkflowForTurn — registration", () => {
     const turn = freshTurn();
     for (let i = 0; i < 2; i++) {
       wireRunWorkflowForTurn({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-1",
@@ -140,6 +151,7 @@ describe("wireRunWorkflowForTurn — registration", () => {
     const turn = freshTurn();
     turn.agentTools.push({ name: RUN_WORKFLOW_TOOL_NAME } as unknown as AgentTool);
     wireRunWorkflowForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -206,6 +218,7 @@ describe("wireRunWorkflowForTurn — pending-permission bridge", () => {
 
     const turn = freshTurn();
     wireRunWorkflowForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -250,6 +263,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
   test("depth 0 with an owned conversation → wired", async () => {
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -262,6 +276,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
   test("an absent orchestrationDepth is treated as 0", async () => {
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -279,6 +294,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
     for (const depth of [1, 2, 3]) {
       const turn = freshTurn();
       await wireRunWorkflowIfEligible({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-nested",
@@ -293,6 +309,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
   test("NEGATIVE: an ownerless conversation row is skipped (a run could not be authorized)", async () => {
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-no-owner",
@@ -304,6 +321,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
   test("NEGATIVE: a null convRecord is a no-op", async () => {
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-null",
@@ -324,6 +342,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
       const map = new Map<string, PendingPermissionInfo>();
       const turn = freshTurn();
       await wireRunWorkflowIfEligible({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-1",
@@ -357,6 +376,7 @@ describe("wireRunWorkflowIfEligible — gate", () => {
       // `expect(...).resolves` returns undefined rather than a thenable, so
       // `await expect(...)` would be inert; assert on the resolved value.
       const outcome = await wireRunWorkflowIfEligible({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-1",
@@ -379,6 +399,7 @@ describe("INTEGRATION: run_workflow vs the executor's tool filters", () => {
     // an allowlist that names it.
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -402,6 +423,7 @@ describe("INTEGRATION: run_workflow vs the executor's tool filters", () => {
   test("a read-only turn strips it — running a workflow is category 'execute'", async () => {
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -418,6 +440,7 @@ describe("INTEGRATION: run_workflow vs the executor's tool filters", () => {
     const { EZ_TOOL_NAMES } = await import("../runtime/tools/ez");
     const turn = freshTurn();
     await wireRunWorkflowIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-ez",

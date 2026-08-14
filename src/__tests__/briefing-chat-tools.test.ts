@@ -34,6 +34,13 @@ import { users, briefingConfigs, projects, conversations } from "../db/schema";
 import { eq } from "drizzle-orm";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../runtime/tools/types";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 let userId: string;
 
@@ -319,6 +326,7 @@ describe("wireBriefingChatToolsForTurn", () => {
   test("registers exactly the four tools — writes as category 'write' (stripped on read-only turns), status as 'read' + default cards", () => {
     const turn = freshTurn();
     wireBriefingChatToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-1",
@@ -336,6 +344,7 @@ describe("wireBriefingChatToolsForTurn", () => {
     const turn = freshTurn();
     for (let i = 0; i < 2; i++) {
       wireBriefingChatToolsForTurn({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-1",
@@ -347,7 +356,8 @@ describe("wireBriefingChatToolsForTurn", () => {
 
   test("works without a builtinToolDefsMap (optional param)", () => {
     const agentTools: AgentTool[] = [];
-    wireBriefingChatToolsForTurn({ agentTools, conversationId: "conv-1", userId });
+    wireBriefingChatToolsForTurn({
+      permissionDeps, agentTools, conversationId: "conv-1", userId });
     expect(agentTools).toHaveLength(BRIEFING_CHAT_TOOL_NAMES.length);
   });
 });

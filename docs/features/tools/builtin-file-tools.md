@@ -16,7 +16,7 @@ These seven tools are the agent's hands on the filesystem and shell. Unlike the 
 ### Wiring into a run (`src/runtime/stream-chat/setup-tools.ts`)
 
 1. When `options.projectId` resolves to a project with a `path`, setup-tools calls `getBuiltinToolDefs(project.path, previewWiring)` and registers every def into `ctx.builtinToolDefsMap` (name → def, used later for category lookups by the filter).
-2. Each def is wrapped into an `AgentTool` whose `execute` first consults the **permission gate** (`needsApproval(def.category, permissionMode)` → emits `tool:permission_request` + blocks on `createPermissionGate` when the mode requires it), then delegates to `def.execute`. The wrapper also registers a per-call `AbortController` in `ctx.toolAbortControllers` so an in-flight tool can be cancelled.
+2. Each def goes through `withPermissionGate(def, permissionDeps)` (`src/runtime/tools/permission-wrap.ts`), which returns an `AgentTool` whose `execute` first consults the **permission gate** (`needsApproval(def.category, permissionMode)` → emits `tool:permission_request` + blocks on `createPermissionGate` when the mode requires it), then delegates to `def.execute`. The wrapper also registers a per-call `AbortController` in `ctx.toolAbortControllers` so an in-flight tool can be cancelled, and refreshes the watchdog's clock for that call once an approved gate returns. It is the same wrapper the host-wired families (Ez, briefing, `run_workflow`) use.
 3. The wrapped tools are pushed onto `ctx.agentTools`.
 
 ### Per-tool behavior
@@ -116,7 +116,7 @@ These tools are **not** invoked directly via a REST route — they are injected 
 - `src/runtime/tools/filter.ts` — `applyToolFilters` (restriction → allow → deny → force-deny) + `ORCHESTRATION_TOOLS`.
 - `src/runtime/tools/permissions.ts` — `needsApproval` matrix, `DEFAULT_PERMISSION_MODE = "yolo"`, the async permission-gate map.
 - `src/runtime/tools/mode-tool-scope.ts` — `computeModeToolScope`: compiles a mode + conversation `extensionTools` into `ToolFilterOptions`.
-- `src/runtime/stream-chat/setup-tools.ts` — wires `getBuiltinToolDefs` into `ctx.agentTools` with the permission-gate wrapper + preview wiring.
+- `src/runtime/stream-chat/setup-tools.ts` — wires `getBuiltinToolDefs` into `ctx.agentTools` through `withPermissionGate` + preview wiring; builds the turn's `PermissionWrapDeps` once and shares it with every host wire.
 - `web/src/routes/api/tools/+server.ts` — the scoped tool-listing endpoint that reuses the same filter pair.
 
 ## Features it touches

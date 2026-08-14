@@ -26,7 +26,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "./tools/types";
 import type { PendingPermissionInfo } from "./stream-chat/host";
-import { builtinToAgentTool } from "./tools/agent-tool";
+import { withPermissionGate, type PermissionWrapDeps } from "./tools/permission-wrap";
 import { createRunWorkflowTool, RUN_WORKFLOW_TOOL_NAME } from "./tools/run-workflow";
 import { logger } from "../logger";
 
@@ -49,10 +49,17 @@ export interface WireRunWorkflowForTurnParams {
    *  step's consent card is visible to the run watchdog as a legitimate
    *  user-wait instead of a hung tool. */
   pendingPermissions?: Map<string, PendingPermissionInfo>;
+  /** Per-turn permission-gate context. Required: `run_workflow` is
+   *  `category: "execute"`, so under `ask` and `auto-edit` it is exactly
+   *  the kind of call the user expects to be asked about — and it was
+   *  running ungated in every mode because this wire projected the def
+   *  straight onto an `AgentTool`. */
+  permissionDeps: PermissionWrapDeps;
 }
 
 /**
- * Wire `run_workflow` into the per-turn `agentTools` array.
+ * Wire `run_workflow` into the per-turn `agentTools` array, behind the
+ * permission gate.
  *
  * Idempotent guard: a pre-existing tool of the same name wins and the wire
  * is a no-op — defensive against a future refactor that double-invokes us,
@@ -88,7 +95,7 @@ export function wireRunWorkflowForTurn(params: WireRunWorkflowForTurnParams): vo
   });
 
   builtinToolDefsMap.set(def.name, def);
-  agentTools.push(builtinToAgentTool(def));
+  agentTools.push(withPermissionGate(def, params.permissionDeps));
 
   log.info("run_workflow wired for turn", { conversationId, userId, projectId });
 }

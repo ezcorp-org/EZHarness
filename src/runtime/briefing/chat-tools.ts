@@ -33,7 +33,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../tools/types";
-import { builtinToAgentTool } from "../tools/agent-tool";
+import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import {
   getBriefingConfig,
   upsertBriefingConfig,
@@ -380,6 +380,11 @@ export interface WireBriefingChatToolsParams {
   builtinToolDefsMap?: Map<string, BuiltinToolDef>;
   conversationId: string;
   userId: string;
+  /** Per-turn permission-gate context. Required: `briefing_watch`,
+   *  `briefing_unwatch` and `configure_briefing` are `category: "write"`,
+   *  so under `ask` they must raise a consent card — and they did not,
+   *  because this wire projected the defs straight onto an `AgentTool`. */
+  permissionDeps: PermissionWrapDeps;
 }
 
 /**
@@ -402,7 +407,7 @@ export function wireBriefingChatToolsForTurn(params: WireBriefingChatToolsParams
   for (const def of defs) {
     if (existingNames.has(def.name)) continue;
     builtinToolDefsMap?.set(def.name, def);
-    agentTools.push(builtinToAgentTool(def));
+    agentTools.push(withPermissionGate(def, params.permissionDeps));
     registered++;
   }
 

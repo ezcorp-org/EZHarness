@@ -29,7 +29,7 @@ import type { EventBus } from "./events";
 import type { AgentEvents } from "../types";
 import type { BuiltinToolDef } from "./tools/types";
 import { getEzToolDefs, EZ_TOOL_NAMES } from "./tools/ez";
-import { builtinToAgentTool } from "./tools/agent-tool";
+import { withPermissionGate, type PermissionWrapDeps } from "./tools/permission-wrap";
 import { logger } from "../logger";
 const log = logger.child("ez-tools-host");
 
@@ -61,6 +61,10 @@ export interface WireEzToolsForTurnParams {
    *  summarizer falls back to default-tier resolution in that case). */
   provider?: string | null;
   model?: string | null;
+  /** Per-turn permission-gate context. Required, not optional: an Ez tool
+   *  registered without it would execute ungated in every mode, which is
+   *  precisely the defect this parameter exists to make impossible. */
+  permissionDeps: PermissionWrapDeps;
 }
 
 /**
@@ -75,7 +79,11 @@ export interface WireEzToolsForTurnParams {
  * The factory entry point is `getEzToolDefs(ctx)` from `tools/ez/index.ts`.
  * It returns BuiltinToolDef[]; here we wrap each into the AgentTool
  * shape pi-agent-core consumes (carrying through `name`, `label`,
- * `description`, `parameters`, `execute`).
+ * `description`, `parameters`, `execute`) with `execute` behind the
+ * permission gate. Every Ez tool is `category: "ez"`, which auto-approves
+ * under all three modes, so the gate is a no-op for today's set — it is
+ * there so a future Ez tool in a gated category is gated by default rather
+ * than by remembering.
  */
 export function wireEzToolsForTurn(params: WireEzToolsForTurnParams): void {
   const { agentTools, builtinToolDefsMap, conversationId, userId, bus, provider, model } = params;
@@ -87,7 +95,7 @@ export function wireEzToolsForTurn(params: WireEzToolsForTurnParams): void {
   for (const def of defs) {
     if (existingNames.has(def.name)) continue;
     builtinToolDefsMap.set(def.name, def);
-    agentTools.push(builtinToAgentTool(def));
+    agentTools.push(withPermissionGate(def, params.permissionDeps));
     registered++;
   }
 
