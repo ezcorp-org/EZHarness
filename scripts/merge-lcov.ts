@@ -81,10 +81,12 @@ type FileRec = {
   fn: Map<string, number>; // fn name -> declared line
   fnda: Map<string, number>; // fn name -> summed hits
   da: Map<number, number>; // line -> summed hits
-  /** Zero-hit lines that at least one input reported inside a SPAN-FILL block. */
-  spanFillZero: Set<number>;
-  /** Zero-hit lines at least one input reported as a per-statement measurement. */
-  measuredZero: Set<number>;
+  /**
+   * What the inputs' zero-hit records at a line amount to. `"measured"` is
+   * STICKY: one shard that measured a miss per statement outvotes any number
+   * of span fills, whatever order the inputs are scanned in.
+   */
+  zeroVerdict: Map<number, "fill" | "measured">;
   /** Lines an input executed ACROSS without ever naming (see `absorbBlock`). */
   straddled: Set<number>;
   /** Source lines, for the span-fill discriminator. `null` when unreadable. */
@@ -124,9 +126,9 @@ const SPAN_FILL_MIN_RECORDS = 3;
  *    comment line only by filling a function's whole line RANGE (the premise
  *    `lcov-noise-filter.ts` is built on), so such a run is a range fill for a
  *    function this shard never entered — not a per-line measurement. Every
- *    other zero record is banked as `measuredZero`, and `measuredZero` always
- *    wins: one shard that genuinely measured a miss outvotes any number of
- *    span fills.
+ *    other zero record is banked as `"measured"`, and that verdict is STICKY:
+ *    one shard that genuinely measured a miss outvotes any number of span
+ *    fills, in any input order.
  *
  *    Both halves of that test are deliberately insensitive to a previous merge
  *    generation, because CI merges TWICE (each shard pre-merges ~200 per-file
@@ -137,8 +139,8 @@ const SPAN_FILL_MIN_RECORDS = 3;
  *    testing the noise predicate over the run's line RANGE (not its recorded
  *    lines) keeps a fill recognisable as a fill after that strip — the
  *    line-contiguous, recorded-lines-only form of this test classified every
- *    pre-merged artifact's fill as a per-statement measurement, whose
- *    `measuredZero` veto then resurrected the very misses this drop removes.
+ *    pre-merged artifact's fill as a per-statement measurement, whose sticky
+ *    `"measured"` verdict then resurrected the very misses this drop removes.
  *    Measured on the real 4-shard fixture: the strict form made a 2+2
  *    pre-merge disagree with the direct merge on 16 lines; this form is
  *    byte-identical.
@@ -164,13 +166,13 @@ function absorbBlock(r: FileRec, block: Array<[number, number]>): void {
     let end = i;
     while (end + 1 < recs.length && recs[end + 1]?.[1] === 0) end++;
     const last = recs[end];
-    const target =
-      last && isSpanFill(r, start[0], last[0], end - i + 1)
-        ? r.spanFillZero
-        : r.measuredZero;
+    const verdict =
+      last && isSpanFill(r, start[0], last[0], end - i + 1) ? "fill" : "measured";
     for (let k = i; k <= end; k++) {
       const entry = recs[k];
-      if (entry) target.add(entry[0]);
+      if (!entry) continue;
+      if (verdict === "measured") r.zeroVerdict.set(entry[0], "measured");
+      else if (!r.zeroVerdict.has(entry[0])) r.zeroVerdict.set(entry[0], "fill");
     }
     i = end + 1;
   }
@@ -198,17 +200,15 @@ function isSpanFill(r: FileRec, a: number, b: number, records: number): boolean 
  * some shard executed straight across it. Such a record is dropped from the
  * merge — it leaves both LH and LF, exactly like a noise-filtered line.
  *
- * The three conjuncts are what keep the failure direction right. Drop the
- * straddle requirement and a function NO shard ever runs would vanish from
- * the denominator (its span fills would be dropped everywhere and the file
- * would report ~100 %). Drop the `measuredZero` veto and a shard's real
- * per-statement miss could be erased by another shard's fill. Drop the
- * span-fill requirement and a genuine 3-statement miss reported by the one
- * shard that ran the enclosing code could be erased by a second shard whose
- * line map merely skipped those statements.
+ * Both halves keep the failure direction right. Drop the straddle requirement
+ * and a function NO shard ever runs would leave the denominator entirely (its
+ * fills would be dropped everywhere and an untested file would report ~100 %).
+ * Drop the `"fill"` verdict — i.e. treat every all-zero line in an executed
+ * stretch as no evidence — and a genuine miss the executing shard reported per
+ * statement would be erased by another shard whose line map merely skipped it.
  */
 function isNoEvidenceZero(r: FileRec, line: number): boolean {
-  return r.straddled.has(line) && r.spanFillZero.has(line) && !r.measuredZero.has(line);
+  return r.straddled.has(line) && r.zeroVerdict.get(line) === "fill";
 }
 
 const [globPat, outPath] = Bun.argv.slice(2);
@@ -225,8 +225,7 @@ const rec = async (sf: string): Promise<FileRec> => {
     fn: new Map(),
     fnda: new Map(),
     da: new Map(),
-    spanFillZero: new Set(),
-    measuredZero: new Set(),
+    zeroVerdict: new Map(),
     straddled: new Set(),
     // Read through lcov-noise-filter's cache: the emit pass reads the same
     // path for the noise strip, so this costs no extra file read.
