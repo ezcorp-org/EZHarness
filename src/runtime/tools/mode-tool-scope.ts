@@ -49,10 +49,58 @@ export interface ModeScopeRegistry {
   ): Array<{ name: string; originalName: string }>;
 }
 
+/**
+ * The pseudo-extension key caller-executed tools are toggled under. It is a
+ * literal, not a UUID, and cannot collide with a real extension named
+ * `caller`: registry / toggle keys for real extensions are UUIDs.
+ */
+export const CALLER_TOOL_SCOPE_KEY = "caller";
+
+/** Runtime prefix for a declared caller tool: `_caller__<name>`. */
+const CALLER_TOOL_NAMESPACE = "_caller__";
+
+/**
+ * Compile the conversation's `caller` toggle into denials.
+ *
+ * This CANNOT ride the generic `Object.entries` loop below. That loop asks
+ * `registry.getToolsForExtension(extId)` for the tools a key owns, and there
+ * is no registry entry for `caller` — the declarations live in
+ * `conversations.metadata`, not in the extension registry — so the loop sees
+ * an empty tool list and emits zero denials for every subset shape,
+ * including the empty one that means "off". The names have to be handed in.
+ *
+ * Both name forms are emitted for each denied tool because the two consumers
+ * of `forceDeniedTools` see different ones: the executor filters `AgentTool`
+ * rows named `_caller__<name>`, while `/api/tools` filters metadata rows
+ * named `<name>`. `forceDeniedTools` is exact-match, so a single form would
+ * silently revoke in one surface and not the other.
+ */
+function computeCallerDenials(
+  subset: string[] | undefined,
+  callerToolNames: readonly string[],
+): string[] {
+  if (!subset) return []; // absent = all tools pass
+  const denied: string[] = [];
+  for (const name of callerToolNames) {
+    const namespaced = `${CALLER_TOOL_NAMESPACE}${name}`;
+    if (
+      subset.length === 0 || // master toggle OFF
+      (!subset.includes(name) && !subset.includes(namespaced))
+    ) {
+      denied.push(name, namespaced);
+    }
+  }
+  return denied;
+}
+
 export function computeModeToolScope(
   mode: ModeToolScopeSource | null | undefined,
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
+  /** Bare names declared in `conversations.metadata.callerTools`. Absent for
+   *  every caller that has none — the parameter is additive and omitting it
+   *  reproduces the pre-caller-tools behaviour exactly. */
+  callerToolNames: readonly string[] = [],
 ): ToolFilterOptions | null {
   const extensionIds = mode?.extensionIds ?? [];
   if (mode && extensionIds.length > 0) {
@@ -113,7 +161,7 @@ export function computeModeToolScope(
     // allowlist layer, so deleting from `allowed` can't touch them). The
     // force-denials carry every conv exclusion; overlap with the allowlist
     // removal above is harmless.
-    const forceDeniedTools = computeConvDenials(convExtensionTools, registry);
+    const forceDeniedTools = computeConvDenials(convExtensionTools, registry, callerToolNames);
     return {
       toolRestriction: "allowlist",
       allowedTools: [...allowed],
@@ -125,7 +173,7 @@ export function computeModeToolScope(
   // The conv map's exclusions become FORCE-denials: they are explicit
   // per-conversation user toggles, the one layer allowed to remove even
   // ORCHESTRATION_TOOLS (e.g. switching ask-user off for this chat).
-  const forceDeniedTools = computeConvDenials(convExtensionTools, registry);
+  const forceDeniedTools = computeConvDenials(convExtensionTools, registry, callerToolNames);
 
   if (mode?.toolRestriction) {
     return {
@@ -150,10 +198,17 @@ export function computeModeToolScope(
 function computeConvDenials(
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
+  callerToolNames: readonly string[],
 ): string[] {
   const denied: string[] = [];
   if (!convExtensionTools) return denied;
+  // Handled separately, and BEFORE the registry loop — see
+  // `computeCallerDenials` for why the loop cannot express it.
+  denied.push(
+    ...computeCallerDenials(convExtensionTools[CALLER_TOOL_SCOPE_KEY], callerToolNames),
+  );
   for (const [extId, subset] of Object.entries(convExtensionTools)) {
+    if (extId === CALLER_TOOL_SCOPE_KEY) continue; // done above
     if (!subset) continue; // absent = all
     for (const t of registry.getToolsForExtension(extId)) {
       if (
