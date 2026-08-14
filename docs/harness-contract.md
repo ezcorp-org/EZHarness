@@ -189,7 +189,14 @@ const r = await ez.invokeExtensionTool(convoId, "scratchpad", "scratchpad_write"
   `extensions` is required to wire (`POST /api/conversations/:id/extensions`)
   and to invoke (`POST /api/tool-invoke`). A tool-level failure RESOLVES with
   `{ success: false, error }` (HTTP 200) — only an unknown tool, a bad body, or
-  a scope/ownership rejection is a non-2xx (thrown `HarnessApiError`).
+  a scope/ownership/permission rejection is a non-2xx (thrown `HarnessApiError`).
+- **A capability denial is `403`, not `500`, and is never retried.** When the
+  PDP refuses a tool's declared capability, `invokeExtensionTool()` throws
+  `HarnessApiError` with status **403** and a body naming the extension
+  (`Permission denied for tool "<tool>" from extension "<name>" — <reason>`).
+  It used to surface as `500` after three internal retries, which read as a
+  server fault and wrote three denial rows per call. Do not retry a 403: the
+  answer is deterministic. Grant the capability instead.
 - **Some extensions are not yours to wire, and the refusal looks like a typo.**
   An MCP-kind extension may be wired (and invoked) only by an admin, by the
   key owner who installed it, or by a holder of the `mcp-wire` RBAC grant —

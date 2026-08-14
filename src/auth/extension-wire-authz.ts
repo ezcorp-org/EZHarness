@@ -285,6 +285,28 @@ export async function partitionWirableExtensions<T extends WirableExtension>(
 }
 
 /**
+ * {@link partitionWirableExtensions} with LAZY actor resolution, for callers
+ * that hold a bare user id and sit on a hot path.
+ *
+ * Resolving the actor costs a `users` read. Rules 1-2 answer for bundled and
+ * non-MCP rows without consulting any principal, so a batch containing no MCP
+ * candidate needs no actor at all — and that is the overwhelmingly common
+ * case for `/api/mentions/search`, which runs on every keystroke of an `!`
+ * token. The check is made here rather than at the call site so the "only MCP
+ * needs a principal" rule stays inside the policy module.
+ */
+export async function partitionWirableExtensionsForUser<T extends WirableExtension>(
+  candidates: readonly T[],
+  actorRef: { userId: string | null | undefined; projectId: string | null },
+): Promise<WirePartition<T>> {
+  if (!candidates.some(isMcpExtension)) {
+    return { allowed: [...candidates], deniedNames: [] };
+  }
+  const actor = await loadWireActor(actorRef.userId, actorRef.projectId);
+  return partitionWirableExtensions(candidates, actor);
+}
+
+/**
  * The id-addressed form, for write-time validation of an author-supplied
  * extension list (`agent_configs.extensions`, sec: F3).
  *

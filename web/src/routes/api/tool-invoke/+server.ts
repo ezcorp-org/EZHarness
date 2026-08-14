@@ -182,6 +182,34 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       lastResult = result;
       retryCount = attempt;
     } catch (err) {
+      // An authorization denial is DETERMINISTIC — retrying it cannot change
+      // the answer. Two things went wrong when it fell through to the generic
+      // handler below:
+      //
+      //   1. It was retried MAX_RETRIES times, so ONE denied tool call wrote
+      //      THREE `ext:perm:denied` audit rows and counted as three denials
+      //      in the /audit stats strip.
+      //   2. It surfaced as 500, which reads as "the server broke" to every
+      //      client and integrator. It is a refusal, and the refusal is the
+      //      correct behaviour — 403 says so.
+      //
+      // Matched on `name` rather than `instanceof`: the tool-executor module
+      // is mocked at the alias boundary in route tests, so the imported class
+      // identity is not guaranteed to be the one the throw site used. The
+      // constructor sets `name` explicitly (`tool-executor/errors.ts`).
+      if (err instanceof Error && err.name === "PermissionDeniedError") {
+        return json({
+          success: false,
+          // Name the extension, not its UUID. The raw message embeds
+          // `extensionId`, which is meaningless to whoever reads this.
+          error: `Permission denied for tool "${toolName}" from extension "${extensionName}"${
+            (err as { reason?: string }).reason ? ` — ${(err as { reason?: string }).reason}` : ""
+          }`,
+          retryCount: attempt,
+          durationMs: Date.now() - startTime,
+          toolCallId: invocationId,
+        }, { status: 403 });
+      }
       // Retry on process/registry errors (extension may have crashed and needs restart)
       if (attempt < MAX_RETRIES) {
         continue;

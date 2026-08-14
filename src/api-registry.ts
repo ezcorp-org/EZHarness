@@ -401,7 +401,7 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
-  { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools", scope: "extensions", harness: { controllable: true } },
+  { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly. Requires ownership of `conversationId` (404 otherwise) and per-extension wire authorization (an MCP extension the caller may not wire reports the unknown-tool 404). A PDP capability denial is 403 and is NOT retried; a tool-level failure still resolves 200 with `{success:false}`", category: "tools", scope: "extensions", harness: { controllable: true } },
   { method: "GET", path: "/api/tool-calls/:id/output", description: "Get tool call output", category: "tools" },
   { method: "POST", path: "/api/tool-calls/:id/permission", description: "Approve or deny tool permission", category: "tools", scope: "chat", harness: { controllable: true } },
 
