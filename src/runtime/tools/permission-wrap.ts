@@ -107,6 +107,24 @@ async function resolveMode(deps: PermissionWrapDeps): Promise<PermissionMode> {
 }
 
 /**
+ * Does this call open a gate?
+ *
+ * `caller` short-circuits: the mode is never resolved, so no mode — stored,
+ * bus-pushed, or supplied verbatim in the request body that started the run —
+ * can turn the gate off. `needsApproval` already answers `true` for `caller`
+ * under all three modes because the category is in no `AUTO_APPROVE` set; this
+ * is the second, independent reason, and it is here because the FIRST one is a
+ * table an edit could quietly widen. A caller tool is code the key holder
+ * wrote, running on the key holder's machine, admitted to the owner's
+ * conversation — the per-call, deniable, recorded decision is the whole
+ * product, so it must not be one table entry away from disappearing.
+ */
+async function opensGate(def: BuiltinToolDef, deps: PermissionWrapDeps): Promise<boolean> {
+  if (def.category === "caller") return true;
+  return needsApproval(def.category, await resolveMode(deps));
+}
+
+/**
  * Project a host-side {@link BuiltinToolDef} onto the `AgentTool` shape
  * pi-agent-core consumes, with its `execute` behind the permission gate.
  *
@@ -128,7 +146,7 @@ export function withPermissionGate(
         ? AbortSignal.any([signal, toolController.signal])
         : toolController.signal;
       try {
-        if (needsApproval(def.category, await resolveMode(deps))) {
+        if (await opensGate(def, deps)) {
           const permInfo: PendingPermissionInfo = {
             conversationId, toolCallId, toolName: def.name,
             input: params, cardType: def.cardType, category: def.category,

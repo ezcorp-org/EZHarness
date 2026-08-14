@@ -2,7 +2,7 @@
  * Parity pins for the Ez client-side tools' watchdog budget.
  *
  * The defect these lock out: `fill_form` / `navigate_to` / `read_page`
- * suspend server-side for as long as the `ez-client-tool-registry` gate
+ * suspend server-side for as long as the `remote-tool-registry` gate
  * allows (5 minutes), but they declared NO `callTimeoutMs`, so
  * subscribe-bridge handed the watchdog `DEFAULT_BUILTIN_CALL_TIMEOUT_MS`
  * (= `WATCHDOG_IDLE_MS`, 90s). The watchdog therefore stopped deferring
@@ -39,7 +39,7 @@ import {
   getEzClientToolTimeoutMs,
   _setEzClientToolTimeoutForTests,
   _resetEzClientToolTimeoutForTests,
-} from "../runtime/ez-client-tool-registry";
+} from "../runtime/tools/ez/client-tool";
 import {
   DEFAULT_BUILTIN_CALL_TIMEOUT_MS,
   WATCHDOG_TICK_MS,

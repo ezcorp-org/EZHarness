@@ -132,6 +132,10 @@ export interface SetupToolsConvRecord {
    *  ID). Feeds the quality-tier classifier so an attached extension can
    *  declare a tier need via its manifest `routing.tier`. */
   extensionTools?: Record<string, string[]> | null;
+  /** The conversation's opaque runtime bag. Read here for `callerTools` —
+   *  the caller-executed tool declarations an external application put on
+   *  this conversation (see `runtime/caller-tool-declarations.ts`). */
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface SetupToolsResult {
@@ -305,6 +309,47 @@ export async function wireRunWorkflowIfEligible(args: {
   } catch (workflowWireErr) {
     log.warn("run_workflow wire failed — workflows unavailable this turn", {
       error: String(workflowWireErr),
+    });
+  }
+}
+
+/**
+ * Wire the caller-executed tools this conversation declared.
+ *
+ * ORDERING IS LOAD-BEARING: the call site sits AFTER §2b's
+ * `ctx.agentTools = extTools.map(...)`, which is an ASSIGNMENT and discards
+ * anything pushed before it. Own try/catch for the same reason every other
+ * wire has one — a malformed declaration must cost this turn its caller tools
+ * and nothing else.
+ */
+export async function wireCallerToolsIfDeclared(args: {
+  agentTools: AgentTool[];
+  builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
+  conversationId: string;
+  runId: string;
+  convRecord: SetupToolsConvRecord | null;
+  bus?: import("../events").EventBus<import("../../types").AgentEvents>;
+  permissionDeps: PermissionWrapDeps;
+  /** The run's own abort signal, so a cancelled turn tears its caller
+   *  permission gates down instead of leaving cards nobody can answer. */
+  runSignal?: AbortSignal;
+}): Promise<void> {
+  try {
+    const { wireCallerToolsForTurn } = await import("../caller-tools-host");
+    wireCallerToolsForTurn({
+      agentTools: args.agentTools,
+      builtinToolDefsMap: args.builtinToolDefsMap,
+      conversationId: args.conversationId,
+      runId: args.runId,
+      userId: args.convRecord?.userId,
+      metadata: args.convRecord?.metadata,
+      permissionDeps: args.permissionDeps,
+      ...(args.bus ? { bus: args.bus } : {}),
+      ...(args.runSignal ? { runSignal: args.runSignal } : {}),
+    });
+  } catch (callerWireErr) {
+    log.warn("Caller tools wire failed — declared caller tools unavailable this turn", {
+      error: String(callerWireErr),
     });
   }
 }
@@ -1470,6 +1515,21 @@ export async function setupTools(
           });
         }
       }
+
+      // 2c-caller. Caller-executed tools this conversation declared. Wired
+      // LAST of the per-turn families and deliberately AFTER §2b's
+      // `ctx.agentTools = extTools.map(...)` — that line is an ASSIGNMENT, so
+      // anything pushed before it is discarded.
+      await wireCallerToolsIfDeclared({
+        agentTools: ctx.agentTools,
+        builtinToolDefsMap: ctx.builtinToolDefsMap,
+        conversationId,
+        runId: run.id,
+        convRecord,
+        bus: host.bus,
+        permissionDeps,
+        runSignal: host.controllers.get(run.id)?.signal,
+      });
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools
       // NOTE: system prompt injection is deferred until after Promise.all to avoid race with memory injection
