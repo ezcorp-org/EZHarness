@@ -45,7 +45,9 @@ const MCP_EXT = {
 		permissions: {},
 	},
 	grantedPermissions: { grantedAt: {} },
+	installedPermissions: {},
 	createdAt: new Date().toISOString(),
+	updatedAt: new Date().toISOString(),
 };
 
 /**
