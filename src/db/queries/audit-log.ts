@@ -152,14 +152,6 @@ export async function listAuditLog(opts?: {
 }
 
 /**
- * Fetch all extension-related audit rows for a single extension. Matches
- * both the new typed `ext:*` actions defined in
- * `src/extensions/audit-actions.ts` AND the pre-existing legacy
- * `extension:*` strings written by older grant/activate endpoints, so
- * the detail page shows a unified history without requiring a data
- * migration of historical rows.
- */
-/**
  * Delete `audit_log` rows older than the retention window (#206).
  *
  * Runs hourly from `src/startup/background-timers.ts`, alongside the
@@ -200,6 +192,14 @@ export async function cleanupOldAuditLog(
   return deleted;
 }
 
+/**
+ * Fetch all extension-related audit rows for a single extension. Matches
+ * both the new typed `ext:*` actions defined in
+ * `src/extensions/audit-actions.ts` AND the pre-existing legacy
+ * `extension:*` strings written by older grant/activate endpoints, so
+ * the detail page shows a unified history without requiring a data
+ * migration of historical rows.
+ */
 export async function listAuditForExtension(
   extensionId: string,
   opts?: { limit?: number; offset?: number },
