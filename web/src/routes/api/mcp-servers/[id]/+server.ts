@@ -5,6 +5,9 @@ import { McpClient } from "$server/mcp/client";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
+import { buildMcpAuditMetadata, describeMcpServerForAudit } from "$server/extensions/mcp-audit";
 import type { ExtensionManifestV2, McpServerDefinition } from "$server/extensions/types";
 import { updateMcpServerSchema } from "../schema";
 import type { RequestHandler } from "./$types";
@@ -74,6 +77,24 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   if (!updated) return errorJson(404, "MCP extension not found");
 
   await ExtensionRegistry.getInstance().reload();
+  // `prevRedacted` is the value-blanked stored definition — exactly the
+  // credential-free view the audit wants, so the before/after diff shows a
+  // re-pointed connection without ever holding a secret. `mergeHeaders` runs
+  // on the rehydrated copy, never on this one.
+  try {
+    await insertAuditEntry(
+      locals.user?.id ?? null,
+      EXT_AUDIT_ACTIONS.MCP_SERVER_UPDATED,
+      updated.id,
+      buildMcpAuditMetadata({
+        extensionName: updated.name,
+        actorUserId: locals.user?.id ?? "unknown",
+        reason: "mcp-update",
+        before: prevRedacted ? describeMcpServerForAudit(prevRedacted, manifest.tools) : null,
+        after: describeMcpServerForAudit(server, cachedTools),
+      }),
+    );
+  } catch { /* non-fatal — audit is observability, not a gate */ }
   return json(updated);
 };
 

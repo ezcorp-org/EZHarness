@@ -97,6 +97,15 @@ describe("extension audit action constants", () => {
       "MCP_VETH_ORPHAN_SWEPT",
       "MCP_CONNTRACK_HIGH",
       "MCP_SANDBOX_REQUIRED_REFUSAL",
+      // MCP server lifecycle — the three admin mutations on /api/mcp-servers
+      // (install / edit / refresh) wrote NO audit row until now, which made
+      // the platform's highest-privilege extension mutation the one with no
+      // trail. EXTENSION_UNINSTALLED closes the same gap at the destructive
+      // end of the generic extension lifecycle.
+      "MCP_SERVER_INSTALLED",
+      "MCP_SERVER_UPDATED",
+      "MCP_SERVER_REFRESHED",
+      "EXTENSION_UNINSTALLED",
       // Phase 50 — SDK capability tier (audit-actions for Phase 51 handlers)
       "SDK_LLM_CALL",
       "SDK_LLM_REJECTED",

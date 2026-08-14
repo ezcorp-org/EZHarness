@@ -10,6 +10,14 @@
  * Gate order mirrors the sibling messages route: scope → auth → ownership.
  * Ownership resolves against the ROOT of the parentConversationId chain, and a
  * non-owner or missing conversation both collapse to 404 (no existence leak).
+ *
+ * Ownership is NOT the whole gate. `requireScope(locals, "extensions")` is a
+ * no-op for a cookie session (`locals.apiKeyScopes` is undefined, which
+ * `hasRequiredScope` reads as allow-all), so for a browser user the only
+ * checks above were "you own this conversation" — nothing about the extension
+ * ROW. `partitionWirableExtensions` (`src/auth/extension-wire-authz.ts`) is
+ * that missing check, and a denial is folded into the existing unknown-name
+ * 404 so it stays indistinguishable from "no such extension".
  */
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
@@ -21,6 +29,7 @@ import {
   addConversationExtensions,
   getConversationExtensionIds,
 } from "$server/db/queries/conversation-extensions";
+import { partitionWirableExtensions } from "$server/auth/extension-wire-authz";
 import { errorJson } from "$lib/server/http-errors";
 import { validationError } from "$lib/server/security/validation";
 import type { RequestHandler } from "./$types";
@@ -59,7 +68,18 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // the offending set, so a partial batch can never leave a half-wired state.
   const names = [...new Set(parsed.data.names)];
   const found = await getExtensionsByNames(names);
-  const unknown = names.filter((n) => !found.has(n));
+
+  // Then authorize each resolved row for THIS user. A name the caller may not
+  // wire joins the unknown set rather than getting a 403 of its own: a member
+  // must not be able to tell "no such extension" from "an admin installed an
+  // MCP server by that name". The project coordinate comes off the
+  // conversation row, never the request body.
+  const { deniedNames } = await partitionWirableExtensions(
+    names.filter((n) => found.has(n)).map((n) => found.get(n)!),
+    { user: { id: user.id, role: user.role }, projectId: ownership.conv.projectId ?? null },
+  );
+  const denied = new Set(deniedNames);
+  const unknown = names.filter((n) => !found.has(n) || denied.has(n));
   if (unknown.length > 0) {
     return json({ error: "Unknown extension(s)", unknown }, { status: 404 });
   }
