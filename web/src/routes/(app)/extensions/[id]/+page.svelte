@@ -1428,7 +1428,10 @@
 				<!-- Network -->
 				<div>
 					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Network Access</div>
-					<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">Website domains this extension may contact.</p>
+					<!-- `text-xs`, not `text-[10px]`: the contrast passes (5.79:1) but
+					     10px does not meet the minimum body size. This line explains
+					     what the checkboxes beneath it grant. -->
+					<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">Website domains this extension may contact.</p>
 					<!--
 						`min-w-0` on the row + `max-w-full break-all` on each pill. This
 						pairing is repeated on every pill row in this card (filesystem,
@@ -1551,7 +1554,11 @@
 				{#if hasInstallGrants}
 					<div data-testid="install-granted-capabilities">
 						<div class="text-xs font-medium text-[var(--color-text-secondary)]">Granted at install</div>
-						<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
+						<!-- Same 10px→xs bump as the Network Access helper above: it is
+						     the same role (the sentence explaining what a pill row
+						     grants) in the same card, so leaving one at 10px would be
+						     an inconsistency as well as a size failure. -->
+						<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">
 							Auto-granted from the manifest. Read-only — to revoke, uninstall the extension.
 						</p>
 						<div class="mt-1 flex min-w-0 flex-wrap gap-1">
@@ -1718,9 +1725,17 @@
 						Removes {ext.name}, its tools, its permissions and its files. You choose
 						what happens to the files it wrote.
 					</p>
+					<!-- `text-red-700 dark:text-red-400`: `--color-red-400` (#ff8a85)
+					     is retinted once in `:root` for DARK surfaces and never
+					     re-declared per theme, so on the light surface it measures
+					     2.01:1 — an AA failure (needs 4.5) on the most destructive
+					     control on the page. The paired form is 5.39:1 light /
+					     8.65:1 dark. Localized on purpose: retinting the token would
+					     shift every red in the app. Same fix a3 landed on the list
+					     page (de392cb4). -->
 					<button
 						onclick={() => (uninstallOpen = true)}
-						class="rounded-md border border-red-800 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-900/30"
+						class="rounded-md border border-red-800 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-900/30 dark:text-red-400"
 						data-testid="extension-detail-uninstall-button"
 					>
 						Uninstall {ext.name}
