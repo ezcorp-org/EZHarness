@@ -2,6 +2,11 @@ import { startDecayTimer } from "../memory/lifecycle";
 import { runCompaction } from "../memory/compaction";
 import { deleteExpiredSessions } from "../db/queries/sessions";
 import { cleanupOldErrors } from "../db/queries/error-logs";
+import {
+  AUDIT_RETENTION_ENV,
+  cleanupOldAuditLog,
+  resolveAuditRetentionDays,
+} from "../db/queries/audit-log";
 import { cleanupOldSdkCapabilityCalls, clampDays } from "../db/queries/sdk-capability-calls";
 import { getSetting } from "../db/queries/settings";
 import { ScheduleDaemon } from "../extensions/schedule-daemon";
@@ -176,6 +181,27 @@ export async function startBackgroundTimers(): Promise<void> {
   intervals.push(setInterval(() => {
     cleanupOldErrors(30).catch(() => {});
   }, 60 * 60 * 1000));
+
+  // #206: audit_log retention sweep (hourly, 180-day default).
+  //
+  // `audit_log` had NO sweep — unlike every neighbouring table — so it
+  // grew for the life of the instance. The window is longer than the
+  // 30-day error-log one because these rows are the governance record
+  // (see DEFAULT_AUDIT_RETENTION_DAYS for the derivation), and it is
+  // operator-configurable via EZCORP_AUDIT_RETENTION_DAYS.
+  //
+  // Read ONCE, here, rather than per tick: an env var cannot change
+  // without a restart, and resolving it at arm time lets the log line
+  // below tell an operator the window that actually took effect.
+  // Failures are swallowed + logged, matching the sweeps above — a row
+  // that outlives its window for one tick is not a correctness problem.
+  const auditRetentionDays = resolveAuditRetentionDays(process.env[AUDIT_RETENTION_ENV]);
+  intervals.push(setInterval(() => {
+    cleanupOldAuditLog(auditRetentionDays).catch((e: unknown) => {
+      log.warn("audit-log cleanup failed", { error: String(e) });
+    });
+  }, 60 * 60 * 1000));
+  log.info("Audit-log retention sweep started", { retentionDays: auditRetentionDays });
 
   // Phase 50: SDK capability-call retention sweep (hourly).
   // Per-capability retention thresholds are read on every tick so
