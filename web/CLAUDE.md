@@ -85,7 +85,8 @@ meta-test `src/__tests__/route-contract.test.ts`
   repo root).
   The meta-test requires registration ABSOLUTELY (both directions — no route
   unregistered, no entry without a handler), ratchets the `scope` half against
-  a frozen list of the 93 entries that predate it, and enforces admin
+  a frozen list of the entries that predate it (93 at freeze, 91 today, and it
+  may only shrink), and enforces admin
   scope↔role pairing and controllable↔harness-client route parity.
 - **New `/api/__test/**` route** (determinism tier) → gate it with
   `isTestSurfaceEnabled()` from `$lib/server/test-surface`. Fail-CLOSED: 404
