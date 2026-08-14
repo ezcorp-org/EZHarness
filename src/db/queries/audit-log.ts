@@ -177,15 +177,14 @@ export async function cleanupOldAuditLog(
   const days = resolveAuditRetentionDays(String(retentionDays));
   let deleted = 0;
   for (let batch = 0; batch < AUDIT_CLEANUP_MAX_BATCHES; batch++) {
-    const stale = await getDb()
+    const stale: Array<{ id: string }> = await getDb()
       .select({ id: auditLog.id })
       .from(auditLog)
       .where(lt(auditLog.createdAt, nowMinusInterval(days, "days", DEFAULT_AUDIT_RETENTION_DAYS)))
       .limit(AUDIT_CLEANUP_BATCH_LIMIT);
     if (stale.length === 0) break;
-    await getDb()
-      .delete(auditLog)
-      .where(inArray(auditLog.id, stale.map((r) => r.id)));
+    const ids = stale.map((row) => row.id);
+    await getDb().delete(auditLog).where(inArray(auditLog.id, ids));
     deleted += stale.length;
     if (stale.length < AUDIT_CLEANUP_BATCH_LIMIT) break;
   }
