@@ -76,6 +76,14 @@ import {
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { BuiltinToolDef } from "../runtime/tools/types";
+import { createReadPageTool } from "../runtime/tools/ez";
+import {
+  ezClientToolWatchdogBudgetMs,
+  resolveEzClientTool,
+  _setEzClientToolTimeoutForTests,
+  _resetEzClientToolTimeoutForTests,
+  _resetPendingEzClientToolsForTests,
+} from "../runtime/ez-client-tool-registry";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
@@ -104,6 +112,10 @@ afterEach(() => {
   globalThis.setInterval = originalSetInterval;
   Date.now = originalDateNow;
   capturedTicks = [];
+  // The Ez suite below installs a shortened gate + leaves entries behind
+  // on its abort path; clear both so no real 5-minute timer outlives a test.
+  _resetEzClientToolTimeoutForTests();
+  _resetPendingEzClientToolsForTests();
 });
 
 async function advanceAndTick(deltaMs: number): Promise<void> {
@@ -390,5 +402,179 @@ describe("declared callTimeoutMs=600_000 (Bash): tool exceeding budget produces 
     const toolErrIdx = h.events.findIndex((e) => e.type === "tool:error");
     const runErrIdx = h.events.findIndex((e) => e.type === "run:error");
     expect(toolErrIdx).toBeLessThan(runErrIdx);
+  });
+});
+
+// ── 4. Ez client-side tools: the panel round-trip outlives the idle window ─
+//
+// The live defect: `read_page` / `fill_form` / `navigate_to` suspend
+// server-side until the Ez panel POSTs a result. The wait is bounded by
+// the ez-client-tool registry's 5-minute gate — but the defs declared no
+// `callTimeoutMs`, so the bridge handed the watchdog the 90s default and
+// the run was killed mid-wait. Fast local panel → invisible; slow link or
+// a user who takes >90s → the turn dies, and the gate's own rejection
+// (the concrete error the LLM could have recovered from) never fires.
+//
+// These arms drive the REAL def through the REAL bridge + watchdog + gate:
+//   4a. the run survives the gate's whole 5-minute window and completes
+//       when the panel finally answers;
+//   4b. when the panel never answers, the GATE wins the race — the LLM
+//       gets "Timed out waiting for Ez client tool result" and the run
+//       lives on;
+//   4c. the watchdog is still the backstop — if the gate itself never
+//       fires, the declared budget (not an indefinite deferral) still
+//       kills the wedged run, and the kill unblocks the suspended tool.
+
+describe("Ez client-side tool: watchdog defers for the whole panel round-trip", () => {
+  interface WiredReadPage {
+    h: BuiltinHarness;
+    def: BuiltinToolDef;
+    pending: Promise<{ content: unknown[]; details?: unknown }>;
+    toolCallId: string;
+  }
+
+  /** Stand up the harness around the REAL `read_page` def, start the real
+   *  (suspending) execute against the run's own abort signal, and tell the
+   *  bridge the call is in flight — the exact sequence streamChat produces. */
+  function wireReadPage(): WiredReadPage {
+    const toolCallId = "tc-read-page";
+    const def = createReadPageTool({ conversationId: CONV_ID, userId: "u-ez" });
+    const builtinMap = new Map<string, BuiltinToolDef>();
+    builtinMap.set(def.name, def);
+    const h = setupHarness(builtinMap);
+
+    // The bus only exists once the harness is built, so the executing
+    // copy of the def is built here; both copies come from the same
+    // factory, so they carry the same declared budget.
+    const liveDef = createReadPageTool({
+      conversationId: CONV_ID,
+      userId: "u-ez",
+      bus: h.bus,
+    });
+    const pending = liveDef.execute(
+      toolCallId,
+      { detail: "summary" },
+      h.ctx.controller.signal,
+    ) as Promise<{ content: unknown[]; details?: unknown }>;
+
+    h.piAgent.fire({ type: "turn_start" });
+    h.piAgent.fire({
+      type: "tool_execution_start",
+      toolCallId,
+      toolName: def.name,
+      args: { detail: "summary" },
+    });
+    return { h, def, pending, toolCallId };
+  }
+
+  /** End the tool exactly as pi-agent-core would: `isError` mirrors the
+   *  tool result's own `details.isError`, so nothing here fakes a verdict. */
+  function fireToolEnd(
+    h: BuiltinHarness,
+    toolCallId: string,
+    toolName: string,
+    result: { content: unknown[]; details?: unknown },
+  ): void {
+    const isError = (result.details as { isError?: boolean } | undefined)?.isError === true;
+    h.piAgent.fire({ type: "tool_execution_end", toolCallId, toolName, isError, result });
+  }
+
+  test("4a. run survives the gate's full 5-minute wait, then completes on the panel's POST", async () => {
+    const { h, def, pending, toolCallId } = wireReadPage();
+
+    // 20 ticks × 15s = 300s, the whole gate window. Pre-fix the run was
+    // killed on the tick after 90s with "exceeded its 90000ms call timeout".
+    for (let i = 0; i < 20; i++) {
+      await advanceAndTick(15_000);
+      expect(h.run.status, `tick ${i}: run killed at ${(i + 1) * 15}s of a legitimate wait`).toBe("running");
+    }
+    expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
+    expect(h.events.find((e) => e.type === "tool:error")).toBeUndefined();
+
+    // The panel finally answers (user was reading, or the link was slow).
+    expect(
+      resolveEzClientTool(toolCallId, {
+        ok: true,
+        detail: { route: "/agents/new", title: "New agent" },
+      }),
+    ).toBe(true);
+    const result = await pending;
+    fireToolEnd(h, toolCallId, def.name, result);
+    await h.ctx.dbQueue;
+
+    // The LLM gets the page context, the run is intact.
+    expect(h.events.find((e) => e.type === "tool:complete")).toBeDefined();
+    expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
+    expect(h.run.status).toBe("running");
+    expect(JSON.stringify(result.content)).toContain("/agents/new");
+  });
+
+  test("4b. panel never answers → the GATE rejects first; the run lives and the LLM sees why", async () => {
+    // Shrink the gate so its (real, not faked) timer fires inside the
+    // test. The def is built AFTER the override, so its watchdog budget
+    // shrinks with it — one knob, no second literal to keep in sync.
+    _setEzClientToolTimeoutForTests(25);
+    const { h, def, pending, toolCallId } = wireReadPage();
+    expect(def.callTimeoutMs).toBe(ezClientToolWatchdogBudgetMs());
+
+    // The gate's rejection arrives on its own (real) timer while the
+    // watchdog is still deferring — no watchdog tick is needed at all.
+    const result = await pending;
+    fireToolEnd(h, toolCallId, def.name, result);
+
+    const text = JSON.stringify(result.content);
+    expect(text).toContain("Timed out waiting for Ez client tool result");
+    // The decisive ordering pin: the failure the model reads is the
+    // gate's concrete tool error, NOT the watchdog's run-level kill.
+    expect(text).not.toMatch(/exceeded.*call timeout/i);
+    expect((result.details as { isError?: boolean }).isError).toBe(true);
+
+    // The run itself is untouched — the model can apologise, retry, or
+    // ask the user to open the Ez panel.
+    await advanceAndTick(15_000);
+    expect(h.run.status).toBe("running");
+    expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
+    const toolErr = h.events.find((e) => e.type === "tool:error");
+    expect(toolErr, "the bridge relays the gate's error as the tool's own failure").toBeDefined();
+    expect(JSON.stringify((toolErr!.data as AgentEvents["tool:error"]).error)).toContain("Timed out");
+  });
+
+  test("4c. gate wedged → the watchdog is still the backstop, and its kill unblocks the tool", async () => {
+    // Defends the design choice: a BOUNDED budget, not `requiresUserInput`.
+    // If the gate's own timer never fires (leaked entry, a refactor that
+    // drops it), the watchdog must still reap the run — that leak
+    // detection is exactly what an indefinite deferral would throw away.
+    const { h, def, pending, toolCallId } = wireReadPage();
+    const budget = def.callTimeoutMs!;
+    expect(budget).toBeGreaterThan(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+    const startedAt = fakeNow;
+
+    // Advance past the declared budget…
+    while (fakeNow - startedAt < budget) {
+      await advanceAndTick(15_000);
+      expect(h.run.status, "killed before its declared budget").toBe("running");
+    }
+    // …then across the idle window that follows the lapsed deferral.
+    for (let i = 0; i < 8 && h.run.status === "running"; i++) {
+      await advanceAndTick(15_000);
+    }
+
+    expect(h.run.status).toBe("error");
+    const toolErr = h.events.find((e) => e.type === "tool:error")!;
+    expect(toolErr).toBeDefined();
+    const td = toolErr.data as AgentEvents["tool:error"];
+    expect(td.toolName).toBe(def.name);
+    expect(td.invocationId).toBe(toolCallId);
+    expect(td.error).toMatch(new RegExp(`exceeded.*${budget}.*call timeout`, "i"));
+    // Not the 90s default — the budget the def declared.
+    expect(td.error).not.toContain(`${DEFAULT_BUILTIN_CALL_TIMEOUT_MS}ms`);
+
+    // The kill aborts the run controller, and the tool's abort listener
+    // collapses the gate — the suspended execute unblocks instead of
+    // leaking a promise for the process lifetime.
+    const result = await pending;
+    expect(JSON.stringify(result.content)).toContain(
+      "Aborted while waiting for read_page client result",
+    );
   });
 });

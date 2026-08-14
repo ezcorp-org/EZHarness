@@ -71,6 +71,12 @@ import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { BuiltinToolDef } from "../runtime/tools/types";
 import { LONG_BLOCKING_WATCHDOG_BUDGET_MS } from "../runtime/tools/filter";
+import {
+  createFillFormTool,
+  createNavigateToTool,
+  createReadPageTool,
+} from "../runtime/tools/ez";
+import { ezClientToolWatchdogBudgetMs } from "../runtime/ez-client-tool-registry";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
@@ -414,6 +420,91 @@ describe("subscribe-bridge fallback chain — manifest > BuiltinToolDef.callTime
 
     expect(h.noteCalls).toHaveLength(1);
     expect(h.noteCalls[0]!.info.callTimeoutMs).toBe(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+  });
+});
+
+// ── Ez client-side tools: the gate's wait reaches the watchdog ─────────
+//
+// `fill_form` / `navigate_to` / `read_page` suspend server-side until the
+// Ez panel POSTs a result, bounded by the ez-client-tool registry's
+// 5-minute gate. They declared no callTimeoutMs, so this same fallback
+// chain handed them the 90s default and the watchdog killed the run
+// mid-wait — the registry's gate could never fire. These tests run the
+// REAL defs through the bridge, so the fix can't be undone in either the
+// tool or the bridge without a red.
+
+describe("subscribe-bridge — Ez client-side tools carry the gate's wait", () => {
+  const EZ_CLIENT_TOOLS: Array<[string, (ctx: { conversationId: string; userId: string }) => BuiltinToolDef]> = [
+    ["fill_form", createFillFormTool],
+    ["navigate_to", createNavigateToTool],
+    ["read_page", createReadPageTool],
+  ];
+
+  for (const [name, factory] of EZ_CLIENT_TOOLS) {
+    test(`${name} → noteToolStart gets the registry-derived budget, not the 90s default`, () => {
+      const builtinMap = new Map<string, BuiltinToolDef>();
+      builtinMap.set(name, factory({ conversationId: "conv-bridge-1", userId: "u1" }));
+      const h = buildBridgeHarness(builtinMap);
+
+      h.piAgent.fire({ type: "turn_start" });
+      h.piAgent.fire({
+        type: "tool_execution_start",
+        toolCallId: `tc-${name}`,
+        toolName: name,
+        args: {},
+      });
+
+      expect(h.noteCalls).toHaveLength(1);
+      const info = h.noteCalls[0]!.info;
+      expect(info.callTimeoutMs).toBe(ezClientToolWatchdogBudgetMs());
+      expect(info.callTimeoutMs).toBeGreaterThan(DEFAULT_BUILTIN_CALL_TIMEOUT_MS);
+      // Bounded, not indefinite: the watchdog keeps its leak detection
+      // for these tools (contrast requiresUserInput, which switches it off).
+      expect(info.requiresUserInput).toBeUndefined();
+      expect(Number.isFinite(info.callTimeoutMs)).toBe(true);
+    });
+  }
+
+  test("the budget outlives the gate, so the run survives the full 5-minute wait (watchdog-level)", async () => {
+    // The user-visible bug: the panel takes longer than 90s (slow link,
+    // user reading the page) and the whole run dies. Compose the real def's
+    // budget with the real WatchdogManager and drive the gate's entire
+    // 5-minute window — the run must still be running at every tick.
+    const bus = new EventBus<AgentEvents>();
+    const events: Array<{ type: keyof AgentEvents & string; data: unknown }> = [];
+    for (const t of ["tool:error", "run:error"] as const) {
+      bus.on(t, (data) => events.push({ type: t, data }));
+    }
+    const RUN_ID = "run-ez-defer";
+    const CONV_ID = "conv-ez-defer";
+    const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+    const watchdog = new WatchdogManager({
+      runs: new Map([[RUN_ID, run]]),
+      controllers: new Map([[RUN_ID, new AbortController()]]),
+      activeAgents: new Map(),
+      runConversations: new Map(),
+      pendingPermissions: new Map(),
+      errorMessagePersisted: new Set<string>(),
+      bus,
+      persist: true,
+    });
+    watchdog.startWatchdog(RUN_ID, CONV_ID, () => "");
+    const def = createReadPageTool({ conversationId: CONV_ID, userId: "u1" });
+    watchdog.noteToolStart(RUN_ID, "tc-ez", {
+      toolName: def.name,
+      conversationId: CONV_ID,
+      extensionId: "",
+      startedAt: fakeNow,
+      callTimeoutMs: def.callTimeoutMs!,
+    });
+
+    // 20 ticks × 15s = the gate's full 300s. Pre-fix the run died on the
+    // tick after 90s.
+    for (let i = 0; i < 20; i++) {
+      await advanceAndTick(15_000);
+      expect(run.status, `tick ${i}: run killed at ${(i + 1) * 15}s`).toBe("running");
+    }
+    expect(events).toHaveLength(0);
   });
 });
 
