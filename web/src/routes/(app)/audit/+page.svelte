@@ -122,7 +122,18 @@
 
 	function entryExtensionName(entry: Entry): string {
 		if (entry.kind === "governance") {
-			return entry.target ? extensionNameById.get(entry.target) ?? entry.target.slice(0, 8) : "system";
+			if (!entry.target) return "system";
+			const known = extensionNameById.get(entry.target);
+			if (known) return known;
+			// `extensionFacets` is built from the extensions that still EXIST,
+			// so a row about a deleted one — `ext:uninstalled` above all, which
+			// is precisely the row you go looking for — resolved to a truncated
+			// UUID pill. The audit metadata carries the name the row was written
+			// with; prefer it over an id fragment that names nothing.
+			const fromMetadata = (entry.metadata as { extensionName?: unknown } | null | undefined)
+				?.extensionName;
+			if (typeof fromMetadata === "string" && fromMetadata) return fromMetadata;
+			return entry.target.slice(0, 8);
 		}
 		// capability/resource — we don't carry extensionId on the
 		// merged shape today (it's filtered server-side via the

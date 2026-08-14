@@ -657,10 +657,72 @@
 		return "unknown";
 	}
 
+	/**
+	 * The credential-free `McpServerFacts` shape `src/extensions/mcp-audit.ts`
+	 * writes into `metadata.oldValue` / `metadata.newValue`. Only the fields
+	 * this summary renders are named.
+	 */
+	type McpFacts = {
+		transport?: string;
+		target?: string;
+		toolCount?: number;
+	};
+
+	/**
+	 * MCP lifecycle rows (`ext:mcp:server-installed` / `-updated` /
+	 * `-refreshed`) get their own sentence.
+	 *
+	 * The generic branch below rendered them as
+	 * `mcp:server installed (network) — mcp-install`, which is wrong three
+	 * ways: it leaks the raw `mcp:` namespace colon, it prints `(network)` as
+	 * if it were the permission being granted when it is only the SIEM scope
+	 * field these rows share with the runtime `ext:mcp:*` rows, and
+	 * `— mcp-install` just repeats the verb.
+	 *
+	 * It also dropped the one fact that matters most: `newValue.target` — the
+	 * executable or host this credentialed connection points at. An audit row
+	 * about an MCP server that does not say WHICH server is not an audit row.
+	 */
+	function mcpAuditSummary(action: string, m: Record<string, unknown>): string | null {
+		const after = (m.newValue ?? {}) as McpFacts;
+		const before = (m.oldValue ?? {}) as McpFacts;
+		const where = [after.transport, after.target].filter(Boolean).join(" ");
+		if (action === "ext:mcp:server-installed") {
+			return `MCP server installed${where ? ` — ${where}` : ""}`;
+		}
+		if (action === "ext:mcp:server-updated") {
+			// A re-pointed connection is the security-relevant edit, so lead
+			// with the destination rather than the tool delta.
+			return `MCP server edited${where ? ` — ${where}` : ""}`;
+		}
+		if (action === "ext:mcp:server-refreshed") {
+			// A refresh leaves the connection alone; the tool snapshot is the
+			// whole content of the event.
+			const from = before.toolCount;
+			const to = after.toolCount;
+			const delta =
+				typeof from === "number" && typeof to === "number"
+					? `${from} → ${to} tools`
+					: typeof to === "number"
+						? `${to} tools`
+						: "";
+			return `MCP server refreshed${delta ? ` — ${delta}` : ""}`;
+		}
+		return null;
+	}
+
 	function auditSummary(e: AuditEntry): string {
 		const m = e.metadata ?? {};
 		const perm = (m.permission as string | undefined) ?? "";
 		const reason = (m.reason as string | undefined) ?? "";
+		if (e.action.startsWith("ext:mcp:")) {
+			const mcp = mcpAuditSummary(e.action, m);
+			if (mcp) return mcp;
+		}
+		if (e.action === "ext:uninstalled") {
+			const purged = m.purgeData === true;
+			return `Extension uninstalled${purged ? " — data purged" : ""}`;
+		}
 		// Typed events surface permission + reason; legacy events fall
 		// back to the raw action + whatever metadata shape they used.
 		if (e.action.startsWith("ext:")) {
@@ -1294,7 +1356,15 @@
 					<span class="text-xs text-[var(--color-text-secondary)]">
 						Re-opens your extension as an editable draft.
 					</span>
-				{:else if ext.creatorUserId && ext.creatorUserId === currentUserId}
+				{:else if ext.creatorUserId && ext.creatorUserId === currentUserId && !isMcp}
+					<!-- `!isMcp` (the file's own derived, :736 — not a raw
+					     manifest comparison) because MCP rows only started
+					     carrying `creatorUserId` in #204, which made this notice
+					     appear on every MCP extension for the admin who installed
+					     it. It was self-contradicting there: `modifiable` gates
+					     re-opening authored CODE as a draft, which an MCP row has
+					     none of, and this very page shows that admin an "Edit
+					     connection" button that edits it right now. -->
 					<span class="text-xs text-[var(--color-text-secondary)]">
 						You created this extension. An admin must enable
 						modification before you can edit it.
@@ -1359,9 +1429,23 @@
 				<div>
 					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Network Access</div>
 					<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">Website domains this extension may contact.</p>
-					<div class="mt-1 flex flex-wrap gap-1">
+					<!--
+						`min-w-0` on the row + `max-w-full break-all` on each pill. This
+						pairing is repeated on every pill row in this card (filesystem,
+						env, granted-at-install) for the same reason:
+
+						a flex item's default `min-width: auto` refuses to shrink below
+						its content, and these values are unbroken strings, so a
+						near-limit host rendered ~490px past the card AND past the
+						viewport — an admin granting network egress could not read the
+						hostname they were approving. Consent to a string the UI won't
+						show is not consent. `break-all` (not `break-words`) because a
+						host/path/env name has no spaces to break at; the file already
+						uses it for the MCP command + URL rows.
+					-->
+					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
 						{#each ext.manifest.permissions.network ?? [] as domain}
-							<label class="flex items-center gap-1 rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
 								<input
 									type="checkbox"
 									checked={editPerms.network.includes(domain)}
@@ -1386,9 +1470,9 @@
 				<!-- Filesystem -->
 				<div>
 					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Filesystem Access</div>
-					<div class="mt-1 flex flex-wrap gap-1">
+					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
 						{#each ext.manifest.permissions.filesystem ?? [] as path}
-							<label class="flex items-center gap-1 rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
 								<input
 									type="checkbox"
 									checked={editPerms.filesystem.includes(path)}
@@ -1429,9 +1513,9 @@
 				<!-- Env -->
 				<div>
 					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Environment Variables</div>
-					<div class="mt-1 flex flex-wrap gap-1">
+					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
 						{#each ext.manifest.permissions.env ?? [] as varName}
-							<label class="flex items-center gap-1 rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
+							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
 								<input
 									type="checkbox"
 									checked={editPerms.env.includes(varName)}
@@ -1470,7 +1554,7 @@
 						<p class="mt-0.5 text-[10px] text-[var(--color-text-muted)]">
 							Auto-granted from the manifest. Read-only — to revoke, uninstall the extension.
 						</p>
-						<div class="mt-1 flex flex-wrap gap-1">
+						<div class="mt-1 flex min-w-0 flex-wrap gap-1">
 							{#if installGrants.storage}
 								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-storage">Persistent storage</span>
 							{/if}
@@ -1592,7 +1676,7 @@
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
 				<h3 class="mb-2 text-sm font-medium text-[var(--color-text-muted)]">Audit Trail</h3>
 				<p class="mb-3 text-xs text-[var(--color-text-muted)]">
-					Every permission grant, revoke, or rejected attempt is recorded here. System rows capture automatic grants (bundled-install, bundled-regrant, drift detection, blocked version bumps).
+					Permission grants and revokes, rejected attempts, and MCP server lifecycle (install, edit, refresh, uninstall) are recorded here. System rows capture automatic grants (bundled-install, bundled-regrant, drift detection, blocked version bumps).
 				</p>
 				{#if auditLoading}
 					<p class="text-xs text-[var(--color-text-muted)]">Loading…</p>

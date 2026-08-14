@@ -7,12 +7,14 @@
  * variant is the same shape but without the extensionId filter.
  *
  * Stats strip aggregates over the 24h window:
- *   - denialCount: SUM(success=false)
+ *   - denialCount: SUM(success=false) over sdk_capability_calls PLUS the
+ *     `ext:perm:denied` PDP rows in audit_log (two sources, no overlap)
  *   - top-3 chattiest extensions by call count
  *   - top-3 LLM spenders by extension (cost_usd is approximate; the
  *     UI carries the same disclaimer the per-extension stats strip does)
  */
 import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+import { AUDIT_PERM_DENIED } from "../../extensions/audit-actions";
 // Note: `like` from drizzle-orm emits `LIKE <pattern>` without an
 // `ESCAPE` clause, so backslash-escaped wildcards like `\%` are not
 // interpreted as literals by Postgres. We strip wildcard / escape
@@ -43,6 +45,12 @@ const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 200;
 
 const DENIAL_GOVERNANCE_ACTIONS = [
+  // The PDP's own deny decision. It was missing, which made the "Denials
+  // only" toggle HIDE the very rows an admin turns it on to find — the same
+  // omission that made the stats strip read "24h denials: 0" above three
+  // `ext:perm:denied` rows. Both had one cause: PDP decisions live only in
+  // `audit_log`, never in `sdk_capability_calls`.
+  AUDIT_PERM_DENIED,
   "ext:permission-rejected",
   "ext:capability-revoked",
   "ext:sdk-llm-rejected",
@@ -240,6 +248,25 @@ export async function globalStats(rangeMs: number): Promise<GlobalStats> {
   `);
   const headline = pickFirstRow(headlineRows);
 
+  // PDP denials live in `audit_log`, NOT in `sdk_capability_calls`, so the
+  // headline roll-up above cannot see them. The audit page merges both
+  // sources into one list, which produced a strip reading "24h denials: 0"
+  // directly above three `ext:perm:denied` rows.
+  //
+  // `ext:perm:denied` ONLY. Deliberately not the `ext:sdk-*-rejected` family:
+  // every SDK call writes a row to `sdk_capability_calls` AND a governance
+  // row here, so counting those would double-count the denials the headline
+  // query already found. A PDP decision has no capability-call row — it is a
+  // tool-call authorization, not an SDK call — which is exactly why it was
+  // missing and why adding it is additive rather than duplicative.
+  const pdpRows = await getDb().execute(sql`
+    SELECT COUNT(*)::int AS pdp_denials
+    FROM audit_log
+    WHERE created_at >= ${since.toISOString()}
+      AND action = ${AUDIT_PERM_DENIED}
+  `);
+  const pdpDenials = Number(pickFirstRow(pdpRows)?.pdp_denials ?? 0);
+
   // Top-3 chattiest by call count (any capability).
   const chattiestRows = await getDb().execute(sql`
     SELECT s.extension_id AS extension_id,
@@ -269,7 +296,8 @@ export async function globalStats(rangeMs: number): Promise<GlobalStats> {
 
   return {
     windowMs: rangeMs,
-    denialCount: Number(headline.denial_count ?? 0),
+    // Capability-call denials + PDP denials — see the two queries above.
+    denialCount: Number(headline.denial_count ?? 0) + pdpDenials,
     totalCalls: Number(headline.total_calls ?? 0),
     totalCostUsd: Number(headline.total_cost ?? 0),
     topChattiest: pickRows(chattiestRows).map((r) => ({
