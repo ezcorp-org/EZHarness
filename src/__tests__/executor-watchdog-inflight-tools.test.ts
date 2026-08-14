@@ -182,7 +182,7 @@ interface Harness {
   events: CapturedEvent[];
   runs: Map<string, AgentRun>;
   controllers: Map<string, AbortController>;
-  pendingPermissions: Map<string, { conversationId: string }>;
+  pendingPermissions: Map<string, { conversationId: string; runId?: string }>;
   errorMessagePersisted: Set<string>;
 }
 
@@ -198,7 +198,7 @@ function makeHarness(): Harness {
 
   const runs = new Map<string, AgentRun>();
   const controllers = new Map<string, AbortController>();
-  const pendingPermissions = new Map<string, { conversationId: string }>();
+  const pendingPermissions = new Map<string, { conversationId: string; runId?: string }>();
 
   const errorMessagePersisted = new Set<string>();
   const host: WatchdogHost = {
@@ -595,6 +595,54 @@ describe("Watchdog pendingPermissions deferral regression (AC5)", () => {
 
     await advanceAndTick(95_000);
     expect(run.status).toBe("error");
+  });
+});
+
+// ── Per-run permission deferral ────────────────────────────────────────
+//
+// A conversation can host two concurrent runs (the send route has no
+// active-run check; the goal evaluator re-enters streamChat). Matching a
+// pending gate on `conversationId` alone therefore let run A's open
+// consent card suppress run B's idle kill for as long as the card stood —
+// unbounded, because a gate has no time budget of its own. Gates that
+// carry a `runId` now match only their own run; gates from paths with no
+// run to attribute (extension tool executor, workflow host) keep the
+// historical conversation-wide match.
+
+describe("Watchdog permission deferral is per-run when the gate names one", () => {
+  test("a gate stamped with THIS run's id still defers", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    h.pendingPermissions.set("perm-1", { conversationId: CONV_ID, runId: RUN_ID });
+
+    await advanceAndTick(95_000);
+
+    expect(run.status).toBe("running");
+    expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
+  });
+
+  test("a SIBLING run's gate in the same conversation does NOT shield this run", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    // Same conversation, different run — the exact shape that used to
+    // park run B behind run A's unanswered card.
+    h.pendingPermissions.set("perm-sibling", {
+      conversationId: CONV_ID,
+      runId: "run-sibling",
+    });
+
+    await advanceAndTick(95_000);
+    expect(run.status).toBe("error");
+  });
+
+  test("a gate with NO runId keeps the conversation-scoped match", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    // The extension / workflow paths leave runId unset on purpose.
+    h.pendingPermissions.set("perm-unattributed", { conversationId: CONV_ID });
+
+    await advanceAndTick(95_000);
+    expect(run.status).toBe("running");
   });
 });
 

@@ -93,7 +93,10 @@ export interface WatchdogHost {
   readonly controllers: Map<string, AbortController>;
   readonly activeAgents: Map<string, Agent>;
   readonly runConversations: Map<string, string>;
-  readonly pendingPermissions: Map<string, { conversationId: string }>;
+  readonly pendingPermissions: Map<
+    string,
+    { conversationId: string; runId?: string }
+  >;
   readonly bus: EventBus<AgentEvents>;
   readonly persist: boolean;
   /**
@@ -281,12 +284,21 @@ export class WatchdogManager {
    *      callTimeoutMs budget — pi-agent-core emits no events while awaiting
    *      tool results, so the activity tracker can't see "still working".
    *
+   * A pending gate matches on its OWN run when it carries a `runId`, and
+   * falls back to the conversation when it does not. Two runs per
+   * conversation are real (the send route has no active-run check, and the
+   * goal evaluator re-enters `streamChat`), so a conversation-wide match let
+   * run A's open gate shield run B from the idle kill indefinitely. Gates
+   * raised by paths that have no run to attribute — the extension tool
+   * executor and the workflow host — leave `runId` unset and keep the
+   * historical conversation-scoped behaviour.
+   *
    * Returns a string reason for the log line when deferring, or null when
    * the run should be subjected to the normal idle check.
    */
   private deferralReason(runId: string, conversationId: string, now: number): string | null {
     const hasPendingPermission = [...this.host.pendingPermissions.values()].some(
-      (p) => p.conversationId === conversationId,
+      (p) => (p.runId ? p.runId === runId : p.conversationId === conversationId),
     );
     if (hasPendingPermission) return "pending permission";
     const runMap = this.inflightTools.get(runId);
