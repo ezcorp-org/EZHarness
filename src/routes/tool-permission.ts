@@ -8,7 +8,9 @@
 
 import {
   resolvePermission,
+  getPendingApproval,
   getPendingApprovalConversation,
+  getPendingApprovalInitiator,
   getPendingExtensionGate,
   DEFAULT_PERMISSION_MODE,
 } from "../runtime/tools/permissions";
@@ -17,6 +19,8 @@ import { getSetting, upsertSetting } from "../db/queries/settings";
 import { getConversation } from "../db/queries/conversations";
 import { parseTtlOverrideMs } from "../extensions/ttl-validate";
 import { mapAlwaysAllowCapabilityToExpiryKind } from "../extensions/perm-expiry-sweep";
+import { isInteractiveSession } from "../auth/middleware";
+import { principalId, type PrincipalLocals } from "../auth/principal-id";
 import type { AuthUser } from "../auth/types";
 
 const VALID_MODES = new Set<PermissionMode>(["ask", "auto-edit", "yolo"]);
@@ -51,6 +55,7 @@ export async function handleToolPermission(
   req: Request,
   toolCallId: string,
   user: AuthUser,
+  principal: PrincipalLocals,
 ): Promise<Response> {
   let body: { approved?: boolean; scope?: string; ttlOverrideMs?: unknown };
   try {
@@ -119,6 +124,34 @@ export async function handleToolPermission(
     // Fail-closed: if we can't load the conversation, refuse. Matches the
     // sec-H3 fail-closed shape on null/unowned rows.
     if (!conv || (conv.userId !== user.id && user.role !== "admin")) {
+      return json({ error: "Forbidden" }, 403);
+    }
+  }
+
+  // ── Consent confinement: a key answers only its OWN gates ─────────
+  //
+  // Ownership (above) is not consent. This route is `chat`-scoped, and a
+  // `chat` key can own — or be owned by someone who owns — the conversation
+  // a gate belongs to. So before this, a leaked narrow key could approve a
+  // `shell` gate that the owner's own BROWSER run had parked, waiting for a
+  // human to look at it. The gate exists precisely because a person decides;
+  // a key that can answer it mints the consent instead of asking for it.
+  //
+  // Rule: an interactive session may answer anything it owns (unchanged —
+  // that IS the person the gate is waiting for). Any other principal may
+  // answer only a gate raised by a run its own request started.
+  //
+  // FAIL-SAFE (unattributed gates): a gate with NO recorded initiator — a
+  // goal-autopilot re-entry, a briefing, a github-projects spawn, a CLI run,
+  // or anything predating this — is refused to non-session principals. That
+  // is the closed side, and it costs nothing that matters: the gate stays
+  // fully answerable by the conversation owner's session and by an admin, so
+  // fail-closed here can never strand a run that a human can reach. The open
+  // side would have kept exactly the hole this closes, on every run the
+  // request pipeline does not start.
+  if (!isInteractiveSession(principal) && getPendingApproval(toolCallId)) {
+    const initiator = getPendingApprovalInitiator(toolCallId);
+    if (initiator === undefined || initiator !== principalId(principal)) {
       return json({ error: "Forbidden" }, 403);
     }
   }

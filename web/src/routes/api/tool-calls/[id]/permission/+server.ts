@@ -9,5 +9,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	// handleToolPermission — pre-fix any caller could approve/deny a gate.
 	const user = requireAuth(locals);
 	const { handleToolPermission } = await import("$server/routes/tool-permission");
-	return handleToolPermission(request, params.id, user);
+	// `locals` (not just `user`) because the handler also confines a
+	// non-session principal to the gates its OWN request raised, and that
+	// needs the auth METHOD + key id, which `AuthUser` does not carry.
+	return handleToolPermission(request, params.id, user, locals);
 };

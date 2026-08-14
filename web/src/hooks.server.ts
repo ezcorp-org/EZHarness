@@ -24,6 +24,8 @@ import {
 import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dispatch";
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
 import { isLoopbackTestBypass } from "$lib/server/test-surface";
+import { principalId } from "$server/auth/principal-id";
+import { runWithGateInitiator } from "$server/runtime/tools/permissions";
 
 const log = logger.child("hooks.server");
 
@@ -835,14 +837,29 @@ const handleApp: Handle = async ({ event, resolve }) => {
     }
   }
 
-  const response = await resolve(event, {
-    // Dev-indicator transform (undefined in production) — stamps
-    // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
-    // title prefix and dev favicons. Built once per request (not per streamed
-    // chunk, and not module-level — so switching branches shows up on the
-    // next reload). See src/dev-git-info.ts.
-    transformPageChunk: devPageTransform(),
-  });
+  // The ONE writer of the ambient gate initiator. Every permission gate a
+  // route raises — directly, or from a `streamChat` promise the route
+  // deliberately does not await — is created inside this async subtree and
+  // so records WHICH principal's request started it. `POST
+  // /api/tool-calls/:id/permission` then refuses a non-session principal
+  // that did not raise the gate it is answering.
+  //
+  // Here rather than at each `executor.streamChat(...)` call site because
+  // there are three today (chat send, agent-chat, message retry) and a
+  // fourth would silently ship unattributed. This is the narrowest point
+  // that is downstream of ALL auth (cookie, bearer, internal) and upstream
+  // of every handler. The three early `return resolve(event)` paths above
+  // are pre-auth bail-outs with no principal to record.
+  const response = await runWithGateInitiator(principalId(event.locals), () =>
+    resolve(event, {
+      // Dev-indicator transform (undefined in production) — stamps
+      // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
+      // title prefix and dev favicons. Built once per request (not per streamed
+      // chunk, and not module-level — so switching branches shows up on the
+      // next reload). See src/dev-git-info.ts.
+      transformPageChunk: devPageTransform(),
+    }),
+  );
 
   // ── Security headers on ALL responses ───────────────────────────
   // SSE replaces the old WebSocket transport — no ws: or wss: scheme needed

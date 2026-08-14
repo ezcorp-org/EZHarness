@@ -54,6 +54,14 @@ const MEMBER_OWNER: AuthUser = {
   role: "member",
 };
 
+/** The `forever`-scope gate is a ROLE question; every case here answers from
+ *  a cookie session so the orthogonal key-confinement gate stays out of the
+ *  way. Its own arms live in `tool-permission-key-confinement.test.ts`. */
+const SESSION_PRINCIPAL = {
+  authMethod: "session" as const,
+  user: { id: MEMBER_OWNER.id },
+};
+
 function postPermission(id: string, body: unknown) {
   return new Request(`http://localhost/api/tool-calls/${id}/permission`, {
     method: "POST",
@@ -80,6 +88,7 @@ describe("POST /api/tool-calls/:id/permission — scope=forever admin gate", () 
       }),
       "tc-forever-non-admin",
       MEMBER_OWNER,
+      SESSION_PRINCIPAL,
     );
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string };
@@ -99,6 +108,7 @@ describe("POST /api/tool-calls/:id/permission — scope=forever admin gate", () 
       }),
       "tc-forever-admin",
       ADMIN_USER,
+      SESSION_PRINCIPAL,
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -115,6 +125,7 @@ describe("POST /api/tool-calls/:id/permission — scope=forever admin gate", () 
       }),
       "tc-session-member",
       MEMBER_OWNER,
+      SESSION_PRINCIPAL,
     );
     expect(res.status).toBe(200);
     await gate;
@@ -129,6 +140,7 @@ describe("POST /api/tool-calls/:id/permission — scope=forever admin gate", () 
       }),
       "tc-project-member",
       MEMBER_OWNER,
+      SESSION_PRINCIPAL,
     );
     expect(res.status).toBe(200);
     await gate;
@@ -146,6 +158,7 @@ describe("POST /api/tool-calls/:id/permission — scope=forever admin gate", () 
       }),
       "tc-deny-forever",
       MEMBER_OWNER,
+      SESSION_PRINCIPAL,
     );
     expect(res.status).toBe(200);
     await expect(gate).rejects.toThrow(/Permission denied/);

@@ -7,6 +7,7 @@ import type { AuthUser } from "../../auth/types";
 export function mockServerAlias() {
   const aliases: Record<string, string> = {
     "$server/auth/middleware": "../../auth/middleware",
+    "$server/auth/permission-mode-ceiling": "../../auth/permission-mode-ceiling",
     "$server/auth/jwt": "../../auth/jwt",
     "$server/auth/password": "../../auth/password",
     "$server/db/queries/users": "../../db/queries/users",

@@ -145,6 +145,14 @@ describe("API key CRUD: full lifecycle", () => {
     expect(v1!.scopes).toEqual(["read"]);
     expect(v2!.scopes).toEqual(["admin"]);
 
+    // Two keys of ONE user must be distinguishable by the verifier's own
+    // output. `userId` is identical here and `name` is user-chosen (and so
+    // could be identical too), which leaves `keyId` as the only field that
+    // can confine a parked consent gate to the key that raised it.
+    expect(v1!.keyId).toBe(key1.keyId);
+    expect(v2!.keyId).toBe(key2.keyId);
+    expect(v1!.keyId).not.toBe(v2!.keyId);
+
     // Delete key1, key2 still works
     delete mockSettings[`apikey:${userId}:${key1.keyId}`];
     expect(await verifyApiKey(key1.raw)).toBeNull();

@@ -35,6 +35,11 @@ export interface BearerAuthEvent {
      *  human at a browser, so neither may clear a consent gate — see
      *  `requireSessionAuth` in `src/auth/middleware.ts`. */
     authMethod?: AuthMethod;
+    /** WHICH key authenticated, stamped alongside `authMethod` so the two
+     *  are never out of step. `authMethod` says a key was used; this says
+     *  which one, and the pair is what `principalId` turns into a comparable
+     *  identity for gate confinement. Never set on the cookie path. */
+    apiKeyId?: string;
   };
   /** Remote IP as reported by the adapter; SvelteKit's `getClientAddress()`
    *  on the Bun adapter returns the direct socket peer. Critically: when
@@ -151,6 +156,7 @@ export async function attachBearerAuth(
     };
     event.locals.apiKeyScopes = [...principal.scopes];
     event.locals.authMethod = "internal";
+    event.locals.apiKeyId = principal.keyId;
     return true;
   }
 
@@ -188,6 +194,7 @@ export async function attachBearerAuth(
     };
     event.locals.apiKeyScopes = keyData.scopes;
     event.locals.authMethod = "api-key";
+    event.locals.apiKeyId = keyData.keyId;
     return true;
   } catch {
     // DB not available (e.g., PI_SKIP_INIT for unit tests) — fall through.

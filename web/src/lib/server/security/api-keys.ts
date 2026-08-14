@@ -38,6 +38,11 @@ interface VerifiedKey {
   scopes: ApiKeyScope[];
   role: ApiKeyRole;
   name: string;
+  /** Per-key identifier from the settings row key (`apikey:<userId>:<keyId>`).
+   *  Two keys owned by one user differ here and nowhere else, which is what
+   *  lets a consent gate be confined to the key that raised it. `name` is
+   *  user-chosen and NOT unique, so it can never stand in for this. */
+  keyId: string;
 }
 
 /** Constant-time hash comparison. Both inputs are fixed-width SHA-256 hex
@@ -74,6 +79,7 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
         scopes: entry.scopes,
         role: entry.role ?? "member",
         name: entry.name,
+        keyId: pointer.keyId,
       };
     }
   }
@@ -100,6 +106,11 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
         scopes: entry.scopes,
         role: entry.role ?? "member",
         name: entry.name,
+        // Same derivation the index entry just used, so a key verified on the
+        // slow path and the same key verified on the fast path next request
+        // report an IDENTICAL id. They must, or a gate raised before the
+        // lazy index upgrade could not be answered after it.
+        keyId: indexEntry.keyId,
       };
     }
   }

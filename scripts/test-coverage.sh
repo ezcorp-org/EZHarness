@@ -382,6 +382,7 @@ run_legs() {
       src/__tests__/session-cookie.server.test.ts \
       src/__tests__/hooks-server-dev-indicator.server.test.ts \
       src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts \
+      src/__tests__/hooks-server-gate-initiator.server.test.ts \
       src/__tests__/hooks-server-get-client-ip.server.test.ts \
       src/__tests__/hooks-server-invite-public-path.server.test.ts \
       src/__tests__/hooks-server-onboarding-redirect.server.test.ts \

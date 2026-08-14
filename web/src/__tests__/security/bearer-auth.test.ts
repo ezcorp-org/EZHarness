@@ -27,10 +27,10 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 // failures).
 let verifyApiKeyCalls: string[];
 let verifyApiKeyImpl: (raw: string) => Promise<
-  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin" } | null
+  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin"; keyId?: string } | null
 > = async (raw: string) => {
   verifyApiKeyCalls.push(raw);
-  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
+  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member", keyId: "key-1" };
   // A role-carrying admin key whose owner is a current admin.
   if (raw === "ezk_admin") return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
   // Admin-ROLE key whose owner has since been DEMOTED to member.
@@ -130,6 +130,11 @@ describe("attachBearerAuth — internal keys", () => {
     // can allowlist `"session"` instead of inferring one from the absence of
     // `apiKeyScopes`. A loopback subprocess is not a human at a browser.
     expect(evt.locals.authMethod).toBe("internal");
+    // Internal principals are named by their key id too, so a bundled
+    // subprocess is confined to its own consent gates on the same rule as a
+    // user key — no carve-out by auth method.
+    expect(typeof evt.locals.apiKeyId).toBe("string");
+    expect(evt.locals.apiKeyId).not.toBe("");
     // Critical: user-key verifier must NOT have been consulted.
     expect(verifyApiKeyCalls).toHaveLength(0);
   });
@@ -202,7 +207,17 @@ describe("attachBearerAuth — user keys", () => {
     // would silently re-open R-4 at every such gate, so it is pinned at the
     // producer, not only at the consumers.
     expect(evt.locals.authMethod).toBe("api-key");
+    // WHICH key, stamped alongside the method. `authMethod` alone cannot
+    // tell two keys of one user apart, and that is precisely the case the
+    // consent-gate confinement has to decide (`src/auth/principal-id.ts`).
+    expect(evt.locals.apiKeyId).toBe("key-1");
     expect(verifyApiKeyCalls).toEqual(["ezk_valid"]);
+  });
+
+  test("a cookie session is left with NO apiKeyId (there is no key to name)", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, null)).toBe(false);
+    expect(evt.locals.apiKeyId).toBeUndefined();
   });
 
   test("a member-role key yields a member principal", async () => {

@@ -140,12 +140,20 @@ const { GET, POST } = await import(
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
+// Default locals model a COOKIE SESSION, exactly as hooks.server.ts stamps
+// one. The per-turn `permissionMode` ceiling engages only for a NON-session
+// principal, so leaving `authMethod` unstamped would route every send in this
+// suite through a project-settings lookup this file has no database for. The
+// ceiling's own arms live in
+// `src/__tests__/messages-permission-mode-ceiling-route.test.ts`.
+const sessionLocals = { user, authMethod: "session" };
+
 function makeGetEvent(opts: { query?: string; locals?: Record<string, unknown> }) {
   const href = `http://localhost/api/conversations/c1/messages${
     opts.query ? `?${opts.query}` : ""
   }`;
   return makeRequestEvent(href, {
-    locals: opts.locals ?? { user },
+    locals: opts.locals ?? sessionLocals,
     params: { id: "c1" },
     request: { method: "GET" },
   });
@@ -155,7 +163,7 @@ function makeJsonPostEvent(opts: { body: unknown; locals?: Record<string, unknow
   const href = "http://localhost/api/conversations/c1/messages";
   return {
     url: new URL(href),
-    locals: opts.locals ?? { user },
+    locals: opts.locals ?? sessionLocals,
     params: { id: "c1" },
     request: new Request(href, {
       method: "POST",
@@ -182,7 +190,7 @@ function makeMultipartEvent(opts: {
   });
   return {
     url: new URL(href),
-    locals: opts.locals ?? { user },
+    locals: opts.locals ?? sessionLocals,
     params: { id: "c1" },
     request: {
       method: "POST",
