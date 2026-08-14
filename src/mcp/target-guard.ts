@@ -169,13 +169,13 @@ function normalizeHost(raw: string): string {
  *  null when it isn't a parseable literal. */
 function toBytes16(ip: string): number[] | null {
   const family = isIP(ip);
-  if (family === 4) {
-    const octets = parseIpv4(ip);
-    if (!octets) return null;
-    return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, ...octets];
-  }
+  // `isIP` accepts a few spellings the byte parsers reject (a scoped
+  // `fe80::1%eth0` is `isIP === 6` but has no fixed byte form), so both
+  // arms can still yield null. Callers treat null as "not vouched for".
   if (family === 6) return ipv6ToBytes(ip);
-  return null;
+  if (family !== 4) return null;
+  const octets = parseIpv4(ip);
+  return octets ? [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, ...octets] : null;
 }
 
 /** Does `net` contain `bytes` (both already in 16-byte IPv6 space)? */
@@ -206,31 +206,22 @@ export function parseMcpTargetAllowlist(raw: string | undefined | null): McpTarg
     if (entry === "") continue;
 
     const slash = entry.lastIndexOf("/");
-    if (slash !== -1) {
-      const addr = normalizeHost(entry.slice(0, slash));
-      const prefixText = entry.slice(slash + 1);
-      const family = isIP(addr);
-      if (family === 0) continue;
-      if (!/^\d{1,3}$/.test(prefixText)) continue;
-      const declared = Number(prefixText);
-      if (declared > (family === 4 ? 32 : 128)) continue;
-      const bytes = toBytes16(addr);
-      if (!bytes) continue;
-      // An IPv4 entry lives in the v4-mapped block, so its prefix counts
-      // from bit 96 rather than bit 0.
-      nets.push({ bytes, prefix: family === 4 ? declared + 96 : declared });
+    const addr = normalizeHost(slash === -1 ? entry : entry.slice(0, slash));
+    const family = isIP(addr);
+    if (family === 0) {
+      // Not an address, so it's a hostname vouch. A `/` in a hostname is
+      // malformed (a URL path crept into the list) — drop it.
+      if (slash === -1 && addr !== "") hosts.add(addr);
       continue;
     }
-
-    const normalized = normalizeHost(entry);
-    if (normalized === "") continue;
-    if (isIP(normalized) !== 0) {
-      const bytes = toBytes16(normalized);
-      if (!bytes) continue;
-      nets.push({ bytes, prefix: 128 });
-      continue;
-    }
-    hosts.add(normalized);
+    // A bare IP is its own /32 or /128.
+    const bits = family === 4 ? 32 : 128;
+    const prefixText = slash === -1 ? String(bits) : entry.slice(slash + 1);
+    const bytes = toBytes16(addr);
+    if (!bytes || !/^\d{1,3}$/.test(prefixText) || Number(prefixText) > bits) continue;
+    // An IPv4 entry lives in the v4-mapped block, so its prefix counts from
+    // bit 96 rather than bit 0.
+    nets.push({ bytes, prefix: family === 4 ? Number(prefixText) + 96 : Number(prefixText) });
   }
   return { hosts, nets };
 }
@@ -269,19 +260,27 @@ export async function assertMcpTargetUrlAllowed(
   }
 
   const host = normalizeHost(parsed.hostname);
-  if (host === "") throw new McpTargetBlockedError("malformed-url", UNPARSEABLE_TARGET);
 
   // Host-string vouch: skips address validation by design (see the module
   // header's warning about the DNS trust this implies).
   if (allow.hosts.has(host)) return;
 
+  // An IP literal is validated AS ITSELF, here — never handed to the
+  // resolver. The default resolver happens to short-circuit literals too,
+  // but relying on that would put the most direct attack (`http://10.0.0.5`,
+  // `http://169.254.169.254`) at the mercy of an injected or future
+  // resolver. Classification of a literal must not be delegated.
   let addresses: string[];
-  try {
-    addresses = await resolve(host);
-  } catch {
-    throw new McpTargetBlockedError("no-address", host);
+  if (isIP(host) !== 0) {
+    addresses = [host];
+  } else {
+    try {
+      addresses = await resolve(host);
+    } catch {
+      throw new McpTargetBlockedError("no-address", host);
+    }
+    if (addresses.length === 0) throw new McpTargetBlockedError("no-address", host);
   }
-  if (addresses.length === 0) throw new McpTargetBlockedError("no-address", host);
 
   for (const address of addresses) {
     // `isBlockedIp` fails CLOSED: anything it can't parse as a literal is
