@@ -993,6 +993,9 @@ export interface MentionWireActor {
   projectId: string | null;
 }
 
+/** A persisted extension row, derived from the query so it cannot drift. */
+type ExtensionRow = NonNullable<Awaited<ReturnType<typeof getExtension>>>;
+
 /**
  * Parse mentions from a message and wire the referenced extensions into the
  * conversation so their tools become available.
@@ -1008,6 +1011,11 @@ export interface MentionWireActor {
  * contract — an unknown target is a no-op, never an error — and it is also
  * the non-leaking answer: an error would tell the sender that an extension by
  * that name exists.
+ *
+ * Each candidate is re-read as a ROW before the gate runs, because the gate
+ * decides on COLUMNS (kind / isBundled / creatorUserId) and the name lookup
+ * above yields only ids for the agent branch. A row that vanished in that
+ * window drops out, which is strictly safer than wiring it unchecked.
  */
 export async function wireMentionedExtensions(
   conversationId: string,
@@ -1048,22 +1056,20 @@ export async function wireMentionedExtensions(
 
   const existing = new Set(await getConversationExtensionIds(conversationId));
   const newIds = [...extensionIds].filter(id => !existing.has(id));
-
   if (newIds.length === 0) return [];
-
-  // Re-read each candidate as a ROW so the gate sees the columns it decides
-  // on (kind / isBundled / creatorUserId). Reading by id also covers the
-  // agent branch uniformly, which only ever produced ids. A row that vanished
-  // since the name lookup simply drops out — strictly safer than wiring it.
-  const rows = await Promise.all(newIds.map(id => getExtension(id)));
-  const candidates = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+  const reads: Promise<ExtensionRow | null>[] = [];
+  for (const id of newIds) {
+    reads.push(getExtension(id));
+  }
+  const rows = await Promise.all(reads);
+  const candidates: ExtensionRow[] = [];
+  for (const row of rows) {
+    if (row !== null) candidates.push(row);
+  }
   if (candidates.length === 0) return [];
-
-  const { allowed } = await partitionWirableExtensions(
-    candidates,
-    await loadWireActor(actor.userId, actor.projectId),
-  );
-  const wiredIds = allowed.map(ext => ext.id);
+  const wireActor = await loadWireActor(actor.userId, actor.projectId);
+  const partition = await partitionWirableExtensions(candidates, wireActor);
+  const wiredIds = partition.allowed.map(ext => ext.id);
   if (wiredIds.length === 0) return [];
 
   await addConversationExtensions(
