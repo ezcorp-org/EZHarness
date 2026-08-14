@@ -156,12 +156,12 @@ beforeAll(async () => {
     [MCP_EXT_GRANTED]: await createExt(MCP_EXT_GRANTED, { kind: "mcp", source: "mcp:http" }),
   };
 
-  // The finer grant: `grantee` may USE one MCP extension, in one project.
+  // The finer grant: `grantee` may WIRE one MCP extension, in one project.
   await upsertGrant({
     userId: grantee.id,
     projectId,
     extensionId: MCP_EXT_GRANTED, // the NAME — the column stores the slug
-    scopes: ["use"],
+    scopes: ["mcp-wire"],
     grantedByUserId: admin.id,
   });
 }, 30_000);
@@ -207,7 +207,7 @@ describe("POST /api/conversations/[id]/extensions — the wire gate", () => {
     expect(await getConversationExtensionIds(adminConvId)).toEqual([extIds[MCP_EXT]!]);
   });
 
-  test("a member holding the `use` grant may wire THAT MCP extension and no other", async () => {
+  test("a member holding the `mcp-wire` grant may wire THAT MCP extension and no other", async () => {
     const ok = await wirePOST(wireEvent(grantee, granteeConvId, [MCP_EXT_GRANTED]));
     expect(ok.status).toBe(200);
     expect((await jsonFromResponse(ok)).wired).toEqual([MCP_EXT_GRANTED]);

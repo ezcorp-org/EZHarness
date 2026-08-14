@@ -19,7 +19,7 @@ import {
 	type PublicGrantView,
 } from "../rbac-grants-logic";
 
-const CORE_NAMES = ["use", "configure", "secrets", "approve-runs", "manage"];
+const CORE_NAMES = ["use", "configure", "secrets", "approve-runs", "manage", "mcp-wire"];
 
 describe("CORE_RBAC_SCOPE_OPTIONS", () => {
 	test("mirrors the five backend core verbs, in order, all non-custom", () => {

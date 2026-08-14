@@ -195,7 +195,11 @@ describe("canWireExtension — rule 3 (MCP) and rule 4 (fail-closed)", () => {
     // row UUID — querying by `ext.id` would silently match nothing and the
     // grant escape hatch would be dead on arrival.
     expect(query).toEqual({ projectId: "proj-1", extensionId: "weather-mcp", scope: MCP_WIRE_SCOPE });
-    expect(MCP_WIRE_SCOPE).toBe("use");
+    // The dedicated verb, NOT `use`: `grantCovers` is NULL-covers-all, so
+    // asking for `use` would have let ONE wildcard grant authorize every MCP
+    // server on the instance and would have retro-authorized every grant
+    // that already existed.
+    expect(MCP_WIRE_SCOPE).toBe("mcp-wire");
   });
 
   test("a member without the grant is denied", async () => {
