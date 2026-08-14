@@ -89,8 +89,14 @@ type FileRec = {
   zeroVerdict: Map<number, "fill" | "measured">;
   /** Lines an input executed ACROSS without ever naming (see `absorbBlock`). */
   straddled: Set<number>;
-  /** Source lines, for the span-fill discriminator. `null` when unreadable. */
-  src: string[] | null;
+  /**
+   * Non-executable source lines, for the span-fill discriminator. Computed
+   * ONCE per source file rather than per (input, zero-run): the full merge
+   * folds ~1600 input blocks per file, and re-running the noise regexes over
+   * every run's line range for each of them dominated the merge.
+   * `null` when the source can't be read.
+   */
+  noiseLines: Set<number> | null;
 };
 
 /**
@@ -184,14 +190,23 @@ function absorbBlock(r: FileRec, block: Array<[number, number]>): void {
  */
 function isSpanFill(r: FileRec, a: number, b: number, records: number): boolean {
   if (records < SPAN_FILL_MIN_RECORDS) return false;
-  const src = r.src;
+  const noise = r.noiseLines;
   // No source to read (generated / deleted / outside the repo) → never
   // classify as a fill, so nothing is dropped on a guess.
-  if (!src) return false;
+  if (!noise) return false;
   for (let line = a; line <= b; line++) {
-    if (isNoiseLine(src[line - 1] ?? "")) return true;
+    if (noise.has(line)) return true;
   }
   return false;
+}
+
+/** Line numbers (1-based) of every non-executable line in a source file. */
+function noiseLineNumbers(src: string[]): Set<number> {
+  const out = new Set<number>();
+  for (let i = 0; i < src.length; i++) {
+    if (isNoiseLine(src[i] ?? "")) out.add(i + 1);
+  }
+  return out;
 }
 
 /**
@@ -227,10 +242,12 @@ const rec = async (sf: string): Promise<FileRec> => {
     da: new Map(),
     zeroVerdict: new Map(),
     straddled: new Set(),
-    // Read through lcov-noise-filter's cache: the emit pass reads the same
-    // path for the noise strip, so this costs no extra file read.
-    src: await readSourceLines(absSourcePath(sf)),
+    noiseLines: null,
   };
+  // Read through lcov-noise-filter's cache: the emit pass reads the same path
+  // for the noise strip, so this costs no extra file read.
+  const src = await readSourceLines(absSourcePath(sf));
+  if (src) r.noiseLines = noiseLineNumbers(src);
   files.set(sf, r);
   return r;
 };
