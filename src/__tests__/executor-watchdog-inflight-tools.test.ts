@@ -24,7 +24,7 @@
  * tick deterministically by advancing Date.now() ourselves.
  */
 
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -35,14 +35,43 @@ afterAll(() => restoreModuleMocks());
 // markInterrupted. We stub those to no-op so the unit test runs without
 // a DB. `host.persist=true` is required to start the watchdog.
 
+/** Every runId passed to updateHeartbeat, in call order — the defer branch
+ *  writes one per tick on purpose (see the heartbeat-cadence test). */
+const heartbeatWrites: string[] = [];
 mock.module("../db/queries/active-runs", () => ({
-  updateHeartbeat: async () => {},
+  updateHeartbeat: async (runId: string) => { heartbeatWrites.push(runId); },
   updatePartialResponse: async () => {},
   markInterrupted: async () => {},
   cleanupOrphanedRuns: async () => 0,
   interruptAllRuns: async () => 0,
   getActiveRun: async () => null,
 }));
+
+/**
+ * Captured watchdog log lines, in emission order across BOTH streams
+ * (info → stdout, error → stderr), so ordering assertions between a
+ * deferral-exit line and the trip line are meaningful.
+ *
+ * Read off the real writes rather than a `mock.module("../logger")`:
+ * `executor-watchdog.ts` binds `logger.child("executor.watchdog")` at
+ * module-evaluation time, so a module mock installed after the import
+ * never reaches the already-created child. The one ambient input this
+ * depends on — `LOG_LEVEL`, read per emit — is pinned in `beforeEach`,
+ * so nothing here measures the host.
+ */
+interface CapturedLog { level: string; msg: string; fields: Record<string, unknown> }
+const logLines: CapturedLog[] = [];
+const WATCHDOG_SUBSYSTEM = '"subsystem":"executor.watchdog"';
+
+function parseLogLine(chunk: unknown): CapturedLog | null {
+  if (typeof chunk !== "string" || !chunk.includes(WATCHDOG_SUBSYSTEM)) return null;
+  try {
+    const o = JSON.parse(chunk) as { level: string; msg: string } & Record<string, unknown>;
+    return { level: o.level, msg: o.msg, fields: o };
+  } catch {
+    return null;
+  }
+}
 
 import {
   DEFAULT_BUILTIN_CALL_TIMEOUT_MS,
@@ -65,6 +94,9 @@ let originalSetInterval: typeof setInterval;
 let originalDateNow: () => number;
 let fakeNow = 0;
 let capturedTicks: Array<() => void> = [];
+let stdoutSpy: ReturnType<typeof spyOn> | undefined;
+let stderrSpy: ReturnType<typeof spyOn> | undefined;
+let originalLogLevel: string | undefined;
 
 beforeEach(() => {
   originalSetInterval = globalThis.setInterval;
@@ -77,12 +109,43 @@ beforeEach(() => {
   fakeNow = 1_000_000;
   Date.now = () => fakeNow;
   capturedTicks = [];
+  logLines.length = 0;
+  heartbeatWrites.length = 0;
+
+  // Pin the one ambient input the logger reads per emit, so a box with
+  // LOG_LEVEL=warn can't silently empty the capture.
+  originalLogLevel = process.env.LOG_LEVEL;
+  process.env.LOG_LEVEL = "info";
+  // Capture (and swallow) only OUR lines; everything else — including the
+  // test reporter's own output — passes straight through.
+  const tap = (stream: NodeJS.WriteStream) => {
+    // Bind the real write BEFORE spying, or the pass-through recurses.
+    const passThrough = stream.write.bind(stream) as (...a: unknown[]) => boolean;
+    return spyOn(stream, "write").mockImplementation(((chunk: unknown, ...rest: unknown[]) => {
+      const parsed = parseLogLine(chunk);
+      if (parsed) {
+        logLines.push(parsed);
+        return true;
+      }
+      return passThrough(chunk, ...rest);
+    }) as never);
+  };
+  stdoutSpy = tap(process.stdout);
+  stderrSpy = tap(process.stderr);
 });
 
 afterEach(() => {
   globalThis.setInterval = originalSetInterval;
   Date.now = originalDateNow;
   capturedTicks = [];
+  // Restore the stream spies unconditionally — a leaked stdout spy would
+  // poison every sibling test in this process (prototype-spy-leak lesson).
+  stdoutSpy?.mockRestore();
+  stderrSpy?.mockRestore();
+  stdoutSpy = undefined;
+  stderrSpy = undefined;
+  if (originalLogLevel === undefined) delete process.env.LOG_LEVEL;
+  else process.env.LOG_LEVEL = originalLogLevel;
 });
 
 /** Advance the fake clock and (when ticks have been captured) drive the
@@ -604,6 +667,192 @@ describe("Watchdog model-aware idle window (reasoning models)", () => {
 
     await advanceAndTick(95_000);
     expect(run.status).toBe("error");
+  });
+});
+
+// ── Deferral logging + heartbeat cadence ───────────────────────────────
+//
+// A suspended Ez client tool defers for up to its 5-minute budget. At one
+// log line per 15s tick that was ~22 identical "Watchdog deferred" lines
+// per call, times every concurrent panel user — the events that matter
+// (entry, exit, trip) drowned in the tail. The deferral now logs on state
+// CHANGE only. The heartbeat write in the same branch deliberately stays
+// per-tick; the test below pins that so an "optimization" has to argue
+// with the stuck-run banner first.
+
+const deferEntries = () => logLines.filter((l) => l.msg === "Watchdog deferring");
+const deferExits = () => logLines.filter((l) => l.msg === "Watchdog deferral ended");
+
+describe("Watchdog deferral logging (one line per state change)", () => {
+  test("a long deferral logs ONE entry line, not one per tick", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({
+      toolName: "read_page",
+      callTimeoutMs: 330_000,
+    }));
+
+    // 20 ticks of deferral — the whole Ez client-tool gate window.
+    for (let i = 0; i < 20; i++) await advanceAndTick(15_000);
+
+    expect(run.status).toBe("running");
+    expect(deferEntries()).toHaveLength(1);
+    expect(deferEntries()[0]!.fields.reason).toBe("tool read_page in flight");
+    expect(deferEntries()[0]!.fields.runId).toBe(RUN_ID);
+    // Still deferring → no exit line yet.
+    expect(deferExits()).toHaveLength(0);
+  });
+
+  test("the exit line fires once when the deferral lifts, carrying how long it held", async () => {
+    const h = makeHarness();
+    startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 330_000 }));
+
+    await advanceAndTick(15_000); // enter the deferral (t+15s)
+    await advanceAndTick(15_000);
+    await advanceAndTick(15_000); // t+45s, still deferring
+    h.manager.noteToolEnd(RUN_ID, TOOL_CALL_ID);
+    await advanceAndTick(15_000); // t+60s — tool gone, deferral lifts
+
+    expect(deferEntries()).toHaveLength(1);
+    expect(deferExits()).toHaveLength(1);
+    // Held from the first deferring tick (t+15s) to the lift (t+60s).
+    expect(deferExits()[0]!.fields.deferredMs).toBe(45_000);
+    expect(deferExits()[0]!.fields.reason).toBe("tool ext__op in flight");
+
+    // Re-entry logs again — the state machine resets, it isn't "once ever".
+    h.manager.noteToolStart(RUN_ID, "tc-2", info({ callTimeoutMs: 330_000, startedAt: fakeNow }));
+    await advanceAndTick(15_000);
+    expect(deferEntries()).toHaveLength(2);
+  });
+
+  test("a CHANGE of deferral cause logs a second entry line", async () => {
+    // Permission gate first (deferralReason checks it first), then a tool
+    // in flight. Two genuinely different states → two lines.
+    const h = makeHarness();
+    startRun(h);
+    h.pendingPermissions.set("perm-1", { conversationId: CONV_ID });
+
+    await advanceAndTick(15_000);
+    expect(deferEntries()).toHaveLength(1);
+    expect(deferEntries()[0]!.fields.reason).toBe("pending permission");
+
+    h.pendingPermissions.delete("perm-1");
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ startedAt: fakeNow, callTimeoutMs: 330_000 }));
+    await advanceAndTick(15_000);
+
+    expect(deferEntries()).toHaveLength(2);
+    expect(deferEntries()[1]!.fields.reason).toBe("tool ext__op in flight");
+    // The cause changed, it never lifted — so no exit line.
+    expect(deferExits()).toHaveLength(0);
+  });
+
+  test("the exit line lands BEFORE the trip when the budget lapses into a kill", async () => {
+    const h = makeHarness();
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 30_000 }));
+
+    await advanceAndTick(15_000); // deferring
+    // Past the budget, then past the idle window, so the same run both
+    // exits the deferral and trips.
+    for (let i = 0; i < 10 && run.status === "running"; i++) await advanceAndTick(15_000);
+
+    expect(run.status).toBe("error");
+    const exitIdx = logLines.findIndex((l) => l.msg === "Watchdog deferral ended");
+    const tripIdx = logLines.findIndex((l) => l.msg === "Watchdog tripped, interrupting run");
+    expect(exitIdx).toBeGreaterThanOrEqual(0);
+    expect(tripIdx).toBeGreaterThan(exitIdx);
+    // On-call reads "held Ns, then tripped" — the duration is the point.
+    // The 30s budget spans exactly two ticks: the first (t+15s) defers and
+    // starts the clock, the second (t+30s) finds the budget spent and
+    // lifts, so the hold is one tick.
+    expect(deferExits()[0]!.fields.deferredMs).toBe(15_000);
+  });
+
+  test("teardown clears the deferral state, so a reused runId logs its entry again", async () => {
+    const h = makeHarness();
+    startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 330_000 }));
+    await advanceAndTick(15_000);
+    expect(deferEntries()).toHaveLength(1);
+
+    h.manager.clearRun(RUN_ID);
+    // Same id, fresh run + fresh watchdog cycle.
+    const run2 = makeRun(RUN_ID, fakeNow);
+    h.runs.set(RUN_ID, run2);
+    h.manager.startWatchdog(RUN_ID, CONV_ID, () => "");
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ startedAt: fakeNow, callTimeoutMs: 330_000 }));
+    await advanceAndTick(15_000);
+
+    expect(deferEntries()).toHaveLength(2);
+  });
+
+  test("the heartbeat write stays PER TICK while deferring (stuck-run banner depends on it)", async () => {
+    // Deliberate cost: `active_runs.last_heartbeat` feeds `stalenessMs` on
+    // GET /active-run, and the chat shows "this run may be stuck" at 30s.
+    // Throttling this write to HEARTBEAT_REFRESH_MS (30s) would let
+    // staleness reach ~45s and flash that banner at a user whose client
+    // tool is merely still waiting on the panel.
+    const h = makeHarness();
+    startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs: 330_000 }));
+
+    for (let i = 0; i < 6; i++) await advanceAndTick(15_000);
+
+    // One write per deferring tick — 6 ticks, 6 writes (a 30s throttle
+    // would have produced 3).
+    expect(heartbeatWrites.filter((id) => id === RUN_ID)).toHaveLength(6);
+  });
+});
+
+// ── Worst-case hold (the table in docs/features/chat/runs-lifecycle.md) ─
+
+describe("Worst-case hold for a wedged tool call", () => {
+  /** Drive 15s ticks until the run trips; return the elapsed fake ms.
+   *  `thinking` selects the model-aware idle window via a fake Agent. */
+  async function timeToKill(
+    callTimeoutMs: number,
+    thinking?: "medium" | "high",
+  ): Promise<number> {
+    const h = makeHarness();
+    const startedAt = fakeNow;
+    if (thinking) h.host.activeAgents.set(RUN_ID, fakeAgent(true, thinking) as never);
+    const run = startRun(h);
+    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({ callTimeoutMs, startedAt }));
+    for (let i = 0; i < 200 && run.status === "running"; i++) {
+      await advanceAndTick(15_000);
+    }
+    expect(run.status).toBe("error");
+    return fakeNow - startedAt;
+  }
+
+  test("a 330s budget (the Ez client tools) holds a non-reasoning run for 405s", async () => {
+    // Pins the published number instead of trusting arithmetic. The
+    // deferral bumps activity every tick, so the kill is the LAST DEFERRING
+    // TICK plus a whole idle window — not `startedAt + callTimeoutMs`.
+    // 330s budget → last defer at 315s → +90s idle → trip at 405s, i.e.
+    // budget + idle MINUS one tick when the call starts on a tick boundary.
+    expect(await timeToKill(330_000)).toBe(405_000);
+    // The doc's bound: budget + idle ± one tick, whatever the phase.
+    expect(405_000).toBeGreaterThanOrEqual(330_000 + 90_000 - 15_000);
+    expect(405_000).toBeLessThan(330_000 + 90_000 + 15_000);
+  });
+
+  test("the pre-fix 90s budget killed the same run at 165s — the left column of that table", async () => {
+    // The bug, reproduced: an Ez client tool on the undeclared default died
+    // at 165s, well inside the gate's own 300s, so the gate's concrete
+    // "Timed out waiting for Ez client tool result" could never fire.
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS)).toBe(165_000);
+  });
+
+  test("the reasoning rows of the table hold too (wider idle window, same shape)", async () => {
+    // Every remaining cell of the published table, measured. The reasoning
+    // tiers cost the most because the idle window — not the budget — is the
+    // dominant term.
+    expect(await timeToKill(330_000, "medium")).toBe(615_000);
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS, "medium")).toBe(375_000);
+    expect(await timeToKill(330_000, "high")).toBe(1_215_000);
+    expect(await timeToKill(DEFAULT_BUILTIN_CALL_TIMEOUT_MS, "high")).toBe(975_000);
   });
 });
 

@@ -363,6 +363,7 @@ run_legs() {
       src/__tests__/api-workflows-delegations-preview.server.test.ts \
       src/__tests__/workflow-delegations-logic.unit.test.ts \
       src/__tests__/delegation-consent.server.test.ts \
+      src/__tests__/agent-config-extension-gate.server.test.ts \
       src/__tests__/workflow-access-delegation.server.test.ts \
       src/__tests__/workflow-route-ladder.server.test.ts \
       src/__tests__/pipelines-redirect.server.test.ts \
@@ -575,6 +576,7 @@ run_legs() {
       src/__tests__/format-map.test.ts \
       src/__tests__/inline-tool-store.test.ts \
       src/__tests__/inline-tool-store-upsert.test.ts \
+      src/__tests__/api-agent-configs.server.test.ts \
       src/__tests__/api-agent-configs-id.server.test.ts \
       src/__tests__/api-agent-configs-generate.server.test.ts \
       src/__tests__/api-projects-id-tool-permission-mode.server.test.ts \
@@ -762,6 +764,7 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegations/+server.ts' \
       --coverage.include='src/routes/api/workflows/delegations/[[]id]/+server.ts' \
       --coverage.include='src/lib/server/delegation-consent.ts' \
+      --coverage.include='src/lib/server/agent-config-extension-gate.ts' \
       --coverage.include='src/routes/api/workflows/delegations/preview/+server.ts' \
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
@@ -794,6 +797,7 @@ run_legs() {
       --coverage.include='src/lib/tool-output.ts' \
       --coverage.include='src/lib/components/ui/format-map.ts' \
       --coverage.include='src/lib/inline-tool-store.svelte.ts' \
+      --coverage.include='src/routes/api/agent-configs/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/[id]/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/generate/+server.ts' \
       --coverage.include='src/routes/api/projects/[id]/tool-permission-mode/+server.ts' ) \

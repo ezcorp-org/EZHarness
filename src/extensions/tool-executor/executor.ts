@@ -317,8 +317,20 @@ export class ToolExecutor {
     }
 
     // Compute the tool's required capability set from its manifest
-    // declaration. v2 manifests run through `migrateManifestV2ToV3` at
-    // load time — every tool now has a `capabilities` declaration.
+    // declaration.
+    //
+    // Which loader put the declaration there depends on where the manifest
+    // came from, and BOTH paths matter — a manifest that reaches here without
+    // one authorizes against an EMPTY needed set, which `firstMissingCapability`
+    // can never fail, i.e. the PDP is inert for that tool:
+    //   • disk extensions — `loader.ts` runs `migrateManifestV2ToV3`, which
+    //     inherits the extension-wide `permissions` onto every tool, and the
+    //     installer persists that migrated manifest.
+    //   • `kind: "mcp"` rows — synthesized straight into the DB by
+    //     `installMcpExtension`, so they NEVER see that migration. The
+    //     registry normalizes them on read instead
+    //     (`mcp-capabilities.ts:normalizeMcpManifest`), deriving each tool's
+    //     declaration from the hosts the server definition names.
     const manifest = this.registry.getManifest(extensionId);
     const tool = manifest?.tools?.find((t) => t.name === originalName);
     const needed: Capability[] = [

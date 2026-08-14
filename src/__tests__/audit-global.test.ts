@@ -292,3 +292,77 @@ test("globalStats aggregates within window: denials, total, topChattiest, topLlm
 	expect(stats.topLlmSpenders[0]!.extensionId).toBe(extB.id);
 	expect(stats.topLlmSpenders[0]!.costUsd).toBeCloseTo(0.10, 5);
 });
+
+// ── PDP denials in the headline stat ─────────────────────────────────
+//
+// A PDP decision writes ONLY to `audit_log` — it is a tool-call
+// authorization, not an SDK capability call, so it has no
+// `sdk_capability_calls` row. The headline query reads that table alone,
+// which produced a stats strip reading "24h denials: 0" directly above
+// three `ext:perm:denied` rows in the very list beneath it.
+test("globalStats counts ext:perm:denied rows, which live only in audit_log", async () => {
+	const before = await globalStats(24 * 60 * 60 * 1000);
+
+	await insertAuditEntry(userId, "ext:perm:denied", extA.id, {
+		permission: "network",
+		oldValue: null,
+		newValue: null,
+		actor: "system",
+		reason: "Missing capability network (127.0.0.1)",
+	});
+	await insertAuditEntry(userId, "ext:perm:denied", extB.id, {
+		permission: "shell",
+		oldValue: null,
+		newValue: null,
+		actor: "system",
+	});
+
+	const after = await globalStats(24 * 60 * 60 * 1000);
+	expect(after.denialCount).toBe(before.denialCount + 2);
+	// Additive only — the capability-call side is untouched, so no
+	// double-counting of the `sdk_capability_calls` denials.
+	expect(after.totalCalls).toBe(before.totalCalls);
+});
+
+test("globalStats does NOT double-count an SDK rejection that has both rows", async () => {
+	// Every SDK call writes a capability row AND a governance row. The PDP
+	// query is scoped to `ext:perm:denied` precisely so this pair counts once.
+	const before = await globalStats(24 * 60 * 60 * 1000);
+	const recent = new Date(Date.now() - 1000 * 60 * 5);
+	await seedCap({ extId: extA.id, capability: "llm", action: "complete", success: false, ts: recent });
+	await insertAuditEntry(userId, "ext:sdk-llm-rejected", extA.id, {
+		capability: "llm",
+		oldValue: null,
+		newValue: null,
+		actor: "system",
+	});
+
+	const after = await globalStats(24 * 60 * 60 * 1000);
+	expect(after.denialCount).toBe(before.denialCount + 1);
+});
+
+test("the `denialOnly` filter surfaces ext:perm:denied — the toggle used to hide it", async () => {
+	// `DENIAL_GOVERNANCE_ACTIONS` omitted the PDP's own deny action, so
+	// "Denials only" hid exactly the rows an admin turns it on to find.
+	// Seeded here rather than relying on a sibling test: `beforeEach` clears
+	// every `ext:%` row, so cross-test leakage would make this vacuous.
+	await insertAuditEntry(userId, "ext:perm:denied", extA.id, {
+		permission: "network", oldValue: null, newValue: null, actor: "system",
+	});
+	await insertAuditEntry(userId, "ext:perm:denied", extB.id, {
+		permission: "shell", oldValue: null, newValue: null, actor: "system",
+	});
+	// A non-denial governance row that must be filtered OUT.
+	await insertAuditEntry(userId, "ext:permission-granted", extA.id, {
+		permission: "storage", oldValue: false, newValue: true, actor: userId,
+	});
+
+	const { entries } = await listGlobalAudit({ denialOnly: true, limit: 200 });
+	const pdp = entries.filter((e) => e.kind === "governance" && e.action === "ext:perm:denied");
+	expect(pdp.length).toBeGreaterThanOrEqual(2);
+	// And it is still a FILTER: nothing non-denial rides along.
+	const granted = entries.filter(
+		(e) => e.kind === "governance" && e.action === "ext:permission-granted",
+	);
+	expect(granted).toEqual([]);
+});

@@ -7,6 +7,9 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { ensureInitialized, getBus } from "$lib/server/context";
 import { ensureTaskTrackingWired } from "$server/runtime/task-tracking-host";
+import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
+import { getExtension } from "$server/db/queries/extensions";
+import { canWireExtension } from "$server/auth/extension-wire-authz";
 import type { RequestHandler } from "./$types";
 
 const MAX_RETRIES = 2;
@@ -51,6 +54,32 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const startTime = Date.now();
 
+  // ── Ownership. THE conversation gate for this route (sec: F2). ──
+  //
+  // `requireScope(locals, "extensions")` above is a NO-OP for a cookie
+  // session (`locals.apiKeyScopes` is undefined, which `hasRequiredScope`
+  // reads as allow-all), so before this check the only thing standing
+  // between an authenticated member and `executeToolCall` was `requireAuth`.
+  // `conversationId` was accepted verbatim and never checked against the
+  // caller — a member could dispatch any registered tool into an ADMIN's
+  // conversation, and `ToolExecutor.executeToolCall` does not look at
+  // ownership either.
+  //
+  // Placed BEFORE the task-tracking wire below on purpose: that call
+  // MUTATES `conversation_extensions` for the named conversation, so
+  // running it first would let an unauthorized caller write to a
+  // conversation they cannot otherwise touch.
+  //
+  // 404 (not 403) matches the ownership posture of every sibling
+  // conversation route — missing and not-yours are indistinguishable. The
+  // harness contract already documents ownership rejection as a non-2xx
+  // (`docs/harness-contract.md`), and the documented flow (wire, then
+  // invoke, same principal + same conversation) is unaffected.
+  const ownership = await resolveRootConversationForOwnership(conversationId, user);
+  if (!ownership) {
+    return json({ success: false, error: "Conversation not found" }, { status: 404 });
+  }
+
   // Phase 3 commit-5: task-tracking is a bundled extension now, so it
   // flows through the ExtensionRegistry path below like every other
   // extension. Ensure wire-on-first-use before the call so the
@@ -84,6 +113,36 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (!registered) {
       return json({ success: false, error: `Tool not found: ${namespacedTool}` }, { status: 404 });
     }
+  }
+
+  // ── Per-extension wire authorization (sec: F2). ──
+  //
+  // The registry map is GLOBAL — `getRegisteredTool` answers for every
+  // installed extension regardless of what is wired to this conversation,
+  // and `executeToolCall` never consults `conversation_extensions`. MCP
+  // tools also carry no `rbacScope`, so the executor's RBAC gate is skipped
+  // and the PDP passes on the install-time network grant. That left direct
+  // dispatch as a complete bypass of the wire gate: discovery is free
+  // (`GET /api/extensions` is read+auth), so naming the tool was enough.
+  //
+  // Ask the SAME decision the two wiring surfaces ask. A bundled or
+  // non-MCP extension is unaffected (rules 1-2 return true without a query),
+  // so this costs one PK read on the MCP path and nothing on the hot path.
+  //
+  // Deliberately NOT a blanket "must be wired" requirement: that would be a
+  // wider behaviour change than the finding needs and would break inline
+  // tool cards and Hub actions that legitimately dispatch unwired today.
+  // Gating on `canWireExtension` is exactly equivalent — a caller who passes
+  // it could simply wire the extension first and dispatch anyway — while a
+  // caller who fails it can no longer reach the credential by either route.
+  const extRow = await getExtension(registered.extensionId);
+  if (!extRow || !(await canWireExtension(extRow, {
+    user: { id: user.id, role: user.role },
+    projectId: ownership.conv.projectId ?? null,
+  }))) {
+    // Same shape as an unregistered tool: a member must not learn that an
+    // admin-installed MCP server by this name exists.
+    return json({ success: false, error: `Tool not found: ${namespacedTool}` }, { status: 404 });
   }
 
   // PDP singleton — pre-initialized by the executor at boot. Pass no
@@ -123,6 +182,34 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       lastResult = result;
       retryCount = attempt;
     } catch (err) {
+      // An authorization denial is DETERMINISTIC — retrying it cannot change
+      // the answer. Two things went wrong when it fell through to the generic
+      // handler below:
+      //
+      //   1. It was retried MAX_RETRIES times, so ONE denied tool call wrote
+      //      THREE `ext:perm:denied` audit rows and counted as three denials
+      //      in the /audit stats strip.
+      //   2. It surfaced as 500, which reads as "the server broke" to every
+      //      client and integrator. It is a refusal, and the refusal is the
+      //      correct behaviour — 403 says so.
+      //
+      // Matched on `name` rather than `instanceof`: the tool-executor module
+      // is mocked at the alias boundary in route tests, so the imported class
+      // identity is not guaranteed to be the one the throw site used. The
+      // constructor sets `name` explicitly (`tool-executor/errors.ts`).
+      if (err instanceof Error && err.name === "PermissionDeniedError") {
+        return json({
+          success: false,
+          // Name the extension, not its UUID. The raw message embeds
+          // `extensionId`, which is meaningless to whoever reads this.
+          error: `Permission denied for tool "${toolName}" from extension "${extensionName}"${
+            (err as { reason?: string }).reason ? ` — ${(err as { reason?: string }).reason}` : ""
+          }`,
+          retryCount: attempt,
+          durationMs: Date.now() - startTime,
+          toolCallId: invocationId,
+        }, { status: 403 });
+      }
       // Retry on process/registry errors (extension may have crashed and needs restart)
       if (attempt < MAX_RETRIES) {
         continue;

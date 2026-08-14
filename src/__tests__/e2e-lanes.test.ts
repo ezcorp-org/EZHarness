@@ -73,7 +73,16 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // flake is also retired as a flake — a new deterministic @evidence assertion
 // (mounting the affordance must not change `scrollHeight`) fails 5/5 against
 // the pre-fix component.
-const UNWIRED_CEILING = 232;
+// 232 -> 231: `extensions-mcp-edit.spec.ts` moved to `mock-gate`. It carries
+// the SSRF blocked-target assertion added with the MCP target guard, which
+// was landing in a lane that runs in NO CI job — the spec pre-dated the
+// change, so the ratchet never fired and the hole was inherited silently.
+// Shrink-only, as the lane contract requires.
+// 231 -> 230: `extensions-mcp-tab.spec.ts` moved to `evidence-soft`. It gained
+// an @evidence capture for the MCP list card, which is the surface the
+// max-length-name + contrast fixes changed — and an @evidence spec may not sit
+// in `unwired` (asserted below), so the move is forced by the tag.
+const UNWIRED_CEILING = 230;
 
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });

@@ -12,6 +12,13 @@ import {
 } from "../db/queries/extensions";
 import type { NewExtension } from "../db/schema";
 
+/** The declaration a HOSTLESS stdio server's tools carry: no `network` cap to
+ *  declare, but the `ezcorp:mcp:invoke` sentinel is declared anyway (F5) —
+ *  an empty declaration flattens to an empty needed set, and
+ *  `firstMissingCapability([], …)` can never fail, so the PDP would allow
+ *  every call no matter what the admin revoked. */
+const MCP_ONLY_DECL = { custom: { "ezcorp:mcp:invoke": true } };
+
 beforeAll(async () => {
   await setupTestDb();
 });
@@ -37,10 +44,20 @@ describe("installMcpExtension", () => {
     expect(ext.source).toBe("mcp:stdio");
     expect(ext.enabled).toBe(true);
     expect(ext.manifest.kind).toBe("mcp");
-    expect(ext.manifest.tools).toEqual(tools);
+    // Each cached tool now carries the capability declaration the PDP reads
+    // at dispatch (B5). This server's command line names no host, so there is
+    // no `network` cap — the sentinel alone is what keeps it gated (F5).
+    expect(ext.manifest.tools).toEqual(
+      tools.map((t) => ({ ...t, capabilities: MCP_ONLY_DECL })),
+    );
+    expect(ext.manifest.permissions).toEqual({ network: [], mcpInvoke: true });
     expect(ext.manifest.mcpServers?.[0]?.transport).toBe("stdio");
     expect(ext.manifest.schemaVersion).toBe(2);
-    expect(ext.grantedPermissions).toEqual({ grantedAt: {} });
+    // Hostless, so no `network` grant — but the sentinel IS granted at
+    // install, which is what makes a later revocation bite.
+    expect(ext.grantedPermissions.network).toBeUndefined();
+    expect(ext.grantedPermissions.mcpInvoke).toBe(true);
+    expect(typeof ext.grantedPermissions.grantedAt.mcpInvoke).toBe("number");
     expect(ext.consecutiveFailures).toBe(0);
     expect(ext.checksumVerified).toBe(false);
 
@@ -113,7 +130,13 @@ describe("updateMcpExtension", () => {
     expect(updated!.source).toBe("mcp:stdio");
     expect(updated!.description).toBe("v2 desc");
     expect(updated!.manifest.description).toBe("v2 desc");
-    expect(updated!.manifest.tools).toEqual([{ name: "new-tool" }, { name: "second" }]);
+    // Refreshed tools are re-stamped with the hostless-stdio declaration — a
+    // bare `{...manifest, tools}` would drop it and put the PDP back on an
+    // undeclared needed set.
+    expect(updated!.manifest.tools).toEqual([
+      { name: "new-tool", capabilities: MCP_ONLY_DECL },
+      { name: "second", capabilities: MCP_ONLY_DECL },
+    ]);
     const server0 = updated!.manifest.mcpServers?.[0] as { args?: string[] } | undefined;
     expect(server0?.args).toEqual(["v2.js"]);
     // Identity preserved.
@@ -123,8 +146,8 @@ describe("updateMcpExtension", () => {
 
     const roundtrip = await getExtension(ext.id);
     expect((roundtrip!.manifest as any).tools).toEqual([
-      { name: "new-tool" },
-      { name: "second" },
+      { name: "new-tool", capabilities: MCP_ONLY_DECL },
+      { name: "second", capabilities: MCP_ONLY_DECL },
     ]);
   });
 

@@ -443,6 +443,35 @@ export const EXT_AUDIT_ACTIONS = {
    * }
    */
   MCP_SANDBOX_REQUIRED_REFUSAL: "ext:mcp:sandbox-required-refusal",
+  // ── MCP server lifecycle (admin mutations on /api/mcp-servers) ──
+  //
+  // Every other extension-mutating route wrote an audit row; these three
+  // did not, so the highest-privilege extension mutation on the platform
+  // — configuring a credentialed connection to a third-party server —
+  // was the one with no trail. Metadata is built by
+  // `src/extensions/mcp-audit.ts`, which projects the server definition
+  // onto a credential-free `McpServerFacts` (transport, executable or
+  // URL origin+path, auth KEY names, tool count/names) — never a header
+  // value, an env value, an argv value, or a URL query string.
+  /** `POST /api/mcp-servers` persisted a new MCP extension after a
+   *  throwaway client verified connectivity. One row per install. */
+  MCP_SERVER_INSTALLED: "ext:mcp:server-installed",
+  /** `PUT /api/mcp-servers/[id]` re-pointed an installed MCP extension at
+   *  a new server config and re-snapshotted its tools. `oldValue` carries
+   *  the PRE-edit facts so a connection change is diffable. */
+  MCP_SERVER_UPDATED: "ext:mcp:server-updated",
+  /** `POST /api/mcp-servers/[id]/refresh` re-pulled the tool list from an
+   *  already-configured server. The connection is unchanged, so the
+   *  before/after diff is the tool snapshot. */
+  MCP_SERVER_REFRESHED: "ext:mcp:server-refreshed",
+  /** `DELETE /api/extensions/[id]` uninstalled an extension — the row,
+   *  the install directory, and (with `?purgeData=1`) its data store.
+   *  Cascade-deletes `extension_secrets`, which for an MCP extension is
+   *  the stored transport credential, so the destructive end of the MCP
+   *  lifecycle is audited alongside the three mutations above. Metadata:
+   *  `{extensionName, oldValue: {version, source, isBundled}, newValue:
+   *  null, actor: <adminUserId>, purgeData, reason: "uninstall"}`. */
+  EXTENSION_UNINSTALLED: "ext:uninstalled",
   // ── Phase 50: SDK capability tier (Phase 51 handlers write these) ──
   // These rows accompany the high-volume sdk_capability_calls table:
   // every SDK call writes a row to sdk_capability_calls AND a row

@@ -11,6 +11,8 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import { getPageCache } from "$server/extensions/page-cache";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import type { RequestHandler } from "./$types";
 
 // `requireRole` throws a raw Response that SvelteKit surfaces as a 500;
@@ -132,6 +134,30 @@ export const DELETE: RequestHandler = async ({ params, locals, url }) => {
 
   // An uninstalled extension's cached Hub page trees must not linger.
   getPageCache().invalidateExtension(params.id);
+
+  // Audit the uninstall. Install, permission grant/revoke and (now) the three
+  // MCP mutations all leave a row; the destructive end left none, which is
+  // the one an investigator needs most — an uninstall cascade-deletes
+  // `extension_secrets`, i.e. an MCP extension's stored transport
+  // credential. Written AFTER the delete so the row never claims a
+  // removal that failed. The extension id is gone from `extensions` by now,
+  // but `audit_log.target` is a plain text column with no FK, so the trail
+  // survives the row it describes.
+  try {
+    await insertAuditEntry(
+      locals.user?.id ?? null,
+      EXT_AUDIT_ACTIONS.EXTENSION_UNINSTALLED,
+      ext.id,
+      {
+        extensionName: ext.name,
+        oldValue: { version: ext.version, source: ext.source, isBundled: ext.isBundled },
+        newValue: null,
+        actor: locals.user?.id ?? "unknown",
+        purgeData: url.searchParams.get("purgeData") === "1",
+        reason: "uninstall",
+      },
+    );
+  } catch { /* non-fatal — audit is observability, not a gate */ }
   // 204, unchanged: `@ezcorp/harness-client`'s `uninstallExtension` is
   // published as "resolves with no body on 204". The caller learns nothing
   // new from a result body — it chose `purgeData` itself.

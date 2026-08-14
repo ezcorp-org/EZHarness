@@ -22,6 +22,8 @@ import {
   rehydrateMcpServerSecrets,
 } from "../db/queries/extensions";
 import { getSecret } from "../extensions/secrets-store";
+import { getDb } from "../db/connection";
+import { migrate } from "../db/migrate";
 import type { McpServerDefinition } from "../extensions/types";
 import type { NewExtension } from "../db/schema";
 
@@ -126,5 +128,32 @@ describe("backfillMcpManifestSecrets", () => {
 
     const result = await backfillMcpManifestSecrets();
     expect(result.migrated).toBe(0);
+  });
+
+  test("migrate() actually RUNS this backfill (the wiring, not just the function)", async () => {
+    // Every other test in this file calls `backfillMcpManifestSecrets()`
+    // directly, so deleting its `await` in `migrate.ts` reds nothing — the
+    // line stays *covered*, because every DB test runs `migrate()`, while
+    // nothing asserts the behaviour. This drives the REAL `migrate()` instead.
+    //
+    // Seeded AFTER `setupTestDb()` because the table has to exist first;
+    // `migrate()` is idempotent, so the second pass is the one that sees the
+    // row. (The sibling capability backfill's wiring is asserted the same way
+    // in `db-migration-postgres.test.ts`, which needs no live secret store.)
+    await insertLegacyMcp("wired-http", {
+      transport: "http",
+      name: "wired-http",
+      url: "https://x/mcp",
+      headers: { Authorization: "Bearer WIRED-LEAK" },
+    });
+
+    await migrate(getDb());
+
+    const row = await getExtensionByName("wired-http");
+    // The KEY survives (the edit form pre-fills header names); the VALUE is
+    // blanked and the real token moved to the AAD-bound store.
+    expect(firstServer(row!.manifest).headers).toEqual({ Authorization: "" });
+    expect(JSON.stringify(row!.manifest)).not.toContain("WIRED-LEAK");
+    expect(await getSecret("wired-http", null, "mcp:auth")).toContain("WIRED-LEAK");
   });
 });

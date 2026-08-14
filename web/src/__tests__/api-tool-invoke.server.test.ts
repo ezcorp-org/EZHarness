@@ -39,8 +39,32 @@ vi.mock("$lib/server/context", () => ({
   }),
 }));
 
-vi.mock("$server/runtime/task-tracking-host", () => ({
-  ensureTaskTrackingWired: vi.fn(async () => undefined),
+const ensureTaskTrackingWired = vi.fn(async () => undefined);
+vi.mock("$server/runtime/task-tracking-host", () => ({ ensureTaskTrackingWired }));
+
+// ── sec F2: the two gates the route grew. ──
+// Ownership defaults to "the caller owns it"; individual tests set
+// `ownershipResult = null` to deny. `conv.projectId` is what the route
+// hands the wire gate as the project coordinate.
+let ownershipResult: unknown = { conv: { id: "c", projectId: "proj-1" }, root: { id: "c" } };
+const resolveRootConversationForOwnership = vi.fn(async () => ownershipResult);
+vi.mock("$lib/server/conversation-ownership", () => ({
+  resolveRootConversationForOwnership: () => resolveRootConversationForOwnership(),
+}));
+
+let extensionRow: unknown = { id: "ext-1", name: "x", manifest: {}, source: "local", isBundled: false };
+const getExtension = vi.fn(async () => extensionRow);
+vi.mock("$server/db/queries/extensions", () => ({ getExtension: () => getExtension() }));
+
+// The gate itself is unit-tested in src/__tests__/extension-wire-authz.test.ts
+// and driven end-to-end against real grants in
+// src/__tests__/mcp-wire-gate-bypasses.integration.test.ts. Here it is a seam,
+// so this file can assert the ROUTE's half: that it asks, with the right
+// coordinates, and turns a denial into the unknown-tool 404.
+let wireAllowed = true;
+const canWireExtension = vi.fn(async (_ext: unknown, _actor: unknown) => wireAllowed);
+vi.mock("$server/auth/extension-wire-authz", () => ({
+  canWireExtension: (ext: unknown, actor: unknown) => canWireExtension(ext, actor),
 }));
 
 // PDP singleton — the handler at `+server.ts:92` calls
@@ -83,14 +107,26 @@ function makeEvent(opts: {
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 
+// FILE-level, not inside a describe: the mutable `ownershipResult` /
+// `extensionRow` / `wireAllowed` seams are read by every describe in this
+// file, so a reset scoped to one block leaks a previous test's denial into
+// the next block and produces failures that look like the route misbehaving.
+beforeEach(() => {
+  registryGetTool.mockReset();
+  registryLoadFromDb.mockClear();
+  executeToolCall.mockReset();
+  setCurrentUserId.mockClear();
+  getPermissionEngineSpy.mockClear();
+  ensureTaskTrackingWired.mockClear();
+  resolveRootConversationForOwnership.mockClear();
+  getExtension.mockClear();
+  canWireExtension.mockClear();
+  ownershipResult = { conv: { id: "c", projectId: "proj-1" }, root: { id: "c" } };
+  extensionRow = { id: "ext-1", name: "x", manifest: {}, source: "local", isBundled: false };
+  wireAllowed = true;
+});
+
 describe("POST /api/tool-invoke", () => {
-  beforeEach(() => {
-    registryGetTool.mockReset();
-    registryLoadFromDb.mockClear();
-    executeToolCall.mockReset();
-    setCurrentUserId.mockClear();
-    getPermissionEngineSpy.mockClear();
-  });
 
   test("rejects 401 when locals.user is missing", async () => {
     await expectThrown(
@@ -279,5 +315,179 @@ describe("POST /api/tool-invoke", () => {
     expect(getPermissionEngineSpy).toHaveBeenCalledWith();
     const callArgs = getPermissionEngineSpy.mock.calls[0]!;
     expect(callArgs.length).toBe(0);
+  });
+});
+
+// ── sec F2 ───────────────────────────────────────────────────────────
+//
+// This route resolved `<ext>__<tool>` from the GLOBAL registry map and
+// dispatched, consulting neither `conversation_extensions` nor the
+// conversation's owner. `requireScope(locals, "extensions")` is a no-op for a
+// cookie session, so for a browser user `requireAuth` was the only gate: a
+// member could spend an admin-installed MCP credential inside the admin's own
+// conversation. Both gates below are new.
+describe("POST /api/tool-invoke — conversation ownership", () => {
+  const body = {
+    extensionName: "ext",
+    toolName: "ok",
+    input: {},
+    conversationId: "someone-elses",
+    invocationId: "i1",
+  };
+
+  test("404s when the caller does not own the conversation, and never dispatches", async () => {
+    ownershipResult = null;
+    registryGetTool.mockReturnValue({ name: "ext__ok", extensionId: "ext-1" });
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe("Conversation not found");
+    expect(executeToolCall).not.toHaveBeenCalled();
+  });
+
+  test("the ownership check runs BEFORE the task-tracking wire, which mutates", async () => {
+    // `ensureTaskTrackingWired` writes `conversation_extensions` for the named
+    // conversation. Ordering it after the check is the whole reason the gate
+    // sits where it does.
+    ownershipResult = null;
+    const res = await POST(
+      makeEvent({ locals: authedUser, body: { ...body, extensionName: "task-tracking" } }),
+    );
+    expect(res.status).toBe(404);
+    expect(ensureTaskTrackingWired).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/tool-invoke — per-extension wire authorization", () => {
+  const body = {
+    extensionName: "weather-mcp",
+    toolName: "forecast",
+    input: {},
+    conversationId: "c1",
+    invocationId: "i1",
+  };
+
+  test("a denied extension 404s with the SAME shape as an unregistered tool", async () => {
+    registryGetTool.mockReturnValue({ name: "weather-mcp__forecast", extensionId: "ext-mcp" });
+    wireAllowed = false;
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(404);
+    // Not a 403: a member must not learn that an admin-installed MCP server
+    // by this name exists.
+    expect((await res.json()).error).toBe("Tool not found: weather-mcp__forecast");
+    expect(executeToolCall).not.toHaveBeenCalled();
+  });
+
+  test("a vanished extension row is fail-closed", async () => {
+    registryGetTool.mockReturnValue({ name: "weather-mcp__forecast", extensionId: "ext-mcp" });
+    extensionRow = null;
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(404);
+    expect(executeToolCall).not.toHaveBeenCalled();
+  });
+
+  test("the gate is asked with the caller and the CONVERSATION's project", async () => {
+    registryGetTool.mockReturnValue({ name: "weather-mcp__forecast", extensionId: "ext-mcp" });
+    executeToolCall.mockResolvedValue({ isError: false, content: [{ type: "text", text: "ok" }] });
+    await POST(makeEvent({ locals: authedUser, body }));
+    expect(canWireExtension).toHaveBeenCalledTimes(1);
+    const [ext, actor] = canWireExtension.mock.calls[0]!;
+    expect(ext).toEqual(extensionRow);
+    // The project comes off the conversation row, never the request body —
+    // otherwise a caller could pick the coordinates their grants cover.
+    expect(actor).toEqual({ user: { id: "u1", role: "user" }, projectId: "proj-1" });
+  });
+
+  test("a conversation with no project asks at the all-projects coordinate", async () => {
+    ownershipResult = { conv: { id: "c1" }, root: { id: "c1" } };
+    registryGetTool.mockReturnValue({ name: "weather-mcp__forecast", extensionId: "ext-mcp" });
+    executeToolCall.mockResolvedValue({ isError: false, content: [{ type: "text", text: "ok" }] });
+    await POST(makeEvent({ locals: authedUser, body }));
+    expect((canWireExtension.mock.calls[0]![1] as { projectId: unknown }).projectId).toBeNull();
+  });
+
+  test("an allowed extension still dispatches — no regression", async () => {
+    registryGetTool.mockReturnValue({ name: "ext__ok", extensionId: "ext-1" });
+    executeToolCall.mockResolvedValue({ isError: false, content: [{ type: "text", text: "ok" }] });
+    const res = await POST(
+      makeEvent({ locals: authedUser, body: { ...body, extensionName: "ext", toolName: "ok" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
+  });
+
+});
+
+// ── sec U5: a capability denial is a REFUSAL, not a server fault ──────
+//
+// The PDP's `PermissionDeniedError` fell through to the generic catch, which
+// (a) retried it MAX_RETRIES times — one denied call wrote THREE
+// `ext:perm:denied` audit rows and counted as three denials in /audit — and
+// (b) returned 500, which reads as "the server broke" to every client.
+describe("POST /api/tool-invoke — capability denial", () => {
+  const body = {
+    extensionName: "probe-http",
+    toolName: "echo",
+    input: {},
+    conversationId: "c1",
+    invocationId: "i1",
+  };
+
+  /** Shaped like `tool-executor/errors.ts`'s class: the route matches on
+   *  `name`, because the module is mocked at the alias boundary here and
+   *  `instanceof` would compare against a different class identity. */
+  function permissionDenied(reason: string) {
+    const e = new Error(
+      `Permission denied for tool "echo" from extension "710da8a9-1111-2222-3333-444455556666" — ${reason}`,
+    );
+    e.name = "PermissionDeniedError";
+    (e as Error & { reason?: string }).reason = reason;
+    return e;
+  }
+
+  test("returns 403, not 500", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).success).toBe(false);
+  });
+
+  test("is NOT retried — one denied call, one dispatch attempt", async () => {
+    // The audit consequence is the point: each retry wrote its own
+    // `ext:perm:denied` row, so a single refusal read as three denials.
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    await POST(makeEvent({ locals: authedUser, body }));
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
+  });
+
+  test("names the extension, not its UUID, and keeps the reason", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(permissionDenied("Missing capability network (127.0.0.1)"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    const err = (await res.json()).error as string;
+    expect(err).toContain('from extension "probe-http"');
+    expect(err).toContain("Missing capability network (127.0.0.1)");
+    // The raw message embedded the row UUID, which names nothing to whoever
+    // reads the response.
+    expect(err).not.toContain("710da8a9");
+  });
+
+  test("a NON-permission error still retries and still 500s", async () => {
+    // The retry exists for a crashed extension subprocess; that path is
+    // unchanged.
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockRejectedValue(new Error("subprocess died"));
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(500);
+    expect(executeToolCall).toHaveBeenCalledTimes(3);
+  });
+
+  test("a tool-level failure still RESOLVES 200 — the harness contract is unchanged", async () => {
+    registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
+    executeToolCall.mockResolvedValue({ isError: true, content: [{ type: "text", text: "boom" }] });
+    const res = await POST(makeEvent({ locals: authedUser, body }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(false);
   });
 });

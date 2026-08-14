@@ -189,7 +189,32 @@ const r = await ez.invokeExtensionTool(convoId, "scratchpad", "scratchpad_write"
   `extensions` is required to wire (`POST /api/conversations/:id/extensions`)
   and to invoke (`POST /api/tool-invoke`). A tool-level failure RESOLVES with
   `{ success: false, error }` (HTTP 200) — only an unknown tool, a bad body, or
-  a scope/ownership rejection is a non-2xx (thrown `HarnessApiError`).
+  a scope/ownership/permission rejection is a non-2xx (thrown `HarnessApiError`).
+- **A capability denial is `403`, not `500`, and is never retried.** When the
+  PDP refuses a tool's declared capability, `invokeExtensionTool()` throws
+  `HarnessApiError` with status **403** and a body naming the extension
+  (`Permission denied for tool "<tool>" from extension "<name>" — <reason>`).
+  It used to surface as `500` after three internal retries, which read as a
+  server fault and wrote three denial rows per call. Do not retry a 403: the
+  answer is deterministic. Grant the capability instead.
+- **Some extensions are not yours to wire, and the refusal looks like a typo.**
+  An MCP-kind extension may be wired (and invoked) only by an admin, by the
+  key owner who installed it, or by a holder of the `mcp-wire` RBAC grant —
+  see [permissions-and-grants](features/extensions/permissions-and-grants.md).
+  A refusal deliberately reuses the *unknown* vocabulary so the installed MCP
+  set stays unenumerable, which means an integrator sees:
+  - `wireExtensions()` → `404 {error: "Unknown extension(s)", unknown: ["<name>"]}`
+  - `invokeExtensionTool()` → `404 {success: false, error: "Tool not found: <ext>__<tool>"}`
+
+  Both are the SAME response you get for a name that does not exist. If a name
+  you read from `GET /api/extensions` comes back "unknown", it is an
+  authorization refusal, not a typo — ask an admin for an `mcp-wire` grant on
+  that extension rather than retrying.
+- **`POST /api/tool-invoke` requires you to own the conversation.** The
+  `conversationId` is authorization input, not a label: a conversation you do
+  not own (walking to the root of the parent chain) is `404
+  {success: false, error: "Conversation not found"}`, and nothing is
+  dispatched. Admin-role keys are exempt, as everywhere else.
 - **`GET /api/extensions/:name/tools` reads the LIVE registry** and 404s until
   the extension is loaded, so it is not a reliable discovery source in v1. Use
   the `manifest` (incl. `tools[]`) embedded in each `GET /api/extensions`

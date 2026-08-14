@@ -37,7 +37,7 @@ Steps 6–8 (agent build → subscribe → prompt) run **inside `runWithFailover
 
 - `turn_start` → reset `ctx.turnText`/`turnThinking`/`turnHasToolCalls`; emit `run:status` "Thinking…".
 - `message_update` → accumulate `text_delta` / `thinking_delta` onto `ctx`, emit `run:token { kind: "text" | "thinking" }`.
-- `tool_execution_start` → emit `tool:start` (carrying `cardType`/`cardLayout`/`category`/`invocationId`); register the in-flight call with the watchdog under a resolved `callTimeoutMs` (manifest > built-in > `DEFAULT_BUILTIN_CALL_TIMEOUT_MS`). `invoke_agent` is special-cased (uses `agent:spawn`/`agent:complete` instead).
+- `tool_execution_start` → emit `tool:start` (carrying `cardType`/`cardLayout`/`category`/`invocationId`); register the in-flight call with the watchdog under a resolved `callTimeoutMs` (manifest > built-in > `DEFAULT_BUILTIN_CALL_TIMEOUT_MS`) — a built-in that suspends on a gate (the Ez client-side tools) declares a budget derived from that gate's timeout, so the gate's own error wins the race. `invoke_agent` is special-cased (uses `agent:spawn`/`agent:complete` instead).
 - `tool_execution_end` → emit `tool:complete` or `tool:error`; persist the tool-call row (`persistToolCall`, keyed by `toolCallId` so streaming + hydrated rows dedupe) with the four analytics dimensions (user/agent/model/provider).
 - `turn_end` → persist this turn as its own assistant message (`createMessage`), anchor unanchored tool-call rows + agent sub-conversations to it, advance `ctx.lastSavedMessageId`, and emit `run:usage` + `run:turn_saved`.
 

@@ -1,6 +1,7 @@
 import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
+import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
 import { verifyPackageChecksums } from "./checksum";
@@ -411,11 +412,21 @@ export class ExtensionRegistry {
     const exts = await listExtensions(true);
 
     for (const ext of exts) {
-      const manifest = ext.manifest as ExtensionManifestV2;
+      // MCP rows are synthesized by `installMcpExtension`, never by the disk
+      // loader, so they NEVER pass through `migrateManifestV2ToV3` — the one
+      // place a v2 manifest normally acquires its per-tool `capabilities`.
+      // Normalizing here is what gives an MCP tool a non-empty needed-cap set
+      // at the PDP, and it is deliberately read-time: `refreshMcpTools`
+      // rewrites `manifest.tools` from a live `tools/list` that carries no
+      // declaration, so an install-time-only derivation would be erased by the
+      // first "Refresh tools" click. Non-MCP manifests are returned by
+      // reference, untouched.
+      const manifest = normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
       this.manifests.set(ext.id, manifest);
       if (ext.installPath) this.installPaths.set(ext.id, ext.installPath);
       this.grantedPerms.set(ext.id, ext.grantedPermissions);
       this.bundledFlags.set(ext.id, (ext as { isBundled?: boolean }).isBundled === true);
+      this.reportUnhealedMcpRow(ext, manifest);
 
       // Boot visibility: surface an unresolvable npm-dependency declaration
       // at load so an operator sees it in the logs. VISIBILITY ONLY — do
@@ -474,6 +485,47 @@ export class ExtensionRegistry {
     this.loadGeneration++;
   }
 
+  /**
+   * Boot visibility for an MCP row the capability backfill never healed.
+   *
+   * The two paths that give an MCP row its capabilities can diverge:
+   * `normalizeMcpManifest` derives the NEEDED set on every read, but the
+   * GRANT is only written by `installMcpExtension` or by the one-shot
+   * `backfillMcpManifestCapabilities`. If that backfill never ran — a boot
+   * where the migrate circuit breaker is open (`db/connection.ts`), or a row
+   * whose UPDATE threw and was caught — the row ends up NEEDING
+   * `ezcorp:mcp:invoke` while GRANTING nothing, and every one of its tools
+   * denies.
+   *
+   * That direction is deliberate. The alternative — deriving the grant at read
+   * time too — cannot distinguish "never consented" from "consented, then
+   * revoked": a revocation through `PUT /api/extensions/[id]/permissions`
+   * writes only `grantedPermissions` and leaves `installedPermissions` alone,
+   * so a read-time grant would silently re-grant a revoked row on every boot.
+   * That is the inert-PDP defect this whole change exists to close, so the
+   * divergence fails CLOSED — and is reported here instead of being silent.
+   *
+   * `installedPermissions === null` is the marker for "never consented":
+   * every install and every healed row writes it, and a revocation never
+   * clears it. So an intentionally-revoked row is silent and only an unhealed
+   * one is reported.
+   */
+  private reportUnhealedMcpRow(
+    ext: { id: string; name: string; installedPermissions?: unknown },
+    manifest: ExtensionManifestV2,
+  ): void {
+    if (manifest.kind !== "mcp") return;
+    if (ext.installedPermissions != null) return;
+    log.error("MCP extension has no capability grant — every tool call will be denied", {
+      extension: manifest.name,
+      extensionId: ext.id,
+      reason:
+        "the one-shot MCP capability backfill has not run for this row (migrate skipped, or its row update failed)",
+      remedy:
+        "resolve the failed migration and restart, or re-save the server from the MCP edit form to re-issue the grant",
+    });
+  }
+
   /** Get the extension ID that provides a given tool name. */
   getToolExtension(toolName: string): string | null {
     return this.toolMap.get(toolName)?.extensionId ?? null;
@@ -511,7 +563,29 @@ export class ExtensionRegistry {
    *  contributes ALL its tools; a non-empty array narrows it to just those.
    *  Matched defensively against both the namespaced name and the original
    *  (unnamespaced) name, mirroring the mode filter. */
-  async getToolsForAgent(agentConfigId: string): Promise<ToolDefinition[]> {
+  async getToolsForAgent(
+    agentConfigId: string,
+    opts?: {
+      /**
+       * Per-extension authorization hook, applied BEFORE an extension's
+       * tools join the returned set (sec: F3).
+       *
+       * `agent_configs.extensions` holds RAW extension ids that the author
+       * supplies through `POST /api/agent-configs` (scope `chat`, any
+       * authenticated member) and that this method has always trusted
+       * verbatim — no wiring, no ownership, no per-extension check. That
+       * made "create an agent config naming an admin-installed MCP
+       * extension id, then chat with it" a complete bypass of the wire
+       * gate. The caller passes `canWireExtension` here; a rejected id is
+       * skipped exactly as an unloaded one is.
+       *
+       * Async because the decision reads the extension row and, for a
+       * member, the grants table. Returning false (or throwing, which the
+       * caller's try/catch turns into an empty tool set) is fail-closed.
+       */
+      allowExtension?: (extensionId: string) => Promise<boolean>;
+    },
+  ): Promise<ToolDefinition[]> {
     const rows = await getDb()
       .select({ extensions: agentConfigs.extensions, extensionTools: agentConfigs.extensionTools })
       .from(agentConfigs)
@@ -526,6 +600,7 @@ export class ExtensionRegistry {
     for (const extId of extensionIds) {
       const extTools = this.extensionTools.get(extId);
       if (!extTools) continue;
+      if (opts?.allowExtension && !(await opts.allowExtension(extId))) continue;
       const subset = perTool[extId];
       for (const rt of extTools) {
         if (subset && subset.length > 0
@@ -1079,13 +1154,20 @@ export class ExtensionRegistry {
     const client = await this.getMcpClient(extensionId);
     const tools = await client.listTools();
 
-    const updatedManifest: ExtensionManifestV2 = { ...manifest, tools };
+    // Re-derive the per-tool capability declaration: `tools` is a fresh
+    // `tools/list` from the wire and carries none, so a bare
+    // `{...manifest, tools}` would drop every MCP tool back to an EMPTY
+    // needed-cap set — both in memory and, via the `updateExtension` below,
+    // at rest. The ceiling in `manifest.permissions` is preserved as-is.
+    const updatedManifest: ExtensionManifestV2 = normalizeMcpManifest({ ...manifest, tools });
     this.manifests.set(extensionId, updatedManifest);
 
     const ext = (await listExtensions(false)).find((e) => e.id === extensionId);
     const extName = ext?.name ?? manifest.name;
 
-    const registered: RegisteredTool[] = tools.map((t) => ({
+    // Register the NORMALIZED tools so `getToolsForExtension` /
+    // `getToolsForAgent` expose the same declaration the manifest carries.
+    const registered: RegisteredTool[] = (updatedManifest.tools ?? []).map((t) => ({
       ...t,
       name: `${manifest.name}__${t.name}`,
       originalName: t.name,

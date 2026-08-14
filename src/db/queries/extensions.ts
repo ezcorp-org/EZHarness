@@ -2,8 +2,19 @@ import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { getDb, getPglite } from "../connection";
 import type { Database } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
-import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
+import type {
+  McpServerDefinition,
+  ExtensionManifestV2,
+  ExtensionPermissions,
+  ToolDefinition,
+} from "../../extensions/types";
 import { getSecret, setSecret } from "../../extensions/secrets-store";
+import {
+  mcpInstallGrant,
+  mcpManifestPermissions,
+  normalizeMcpManifest,
+  withMcpToolCapabilities,
+} from "../../extensions/mcp-capabilities";
 import { logger } from "../../logger";
 
 const backfillLog = logger.child("db.queries.extensions");
@@ -433,6 +444,24 @@ export async function disableExtension(id: string): Promise<void> {
  * Create a new MCP-kind extension row. Caller is responsible for validating
  * connectivity and passing the live `tools/list` response as `cachedTools`
  * — those are stored in `manifest.tools` for boot-time registry hydration.
+ *
+ * The synthesized manifest DECLARES the hosts the server definition names
+ * (`mcpManifestPermissions`) and stamps that declaration onto every cached
+ * tool (`withMcpToolCapabilities`). Both matter:
+ *
+ *   • the per-tool declaration is what the PDP turns into the needed-cap set
+ *     at dispatch (`tool-executor/executor.ts`); without it every MCP tool
+ *     call authorized against an EMPTY needed set and was allowed
+ *     unconditionally;
+ *   • the manifest-level declaration is the CEILING
+ *     `clampExtensionPermissions` intersects an admin's submitted grant
+ *     against, so without it no `network` host could ever be granted — and
+ *     `mcp-proxy.ts` re-authorizes every stdio CONNECT against exactly that
+ *     grant.
+ *
+ * The install-time grant is recorded as BOTH `grantedPermissions` and
+ * `installedPermissions`, the same pairing `activateExtension` writes, so the
+ * reapprove flow clamps against the consent collected here.
  */
 export async function installMcpExtension(input: {
   name: string;
@@ -441,10 +470,15 @@ export async function installMcpExtension(input: {
   authorName?: string;
   server: McpServerDefinition;
   cachedTools: ToolDefinition[];
+  /** Admin who installed the row. Optional so existing callers are
+   *  unaffected; the install route threads the acting user through so the
+   *  audit trail and the owner-scoped surfaces have a subject. */
+  creatorUserId?: string | null;
 }): Promise<Extension> {
   // Transport auth (headers/env) NEVER lands in the manifest at rest — persist
   // a value-blanked definition and move the real secret into extension_secrets
   // (below, after the row exists so its FK target is present).
+  const permissions = mcpManifestPermissions(input.server);
   const manifest: ExtensionManifestV2 = {
     schemaVersion: 2,
     name: input.name,
@@ -453,9 +487,10 @@ export async function installMcpExtension(input: {
     author: { name: input.authorName ?? "local" },
     kind: "mcp",
     mcpServers: [redactMcpServer(input.server)],
-    tools: input.cachedTools,
-    permissions: {},
+    tools: withMcpToolCapabilities(input.cachedTools, permissions),
+    permissions,
   };
+  const granted = mcpInstallGrant(input.server);
   const created = await createExtension({
     name: input.name,
     version: manifest.version,
@@ -464,7 +499,9 @@ export async function installMcpExtension(input: {
     source: `mcp:${input.server.transport}`,
     installPath: null,
     enabled: true,
-    grantedPermissions: { grantedAt: {} },
+    grantedPermissions: granted,
+    installedPermissions: granted,
+    creatorUserId: input.creatorUserId ?? null,
     checksumVerified: false,
     consecutiveFailures: 0,
   } as NewExtension);
@@ -475,14 +512,22 @@ export async function installMcpExtension(input: {
 /**
  * Re-point an existing MCP extension at a new server config and refresh its
  * cached tool list (edit-after-install). Preserves the extension's identity
- * (name, version, author, permissions) — only the connection (`mcpServers`),
- * the `tools` snapshot, the optional `description`, and the `source` slug
- * change. Returns the updated extension, or `null` if the id is missing or
- * the extension is not an MCP extension.
+ * (name, version, author) — the connection (`mcpServers`), the `tools`
+ * snapshot, the optional `description`, the `source` slug and the derived
+ * network CEILING change. Returns the updated extension, or `null` if the id
+ * is missing or the extension is not an MCP extension.
  *
  * The caller is responsible for having already verified connectivity +
  * pulled `cachedTools` from the *new* config (the install path does the same
  * with a throwaway client) and for reloading the registry afterwards.
+ *
+ * Grant handling: the GRANT is re-issued ONLY when the derived ceiling
+ * actually changed (the admin re-pointed the server at a different host, or
+ * the row is a legacy one that declared no ceiling at all). That edit is an
+ * admin-gated, connectivity-verified re-confirmation of the connection, so
+ * treating it as install-equivalent consent is consistent with
+ * `installMcpExtension`. A description-only edit leaves the grant alone,
+ * which is what preserves a deliberate admin revocation.
  */
 export async function updateMcpExtension(input: {
   id: string;
@@ -495,19 +540,174 @@ export async function updateMcpExtension(input: {
   const prevManifest = existing.manifest as ExtensionManifestV2;
   if (prevManifest.kind !== "mcp") return null;
 
+  const permissions = mcpManifestPermissions(input.server);
   const manifest: ExtensionManifestV2 = {
     ...prevManifest,
     description: input.description ?? prevManifest.description,
     // Value-blanked at rest; the real headers/env are re-encrypted below.
     mcpServers: [redactMcpServer(input.server)],
-    tools: input.cachedTools,
+    tools: withMcpToolCapabilities(input.cachedTools, permissions),
+    permissions,
   };
+
+  const ceilingChanged =
+    JSON.stringify(prevManifest.permissions?.network ?? null) !==
+    JSON.stringify(permissions.network);
+  const regrant = ceilingChanged ? mcpInstallGrant(input.server) : null;
 
   const updated = await updateExtension(input.id, {
     description: manifest.description,
     manifest,
     source: `mcp:${input.server.transport}`,
+    ...(regrant !== null
+      ? { grantedPermissions: regrant, installedPermissions: regrant }
+      : {}),
   });
   if (updated) await persistMcpSecret(existing.name, input.server);
   return updated;
+}
+
+/**
+ * db-audit (mcp-capabilities): one-shot backfill for MCP rows installed
+ * BEFORE the manifest declared what the server reaches.
+ *
+ * Those rows carry `permissions: {}` and tools with no `capabilities`, which
+ * made the PDP inert for every one of their tool calls and made their
+ * `network` grant unreachable through the manifest-bounded clamp. The
+ * registry normalizes on read so a stale row is never *enforced* wrongly, but
+ * the row at rest still drives surfaces that read the DB directly — the
+ * extension detail page renders its network checkbox row from
+ * `ext.manifest.permissions.network`, and the reapprove flow clamps against
+ * `installed_permissions`.
+ *
+ * This writes the derived ceiling into the manifest and issues the matching
+ * grant.
+ *
+ * ── WHAT THIS WIDENS (read before deciding the migration is safe) ──────
+ *
+ * The DECLARED config is unchanged — every host comes from the row's own
+ * stored server definition. ENFORCED behaviour is NOT unchanged, and the
+ * difference matters:
+ *
+ *   • stdio egress WIDENS. `mcp-proxy.ts` re-authorizes every CONNECT against
+ *     `grantedPermissions`, which was `{grantedAt:{}}` for a legacy row — so
+ *     ALL stdio egress was denied. After this backfill, a server started as
+ *     `npx -y mcp-remote https://c.example.com/mcp` can reach
+ *     `c.example.com`. That is the intended repair, not an accident: the
+ *     admin typed that host into the command line, and pre-PR the deny was a
+ *     DEAD END — the manifest declared no ceiling, so the clamp dropped every
+ *     submitted host and no admin action could ever allow it. The grant is
+ *     recorded in `installedPermissions` and revocable from the existing
+ *     permissions surface.
+ *   • DISPATCH tightens. Legacy MCP tools authorized against an empty needed
+ *     set and were allowed unconditionally; they now require the `mcpInvoke`
+ *     sentinel (and any declared host), which this backfill grants. Leaving
+ *     the grant empty would brick every legacy MCP tool on the first boot
+ *     after this change.
+ *
+ * Net: one capability the operator had already configured becomes reachable,
+ * and one that was ungoverned becomes revocable.
+ *
+ * Idempotent (a row that already declares its ceiling is skipped) and
+ * fail-safe (a bad row warns by name and never bricks boot). A row this pass
+ * MISSES — breaker-open boot, or an UPDATE that threw — fails CLOSED at
+ * dispatch and is reported by `registry.loadFromDb`; see the note there.
+ * Mirrors `backfillMcpManifestSecrets`, which runs beside it in `migrate.ts`.
+ */
+export async function backfillMcpManifestCapabilities(
+  executor: Database = getDb(),
+): Promise<{ migrated: number; scanned: number }> {
+  // DELIBERATE FULL SCAN — do not add `WHERE manifest->>'kind' = 'mcp'`.
+  //
+  // It looks free (measured: ~70 ms at 300 rows, all of it inside
+  // `withPostgresMigrateLock`) and it is symmetric with the JS filter below,
+  // which also requires `kind === "mcp"`. It is still wrong, because of
+  // ORDERING on external Postgres:
+  //
+  //   `initDb` runs `withPostgresMigrateLock(() => migrate(_db))` and only
+  //   THEN `repairDoubleEncodedJsonb` (`db/connection.ts`). So while this
+  //   backfill runs, a row written before the jsonb double-encoding fix is
+  //   still a jsonb STRING scalar, and `manifest->>'kind'` on a scalar is
+  //   NULL — verified against PGlite:
+  //     jsonb_typeof → "string", manifest->>'kind' → null,
+  //     so `WHERE manifest->>'kind' = 'mcp'` returns that row's id NOT AT ALL.
+  //   Drizzle still parses the value back into an object for the JS filter,
+  //   so the predicate would skip precisely the corrupted legacy rows that
+  //   most need healing — and only on external Postgres, where it is hardest
+  //   to notice. They would self-heal on the SECOND boot (after the repair),
+  //   leaving one boot in which every MCP tool call denies.
+  //
+  // The same argument applies to `backfillMcpManifestSecrets` above; both
+  // scan, and they stay symmetric.
+  const rows = (await executor
+    .select({
+      id: extensions.id,
+      name: extensions.name,
+      manifest: extensions.manifest,
+      grantedPermissions: extensions.grantedPermissions,
+      installedPermissions: extensions.installedPermissions,
+    })
+    .from(extensions)) as Array<{
+    id: string;
+    name: string;
+    manifest: unknown;
+    grantedPermissions: ExtensionPermissions | null;
+    installedPermissions: ExtensionPermissions | null;
+  }>;
+
+  let migrated = 0;
+  let scanned = 0;
+  for (const row of rows) {
+    const manifest = row.manifest as ExtensionManifestV2 | null;
+    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    scanned += 1;
+    // Already declared — nothing to heal. Keeps the pass idempotent across
+    // reboots and leaves a hand-narrowed ceiling untouched. Both keys are
+    // checked because a row healed by an earlier build declares `network` but
+    // not the sentinel.
+    // Single-line condition on purpose: a multi-line `if (...)` leaves a
+    // `) {` continuation line that bun's sourcemap fills with a phantom,
+    // never-hit DA record the patch-coverage gate cannot clear.
+    const declared = manifest.permissions ?? {};
+    if (declared.network !== undefined && declared.mcpInvoke !== undefined) continue;
+    try {
+      const normalized = normalizeMcpManifest(manifest);
+      const hosts = normalized.permissions.network ?? [];
+      const prior = row.grantedPermissions ?? { grantedAt: {} };
+      const now = Date.now();
+      // Merge rather than replace: a per-conversation narrowing or a future
+      // field must not be dropped by a backfill that only knows about these
+      // two keys. The sentinel is granted for EVERY healed row — it is the
+      // capability a hostless stdio server's revocation rides on, so a row
+      // that gets only `network` would still dispatch ungated.
+      const granted: ExtensionPermissions = {
+        ...prior,
+        mcpInvoke: true,
+        ...(hosts.length > 0 ? { network: hosts } : {}),
+        grantedAt: {
+          ...prior.grantedAt,
+          mcpInvoke: now,
+          ...(hosts.length > 0 ? { network: now } : {}),
+        },
+      };
+      await executor
+        .update(extensions)
+        .set(
+          serializeJsonbFields({
+            manifest: normalized,
+            grantedPermissions: granted,
+            installedPermissions: row.installedPermissions ?? granted,
+          }),
+        )
+        .where(eq(extensions.id, row.id));
+      migrated += 1;
+    } catch (err) {
+      // Never brick boot — name the extension, never the server definition.
+      backfillLog.warn("legacy MCP manifest capabilities could not be derived", {
+        extension: row.name,
+        error: String(err).split("\n")[0],
+      });
+    }
+  }
+  return { migrated, scanned };
 }

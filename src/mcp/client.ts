@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { assertMcpTargetAllowed } from "./target-guard";
+import { createMcpGuardedFetch } from "./guarded-fetch";
 import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../extensions/types";
 
 /**
@@ -87,8 +89,23 @@ export class McpClient {
     return this.connected;
   }
 
+  /**
+   * SSRF gate, then connect.
+   *
+   * The guard lives HERE rather than in the API handlers because this is
+   * the one chokepoint every network connect passes through — install,
+   * edit, refresh, registry reload, and lazy tool dispatch all end up in
+   * `connect()`. Guarding at the routes would leave the runtime paths
+   * open and would need the same policy written twice.
+   *
+   * It also means the check is per-CONNECT, not per-install: a target
+   * that resolved public when it was installed and resolves private later
+   * is refused on the next connect (see `target-guard.ts` on the residual
+   * TOCTOU window). `stdio` specs are a no-op in the guard.
+   */
   async connect(): Promise<void> {
     if (this.connected) return;
+    await assertMcpTargetAllowed(this.spec);
     const transport = this.buildTransport();
     await this.client.connect(transport);
     this.connected = true;
@@ -174,9 +191,17 @@ export class McpClient {
     }
     const url = new URL(this.spec.url);
     const headers = this.spec.headers;
+    // Every request either transport makes goes through this fetch — the
+    // streamable POST/GET/DELETE, the SSE stream, and the SSE endpoint POST.
+    // It re-runs the target guard on each `Location` hop, which is what
+    // stops a reachable MCP server from redirecting us onto an internal
+    // address (see guarded-fetch.ts). Without it the guard below only ever
+    // saw the FIRST url and the SDK followed redirects for us.
+    const fetch = createMcpGuardedFetch();
+    const opts = { fetch, ...(headers ? { requestInit: { headers } } : {}) };
     if (this.spec.transport === "http") {
-      return new StreamableHTTPClientTransport(url, headers ? { requestInit: { headers } } : undefined);
+      return new StreamableHTTPClientTransport(url, opts);
     }
-    return new SSEClientTransport(url, headers ? { requestInit: { headers } } : undefined);
+    return new SSEClientTransport(url, opts);
   }
 }

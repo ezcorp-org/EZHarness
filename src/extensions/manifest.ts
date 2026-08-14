@@ -1000,8 +1000,10 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
     }
   }
 
-  // Booleans where declared.
-  for (const field of ["shell", "storage", "taskEvents", "loopEvents"] as const) {
+  // Booleans where declared. `mcpInvoke` is host-SYNTHESIZED for `kind:"mcp"`
+  // rows rather than author-written, but it is validated here like any other
+  // boolean so a hand-edited row can't smuggle a non-boolean past the clamp.
+  for (const field of ["shell", "storage", "taskEvents", "loopEvents", "mcpInvoke"] as const) {
     if (p[field] !== undefined && typeof p[field] !== "boolean") {
       errors.push(`permissions.${field} must be a boolean`);
     }
@@ -1618,6 +1620,11 @@ export function deriveCapsFromExtensionPerms(
   if (perms.storage === true) {
     decl.storage = true;
   }
+  // The `kind:"mcp"` dispatch sentinel. Emitted through the SAME `custom`
+  // channel as every other namespaced cap so an MCP tool's declaration is an
+  // ordinary `CapabilityDeclaration` the PDP already knows how to flatten —
+  // no special case in `capabilityDeclarationToSet`, no second code path.
+  const mcpInvoke = (perms as { mcpInvoke?: boolean }).mcpInvoke === true;
 
   // Phase 6 — namespace migration. Translate the legacy boolean fields
   // to their `ezcorp:*` namespaced form via NAMESPACE_MAP. The runtime
@@ -1626,6 +1633,9 @@ export function deriveCapsFromExtensionPerms(
   // manifests can declare either name. Internally, the PDP and audit
   // rows use the namespaced form.
   const custom: Record<string, string[] | boolean> = {};
+  if (mcpInvoke) {
+    custom[NAMESPACE_MAP.mcpInvoke] = true;
+  }
   if (perms.appendMessages !== undefined) {
     custom[NAMESPACE_MAP.appendMessages] = true;
   }
@@ -1678,4 +1688,5 @@ export const NAMESPACE_MAP = {
   spawnAgents: "ezcorp:agent:spawn",
   eventSubscriptions: "ezcorp:events:subscribe",
   webhooks: "ezcorp:webhooks:receive",
+  mcpInvoke: "ezcorp:mcp:invoke",
 } as const;

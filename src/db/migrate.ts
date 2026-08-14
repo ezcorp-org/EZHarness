@@ -2890,8 +2890,20 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // migrate.ts → queries/extensions.ts → connection.ts → migrate.ts cycle that
   // bun's web-leg loader otherwise resolves to a "SyntaxError: Export named
   // 'backfillMcpManifestSecrets' not found" on this module.
-  const { backfillMcpManifestSecrets } = await import("./queries/extensions");
+  const { backfillMcpManifestSecrets, backfillMcpManifestCapabilities } = await import(
+    "./queries/extensions"
+  );
   await backfillMcpManifestSecrets(db);
+
+  // db-audit (mcp-capabilities): heal MCP rows installed before the manifest
+  // declared what the server reaches. Those rows carry `permissions: {}` and
+  // capability-less tools, which made the PDP allow every MCP tool call
+  // against an EMPTY needed set and made their `network` grant unreachable
+  // through the manifest-bounded clamp. Runs AFTER the secrets backfill so it
+  // reads the already-blanked manifests. Widens nothing — the hosts come from
+  // the row's own stored server definition. Same lazy-import rationale as
+  // above.
+  await backfillMcpManifestCapabilities(db);
 
   // Seed version 1 for every definition that has none — the ONE backfill
   // this phase adds, and guarded so a re-run selects zero rows and writes

@@ -19,6 +19,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { toolError, type BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
+import { ezClientToolWatchdogBudgetMs } from "../../ez-client-tool-registry";
 import type { ToolParams } from "../validate";
 
 export function isValidInAppPath(path: unknown): path is string {
@@ -40,6 +41,10 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
     category: "ez",
     cardType: "default",
     clientSide: true,
+    // The call suspends until the panel POSTs back, so the watchdog must
+    // defer its idle kill for the WHOLE gate wait — never the 90s default.
+    // Derived from the gate's own timeout; see ez-client-tool-registry.ts.
+    callTimeoutMs: ezClientToolWatchdogBudgetMs(),
     parameters: Type.Unsafe({
       type: "object",
       properties: {

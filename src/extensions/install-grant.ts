@@ -33,6 +33,7 @@ const GRANT_PERMISSION_KEYS = [
   "shell",
   "env",
   "storage",
+  "mcpInvoke",
   "taskEvents",
   "spawnAgents",
   "agentConfig",
@@ -138,6 +139,12 @@ export function manifestRequestedGrant(
   if (p.shell !== undefined) requested.shell = p.shell;
   if (p.env) requested.env = p.env;
   if (p.storage !== undefined) requested.storage = p.storage;
+  // The `kind:"mcp"` dispatch sentinel. Host-synthesized rather than
+  // author-written, so it only ever appears on an MCP manifest; passing it
+  // through keeps this "request everything declared" helper honest for the
+  // CLI install path, which would otherwise install an MCP row whose every
+  // tool is denied.
+  if (p.mcpInvoke !== undefined) requested.mcpInvoke = p.mcpInvoke;
   if (p.taskEvents !== undefined) requested.taskEvents = p.taskEvents;
   if (p.spawnAgents) requested.spawnAgents = p.spawnAgents;
   if (p.agentConfig) requested.agentConfig = p.agentConfig;

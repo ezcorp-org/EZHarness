@@ -47,9 +47,16 @@ vi.mock("$server/extensions/registry", () => ({
   },
 }));
 
+// The edit handler records the real failure reason server-side now that the
+// 502 body is a constant. Stub the sink so this stays DB-free.
+const persistError = vi.fn(async () => {});
+vi.mock("$server/db/queries/error-logs", () => ({ persistError }));
+
 const { getExtension, updateMcpExtension, rehydrateMcpServerSecrets } = await import(
   "$server/db/queries/extensions"
 );
+const { MCP_CONNECT_FAILED_MESSAGE } = await import("$server/mcp/connect-failure");
+const { McpTargetBlockedError } = await import("$server/mcp/target-guard");
 const { PUT } = await import("../routes/api/mcp-servers/[id]/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
@@ -156,7 +163,10 @@ describe("PUT /api/mcp-servers/[id]", () => {
     const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("ECONNREFUSED");
+    // Uniform body — the edit route carried the same port-scan oracle as
+    // install, and an admin can re-point an existing MCP row anywhere.
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
+    expect(body.error).not.toContain("ECONNREFUSED");
     expect(updateMcpExtension).not.toHaveBeenCalled();
     expect(registryReload).not.toHaveBeenCalled();
     expect(mcpClose).toHaveBeenCalled();
@@ -328,12 +338,43 @@ describe("PUT /api/mcp-servers/[id]", () => {
     expect("headers" in persisted.server).toBe(false);
   });
 
-  test("falls back to generic message when McpClient throws a non-Error", async () => {
+  test("an SSRF-blocked target is byte-identical to a plain connect failure", async () => {
+    // Edit is the route an attacker would use to re-point an EXISTING row at
+    // an internal address, so its oracle closure needs its own pin rather
+    // than relying on the install route's.
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const blocked = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(new Error("connect ECONNREFUSED 93.184.216.34:443"));
+    const connectFailure = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+
+    expect(blocked.status).toBe(connectFailure.status);
+    expect(await blocked.text()).toBe(await connectFailure.text());
+    // And no mutation on either path.
+    expect(updateMcpExtension).not.toHaveBeenCalled();
+  });
+
+  test("the blocked target never appears in the response body", async () => {
+    vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
+    mcpConnect.mockRejectedValueOnce(
+      new McpTargetBlockedError("private-address", "mcp.lan → 169.254.169.254"),
+    );
+    const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
+    const body = await res.text();
+    expect(body).not.toContain("169.254");
+    expect(body).not.toContain("private-address");
+  });
+
+  test("a thrown non-Error returns the same body as everything else", async () => {
     vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
     mcpConnect.mockRejectedValueOnce("pipe closed");
     const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("MCP connect failed: MCP connect failed");
+    expect(body.error).toBe(MCP_CONNECT_FAILED_MESSAGE);
   });
 });

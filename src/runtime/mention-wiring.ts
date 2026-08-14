@@ -1,9 +1,10 @@
 import { realpath } from "node:fs/promises";
 import { parseMentions, STRUCTURED_NAME_CHAR_CLASS } from "../../web/src/lib/mention-logic";
 import type { InputField, InputSchema } from "../types";
-import { getExtensionsByNames } from "../db/queries/extensions";
+import { getExtension, getExtensionsByNames } from "../db/queries/extensions";
 import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
 import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
+import { loadWireActor, partitionWirableExtensions } from "../auth/extension-wire-authz";
 import { validatePath } from "./tools/validate";
 import { realpathInsideRoot } from "./fs/scan-fs";
 
@@ -978,13 +979,49 @@ export async function resolveMentionedTeams(
 }
 
 /**
+ * The acting principal for a wiring decision, as the chat turn knows it: the
+ * conversation OWNER's id (the route has already proved the sender owns the
+ * conversation) and the conversation's project.
+ *
+ * Both fields are nullable and both nulls are FAIL-CLOSED, not "any": a turn
+ * with no resolvable owner wires no MCP extension at all. Required rather
+ * than optional so a future call site cannot silently inherit the
+ * no-principal path.
+ */
+export interface MentionWireActor {
+  userId: string | null;
+  projectId: string | null;
+}
+
+/** A persisted extension row, derived from the query so it cannot drift. */
+type ExtensionRow = NonNullable<Awaited<ReturnType<typeof getExtension>>>;
+
+/**
  * Parse mentions from a message and wire the referenced extensions into the
  * conversation so their tools become available.
+ *
+ * Authorization: every candidate — whether named directly by `![ext:…]` or
+ * pulled in through an `![agent:…]` config's `extensions` list — is put
+ * through `partitionWirableExtensions`. Gating the agent branch too is not
+ * belt-and-braces: an agent config's `extensions` array is user-authored, so
+ * skipping it would leave `![agent:mine]` as a one-hop bypass of the direct
+ * mention gate.
+ *
+ * A denied extension is dropped SILENTLY. That is the binding mention-grammar
+ * contract — an unknown target is a no-op, never an error — and it is also
+ * the non-leaking answer: an error would tell the sender that an extension by
+ * that name exists.
+ *
+ * Each candidate is re-read as a ROW before the gate runs, because the gate
+ * decides on COLUMNS (kind / isBundled / creatorUserId) and the name lookup
+ * above yields only ids for the agent branch. A row that vanished in that
+ * window drops out, which is strictly safer than wiring it unchecked.
  */
 export async function wireMentionedExtensions(
   conversationId: string,
   messageContent: string,
   messageId: string,
+  actor: MentionWireActor,
 ): Promise<string[]> {
   const mentions = parseMentions(messageContent);
   if (mentions.length === 0) return [];
@@ -1019,15 +1056,28 @@ export async function wireMentionedExtensions(
 
   const existing = new Set(await getConversationExtensionIds(conversationId));
   const newIds = [...extensionIds].filter(id => !existing.has(id));
-
   if (newIds.length === 0) return [];
+  const reads: Promise<ExtensionRow | null>[] = [];
+  for (const id of newIds) {
+    reads.push(getExtension(id));
+  }
+  const rows = await Promise.all(reads);
+  const candidates: ExtensionRow[] = [];
+  for (const row of rows) {
+    if (row !== null) candidates.push(row);
+  }
+  if (candidates.length === 0) return [];
+  const wireActor = await loadWireActor(actor.userId, actor.projectId);
+  const partition = await partitionWirableExtensions(candidates, wireActor);
+  const wiredIds = partition.allowed.map(ext => ext.id);
+  if (wiredIds.length === 0) return [];
 
   await addConversationExtensions(
     conversationId,
-    newIds.map(extensionId => ({ extensionId, messageId })),
+    wiredIds.map(extensionId => ({ extensionId, messageId })),
   );
 
-  return newIds;
+  return wiredIds;
 }
 
 // ─── Path mentions (files + directories) ───────────────────────────

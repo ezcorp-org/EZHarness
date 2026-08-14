@@ -204,7 +204,15 @@ describe("SDK/host manifest type parity — permissions block (with documented h
   // third-party author, so it's deliberately NOT mirrored into the SDK
   // type. Any OTHER host-only field must be added here explicitly (or
   // mirrored into the SDK) for this test to pass — that's the guard.
-  const HOST_ONLY_PERMISSIONS_FIELDS = new Set(["custom"]);
+  //
+  // `mcpInvoke` is the `kind:"mcp"` dispatch sentinel. The host type says it
+  // outright: "Synthesized (never author-written) by
+  // `mcp-capabilities.ts:mcpManifestPermissions` for every MCP row". MCP
+  // manifests are BUILT by the host from an admin's server definition — there
+  // is no `ezcorp.config.ts` behind one — so mirroring this into the SDK would
+  // advertise to third-party authors a permission they can never meaningfully
+  // declare, on a manifest shape they never write. Host-only, like `custom`.
+  const HOST_ONLY_PERMISSIONS_FIELDS = new Set(["custom", "mcpInvoke"]);
 
   test("author-declarable permission keys match (host minus the documented bundled-only allowlist)", () => {
     const sdkManifestBody = extractBody(sdkClean, "export interface ExtensionManifestV2 {", "SDK ExtensionManifestV2");

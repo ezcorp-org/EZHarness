@@ -45,20 +45,44 @@ mock.module("$lib/server/context", () => ({
 	}),
 }));
 
+// `getDb` is the one the assertions drive; the rest are inert stand-ins so the
+// module's full named-export surface resolves. The wire gate's query modules
+// import `getPglite` from here, and a named export this factory omits is a
+// LOAD-time SyntaxError that fails the file before any test runs.
 mock.module("$server/db/connection", () => ({
 	getDb: () => ({
 		select: () => ({
 			from: () => ({ where: () => ({ limit: () => Promise.resolve([]) }) }),
 		}),
 	}),
+	getPglite: () => null,
+	getDbPath: () => ":memory:",
+	getDbMaskDirs: () => [],
+	rawQuery: async () => ({ rows: [] }),
+	initDb: async () => {},
+	closeDb: async () => {},
+	guardDatadirMajor: async () => {},
+	__test: {},
 }));
 
-mock.module("$server/db/schema", () => ({
-	extensions: {},
-	agentConfigs: {},
-}));
+// NOT mocked. A two-key stub (`extensions`/`agentConfigs`) used to stand in
+// here, but the route's import graph now reaches the wire gate's query
+// modules, which import `extensionRbacGrants` from this same schema — and a
+// named export the stub omits is a LOAD-time SyntaxError that fails the whole
+// file before any test runs. The real schema is inert table metadata with no
+// connection of its own, and `$server/db/connection` is mocked, so importing
+// it costs nothing and cannot drift out of date.
 
+// Spread the REAL module and override only the four builders this route calls
+// against the mocked `$server/db/schema` columns. A fixed four-key stub broke
+// the moment the route's import graph grew: the wire gate reaches
+// `db/queries/users` + `db/queries/extension-rbac`, which import `isNull`, and
+// a missing named export is a LOAD-time SyntaxError — the whole file fails
+// before a single test runs. Nothing is weakened: the overrides are still the
+// ones the assertions depend on, and `$server/db/connection` is mocked, so no
+// real condition is ever executed.
 mock.module("drizzle-orm", () => ({
+	...(require("drizzle-orm") as Record<string, unknown>),
 	eq: () => ({}),
 	and: () => ({}),
 	or: () => ({}),
