@@ -31,7 +31,7 @@ export interface ScopeOption {
 	custom: boolean;
 }
 
-/** The five core verbs every extension supports — names must match
+/** The six core verbs every extension supports — names must match
  *  `CORE_RBAC_SCOPES` in `src/db/queries/extension-rbac.ts`; the
  *  descriptions are UI-only. */
 export const CORE_RBAC_SCOPE_OPTIONS: readonly ScopeOption[] = [
@@ -40,6 +40,7 @@ export const CORE_RBAC_SCOPE_OPTIONS: readonly ScopeOption[] = [
 	{ name: "secrets", description: "Set, replace, or delete the extension's stored secrets", custom: false },
 	{ name: "approve-runs", description: "Approve, dismiss, or re-run the extension's proposals", custom: false },
 	{ name: "manage", description: "Grant/revoke scopes within this project/extension (admins only may grant this)", custom: false },
+	{ name: "mcp-wire", description: "Attach this MCP server to a conversation — spends the admin-installed credential", custom: false },
 ];
 
 /** Client-side mirror of `RBAC_SCOPE_NAME_RE` (see module header). */

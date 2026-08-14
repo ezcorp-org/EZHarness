@@ -12,8 +12,9 @@
  *
  * What crosses into the audit row:
  *   - `transport`, and a `target` that is the executable (stdio) or the
- *     URL's ORIGIN + PATH only (http/sse — query and fragment are dropped
- *     whole, because `?api_key=…` is a real MCP convention).
+ *     URL's ORIGIN only (http/sse — path, query and fragment are all
+ *     dropped; `?api_key=…` AND `/services/<opaque-token>` are both real
+ *     MCP conventions).
  *   - `authKeys`: the NAMES of the transport auth entries (stdio `env`,
  *     http/sse `headers`). Names are the forensically useful half ("which
  *     credential was rotated"); values never appear.
@@ -33,11 +34,16 @@ import type { McpServerDefinition, ToolDefinition } from "./types";
 /** The credential-free projection of an MCP server definition. */
 export type McpServerFacts = {
   transport: "stdio" | "http" | "sse";
-  /** stdio: the executable. http/sse: `origin + pathname`, query + fragment
-   *  stripped. `"<unparseable-url>"` when the URL will not parse — the raw
-   *  string is deliberately NOT echoed, since that is the case where it is
-   *  most likely to be a malformed credential blob. */
+  /** stdio: the executable. http/sse: the URL's ORIGIN only — path, query
+   *  and fragment are all dropped (see `safeUrlTarget`; a webhook-style MCP
+   *  endpoint carries its credential in the PATH). `"<unparseable-url>"`
+   *  when the URL will not parse — the raw string is deliberately NOT
+   *  echoed, since that is the case where it is most likely to be a
+   *  malformed credential blob. */
   target: string;
+  /** http/sse only: how many path segments the endpoint had. Enough shape to
+   *  tell two endpoints on one host apart; carries no path bytes. */
+  pathDepth?: number;
   /** stdio only: number of argv entries. Values are never recorded. */
   argCount?: number;
   /** Sorted NAMES of the transport auth entries. Never the values. */
@@ -46,14 +52,33 @@ export type McpServerFacts = {
   toolNames: string[];
 };
 
-/** Strip everything after the path so a `?token=…` style URL cannot ride
- *  into the audit row. */
-function safeUrlTarget(url: string): string {
+/**
+ * Reduce an http/sse URL to its ORIGIN. Query, fragment, userinfo and — as
+ * of the F7 fix — the PATH are all dropped.
+ *
+ * The path went too. A webhook-style MCP endpoint carries its credential as
+ * opaque path SEGMENTS (`/services/T0001/B0002/QQQQopaqueTOKEN99` is the
+ * Slack/Zapier shape), and `redactForAudit`'s pattern set does not match an
+ * opaque path token — it has no `key=` to anchor on. Keeping `origin +
+ * pathname` therefore wrote a live credential into `audit_log.metadata`
+ * verbatim.
+ *
+ * A "does this segment look like a route word or a token?" heuristic was
+ * considered and rejected: `T0001` and `B0002` pass any lax rule, and a
+ * heuristic at a credential boundary fails silently in the direction that
+ * costs the most. The origin answers the question an operator actually asks
+ * of this row — *which host does this MCP talk to* — and {@link
+ * McpServerFacts.pathDepth} preserves enough shape to tell two endpoints on
+ * one host apart without carrying a single path byte.
+ */
+function safeUrlTarget(url: string): { target: string; pathDepth: number } {
   try {
     const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
+    // "/a/b" → 2; "/" and "" → 0.
+    const pathDepth = parsed.pathname.split("/").filter(Boolean).length;
+    return { target: parsed.origin, pathDepth };
   } catch {
-    return "<unparseable-url>";
+    return { target: "<unparseable-url>", pathDepth: 0 };
   }
 }
 
@@ -80,9 +105,11 @@ export function describeMcpServerForAudit(
       toolNames,
     };
   }
+  const { target, pathDepth } = safeUrlTarget(server.url);
   return {
     transport: server.transport,
-    target: safeUrlTarget(server.url),
+    target,
+    pathDepth,
     authKeys: Object.keys(server.headers ?? {}).sort(),
     toolCount: toolNames.length,
     toolNames,

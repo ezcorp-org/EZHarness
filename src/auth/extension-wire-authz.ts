@@ -54,22 +54,37 @@
  *           `creatorUserId` schema comment already fixes for `modifiable`:
  *           *"pre-existing rows are NULL and are therefore never
  *           user-modifiable (admins can still act)"*;
- *        c. a member holding the {@link MCP_WIRE_SCOPE} (`use`) grant at
- *           the conversation's (project, extension) coordinates.
+ *        c. a member holding the {@link MCP_WIRE_SCOPE} (`mcp-wire`) grant
+ *           at the conversation's (project, extension) coordinates.
  *   4. Anything that prevents a decision — no acting user, an inactive or
  *      deleted user, a throwing grants lookup — DENIES. Same posture as the
  *      PDP's `override-lookup-failed` deny.
  *
- * Rung (c) is not a new mechanism: `extension_rbac_grants` already answers
- * *"may this user use this extension in this project"* and is documented as
- * such (`docs/features/platform/rbac-and-permission-modes.md` § 5). It is
- * the "finer grant" this gate was specified to defer to, and it cannot
- * widen anything by accident — the table is deny-by-default, and
- * `canManageGrant` lets only an admin (or a delegated `manage` holder, who
- * can never mint `manage` itself) write a row. Without it the only way to
- * let one member drive one MCP server is to make them an instance admin,
- * which is strictly worse. Every grant write is itself audited
- * (`RBAC_GRANTED` / `RBAC_REVOKED`).
+ * Rung (c) reuses the `extension_rbac_grants` STORAGE but not its existing
+ * vocabulary: the verb is the dedicated `mcp-wire`, never `use` — see
+ * {@link MCP_WIRE_SCOPE} for why conflating them would have retro-authorized
+ * every pre-existing grant, wildcard rows included. It cannot widen anything
+ * by accident: the table is deny-by-default, and `canManageGrant` lets only
+ * an admin (or a delegated `manage` holder, who can never mint `manage`
+ * itself) write a row. Without the rung, the only way to let one member drive
+ * one MCP server is to make them an instance admin, which is strictly worse.
+ * Every grant write is itself audited (`RBAC_GRANTED` / `RBAC_REVOKED`).
+ *
+ * ## This gate is asked at THREE seams, not one
+ *
+ * "Wired into a conversation" is not the only way an MCP tool reaches a
+ * dispatch. All three of these ask this same function:
+ *
+ *   1. `POST /api/conversations/[id]/extensions` — the typed wire route.
+ *   2. `![ext:…]` / `![agent:…]` mention wiring.
+ *   3. `POST /api/tool-invoke` — direct dispatch, which never consulted
+ *      `conversation_extensions` at all, and `getToolsForAgent` at the
+ *      stream-chat 2b branch, which attaches an agent config's `extensions[]`
+ *      straight from the registry.
+ *
+ * Seam 3 is why gating only the wire step was cosmetic: discovery is free
+ * (`GET /api/extensions` is read+auth), so a member could name the tool
+ * directly and never wire anything.
  *
  * ## What callers must do on a denial
  *
@@ -88,17 +103,26 @@
  */
 import { hasExtensionScope, type RbacUser } from "./extension-rbac";
 import { getUserById } from "../db/queries/users";
+import { getExtension } from "../db/queries/extensions";
 import { logger } from "../logger";
 
 const log = logger.child("auth.extension-wire-authz");
 
 /**
- * The RBAC verb an MCP extension's wire step demands. `use` is the core
- * verb that already means "may act with this extension" everywhere else
- * (the github-projects handler's poll-now / dashboard-data rung, the SDK's
- * `ctx.rbac.check`), so wiring reuses it rather than minting a synonym.
+ * The RBAC verb an MCP extension's wire step demands.
+ *
+ * NOT `use`. `use` means "may act with this extension" and is asked on
+ * advisory rungs (github-projects poll-now / dashboard-data, the SDK's
+ * `ctx.rbac.check`). Attaching an MCP extension is a different right — it
+ * spends an admin-installed credential the holder never sees — and reusing
+ * `use` for it would have retro-authorized every existing `use` grant. The
+ * blast radius would not have been one grant either: `grantCovers` is
+ * NULL-covers-all, so a single `(projectId: null, extensionId: null,
+ * scopes: ["use"])` row satisfies the rung for EVERY MCP server on the
+ * instance. A separate verb makes an operator say this, in these words,
+ * on purpose.
  */
-export const MCP_WIRE_SCOPE = "use";
+export const MCP_WIRE_SCOPE = "mcp-wire";
 
 /**
  * The minimal extension-row shape the gate reads. Structurally satisfied by
@@ -123,6 +147,15 @@ export type WirableExtension = {
  * `user: null` means the caller has no acting human — a background fire, a
  * system reconciler, or a lookup that failed. It is NOT "any user": it
  * denies every MCP candidate.
+ *
+ * A SPAWNED run is not that case. Sub-conversations inherit their ancestor's
+ * owner at creation (`start-assignment.ts` stamps
+ * `resolveConversationOwnerUserId(parent)`; `POST /api/conversations` stamps
+ * `user.id` even with a `parentConversationId`), so a child resolves the same
+ * principal as its parent and gets exactly the parent's reach — it inherits,
+ * never acquires. Only a LEGACY pre-Wave-0 sub-conversation row carries a
+ * null owner, and `migrate()` reassigns ownerless conversations to the first
+ * admin at boot.
  *
  * `projectId` MUST be derived server-side (from the conversation row), never
  * taken from the wire — the same rule the tool-executor's
@@ -249,4 +282,39 @@ export async function partitionWirableExtensions<T extends WirableExtension>(
     else deniedNames.push(ext.name);
   }
   return { allowed, deniedNames };
+}
+
+/**
+ * The id-addressed form, for write-time validation of an author-supplied
+ * extension list (`agent_configs.extensions`, sec: F3).
+ *
+ * Returns the ids the actor may NOT attach — an id that resolves to no row
+ * is included, so a typo and a refusal read the same to the author. Order
+ * follows the input; duplicates collapse.
+ *
+ * This is the FAIL-FAST half of the F3 fix. The runtime half (the
+ * `allowExtension` hook on `registry.getToolsForAgent`) is the one that
+ * actually protects the credential — it re-decides every turn, so a config
+ * that was legal when written but whose grant was since revoked stops
+ * working immediately. Validating at write time exists so the author gets a
+ * clear 400 instead of an agent that silently has fewer tools than it says.
+ */
+export async function findUnauthorizedExtensionIds(
+  extensionIds: readonly string[],
+  actor: WireActor,
+): Promise<string[]> {
+  const denied: string[] = [];
+  for (const id of [...new Set(extensionIds)]) {
+    let row: Awaited<ReturnType<typeof getExtension>> = null;
+    try {
+      row = await getExtension(id);
+    } catch (err) {
+      log.warn("wire-authz: extension lookup failed — denying (fail-closed)", {
+        extensionId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!row || !(await canWireExtension(row, actor))) denied.push(id);
+  }
+  return denied;
 }
