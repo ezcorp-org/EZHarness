@@ -85,7 +85,9 @@ export const COALESCE_WINDOW_MS = 10_000;
  * Suppressed-count ceiling before a summary is flushed early and a fresh
  * window opens. Bounds how stale the count can get during a very long
  * walk, so an operator watching the audit log sees progress rather than
- * silence.
+ * silence. The decision that trips it becomes the next window's verbatim
+ * head and is NOT also counted in the summary it flushes — so a burst of
+ * N decisions is always reported as exactly N.
  */
 export const COALESCE_FLUSH_AT = 250;
 
@@ -273,18 +275,26 @@ export function createPermAuditCoalescer(
         open(id, key, auditId);
         return true;
       }
-      existing.suppressed += 1;
-      // Recorded BEFORE the early-flush branch so the summary that branch
-      // emits reports the span up to and including this decision.
-      existing.lastAt = Date.now();
       if (existing.suppressed >= flushAt) {
-        // Flush and immediately reopen with THIS call as the new head, so
-        // a long walk produces a periodic summary instead of one giant
-        // number at the very end.
+        // The window is full. Flush it and reopen with THIS call as the
+        // new head, so a long walk produces a periodic summary instead of
+        // one giant number at the very end.
+        //
+        // The check comes BEFORE the increment on purpose: this call is
+        // written verbatim as the next window's head, so counting it as
+        // suppressed too would report it twice. That off-by-one used to be
+        // harmless bookkeeping on an allow burst; on a DENY the count is
+        // the forensic content of the folded row, so `heads + suppressed`
+        // must equal the number of decisions exactly (#206).
         close(id);
         open(id, key, auditId);
         return true;
       }
+      existing.suppressed += 1;
+      // The span ends at the last FOLDED decision — the one this summary
+      // actually accounts for. The call that trips the flush above starts
+      // the next window and is timestamped there.
+      existing.lastAt = Date.now();
       return false;
     },
 
