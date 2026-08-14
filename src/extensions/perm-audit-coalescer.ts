@@ -34,6 +34,17 @@
  * both facts explicitly: `firstAuditId` joins the summary to its head row,
  * and `firstAt`/`lastAt` bracket the burst in wall-clock time.
  *
+ * **The one field that is genuinely dropped is `parentAuditId`**, and it
+ * is deliberate. For a top-level tool call it is constant across the whole
+ * burst (undefined, or the conversation's spawn root), so nothing is lost.
+ * For a nested cross-extension invoke it is the UPSTREAM call's audit id,
+ * so it varies per call — the head row keeps its own, and the tail row
+ * does not carry the other N. Keeping it in the key instead would mean a
+ * cross-extension deny loop writes one row per call again, i.e. exactly
+ * the flood this exists to stop, while `callerExtensionId` (which IS in
+ * the key) already answers "who was calling". A reader chasing one
+ * specific chain joins the tail's `headAuditId` back to the head row.
+ *
  * So the coalesced form is strictly MORE informative than the flood: the
  * first decision is written verbatim, and the tail becomes one row that
  * says how many followed and over what span. Where 700 identical rows
