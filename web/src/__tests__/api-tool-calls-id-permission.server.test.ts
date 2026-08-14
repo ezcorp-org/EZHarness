@@ -5,14 +5,19 @@
  * after `requireScope("chat")` + `requireAuth`. Tests cover:
  *  - 401 when locals.user is missing.
  *  - 403 when the API-key lacks 'chat' scope.
- *  - Delegate invocation with (request, params.id, user) on the happy path.
+ *  - Delegate invocation with (request, params.id, user, locals) on the happy
+ *    path. The 4th argument is load-bearing: the delegate confines a
+ *    non-session principal to gates its own request raised, which needs the
+ *    auth METHOD and key id off `locals` — neither is on `AuthUser`. A route
+ *    that forwards only `user` re-opens that hole silently, so the argument
+ *    is asserted, not merely typed.
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const handleToolPermission = vi.fn(
-  async (_req: Request, _id: string, _user: unknown) =>
+  async (_req: Request, _id: string, _user: unknown, _principal?: unknown) =>
     new Response(JSON.stringify({ ok: true }), { status: 200 }),
 );
 vi.mock("$server/routes/tool-permission", () => ({
@@ -74,5 +79,25 @@ describe("POST /api/tool-calls/[id]/permission", () => {
     expect(req).toBeInstanceOf(Request);
     expect(id).toBe("tc-42");
     expect(user).toEqual(authedUser.user);
+  });
+
+  test("forwards `locals` as the 4th argument so the consent-confinement check has a principal", async () => {
+    const locals = {
+      ...authedUser,
+      apiKeyScopes: ["chat"],
+      authMethod: "api-key",
+      apiKeyId: "key-77",
+    };
+    const res = await POST(makeEvent({ id: "tc-43", body: { approved: true }, locals }));
+    expect(res.status).toBe(200);
+    const principal = handleToolPermission.mock.calls[0]![3] as {
+      authMethod?: string;
+      apiKeyId?: string;
+    };
+    // Both halves of the identity must survive the hop — `authMethod` alone
+    // cannot tell two keys apart, `apiKeyId` alone cannot tell a key from a
+    // session.
+    expect(principal.authMethod).toBe("api-key");
+    expect(principal.apiKeyId).toBe("key-77");
   });
 });

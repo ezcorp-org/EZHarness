@@ -43,6 +43,15 @@ const OWNER_USER: AuthUser = {
   role: "member",
 };
 
+// Every case in this file models a HUMAN at a browser answering their own
+// gate — the principal the consent gate exists for. The key-principal
+// confinement added alongside it has its own suite
+// (`tool-permission-key-confinement.test.ts`).
+const SESSION_PRINCIPAL = {
+  authMethod: "session" as const,
+  user: { id: OWNER_USER.id },
+};
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function postPermission(id: string, body?: unknown) {
@@ -82,6 +91,7 @@ describe("POST /api/tool-calls/:id/permission", () => {
       postPermission("tc-approve", { approved: true }),
       "tc-approve",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -97,6 +107,7 @@ describe("POST /api/tool-calls/:id/permission", () => {
       postPermission("tc-deny", { approved: false }),
       "tc-deny",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -111,7 +122,7 @@ describe("POST /api/tool-calls/:id/permission", () => {
       body: "not json",
     });
     // updated for sec-H2
-    const res = await handleToolPermission(req, "tc-bad", OWNER_USER);
+    const res = await handleToolPermission(req, "tc-bad", OWNER_USER, SESSION_PRINCIPAL);
 
     expect(res.status).toBe(400);
     const data = await res.json();
@@ -124,6 +135,7 @@ describe("POST /api/tool-calls/:id/permission", () => {
       postPermission("tc-missing", { foo: "bar" }),
       "tc-missing",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(400);
@@ -139,6 +151,7 @@ describe("POST /api/tool-calls/:id/permission", () => {
       postPermission("tc-unknown", { approved: true }),
       "tc-unknown",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -230,6 +243,7 @@ describe("pending permissions and refresh restore", () => {
       postPermission("tc-already-resolved", { approved: true }),
       "tc-already-resolved",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
     expect(res1.status).toBe(200);
     await gate;
@@ -239,6 +253,7 @@ describe("pending permissions and refresh restore", () => {
       postPermission("tc-already-resolved", { approved: true }),
       "tc-already-resolved",
       OWNER_USER,
+      SESSION_PRINCIPAL,
     );
     expect(res2.status).toBe(200);
     expect(await res2.json()).toEqual({ ok: true });

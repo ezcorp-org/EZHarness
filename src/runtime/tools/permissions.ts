@@ -44,6 +44,31 @@ export function needsApproval(category: ToolCategory, mode: PermissionMode): boo
   return !AUTO_APPROVE[mode].has(category);
 }
 
+/**
+ * Does `requested` auto-approve anything `ceiling` does not?
+ *
+ * The ONE definition of "wider" for permission modes, and it is DERIVED from
+ * {@link AUTO_APPROVE} rather than from a hand-written `ask < auto-edit <
+ * yolo` ladder. A hard-coded ladder rots the moment a mode is added or a
+ * category moves between modes: the list still typechecks, still reads
+ * plausibly, and silently authorizes the widening it was written to refuse.
+ * A subset test over the matrix cannot drift from the matrix.
+ *
+ * It is deliberately a SUBSET test, not a comparison, so it stays correct if
+ * the matrix ever stops being totally ordered (two modes that each
+ * auto-approve something the other does not are then mutually widening, and
+ * neither may be requested against the other — the fail-closed answer).
+ */
+export function widensPermissionMode(
+  requested: PermissionMode,
+  ceiling: PermissionMode,
+): boolean {
+  for (const category of AUTO_APPROVE[requested]) {
+    if (!AUTO_APPROVE[ceiling].has(category)) return true;
+  }
+  return false;
+}
+
 // ── Permission Mode Lookup ──────────────────────────────────────────
 
 /**
@@ -128,6 +153,18 @@ interface PendingApproval {
    * undefined.
    */
   extension?: ExtensionGateMeta;
+  /**
+   * Opaque id of the PRINCIPAL whose request started the run that raised
+   * this gate (see `principalId` in `src/auth/principal-id.ts`). Recorded
+   * at gate-creation time from {@link gateInitiatorAls}, never from
+   * anything the answering request supplies.
+   *
+   * `undefined` means the gate was raised outside any HTTP request scope —
+   * a goal-autopilot re-entry, a briefing, a github-projects spawn, a CLI
+   * run. Those are answerable by the conversation owner's SESSION only; see
+   * `handleToolPermission` for why unattributed is the fail-closed side.
+   */
+  initiator?: string;
 }
 
 interface ExtensionGateMeta {
@@ -150,6 +187,49 @@ interface ExtensionGateMeta {
 const pendingApprovals = new Map<string, PendingApproval>();
 
 /**
+ * Ambient principal id for the request whose async subtree we are in.
+ *
+ * Every gate producer reads it, so the initiator is stamped on the gate
+ * WITHOUT threading a parameter through `streamChat` → the executor loop →
+ * each tool's `execute`. One writer establishes it — `hooks.server.ts`,
+ * around the single post-auth `resolve(event)` — so a run started by ANY
+ * route (chat send, agent-chat, retry, and anything added later) is
+ * attributed without that route knowing this exists. A run detached from
+ * the request (`streamPromise` is deliberately not awaited) keeps the store,
+ * because the promise chain was created inside the scope.
+ *
+ * Same mechanism, and the same reasoning, as {@link nonInteractiveAls}
+ * below: a subtree-wide fact belongs to the subtree, not to every signature
+ * between the two ends of it.
+ */
+const gateInitiatorAls = new AsyncLocalStorage<string>();
+
+/**
+ * Run `fn` with `initiator` as the ambient gate initiator.
+ *
+ * An `undefined` initiator runs `fn` OUTSIDE any scope rather than storing
+ * `undefined` — so an unauthenticated request cannot shadow an outer scope,
+ * and the "no initiator" case has exactly one representation.
+ */
+export function runWithGateInitiator<T>(
+  initiator: string | undefined,
+  fn: () => T,
+): T {
+  return initiator === undefined ? fn() : gateInitiatorAls.run(initiator, fn);
+}
+
+/**
+ * Principal that raised a pending gate, or `undefined` for an unknown id or
+ * a gate raised outside any request scope. Read by the answer route to
+ * confine a non-session principal to its own gates.
+ */
+export function getPendingApprovalInitiator(
+  toolCallId: string,
+): string | undefined {
+  return pendingApprovals.get(toolCallId)?.initiator;
+}
+
+/**
  * Create a permission gate that blocks until the user approves or denies.
  * Returns a promise that resolves on approval or rejects on denial.
  *
@@ -161,8 +241,9 @@ export function createPermissionGate(
   toolCallId: string,
   conversationId?: string,
 ): Promise<void> {
+  const initiator = gateInitiatorAls.getStore();
   return new Promise<void>((resolve, reject) => {
-    pendingApprovals.set(toolCallId, { resolve, reject, conversationId });
+    pendingApprovals.set(toolCallId, { resolve, reject, conversationId, initiator });
   });
 }
 
@@ -487,6 +568,7 @@ export function createExtensionPermissionGate(
         if (req.signal) req.signal.removeEventListener("abort", onAbort);
       },
       conversationId: req.conversationId,
+      initiator: gateInitiatorAls.getStore(),
       extension: {
         extensionId: req.extensionId,
         userId: req.userId,

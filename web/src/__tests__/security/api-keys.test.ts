@@ -152,6 +152,7 @@ test("verifyApiKey takes the O(1) fast path via the hash index (no full scan)", 
   expect(result).not.toBeNull();
   expect(result!.userId).toBe(userId);
   expect(result!.scopes).toEqual(["read"]);
+  expect(result!.keyId).toBe(keyId);
   // The whole point of the index: getAllSettings() is never called.
   expect(getAllCalls).toBe(0);
 });
@@ -176,6 +177,14 @@ test("verifyApiKey falls back to legacy scan AND lazily writes the index", async
   const second = await verifyApiKey(raw);
   expect(second!.userId).toBe(userId);
   expect(getAllCalls).toBe(1);
+
+  // The two paths must report the SAME key id. They derive it differently
+  // (the scan slices it out of the settings key, the index reads the
+  // pointer), and a mismatch would mean a gate raised before the lazy
+  // upgrade could never be answered after it — the key would look like a
+  // different principal to itself.
+  expect(first!.keyId).toBe(keyId);
+  expect(second!.keyId).toBe(first!.keyId);
 });
 
 test("verifyApiKey ignores a dangling index pointer and falls back", async () => {

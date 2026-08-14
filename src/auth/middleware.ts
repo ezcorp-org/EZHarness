@@ -44,6 +44,10 @@ type AuthLocals = {
   user?: AuthUser;
   apiKeyScopes?: ApiKeyScope[];
   authMethod?: AuthMethod;
+  /** Id of the `ezk_`/`ezkint_` key this request presented, stamped by
+   *  `bearer-auth.ts`. Absent on a cookie session. Distinguishes two keys
+   *  owned by the SAME user, which `user.id` cannot. */
+  apiKeyId?: string;
 };
 
 export function requireAuth(locals: AuthLocals): AuthUser {
@@ -168,13 +172,31 @@ const SESSION_AUTH_METHODS: ReadonlySet<string> = new Set<AuthMethod>(["session"
  * unauthenticated caller sees); 403 when there IS a principal but it is not
  * a session — a distinction the caller has already earned by authenticating.
  */
+/**
+ * Is this request an interactive human session?
+ *
+ * The predicate half of {@link requireSessionAuth}, split out so a gate that
+ * wants to BRANCH on the answer (rather than refuse outright) reads the same
+ * allowlist instead of re-spelling `authMethod === "session"` and inheriting
+ * none of the fail-closed reasoning above. Two such gates exist — the
+ * permission-mode ceiling on the chat send body, and the consent-gate
+ * confinement on `POST /api/tool-calls/:id/permission`.
+ *
+ * Says nothing about whether the caller is AUTHENTICATED: an unauthenticated
+ * request has no `authMethod` and is therefore not a session, which is the
+ * answer both callers want (they run after their own `requireAuth`).
+ */
+export function isInteractiveSession(locals: { authMethod?: AuthMethod }): boolean {
+  const method = locals.authMethod;
+  return method !== undefined && SESSION_AUTH_METHODS.has(method);
+}
+
 export function requireSessionAuth(locals: AuthLocals): AuthUser | Response {
   const user = locals.user;
   if (!user) {
     return Response.json({ error: "Authentication required" }, { status: 401 });
   }
-  const method = locals.authMethod;
-  if (method === undefined || !SESSION_AUTH_METHODS.has(method)) {
+  if (!isInteractiveSession(locals)) {
     return Response.json(
       { error: "Interactive session required" },
       { status: 403 },

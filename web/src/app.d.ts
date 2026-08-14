@@ -16,6 +16,13 @@ declare global {
 			 */
 			authMethod?: import("../../src/auth/middleware").AuthMethod;
 			/**
+			 * WHICH `ezk_`/`ezkint_` key authenticated this request, stamped
+			 * with `authMethod` in bearer-auth.ts. Absent on a cookie session.
+			 * Paired with `authMethod` by `principalId` (`src/auth/principal-id.ts`)
+			 * into the identity a parked permission gate is confined to.
+			 */
+			apiKeyId?: string;
+			/**
 			 * First-time onboarding stamp, populated by hooks.server.ts on
 			 * page navigations after auth succeeds. Null = not yet
 			 * onboarded; a Date = stamped at first wizard finish. Routes

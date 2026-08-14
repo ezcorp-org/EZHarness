@@ -83,6 +83,11 @@ vi.mock("$server/auth/middleware", () => ({
 		}
 		return user;
 	},
+	// The consent-confinement gate's allowlist. This suite answers as a
+	// cookie session, so it must say so — a mock that omitted it would make
+	// the handler throw rather than exercise the sticky-TTL write.
+	isInteractiveSession: (locals: Record<string, unknown>) =>
+		locals.authMethod === "session",
 }));
 
 vi.mock("$lib/server/security/api-keys", () => ({
@@ -353,7 +358,11 @@ describe("sticky last-pick — chat-side handleToolPermission writes the same ke
 		// assertion lands on `user:<id>:reapprove:lastTtl:shell`.
 		vi.doMock("$server/runtime/tools/permissions", () => ({
 			resolvePermission: () => {},
+			getPendingApproval: () => true,
 			getPendingApprovalConversation: () => "conv-1",
+			// Gate raised by this same user's browser session, which is who
+			// answers below — the confinement check passes through.
+			getPendingApprovalInitiator: () => `session:${HELLO_USER}`,
 			getPendingExtensionGate: () => ({
 				extensionId: "ext-1",
 				userId: HELLO_USER,
@@ -376,12 +385,12 @@ describe("sticky last-pick — chat-side handleToolPermission writes the same ke
 			}),
 		});
 
-		const res = await handleToolPermission(req, "tc-1", {
-			id: HELLO_USER,
-			email: "u@x",
-			name: "u",
-			role: "member",
-		});
+		const res = await handleToolPermission(
+			req,
+			"tc-1",
+			{ id: HELLO_USER, email: "u@x", name: "u", role: "member" },
+			{ authMethod: "session", user: { id: HELLO_USER } },
+		);
 		expect(res.status).toBe(200);
 
 		// Any upsert hitting the lastTtl key prefix with value 30d.

@@ -11,6 +11,7 @@ import { createMessageSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
+import { checkPermissionModeCeiling } from "$server/auth/permission-mode-ceiling";
 import { getCapabilitiesWithExtensions, classifyMimeWithCaps } from "$server/providers/model-capabilities";
 import {
   getConversationExtensionMimes,
@@ -158,6 +159,26 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     const result = createMessageSchema.safeParse(await request.json());
     if (!result.success) return validationError(result.error);
     body = { ...result.data, files: [] };
+  }
+
+  // `permissionMode` is a per-turn override that outranks the project's
+  // stored mode inside setup-tools, so it is an authorization input, not a
+  // preference. Checked HERE — after both intake paths have converged on
+  // `body` — because the JSON schema and the multipart parser each accept
+  // the field independently, and a check on one of them is not a check.
+  // Refused BEFORE the user row is persisted so a rejected turn leaves no
+  // trace in the thread.
+  const modeDenial = await checkPermissionModeCeiling(
+    locals,
+    conv.projectId,
+    body.permissionMode,
+  );
+  if (modeDenial) {
+    return errorJson(403, modeDenial.error, {
+      field: modeDenial.field,
+      requested: modeDenial.requested,
+      ceiling: modeDenial.ceiling,
+    });
   }
 
   // ── /goal: FR-13b lazy GoalRecord rehydrate ───────────────────────

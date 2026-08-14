@@ -397,6 +397,8 @@
   "src/auth/extension-rbac.ts": 100,
   "src/auth/extension-wire-authz.ts": 100,
   "src/auth/mint-api-key.ts": 100,
+  "src/auth/permission-mode-ceiling.ts": 100,
+  "src/auth/principal-id.ts": 100,
   "src/test-surface.ts": 100,
   "src/openapi.ts": 100,
   "src/runtime/await-run-completion.ts": 100,
