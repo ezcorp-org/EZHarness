@@ -64,12 +64,31 @@ Attaching an extension to a conversation is what makes its tools callable by an 
 
 1. **Bundled** rows are always wire-able — first-party code, ceiling-clamped and lockfile-pinned, carrying no admin-supplied credential.
 2. **Non-MCP** extensions keep their prior behaviour (allowed). Gating every extension on the `use` scope would deny every member every extension on day one, because `extension_rbac_grants` is deny-by-default and no shipped instance seeds rows.
-3. **MCP** extensions (`manifest.kind === "mcp"` OR `source` starting `mcp:` — two host-written signals, either sufficient) are wire-able only by (a) an instance **admin**, (b) the row's own **`creatorUserId`**, or (c) a member holding the **`use`** grant at the conversation's (project, extension) coordinates. A NULL `creatorUserId` — every row predating the stamp — matches nobody, so legacy rows are admin-only.
+3. **MCP** extensions (`manifest.kind === "mcp"` OR `source` starting `mcp:` — two host-written signals, either sufficient) are wire-able only by (a) an instance **admin**, (b) the row's own **`creatorUserId`**, or (c) a member holding the dedicated **`mcp-wire`** grant at the conversation's (project, extension) coordinates. A NULL `creatorUserId` — every row predating the stamp — matches nobody, so legacy rows are admin-only.
 4. No acting user, an inactive/deleted user, or a throwing grants lookup all **deny**.
 
 Why MCP specifically: an MCP row is a stored connection plus the credential authenticating to it (`extension_secrets`, rehydrated host-side by `rehydrateMcpServerSecrets`). Installing one is admin-only on both axes, so wiring one must not be weaker than installing it. Before this gate any authenticated member could attach an admin-installed MCP server to their own chat and drive the admin's credential — and `requireScope(locals,"extensions")` was no barrier, because it is a no-op for cookie sessions.
 
-Both call sites report a denial as a **miss**, never as a distinct outcome, so a member cannot enumerate installed MCP servers by probing names:
+**`mcp-wire` is a distinct core verb, not `use`.** `use` means "may act with this extension" and is asked on advisory rungs (github-projects poll-now / dashboard-data, `ctx.rbac.check`). Attaching an MCP extension spends an admin-installed credential the holder never sees, which is a different right. Reusing `use` would have retro-authorized every grant that already existed — and because `grantCovers` is NULL-covers-all, a single wildcard row (`projectId: null, extensionId: null, scopes: ["use"]`) would have authorized **every MCP server on the instance**. The separate verb makes an operator say this on purpose.
+
+### The gate is asked at THREE seams
+
+Wiring is not the only way an MCP tool reaches a dispatch. Gating only the wire step was cosmetic, because discovery is free (`GET /api/extensions` is read+auth) and neither dispatch path consults `conversation_extensions`:
+
+| Seam | Where | What it was before |
+|---|---|---|
+| Wire route | `POST /api/conversations/[id]/extensions` | ownership + a scope that is a no-op for cookie sessions |
+| Mentions | `![ext:…]` / `![agent:…]` → `wireMentionedExtensions` | no per-extension check |
+| **Direct dispatch** | `POST /api/tool-invoke` | resolved the tool from the GLOBAL registry map and called `executeToolCall` — no wiring, **no conversation ownership** |
+| **Agent configs** | `registry.getToolsForAgent` at `stream-chat/setup-tools.ts` (2b) | attached `agent_configs.extensions` (author-supplied raw ids) straight to the turn |
+
+`POST /api/tool-invoke` now resolves conversation ownership **before** the task-tracking wire (which mutates `conversation_extensions`) and runs `canWireExtension` on the resolved row. It is deliberately NOT a blanket "must be wired" requirement: `canWireExtension` is equivalent for authorization purposes — a caller who passes it could wire the extension and dispatch anyway — while avoiding a behaviour change that would break inline tool cards and Hub actions that legitimately dispatch unwired.
+
+`getToolsForAgent` takes an `allowExtension` hook applied per extension id. Agent-config create/edit additionally validate `extensions[]` at write time (`web/src/lib/server/agent-config-extension-gate.ts`) so the author gets a 400 instead of an agent that silently has fewer tools than its config lists; the runtime hook is the one that protects the credential, because it re-decides every turn.
+
+**Spawned runs inherit, they do not acquire.** A sub-conversation is stamped with its ancestor's owner at creation (`start-assignment.ts` calls `resolveConversationOwnerUserId`; `POST /api/conversations` stamps `user.id` even with a `parentConversationId`), so a child run resolves the same principal as its parent and gets exactly the parent's reach. `userId: null` is the LEGACY row shape only, and `migrate()` reassigns ownerless conversations to the first admin at boot; the gate reads a residual null as "no principal" and denies.
+
+Both wiring call sites report a denial as a **miss**, never as a distinct outcome, so a member cannot enumerate installed MCP servers by probing names:
 
 - `POST /api/conversations/[id]/extensions` folds the denied name into its existing all-or-nothing `404 {error:"Unknown extension(s)", unknown}`.
 - `![ext:…]` / `![agent:…]` mention wiring (`src/runtime/mention-wiring.ts`) drops it **silently** — the binding mention-grammar contract for an unknown target. The agent branch is gated too: an agent config's `extensions` array is user-authored, so gating only the direct mention would leave a one-hop bypass.
@@ -133,7 +152,10 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 - `src/extensions/perm-expiry-config.ts` — `TTL_CONFIG` per-kind TTL table + `getForeverTtlMs()`.
 - `src/extensions/call-provenance.ts` — `registerCallProvenance`/`registerFireCallProvenance`/`resolveCallProvenance`/`releaseCallProvenance`.
 - `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS` + `AUDIT_PERM_*` constants.
-- `src/auth/extension-wire-authz.ts` — `canWireExtension` / `partitionWirableExtensions` / `loadWireActor` / `isMcpExtension`: the conversation-wiring gate.
+- `src/auth/extension-wire-authz.ts` — `canWireExtension` / `partitionWirableExtensions` / `findUnauthorizedExtensionIds` / `loadWireActor` / `isMcpExtension`: the gate, asked at all four seams.
+- `web/src/routes/api/tool-invoke/+server.ts` — direct dispatch: conversation ownership (before the task-tracking wire) + `canWireExtension`.
+- `web/src/lib/server/agent-config-extension-gate.ts` — write-time validation of an agent config's `extensions[]`.
+- `src/extensions/registry.ts` — `getToolsForAgent`'s `allowExtension` hook (the runtime half of the agent-config fix).
 - `src/runtime/mention-wiring.ts` — `wireMentionedExtensions`; the mention-side call site (silent drop on denial).
 - `web/src/routes/api/conversations/[id]/extensions/+server.ts` — the typed wiring route (denial folded into the unknown-name 404).
 - `src/extensions/fs-handler.ts` — host read/write/list/stat gates; calls `engine.authorize` + `isReservedSensitivePath`.
