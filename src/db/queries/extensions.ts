@@ -581,20 +581,64 @@ export async function updateMcpExtension(input: {
  * `installed_permissions`.
  *
  * This writes the derived ceiling into the manifest and issues the matching
- * grant. **It widens nothing**: the hosts come from the row's own stored
- * server definition — the URL or command line the operator already
- * configured, and the only hosts the row was ever going to contact. Granting
- * them is what keeps a legacy row WORKING once its tools finally carry a
- * needed-cap set; leaving the grant empty would brick every legacy MCP tool
- * on the first boot after this change.
+ * grant.
  *
- * Idempotent (a row that already declares `network` is skipped) and fail-safe
- * (a bad row warns by name and never bricks boot). Mirrors
- * `backfillMcpManifestSecrets`, which runs beside it in `migrate.ts`.
+ * ── WHAT THIS WIDENS (read before deciding the migration is safe) ──────
+ *
+ * The DECLARED config is unchanged — every host comes from the row's own
+ * stored server definition. ENFORCED behaviour is NOT unchanged, and the
+ * difference matters:
+ *
+ *   • stdio egress WIDENS. `mcp-proxy.ts` re-authorizes every CONNECT against
+ *     `grantedPermissions`, which was `{grantedAt:{}}` for a legacy row — so
+ *     ALL stdio egress was denied. After this backfill, a server started as
+ *     `npx -y mcp-remote https://c.example.com/mcp` can reach
+ *     `c.example.com`. That is the intended repair, not an accident: the
+ *     admin typed that host into the command line, and pre-PR the deny was a
+ *     DEAD END — the manifest declared no ceiling, so the clamp dropped every
+ *     submitted host and no admin action could ever allow it. The grant is
+ *     recorded in `installedPermissions` and revocable from the existing
+ *     permissions surface.
+ *   • DISPATCH tightens. Legacy MCP tools authorized against an empty needed
+ *     set and were allowed unconditionally; they now require the `mcpInvoke`
+ *     sentinel (and any declared host), which this backfill grants. Leaving
+ *     the grant empty would brick every legacy MCP tool on the first boot
+ *     after this change.
+ *
+ * Net: one capability the operator had already configured becomes reachable,
+ * and one that was ungoverned becomes revocable.
+ *
+ * Idempotent (a row that already declares its ceiling is skipped) and
+ * fail-safe (a bad row warns by name and never bricks boot). A row this pass
+ * MISSES — breaker-open boot, or an UPDATE that threw — fails CLOSED at
+ * dispatch and is reported by `registry.loadFromDb`; see the note there.
+ * Mirrors `backfillMcpManifestSecrets`, which runs beside it in `migrate.ts`.
  */
 export async function backfillMcpManifestCapabilities(
   executor: Database = getDb(),
 ): Promise<{ migrated: number; scanned: number }> {
+  // DELIBERATE FULL SCAN — do not add `WHERE manifest->>'kind' = 'mcp'`.
+  //
+  // It looks free (measured: ~70 ms at 300 rows, all of it inside
+  // `withPostgresMigrateLock`) and it is symmetric with the JS filter below,
+  // which also requires `kind === "mcp"`. It is still wrong, because of
+  // ORDERING on external Postgres:
+  //
+  //   `initDb` runs `withPostgresMigrateLock(() => migrate(_db))` and only
+  //   THEN `repairDoubleEncodedJsonb` (`db/connection.ts`). So while this
+  //   backfill runs, a row written before the jsonb double-encoding fix is
+  //   still a jsonb STRING scalar, and `manifest->>'kind'` on a scalar is
+  //   NULL — verified against PGlite:
+  //     jsonb_typeof → "string", manifest->>'kind' → null,
+  //     so `WHERE manifest->>'kind' = 'mcp'` returns that row's id NOT AT ALL.
+  //   Drizzle still parses the value back into an object for the JS filter,
+  //   so the predicate would skip precisely the corrupted legacy rows that
+  //   most need healing — and only on external Postgres, where it is hardest
+  //   to notice. They would self-heal on the SECOND boot (after the repair),
+  //   leaving one boot in which every MCP tool call denies.
+  //
+  // The same argument applies to `backfillMcpManifestSecrets` above; both
+  // scan, and they stay symmetric.
   const rows = (await executor
     .select({
       id: extensions.id,
@@ -618,23 +662,34 @@ export async function backfillMcpManifestCapabilities(
     if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
     scanned += 1;
     // Already declared — nothing to heal. Keeps the pass idempotent across
-    // reboots and leaves a hand-narrowed ceiling untouched.
-    if (manifest.permissions?.network !== undefined) continue;
+    // reboots and leaves a hand-narrowed ceiling untouched. Both keys are
+    // checked because a row healed by an earlier build declares `network` but
+    // not the sentinel.
+    // Single-line condition on purpose: a multi-line `if (...)` leaves a
+    // `) {` continuation line that bun's sourcemap fills with a phantom,
+    // never-hit DA record the patch-coverage gate cannot clear.
+    const declared = manifest.permissions ?? {};
+    if (declared.network !== undefined && declared.mcpInvoke !== undefined) continue;
     try {
       const normalized = normalizeMcpManifest(manifest);
       const hosts = normalized.permissions.network ?? [];
       const prior = row.grantedPermissions ?? { grantedAt: {} };
-      // Merge rather than replace: an MCP row's grant is network-only today,
-      // but a per-conversation narrowing or a future field must not be
-      // dropped by a backfill that only knows about hosts.
-      const granted: ExtensionPermissions =
-        hosts.length > 0
-          ? {
-              ...prior,
-              network: hosts,
-              grantedAt: { ...prior.grantedAt, network: Date.now() },
-            }
-          : prior;
+      const now = Date.now();
+      // Merge rather than replace: a per-conversation narrowing or a future
+      // field must not be dropped by a backfill that only knows about these
+      // two keys. The sentinel is granted for EVERY healed row — it is the
+      // capability a hostless stdio server's revocation rides on, so a row
+      // that gets only `network` would still dispatch ungated.
+      const granted: ExtensionPermissions = {
+        ...prior,
+        mcpInvoke: true,
+        ...(hosts.length > 0 ? { network: hosts } : {}),
+        grantedAt: {
+          ...prior.grantedAt,
+          mcpInvoke: now,
+          ...(hosts.length > 0 ? { network: now } : {}),
+        },
+      };
       await executor
         .update(extensions)
         .set(

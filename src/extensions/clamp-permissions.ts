@@ -843,6 +843,35 @@ export function clampExtensionPermissions(
     clamped.storage = true;
   }
 
+  // mcpInvoke — the `kind:"mcp"` dispatch sentinel. THREE-state on purpose:
+  //
+  //   manifest doesn't declare it  → never granted (every non-MCP row)
+  //   submitted === false          → REVOKED (the explicit off switch)
+  //   submitted === true OR ABSENT → granted, mirroring the ceiling
+  //
+  // Absent-means-granted is the one departure from the "omitted key revokes"
+  // default, and it is deliberate. The extension detail page's Save button
+  // posts a FIXED six-key body (`network`/`filesystem`/`shell`/`env` + the two
+  // deputy flags) — it cannot express this field. Under the usual default, an
+  // admin editing an unrelated host list would silently strip the sentinel and
+  // brick every tool on that MCP server. `search` already resolves the same
+  // tension the same way (`clampSearchPermission`: `undefined → "inherit"`,
+  // only an explicit `false` disables).
+  //
+  // The clamp's actual invariant — `granted ⊆ manifest` — is untouched: the
+  // fallback is the CEILING, never something the manifest didn't declare, and
+  // an explicit `false` still revokes.
+  //
+  // Placed OUTSIDE the `capabilityToolsDisabled()` guard, unlike the
+  // capability-TOOL tier below, and that placement is load-bearing: this cap
+  // is on the NEEDED side of every MCP dispatch, so dropping it under the
+  // kill-switch would not disable a feature — it would DENY every MCP tool
+  // call on the instance. `mcpInvoke` is correspondingly absent from
+  // `CAPABILITY_PERMISSION_FIELDS`.
+  if (manifest.mcpInvoke === true && submitted.mcpInvoke !== false) {
+    clamped.mcpInvoke = true;
+  }
+
   if (!capabilityToolsDisabled()) {
     if (submitted.taskEvents === true && manifest.taskEvents === true) {
       clamped.taskEvents = true;

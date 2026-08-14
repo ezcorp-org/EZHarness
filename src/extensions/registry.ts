@@ -426,6 +426,7 @@ export class ExtensionRegistry {
       if (ext.installPath) this.installPaths.set(ext.id, ext.installPath);
       this.grantedPerms.set(ext.id, ext.grantedPermissions);
       this.bundledFlags.set(ext.id, (ext as { isBundled?: boolean }).isBundled === true);
+      this.reportUnhealedMcpRow(ext, manifest);
 
       // Boot visibility: surface an unresolvable npm-dependency declaration
       // at load so an operator sees it in the logs. VISIBILITY ONLY — do
@@ -482,6 +483,47 @@ export class ExtensionRegistry {
 
     this.buildDepRoutes();
     this.loadGeneration++;
+  }
+
+  /**
+   * Boot visibility for an MCP row the capability backfill never healed.
+   *
+   * The two paths that give an MCP row its capabilities can diverge:
+   * `normalizeMcpManifest` derives the NEEDED set on every read, but the
+   * GRANT is only written by `installMcpExtension` or by the one-shot
+   * `backfillMcpManifestCapabilities`. If that backfill never ran — a boot
+   * where the migrate circuit breaker is open (`db/connection.ts`), or a row
+   * whose UPDATE threw and was caught — the row ends up NEEDING
+   * `ezcorp:mcp:invoke` while GRANTING nothing, and every one of its tools
+   * denies.
+   *
+   * That direction is deliberate. The alternative — deriving the grant at read
+   * time too — cannot distinguish "never consented" from "consented, then
+   * revoked": a revocation through `PUT /api/extensions/[id]/permissions`
+   * writes only `grantedPermissions` and leaves `installedPermissions` alone,
+   * so a read-time grant would silently re-grant a revoked row on every boot.
+   * That is the inert-PDP defect this whole change exists to close, so the
+   * divergence fails CLOSED — and is reported here instead of being silent.
+   *
+   * `installedPermissions === null` is the marker for "never consented":
+   * every install and every healed row writes it, and a revocation never
+   * clears it. So an intentionally-revoked row is silent and only an unhealed
+   * one is reported.
+   */
+  private reportUnhealedMcpRow(
+    ext: { id: string; name: string; installedPermissions?: unknown },
+    manifest: ExtensionManifestV2,
+  ): void {
+    if (manifest.kind !== "mcp") return;
+    if (ext.installedPermissions != null) return;
+    log.error("MCP extension has no capability grant — every tool call will be denied", {
+      extension: manifest.name,
+      extensionId: ext.id,
+      reason:
+        "the one-shot MCP capability backfill has not run for this row (migrate skipped, or its row update failed)",
+      remedy:
+        "resolve the failed migration and restart, or re-save the server from the MCP edit form to re-issue the grant",
+    });
   }
 
   /** Get the extension ID that provides a given tool name. */

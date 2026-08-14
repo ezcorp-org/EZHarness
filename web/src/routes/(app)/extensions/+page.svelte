@@ -709,7 +709,11 @@
 
 	<!-- Form validation error (inline, not toast) -->
 	{#if errorMsg}
-		<div class="rounded-lg bg-red-900/40 px-4 py-2 text-sm text-red-400">{errorMsg}</div>
+		<!-- The BACKGROUND is dark-theme-only too: `bg-red-900/40` over the light
+		     surface composites to a mid-tone (#a7999e) that fights both light and
+		     dark text — darker text alone tops out at 3.6:1. So the light theme
+		     gets its own pair (11.8:1); dark keeps exactly what it had. -->
+		<div class="rounded-lg bg-red-300/40 px-4 py-2 text-sm text-red-900 dark:bg-red-900/40 dark:text-red-400">{errorMsg}</div>
 	{/if}
 
 	<!-- Install Section -->
@@ -804,9 +808,15 @@
 		{:else}
 			<div class="space-y-2">
 				<div class="grid grid-cols-2 gap-2">
+					<!-- 64 = the server's own ceiling (`EXTENSION_NAME_REGEX` in
+					     api/mcp-servers/schema.ts, byte-identical to manifest.ts's
+					     NAME_REGEX). Stopping the product from minting a name it
+					     cannot render beats truncating it after the fact; the API
+					     still rejects an over-long name, this just says so earlier. -->
 					<input
 						type="text"
 						bind:value={mcpName}
+						maxlength={64}
 						placeholder="Extension name (unique)"
 						class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 					/>
@@ -867,8 +877,11 @@
 					</button>
 				</div>
 				{#if mcpInstallResult}
+					<!-- Same dark-theme-only pairing as the error banner above:
+					     `text-green-200` on `bg-green-900/30` washes out over the light
+					     surface. Light gets its own pair (11.6:1); dark is unchanged. -->
 					<div
-						class="flex items-center justify-between rounded-md border border-green-800 bg-green-900/30 px-3 py-2 text-sm text-green-200"
+						class="flex items-center justify-between rounded-md border border-green-800 bg-green-300/40 px-3 py-2 text-sm text-green-900 dark:bg-green-900/30 dark:text-green-200"
 						data-testid="mcp-install-confirmation"
 					>
 						<span>
@@ -991,27 +1004,38 @@
 	{:else}
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visibleExtensions as ext (ext.id)}
+				<!-- `min-w-0` on the GRID ITEM, not just the flex child inside it: a
+				     grid item defaults to `min-width: auto`, so an unbreakable 64-char
+				     name sets the track's min-content width and widens the whole
+				     column. Measured at a 393px viewport: the card rendered 703px, the
+				     page scrolled sideways, and `truncate` was inert because the
+				     heading had all the room it asked for. -->
 				<div
-					class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
+					class="min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
 					data-testid="ext-card"
 					data-ext-id={ext.id}
 				>
-					<div class="mb-2 flex items-start justify-between">
-						<a href="/extensions/{ext.id}" class="group">
+					<div class="mb-2 flex items-start justify-between gap-2">
+						<!-- `min-w-0` on the flex child: without it the name's intrinsic
+						     width wins over the row, so a long-but-legal name (the
+						     install form admits 64 chars) wrapped to four lines, pushed
+						     the transport badge into a 2-line blob on top of it and
+						     squeezed the toggle into a circle. -->
+						<a href="/extensions/{ext.id}" class="group min-w-0">
 							<div class="flex items-center gap-2">
-								<h3 class="font-medium text-[var(--color-text-primary)] group-hover:text-blue-400">{ext.name}</h3>
+								<h3 class="truncate font-medium text-[var(--color-text-primary)] group-hover:text-blue-400" title={ext.name}>{ext.name}</h3>
 								{#if ext.manifest.kind === "mcp"}
-									<span class="rounded-full bg-purple-900/50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-purple-200">MCP · {ext.manifest.mcpServers?.[0]?.transport ?? "?"}</span>
+									<span class="shrink-0 whitespace-nowrap rounded-full bg-purple-900/50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-purple-200">MCP · {ext.manifest.mcpServers?.[0]?.transport ?? "?"}</span>
 								{/if}
 								{#if !ext.enabled}
-									<span class="rounded-full bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-text-muted)]">Disabled</span>
+									<span class="shrink-0 whitespace-nowrap rounded-full bg-[var(--color-surface-tertiary)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--color-text-muted)]">Disabled</span>
 								{/if}
 							</div>
 							<p class="text-xs text-[var(--color-text-muted)]">v{ext.version}</p>
 						</a>
 						<button
 							onclick={() => toggleEnabled(ext)}
-							class="relative h-6 w-11 rounded-full transition-colors {ext.enabled ? 'bg-blue-600' : 'bg-[var(--color-surface-tertiary)]'}"
+							class="relative h-6 w-11 shrink-0 rounded-full transition-colors {ext.enabled ? 'bg-blue-600' : 'bg-[var(--color-surface-tertiary)]'}"
 							title={ext.enabled ? "Disable" : "Enable"}
 						>
 							<span
@@ -1061,9 +1085,15 @@
 								</button>
 							{/if}
 							{#if !ext.isBundled}
+								<!-- `--color-red-400` (#ff8a85) is retinted once in `:root`
+								     and never per theme, so it is tuned for dark surfaces:
+								     on the light surface here it measures ~2:1, well under
+								     AA's 4.5 for a DESTRUCTIVE control. Fixed locally with a
+								     light-mode red rather than by retinting the token, which
+								     would shift every red in the app. -->
 								<button
 									onclick={() => (uninstallTarget = ext)}
-									class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-900/30"
+									class="rounded-md px-2 py-1 text-xs text-red-700 transition-colors hover:bg-red-900/30 dark:text-red-400"
 									data-testid="ext-card-uninstall"
 								>
 									Uninstall

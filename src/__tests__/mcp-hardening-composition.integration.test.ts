@@ -208,7 +208,13 @@ describe("the guard and the capability derivation compose", () => {
     // The derivation ran on the very host the allowlist re-opened.
     const manifest = ext.manifest as ExtensionManifestV2;
     expect(manifest.permissions.network).toEqual([fixture.host]);
-    expect(manifest.tools![0]!.capabilities).toEqual({ network: { hosts: [fixture.host] } });
+    // The host cap PLUS the `ezcorp:mcp:invoke` dispatch sentinel every MCP
+    // tool carries — without it a server naming no host would declare `{}`,
+    // which flattens to an empty needed set the PDP can never fail.
+    expect(manifest.tools![0]!.capabilities).toEqual({
+      network: { hosts: [fixture.host] },
+      custom: { "ezcorp:mcp:invoke": true },
+    });
     expect(ext.grantedPermissions.network).toEqual([fixture.host]);
 
     // And the grant is what carries a real dispatch through the real PDP —
@@ -336,7 +342,10 @@ describe("audit fires only after a successful mutation", () => {
     const refreshed = (await getExtension(ext.id))!.manifest as ExtensionManifestV2;
     expect(refreshed.tools!.map((t) => t.name)).toEqual(["one", "two"]);
     for (const t of refreshed.tools!) {
-      expect(t.capabilities).toEqual({ network: { hosts: [fixture.host] } });
+      expect(t.capabilities).toEqual({
+        network: { hosts: [fixture.host] },
+        custom: { "ezcorp:mcp:invoke": true },
+      });
     }
 
     ExtensionRegistry.getInstance().killAll();

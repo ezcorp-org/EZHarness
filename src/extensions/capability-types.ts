@@ -88,7 +88,23 @@ export type CapabilityKind =
   // as install — the "LLM can't silently rewrite my extension" consent
   // gate. The host `reopen` action separately enforces owner + flag +
   // not-bundled authorization (defense in depth).
-  | "ezcorp:extension:modify";
+  | "ezcorp:extension:modify"
+  // Invoke a tool served by a `kind:"mcp"` extension. The SENTINEL that
+  // keeps the PDP from going inert on an MCP dispatch.
+  //
+  // KIND-ONLY, like `ezcorp:workflows:run-delegated`: `validateMcpManifest`
+  // admits exactly one `mcpServers` entry per manifest and the grant lives on
+  // that extension's own row, so the extension id already scopes the decision
+  // and a value would add no bound.
+  //
+  // Why it has to exist: an MCP tool's only other declared capability is
+  // `network`, and `deriveCapsFromExtensionPerms` skips an EMPTY host array.
+  // A stdio server whose command line names no host — the most common shape
+  // — therefore declared `capabilities: {}`, which flattens to an EMPTY
+  // needed set, and `firstMissingCapability([], granted)` is null for ANY
+  // grant. An admin's revocation was a silent no-op. Every MCP tool now needs
+  // this cap, hostless or not, so a revocation always bites.
+  | "ezcorp:mcp:invoke";
 
 export interface Capability {
   kind: CapabilityKind;
@@ -115,6 +131,28 @@ export const SENSITIVE_KINDS: ReadonlySet<CapabilityKind> = new Set<CapabilityKi
   // prompts every time and is never an always-allow grant.
   "ezcorp:extension:modify",
 ]);
+
+// DELIBERATE OMISSION — `ezcorp:mcp:invoke` is NOT sensitive.
+//
+// A sensitive kind returns `prompt` (permission-engine.ts step 3), and
+// `prompt` is unanswerable wherever nobody is present to answer it. MCP tools
+// are dispatched from cron fires, webhook deliveries and workflow `tool`
+// steps as readily as from chat, so marking this kind sensitive would park
+// those runs at `awaiting_approval` forever — it would convert a governance
+// gate into an availability bug. `shell` is the vocabulary's honest word for
+// "the host runs an operator-supplied local binary", and it was rejected as
+// the sentinel for exactly this reason.
+//
+// The consent that IS collected is per-install and admin-gated: the row is
+// installed through an admin-only route, the grant is recorded in
+// `installedPermissions`, and it is revocable at any time via
+// `PUT /api/extensions/[id]/permissions`. A revocation denies every
+// subsequent dispatch with a normal `ext:perm:denied` row — which is the
+// whole point of the kind.
+//
+// WHAT WOULD REOPEN THIS: an MCP dispatch path that is reachable ONLY with a
+// live human attached. There isn't one today, and adding a prompt would not
+// bound anything the install grant doesn't already bound.
 
 // DELIBERATE OMISSION — `ezcorp:workflows:run` is NOT sensitive.
 //
@@ -434,6 +472,13 @@ export function intersectPermissions(
     out.storage = true;
   }
 
+  // mcpInvoke — boolean AND. A spawned child conversation whose parent lacks
+  // the sentinel cannot reach the parent's MCP tools, which is the correct
+  // clip: this is the cap the dispatch gate reads.
+  if (a.mcpInvoke === true && b.mcpInvoke === true) {
+    out.mcpInvoke = true;
+  }
+
   // taskEvents — boolean AND
   if (a.taskEvents === true && b.taskEvents === true) {
     out.taskEvents = true;
@@ -687,6 +732,7 @@ export function intersectPermissions(
       (key === "shell" && out.shell) ||
       (key === "env" && out.env) ||
       (key === "storage" && out.storage) ||
+      (key === "mcpInvoke" && out.mcpInvoke) ||
       (key === "taskEvents" && out.taskEvents) ||
       (key === "loopEvents" && out.loopEvents) ||
       (key === "agentConfig" && out.agentConfig) ||
@@ -836,6 +882,14 @@ export function grantsToCapabilitySet(
 
   if (grants.storage === true) {
     caps.push({ kind: "storage" });
+  }
+
+  // The MCP dispatch sentinel. Emitted only on an explicit `=== true`, so
+  // every grant blob written before this kind existed produces a
+  // byte-identical capability set — and a legacy MCP row whose grant was
+  // never healed fails CLOSED rather than inheriting the cap by omission.
+  if (grants.mcpInvoke === true) {
+    caps.push({ kind: "ezcorp:mcp:invoke" });
   }
 
   if (grants.taskEvents === true) {
@@ -991,6 +1045,9 @@ function customToKind(key: string): CapabilityKind | null {
     case "triggers":
     case "ezcorp:triggers:register":
       return "ezcorp:triggers:register";
+    case "mcpInvoke":
+    case "ezcorp:mcp:invoke":
+      return "ezcorp:mcp:invoke";
     default:
       return null;
   }

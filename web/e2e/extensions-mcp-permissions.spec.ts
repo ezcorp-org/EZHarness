@@ -47,20 +47,34 @@ function mcpExt(opts: { args: string[]; network: string[]; granted: string[] }) 
 					name: "search",
 					description: "Search pages",
 					inputSchema: {},
-					// The declaration the PDP turns into the needed-cap set.
-					capabilities: opts.network.length > 0 ? { network: { hosts: opts.network } } : {},
+					// The declaration the PDP turns into the needed-cap set. The
+					// `ezcorp:mcp:invoke` sentinel is present even when no host is
+					// declared — an empty declaration flattens to an empty needed set,
+					// which `firstMissingCapability` can never fail.
+					capabilities: {
+						...(opts.network.length > 0 ? { network: { hosts: opts.network } } : {}),
+						custom: { "ezcorp:mcp:invoke": true },
+					},
 				},
 			],
-			permissions: { network: opts.network },
+			permissions: { network: opts.network, mcpInvoke: true },
 		},
 		grantedPermissions:
 			opts.granted.length > 0
-				? { network: opts.granted, grantedAt: { network: 1_700_000_000_000 } }
-				: { grantedAt: {} },
+				? {
+						network: opts.granted,
+						mcpInvoke: true,
+						grantedAt: { network: 1_700_000_000_000, mcpInvoke: 1_700_000_000_000 },
+					}
+				: { mcpInvoke: true, grantedAt: { mcpInvoke: 1_700_000_000_000 } },
 		installedPermissions:
 			opts.granted.length > 0
-				? { network: opts.granted, grantedAt: { network: 1_700_000_000_000 } }
-				: { grantedAt: {} },
+				? {
+						network: opts.granted,
+						mcpInvoke: true,
+						grantedAt: { network: 1_700_000_000_000, mcpInvoke: 1_700_000_000_000 },
+					}
+				: { mcpInvoke: true, grantedAt: { mcpInvoke: 1_700_000_000_000 } },
 		createdAt: "2026-01-01T00:00:00.000Z",
 	};
 }
@@ -112,7 +126,15 @@ test.describe("Extensions — MCP network permission", () => {
 		// Pre-granted at install, so it renders checked.
 		await expect(hostBox).toBeChecked();
 
-		await captureEvidence(page, testInfo, "mcp-network-permission-granted");
+		// Bring the Permissions card INTO FRAME before the shot. Without this the
+		// capture was of the fold — header / Details / Connection / Tools — and
+		// contained none of the thing it is evidence of. The gate makes you
+		// produce a screenshot; it cannot make it show the right pixels, so this
+		// scroll (plus `fullPage`) is the part that has to be deliberate.
+		await page.getByText("Network Access").scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "mcp-network-permission-granted", {
+			fullPage: true,
+		});
 
 		// Revoking it is a real action: the PUT carries an empty host list, and
 		// the PDP then denies both the tool dispatch and every proxy CONNECT.
@@ -121,8 +143,18 @@ test.describe("Extensions — MCP network permission", () => {
 		);
 		await hostBox.uncheck();
 		await page.getByRole("button", { name: "Save Permissions" }).click();
-		const body = (await put).postDataJSON() as { permissions: { network: string[] } };
+		const body = (await put).postDataJSON() as {
+			permissions: { network: string[]; mcpInvoke?: boolean };
+		};
 		expect(body.permissions.network).toEqual([]);
+
+		// The reason `clampExtensionPermissions` treats an ABSENT `mcpInvoke` as
+		// "keep the ceiling" rather than "revoke": this Save posts a FIXED
+		// six-key body and cannot express the dispatch sentinel at all. Under
+		// the usual omitted-key-revokes default, revoking one host here would
+		// also strip `ezcorp:mcp:invoke` and deny EVERY tool on this server.
+		// Only an explicit `mcpInvoke: false` revokes.
+		expect(body.permissions).not.toHaveProperty("mcpInvoke");
 	});
 
 	test("a stdio server naming no host shows the deny-by-default state", async ({

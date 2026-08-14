@@ -14,7 +14,7 @@
  * are the ones that could not be written before the fix.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -45,6 +45,12 @@ import type { ExtensionManifestV2, ExtensionPermissions, McpServerDefinition } f
 
 const REMOTE_URL = "https://mcp.example.com/mcp";
 const REMOTE_HOST = "mcp.example.com";
+/** The full declaration an MCP tool for REMOTE_URL must carry: the host it
+ *  reaches PLUS the dispatch sentinel that keeps a hostless row gated. */
+const REMOTE_DECL = {
+  network: { hosts: [REMOTE_HOST] },
+  custom: { "ezcorp:mcp:invoke": true },
+};
 
 let projectId: string;
 
@@ -119,7 +125,7 @@ describe("MCP tool dispatch is gated by the PDP", () => {
     // grant unreachable.
     expect(manifest.permissions.network).toEqual([REMOTE_HOST]);
     // The per-tool declaration the PDP turns into the needed-cap set.
-    expect(manifest.tools![0]!.capabilities).toEqual({ network: { hosts: [REMOTE_HOST] } });
+    expect(manifest.tools![0]!.capabilities).toEqual(REMOTE_DECL);
     // The install-time consent, recorded the same way `activateExtension`
     // records it so the reapprove flow clamps against it.
     expect(ext.grantedPermissions.network).toEqual([REMOTE_HOST]);
@@ -213,7 +219,7 @@ describe("MCP tool dispatch is gated by the PDP", () => {
     await deleteExtension(ext.id);
   });
 
-  test("a stdio server naming NO host stays deny-by-default with an empty grant", async () => {
+  test("a stdio server naming NO host grants no HOST but is still gated", async () => {
     const ext = await installMcpExtension({
       name: "pdp-hostless",
       server: {
@@ -224,11 +230,54 @@ describe("MCP tool dispatch is gated by the PDP", () => {
       },
       cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
     });
-    // Nothing is invented: no host in the command line means no host granted.
-    // The forward proxy therefore still refuses every CONNECT — the documented
-    // deny-by-default posture, now explicit rather than accidental.
+    // Nothing is invented: no host in the command line means no host granted,
+    // so the forward proxy still refuses every CONNECT.
     expect(ext.grantedPermissions.network).toBeUndefined();
     expect((ext.manifest as ExtensionManifestV2).permissions.network).toEqual([]);
+    // …but the DISPATCH gate does not ride on the host list. See the
+    // revocation test below — asserting the empty input here and stopping was
+    // the exact gap that let F5 through review.
+    expect(ext.grantedPermissions.mcpInvoke).toBe(true);
+
+    await deleteExtension(ext.id);
+  });
+
+  test("F5 REGRESSION — revoking a HOSTLESS stdio server's grant denies dispatch", async () => {
+    // The finding: `mcpNetworkHosts` → [] → ceiling {network:[]} →
+    // `deriveCapsFromExtensionPerms` skips an EMPTY network array →
+    // per-tool `capabilities: {}` → `capabilityDeclarationToSet` → [] →
+    // `firstMissingCapability([], …)` is ALWAYS null → allow. So for the most
+    // common stdio shape (`npx -y @modelcontextprotocol/server-github`) an
+    // admin's revocation was a NO-OP and the PDP was still inert — reachable
+    // by any member through the unwired `POST /api/tool-invoke` (F2).
+    const ext = await installMcpExtension({
+      name: "pdp-hostless-deny",
+      server: {
+        transport: "stdio",
+        name: "pdp-hostless-deny",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+      },
+      cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
+    });
+    // Exactly what `PUT /api/extensions/:id/permissions` with an empty body
+    // produces: every capability revoked.
+    await updateExtension(ext.id, { grantedPermissions: { grantedAt: {} } });
+
+    const { registry, calls } = await bootRegistry(ext.id);
+    const conv = await createConversation(projectId, { title: "hostless-deny" });
+
+    await expect(
+      makeExecutor(registry).executeToolCall("pdp-hostless-deny__probe", {}, conv.id, null),
+    ).rejects.toThrow(/Missing capability ezcorp:mcp:invoke/);
+    // The wire client is never reached.
+    expect(calls).toEqual([]);
+
+    const denied = await auditRows(ext.id, AUDIT_PERM_DENIED);
+    expect(denied).toHaveLength(1);
+    expect((denied[0]!.metadata as Record<string, unknown>).capabilityKind).toBe(
+      "ezcorp:mcp:invoke",
+    );
 
     await deleteExtension(ext.id);
   });
@@ -256,13 +305,9 @@ describe("refresh does not silently un-declare the tools", () => {
     await registry.refreshMcpTools(ext.id);
 
     // In memory AND at rest, the refreshed tool still declares the host.
-    expect(registry.getManifest(ext.id)!.tools![0]!.capabilities).toEqual({
-      network: { hosts: [REMOTE_HOST] },
-    });
+    expect(registry.getManifest(ext.id)!.tools![0]!.capabilities).toEqual(REMOTE_DECL);
     const row = await getExtension(ext.id);
-    expect((row!.manifest as ExtensionManifestV2).tools![0]!.capabilities).toEqual({
-      network: { hosts: [REMOTE_HOST] },
-    });
+    expect((row!.manifest as ExtensionManifestV2).tools![0]!.capabilities).toEqual(REMOTE_DECL);
 
     // …and the PDP still denies the refreshed tool once the grant is gone.
     await updateExtension(ext.id, { grantedPermissions: { grantedAt: {} } });
@@ -453,7 +498,7 @@ describe("legacy MCP rows (permissions: {})", () => {
     const healed = await getExtension(ext.id);
     const manifest = healed!.manifest as ExtensionManifestV2;
     expect(manifest.permissions.network).toEqual([REMOTE_HOST]);
-    expect(manifest.tools![0]!.capabilities).toEqual({ network: { hosts: [REMOTE_HOST] } });
+    expect(manifest.tools![0]!.capabilities).toEqual(REMOTE_DECL);
     // Not bricked: the grant covers exactly the host the row was already
     // contacting on every call — de-facto authority made explicit, not widened.
     expect(healed!.grantedPermissions.network).toEqual([REMOTE_HOST]);
@@ -471,6 +516,46 @@ describe("legacy MCP rows (permissions: {})", () => {
     expect(calls).toEqual(["probe"]);
 
     await deleteExtension(ext.id);
+  });
+
+  test("(c) an UNHEALED row is reported at load — a REVOKED one is not (F11)", async () => {
+    // The degraded-boot posture. If the backfill never ran (migrate circuit
+    // breaker open, or this row's UPDATE threw), read-time normalization still
+    // derives a needed-cap set while the grant stays empty, so every tool
+    // denies. That direction is deliberate — deriving the GRANT at read time
+    // too could not tell "never consented" from "consented then revoked",
+    // because a revocation writes only `grantedPermissions` and leaves
+    // `installedPermissions` alone, so it would silently re-grant a revoked
+    // row. So it fails closed and says so.
+    const written: string[] = [];
+    const spy = spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      // `installedPermissions` is NULL here — the marker for "never consented".
+      const unhealed = await insertLegacyRow("pdp-unhealed");
+      await ExtensionRegistry.getInstance().loadFromDb();
+      expect(written.join("")).toContain("MCP extension has no capability grant");
+      await deleteExtension(unhealed.id);
+
+      // A row that WAS healed and then deliberately revoked keeps a non-null
+      // `installedPermissions`, so it must stay silent — otherwise every
+      // intentional revocation would look like a broken migration.
+      written.length = 0;
+      ExtensionRegistry.resetInstance();
+      const revoked = await installMcpExtension({
+        name: "pdp-revoked-quiet",
+        server: { transport: "http", name: "pdp-revoked-quiet", url: REMOTE_URL },
+        cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
+      });
+      await updateExtension(revoked.id, { grantedPermissions: { grantedAt: {} } });
+      await ExtensionRegistry.getInstance().loadFromDb();
+      expect(written.join("")).not.toContain("MCP extension has no capability grant");
+      await deleteExtension(revoked.id);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("(c) a row the backfill cannot write warns by name and never bricks boot", async () => {

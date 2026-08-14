@@ -530,6 +530,28 @@ export interface ExtensionManifestV2 {
     env?: string[];
     lifecycleHooks?: boolean; // requires user approval
     storage?: boolean; // persistent key-value storage
+    /**
+     * Dispatch sentinel for `kind:"mcp"` extensions — "the LLM may invoke
+     * this MCP server's tools at all".
+     *
+     * Synthesized (never author-written) by
+     * `mcp-capabilities.ts:mcpManifestPermissions` for every MCP row, because
+     * the alternative is an inert PDP. An MCP tool's other declared
+     * capability is `network`, and `deriveCapsFromExtensionPerms` SKIPS an
+     * empty host array — so a stdio server whose command line names no host
+     * (`npx -y @modelcontextprotocol/server-github`, the most common shape)
+     * produced `capabilities: {}` → an EMPTY needed set →
+     * `firstMissingCapability([], granted) === null` → allow, no matter what
+     * the admin had revoked.
+     *
+     * VALUELESS on purpose: `validateMcpManifest` admits exactly one
+     * `mcpServers` entry per manifest and the grant lives on that extension's
+     * own row, so the extension id already scopes it and a value would add no
+     * bound. Same reasoning as `ezcorp:workflows:run-delegated`.
+     *
+     * Deliberately NOT in `SENSITIVE_KINDS` — see the note beside that set.
+     */
+    mcpInvoke?: boolean;
     // ── Capability tier (Phase 2+). Gated by EZCORP_DISABLE_CAPABILITY_TOOLS ──
     /** Emit `task:snapshot` / `task:assignment_update` bus events via
      *  `ezcorp/emit-task-event` reverse RPC. Conversation scope is forced
@@ -961,6 +983,11 @@ export interface ExtensionPermissions {
   shell?: boolean;
   env?: string[];
   storage?: boolean;
+  /** GRANTED form of the `kind:"mcp"` dispatch sentinel. See the matching
+   *  field on `ExtensionManifestV2.permissions.mcpInvoke` for the contract.
+   *  Auto-granted at install by `mcpInstallGrant`, revoked by submitting an
+   *  explicit `mcpInvoke: false` to `PUT /api/extensions/[id]/permissions`. */
+  mcpInvoke?: boolean;
   // Capability tier — see ExtensionManifestV2.permissions for the full
   // contract + the Phase 2+3 plan (`.claude/plans/tranquil-dancing-book.md`).
   taskEvents?: boolean;
