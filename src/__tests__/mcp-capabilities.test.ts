@@ -146,13 +146,22 @@ describe("mcpManifestPermissions", () => {
     // `clampExtensionPermissions` gates on `if (submitted.network &&
     // manifest.network)` — an ABSENT key silently drops every submitted host,
     // which is exactly why the network grant was ungrantable for MCP rows.
-    expect(mcpManifestPermissions(stdio())).toEqual({ network: [] });
+    expect(mcpManifestPermissions(stdio())).toEqual({ network: [], mcpInvoke: true });
   });
 
   test("declares the remote host as the ceiling", () => {
     expect(mcpManifestPermissions(remote("https://mcp.example.com/mcp"))).toEqual({
       network: ["mcp.example.com"],
+      mcpInvoke: true,
     });
+  });
+
+  test("declares the dispatch sentinel even with NO host to declare (F5)", () => {
+    // The sentinel is the whole reason a hostless row is gated at all: an
+    // empty host array is SKIPPED by `deriveCapsFromExtensionPerms`, so
+    // without it the tool declaration flattens to [] and the PDP allows
+    // unconditionally no matter what the admin revoked.
+    expect(mcpManifestPermissions(stdio()).mcpInvoke).toBe(true);
   });
 });
 
@@ -161,12 +170,16 @@ describe("mcpInstallGrant", () => {
     const grant = mcpInstallGrant(remote("https://mcp.example.com/mcp"), 1_700_000_000_000);
     expect(grant).toEqual({
       network: ["mcp.example.com"],
-      grantedAt: { network: 1_700_000_000_000 },
+      mcpInvoke: true,
+      grantedAt: { network: 1_700_000_000_000, mcpInvoke: 1_700_000_000_000 },
     });
   });
 
-  test("grants NOTHING when the definition names no host", () => {
-    expect(mcpInstallGrant(stdio(), 1_700_000_000_000)).toEqual({ grantedAt: {} });
+  test("grants the sentinel — but no host — when the definition names none", () => {
+    expect(mcpInstallGrant(stdio(), 1_700_000_000_000)).toEqual({
+      mcpInvoke: true,
+      grantedAt: { mcpInvoke: 1_700_000_000_000 },
+    });
   });
 
   test("defaults the stamp to now when the caller omits it", () => {
@@ -225,9 +238,42 @@ describe("normalizeMcpManifest", () => {
     const legacy = mcpManifest(remote("https://legacy.example.com/mcp"));
     const out = normalizeMcpManifest(legacy);
     expect(out.permissions.network).toEqual(["legacy.example.com"]);
+    expect(out.permissions.mcpInvoke).toBe(true);
     expect(capabilityDeclarationToSet(out.tools![0]!.capabilities, {})).toEqual([
       { kind: "network", value: "legacy.example.com" },
+      { kind: "ezcorp:mcp:invoke" },
     ]);
+  });
+
+  test("a HOSTLESS legacy row still gets a non-empty needed set (F5)", () => {
+    const legacy = mcpManifest(stdio({ args: ["-y", "@modelcontextprotocol/server-github"] }));
+    const out = normalizeMcpManifest(legacy);
+    expect(out.permissions.network).toEqual([]);
+    // Pre-fix this was `[]`, and `firstMissingCapability([], anything)` is
+    // null — the PDP allowed every call from every hostless MCP server.
+    expect(capabilityDeclarationToSet(out.tools![0]!.capabilities, {})).toEqual([
+      { kind: "ezcorp:mcp:invoke" },
+    ]);
+  });
+
+  test("fills the sentinel on a row healed by an earlier build (network only)", () => {
+    // Keying the heal on `network` alone would leave this row inert forever.
+    const partial = mcpManifest(remote("https://kept.example.com/mcp"), {
+      permissions: { network: ["kept.example.com"] },
+    });
+    const out = normalizeMcpManifest(partial);
+    expect(out.permissions.network).toEqual(["kept.example.com"]);
+    expect(out.permissions.mcpInvoke).toBe(true);
+  });
+
+  test("an explicit mcpInvoke:false declaration is preserved, not overridden", () => {
+    // Stored-is-authoritative applies per key. Such a row can only come from a
+    // hand edit, and it fails CLOSED: the clamp can never grant a cap the
+    // ceiling withholds, so every tool denies.
+    const off = mcpManifest(remote("https://x.example.com/mcp"), {
+      permissions: { network: ["x.example.com"], mcpInvoke: false },
+    });
+    expect(normalizeMcpManifest(off).permissions.mcpInvoke).toBe(false);
   });
 
   test("a stored declaration is authoritative — normalization never re-derives it", () => {
@@ -255,6 +301,7 @@ describe("normalizeMcpManifest", () => {
     expect(normalizeMcpManifest(legacy).permissions).toEqual({
       storage: true,
       network: [],
+      mcpInvoke: true,
     });
   });
 
