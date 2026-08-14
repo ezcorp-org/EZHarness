@@ -126,7 +126,15 @@ test.describe("Extensions — MCP network permission", () => {
 		// Pre-granted at install, so it renders checked.
 		await expect(hostBox).toBeChecked();
 
-		await captureEvidence(page, testInfo, "mcp-network-permission-granted");
+		// Bring the Permissions card INTO FRAME before the shot. Without this the
+		// capture was of the fold — header / Details / Connection / Tools — and
+		// contained none of the thing it is evidence of. The gate makes you
+		// produce a screenshot; it cannot make it show the right pixels, so this
+		// scroll (plus `fullPage`) is the part that has to be deliberate.
+		await page.getByText("Network Access").scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "mcp-network-permission-granted", {
+			fullPage: true,
+		});
 
 		// Revoking it is a real action: the PUT carries an empty host list, and
 		// the PDP then denies both the tool dispatch and every proxy CONNECT.
