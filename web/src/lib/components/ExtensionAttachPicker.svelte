@@ -264,12 +264,13 @@
 				{#each filtered() as ext (ext.id)}
 					{@const isSelected = selected.has(ext.id)}
 					{@const isExpanded = expanded.has(ext.id)}
-					<!-- `min-w-0` on the GRID ITEM and on the flex-column child it
-					     stretches. A grid item defaults to `min-width: auto`, so a
-					     64-char extension name (the server's own ceiling) set the
-					     track's min-content width: measured at a 393px viewport the
-					     card rendered 822px and this scroll pane scrolled sideways to
-					     842px, with the name barely clipped (712 of 722px). -->
+					<!-- `min-w-0` on the GRID ITEM. A grid item defaults to
+					     `min-width: auto`, so a 64-char extension name (the server's
+					     own ceiling) set the track's min-content width: measured at a
+					     393px viewport the card rendered 822px and this scroll pane
+					     scrolled sideways to 842px, with the name barely clipped (712
+					     of 722px) — which is why the spec asserts the card box too and
+					     not just that truncation "engaged". -->
 					<div
 						data-testid="extension-attach-picker-card"
 						data-ext-id={ext.id}
@@ -282,12 +283,12 @@
 							type="button"
 							onclick={() => toggle(ext.id)}
 							aria-pressed={isSelected}
-							class="flex w-full min-w-0 flex-col items-start rounded-t-lg p-3 text-left transition-colors {isSelected
+							class="flex flex-col items-start rounded-t-lg p-3 text-left transition-colors {isSelected
 								? ''
 								: 'hover:bg-[var(--color-surface-tertiary)]'}"
 							style="min-height: 88px;"
 						>
-							<div class="flex w-full min-w-0 items-center gap-2">
+							<div class="flex w-full items-center gap-2">
 								<span
 									class="flex h-4 w-4 shrink-0 items-center justify-center rounded border {isSelected
 										? 'border-blue-500 bg-blue-600 text-white'
