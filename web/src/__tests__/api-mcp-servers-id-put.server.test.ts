@@ -254,6 +254,127 @@ describe("PUT /api/mcp-servers/[id]", () => {
     );
   });
 
+  test("#205 — a blank URL QUERY value keeps the stored secret and the client dials the real url", async () => {
+    vi.mocked(getExtension).mockResolvedValueOnce(
+      mcpExtension({
+        manifest: {
+          kind: "mcp",
+          name: "ext-http",
+          tools: [],
+          permissions: {},
+          mcpServers: [
+            {
+              transport: "http",
+              name: "ext-http",
+              url: "https://vendor.example/mcp?api_key=REAL-URL-SECRET&t=9",
+            },
+          ],
+        },
+      }) as any,
+    );
+    mcpListTools.mockResolvedValueOnce([] as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1" } as any);
+
+    const res = await PUT(
+      makeEvent({
+        locals: adminUser,
+        body: {
+          description: "just the description",
+          server: {
+            transport: "http",
+            name: "ext-http",
+            // Exactly what the edit form prefills from the blanked manifest.
+            url: "https://vendor.example/mcp?api_key=&t=",
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    // The re-probe must authenticate, or a description-only edit 502s.
+    expect(lastClientSpec.url).toBe("https://vendor.example/mcp?api_key=REAL-URL-SECRET&t=9");
+    expect(updateMcpExtension).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.objectContaining({
+          url: "https://vendor.example/mcp?api_key=REAL-URL-SECRET&t=9",
+        }),
+      }),
+    );
+  });
+
+  test("#205 — a retyped URL query value REPLACES the stored one", async () => {
+    vi.mocked(getExtension).mockResolvedValueOnce(
+      mcpExtension({
+        manifest: {
+          kind: "mcp",
+          name: "ext-http",
+          tools: [],
+          permissions: {},
+          mcpServers: [
+            { transport: "http", name: "ext-http", url: "https://vendor.example/mcp?api_key=OLD" },
+          ],
+        },
+      }) as any,
+    );
+    mcpListTools.mockResolvedValueOnce([] as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1" } as any);
+
+    await PUT(
+      makeEvent({
+        locals: adminUser,
+        body: {
+          server: { transport: "http", name: "ext-http", url: "https://vendor.example/mcp?api_key=ROTATED" },
+        },
+      }),
+    );
+    expect(lastClientSpec.url).toBe("https://vendor.example/mcp?api_key=ROTATED");
+  });
+
+  test("#205 — a stdio edit keeps the blanked ARGV secret and the stored env", async () => {
+    vi.mocked(getExtension).mockResolvedValueOnce(
+      mcpExtension({
+        manifest: {
+          kind: "mcp",
+          name: "ext-stdio",
+          tools: [],
+          permissions: {},
+          mcpServers: [
+            {
+              transport: "stdio",
+              name: "ext-stdio",
+              command: "npx",
+              args: ["-y", "srv", "--token=REAL-ARGV-SECRET"],
+              env: { API_KEY: "REAL-ENV-SECRET" },
+            },
+          ],
+        },
+      }) as any,
+    );
+    mcpListTools.mockResolvedValueOnce([] as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1" } as any);
+
+    const res = await PUT(
+      makeEvent({
+        locals: adminUser,
+        body: {
+          description: "just the description",
+          // The form's stdio branch sends no `env` at all, and posts back the
+          // blanked argv it prefilled.
+          server: {
+            transport: "stdio",
+            name: "ext-stdio",
+            command: "npx",
+            args: ["-y", "srv", "--token="],
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(lastClientSpec.args).toEqual(["-y", "srv", "--token=REAL-ARGV-SECRET"]);
+    // Pre-#205 the stdio branch returned the submitted spec verbatim, so every
+    // stdio edit silently DROPPED the stored env — the API key with it.
+    expect(lastClientSpec.env).toEqual({ API_KEY: "REAL-ENV-SECRET" });
+  });
+
   test("non-blank header value overwrites the stored secret", async () => {
     vi.mocked(getExtension).mockResolvedValueOnce(
       mcpExtension({
