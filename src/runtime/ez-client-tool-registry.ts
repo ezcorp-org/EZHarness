@@ -29,7 +29,10 @@
  *     is called from the abort listener (registered in fill-form / navigate-to).
  *   - **Timeout:** a 5-minute default cap is enforced inside `register…`. If the
  *     panel never POSTs (browser closed mid-flow), the gate rejects with a
- *     timeout error so the LLM sees a concrete failure.
+ *     timeout error so the LLM sees a concrete failure. The executor
+ *     watchdog defers its idle kill for the whole of that wait — see
+ *     {@link ezClientToolWatchdogBudgetMs}, which the three client-side
+ *     tool defs use as their `callTimeoutMs`.
  *   - **Duplicate registration:** `register…` overwrites a prior pending entry
  *     for the same `toolCallId`. In practice toolCallIds are UUIDs minted per
  *     LLM call, so collisions can't happen — but the overwrite path is
@@ -51,8 +54,68 @@ interface PendingEzClientToolEntry {
 
 const pendingByToolCallId = new Map<string, PendingEzClientToolEntry>();
 
-const DEFAULT_EZ_CLIENT_TOOL_TIMEOUT_MS = 5 * 60_000;
-let ezClientToolTimeoutMs = DEFAULT_EZ_CLIENT_TOOL_TIMEOUT_MS;
+/**
+ * How long a client-side Ez tool may legitimately suspend: the panel gets
+ * five minutes to POST its resolution before the gate rejects with a
+ * concrete timeout error.
+ *
+ * THE single source of truth for that wait. The three client-side tool
+ * defs (`fill_form`, `navigate_to`, `read_page`) derive their watchdog
+ * `callTimeoutMs` from it via {@link ezClientToolWatchdogBudgetMs} rather
+ * than restating the number — a duplicated literal is exactly how the two
+ * halves drifted into the 90s-vs-300s inversion that killed runs mid-wait.
+ */
+export const EZ_CLIENT_TOOL_TIMEOUT_MS = 5 * 60_000;
+let ezClientToolTimeoutMs = EZ_CLIENT_TOOL_TIMEOUT_MS;
+
+/** The live gate timeout — {@link EZ_CLIENT_TOOL_TIMEOUT_MS} in
+ *  production, or whatever a test installed via
+ *  {@link _setEzClientToolTimeoutForTests}. Read this (never the
+ *  constant) when deriving anything that must track the real gate. */
+export function getEzClientToolTimeoutMs(): number {
+  return ezClientToolTimeoutMs;
+}
+
+/**
+ * Grace added on top of the gate timeout to form the watchdog's per-call
+ * deferral budget.
+ *
+ * **Who is meant to win the race, and why.** Two clocks bound one
+ * suspended call: this registry's `setTimeout` (rejects the pending
+ * promise → `runEzClientTool` turns it into a normal tool error → the LLM
+ * reads "Timed out waiting for Ez client tool result" and can tell the
+ * user the panel never answered), and the executor watchdog (kills the
+ * whole RUN once the in-flight deferral lapses and the idle window then
+ * elapses → generic error banner, turn dead, model never learns why).
+ * The registry MUST win: it degrades one tool call, the watchdog
+ * degrades the turn. So the watchdog budget is deliberately the LONGER
+ * of the two, and the watchdog survives only as the backstop for the
+ * case the registry's own timer never fires (a leaked entry, a future
+ * refactor that drops the timer) — the leak detection the watchdog
+ * exists for is kept, not switched off.
+ *
+ * Sized at two watchdog ticks (`WATCHDOG_TICK_MS` = 15s, see
+ * `executor-watchdog.ts`): the deferral is re-evaluated only once per
+ * tick, so the budget has to outlast the tick that straddles the
+ * registry rejection, plus the reject → `tool_execution_end` →
+ * `noteToolEnd` propagation on a loaded box. Not imported from the
+ * watchdog module on purpose — the tools layer never depends on the
+ * watchdog (same posture as `LONG_BLOCKING_WATCHDOG_BUDGET_MS` in
+ * `runtime/tools/filter.ts`), and this module is dependency-free so the
+ * `tool-results` API route can import it cheaply.
+ */
+export const EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS = 30_000;
+
+/**
+ * Watchdog `callTimeoutMs` for a client-side Ez tool def: the live gate
+ * timeout plus {@link EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS}. Called by each
+ * client-tool factory at def-construction time (once per turn), so a
+ * test that shrinks the gate gets a proportionally shrunk watchdog
+ * budget with no second knob to set.
+ */
+export function ezClientToolWatchdogBudgetMs(): number {
+  return getEzClientToolTimeoutMs() + EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS;
+}
 
 /** Test-only: shorten the 5-minute timeout so the timeout branch can be
  *  exercised without a real wait. */
@@ -62,7 +125,7 @@ export function _setEzClientToolTimeoutForTests(ms: number): void {
 
 /** Test-only: reset to the production default. */
 export function _resetEzClientToolTimeoutForTests(): void {
-  ezClientToolTimeoutMs = DEFAULT_EZ_CLIENT_TOOL_TIMEOUT_MS;
+  ezClientToolTimeoutMs = EZ_CLIENT_TOOL_TIMEOUT_MS;
 }
 
 export interface RegisterPendingEzClientToolOptions {
