@@ -157,7 +157,7 @@ function absorbBlock(r: FileRec, block: Array<[number, number]>): void {
   let i = 0;
   while (i < recs.length) {
     const start = recs[i];
-    if (!start || start[1] !== 0) {
+    if (start?.[1] !== 0) {
       i++;
       continue;
     }
