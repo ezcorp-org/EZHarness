@@ -22,7 +22,11 @@ function envIdleMs(name: string, fallback: number): number {
 // - WATCHDOG_TICK_MS: how often the watchdog polls activity
 // - WATCHDOG_IDLE_MS: if no progress signal for this long (and no pending permission), kill the run
 // - HEARTBEAT_REFRESH_MS: how often the watchdog refreshes active_runs.last_heartbeat while alive
-const WATCHDOG_TICK_MS = 15_000;
+/** Exported so a tool that must out-wait the watchdog can size its
+ *  `callTimeoutMs` grace against the real polling cadence instead of
+ *  restating 15s — the deferral is re-evaluated only once per tick, so a
+ *  grace smaller than one tick is no grace at all. */
+export const WATCHDOG_TICK_MS = 15_000;
 const WATCHDOG_IDLE_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_MS", 90_000);
 const HEARTBEAT_REFRESH_MS = 30_000;
 
