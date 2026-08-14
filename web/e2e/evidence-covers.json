@@ -23,6 +23,12 @@
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
+  "web/e2e/card-grid-mobile-overflow.spec.ts": [
+    "web/src/lib/components/AgentCard.svelte",
+    "web/src/lib/components/TeamCard.svelte",
+    "web/src/lib/components/CommandCard.svelte",
+    "web/src/lib/components/ExtensionAttachPicker.svelte"
+  ],
   "web/e2e/chat-context-window-model-switch.spec.ts": [
     "web/src/lib/components/ContextUsageIndicator.svelte",
     "web/src/lib/components/chat/ChatHeader.svelte",

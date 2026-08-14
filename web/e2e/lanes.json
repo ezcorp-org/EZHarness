@@ -59,6 +59,7 @@
       "web/e2e/auth-autocomplete.spec.ts",
       "web/e2e/auto-model-routing.spec.ts",
       "web/e2e/cache-stats-pill.spec.ts",
+      "web/e2e/card-grid-mobile-overflow.spec.ts",
       "web/e2e/chat-context-window-model-switch.spec.ts",
       "web/e2e/chat-context-window-served-model.spec.ts",
       "web/e2e/chat-durable-leaf-capability-event.spec.ts",
