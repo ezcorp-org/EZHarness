@@ -133,8 +133,8 @@ export type WatchdogPersistError = (
  *   - destroy() hook for test teardown / graceful shutdown
  *
  * Owns its own state (heartbeats, lastActivityAt, lastHeartbeatWriteAt,
- * orphanInterval). Reads the executor's state via a {@link WatchdogHost}
- * reference — no state is duplicated.
+ * deferState, orphanInterval). Reads the executor's state via a
+ * {@link WatchdogHost} reference — no state is duplicated.
  */
 export class WatchdogManager {
   private heartbeats = new Map<string, ReturnType<typeof setInterval>>();
@@ -157,6 +157,14 @@ export class WatchdogManager {
   // predates this wiring or persist is off; the trip branch then just
   // skips the message (emits run:error as before — no regression).
   private persistError = new Map<string, WatchdogPersistError>();
+  // Per-run deferral state, kept ONLY so the log line is one per state
+  // CHANGE instead of one per 15s tick. A suspended Ez client tool defers
+  // for up to its 5-minute budget — that used to be ~22 identical "Watchdog
+  // deferred" lines per call, times every concurrent panel user. Presence
+  // means "currently deferring, already logged"; `reason` lets a change of
+  // cause (permission gate → tool in flight) still print, and `since`
+  // gives the resume line a real duration instead of a bare event.
+  private deferState = new Map<string, { reason: string; since: number }>();
   private orphanInterval: ReturnType<typeof setInterval> | undefined;
 
   constructor(private host: WatchdogHost) {}
@@ -351,11 +359,42 @@ export class WatchdogManager {
         // deferral lifts (permission resolved or tool returns) the watchdog
         // doesn't immediately trip on the staleness accumulated while
         // waiting.
-        log.info("Watchdog deferred", { runId, conversationId, idleMs, reason: deferReason });
+        //
+        // Log on STATE CHANGE only (entry, or a change of cause): the
+        // deferral can legitimately span minutes, and one line per tick
+        // buries the events that matter in a tail.
+        const priorDefer = this.deferState.get(runId);
+        if (!priorDefer || priorDefer.reason !== deferReason) {
+          log.info("Watchdog deferring", { runId, conversationId, idleMs, reason: deferReason });
+          this.deferState.set(runId, { reason: deferReason, since: now });
+        }
         this.bumpActivity(runId);
+        // The heartbeat write stays PER TICK, deliberately unthrottled.
+        // `active_runs.last_heartbeat` has a second consumer besides the
+        // 5-minute orphan sweep: `GET /api/conversations/[id]/active-run`
+        // returns `stalenessMs` from it for a LIVE in-memory run, and the
+        // chat renders the "this run may be stuck" banner at 30s / "stuck"
+        // at 60s. Honouring HEARTBEAT_REFRESH_MS here would let staleness
+        // reach ~45s (30s throttle + a 15s tick) and flash that banner at a
+        // user whose Ez client tool is simply still waiting on the panel.
+        // Two writes per 30s is the cheaper side of that trade.
         await activeRunsDb.updateHeartbeat(runId).catch(() => {});
         this.lastHeartbeatWriteAt.set(runId, now);
         return;
+      }
+      // Deferral just lifted (tool returned, permission resolved, or the
+      // budget lapsed). One line, carrying how long the run was held — the
+      // number an on-call reader actually wants. Emitted BEFORE the idle
+      // check so a kill in this same tick reads as "held 330s, then tripped".
+      const endedDefer = this.deferState.get(runId);
+      if (endedDefer) {
+        this.deferState.delete(runId);
+        log.info("Watchdog deferral ended", {
+          runId,
+          conversationId,
+          reason: endedDefer.reason,
+          deferredMs: now - endedDefer.since,
+        });
       }
       if (idleMs >= idleThreshold) {
         // Pick the kill reason: a blown tool callTimeoutMs is more
@@ -524,6 +563,10 @@ export class WatchdogManager {
     this.lastHeartbeatWriteAt.delete(runId);
     this.inflightTools.delete(runId);
     this.persistError.delete(runId);
+    // Same lifetime as the other per-run clocks: a run that dies mid-defer
+    // must not leave an entry that would suppress the entry log for a
+    // future run reusing this id.
+    this.deferState.delete(runId);
   }
 
   /**
@@ -543,5 +586,6 @@ export class WatchdogManager {
     this.lastHeartbeatWriteAt.clear();
     this.inflightTools.clear();
     this.persistError.clear();
+    this.deferState.clear();
   }
 }
