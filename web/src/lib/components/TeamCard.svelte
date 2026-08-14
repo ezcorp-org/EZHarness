@@ -26,7 +26,11 @@
 	let extraCount = $derived(Math.max(0, memberCount - 3));
 </script>
 
-<div class="flex h-full flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]">
+<!-- `min-w-0` on the GRID ITEM — same defect as AgentCard: without it the
+     unbreakable team name sets the grid track's min-content width (measured
+     1318px card in a 393px viewport) and the heading's `truncate` never
+     engages. -->
+<div class="flex h-full min-w-0 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]">
 	<div class="mb-3 min-w-0">
 		<div class="flex flex-wrap items-center gap-2">
 			<h3 class="truncate text-lg font-semibold text-[var(--color-text-primary)]">{team.name}</h3>

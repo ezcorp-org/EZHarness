@@ -264,11 +264,17 @@
 				{#each filtered() as ext (ext.id)}
 					{@const isSelected = selected.has(ext.id)}
 					{@const isExpanded = expanded.has(ext.id)}
+					<!-- `min-w-0` on the GRID ITEM and on the flex-column child it
+					     stretches. A grid item defaults to `min-width: auto`, so a
+					     64-char extension name (the server's own ceiling) set the
+					     track's min-content width: measured at a 393px viewport the
+					     card rendered 822px and this scroll pane scrolled sideways to
+					     842px, with the name barely clipped (712 of 722px). -->
 					<div
 						data-testid="extension-attach-picker-card"
 						data-ext-id={ext.id}
 						data-selected={isSelected ? "true" : "false"}
-						class="flex flex-col rounded-lg border transition-colors {isSelected
+						class="flex min-w-0 flex-col rounded-lg border transition-colors {isSelected
 							? 'border-blue-500 bg-blue-900/20'
 							: 'border-[var(--color-border)] bg-[var(--color-surface-secondary)]'}"
 					>
@@ -276,12 +282,12 @@
 							type="button"
 							onclick={() => toggle(ext.id)}
 							aria-pressed={isSelected}
-							class="flex flex-col items-start rounded-t-lg p-3 text-left transition-colors {isSelected
+							class="flex w-full min-w-0 flex-col items-start rounded-t-lg p-3 text-left transition-colors {isSelected
 								? ''
 								: 'hover:bg-[var(--color-surface-tertiary)]'}"
 							style="min-height: 88px;"
 						>
-							<div class="flex w-full items-center gap-2">
+							<div class="flex w-full min-w-0 items-center gap-2">
 								<span
 									class="flex h-4 w-4 shrink-0 items-center justify-center rounded border {isSelected
 										? 'border-blue-500 bg-blue-600 text-white'
@@ -304,7 +310,11 @@
 								</span>
 							</div>
 							{#if ext.description}
-								<p class="mt-2 line-clamp-2 text-xs text-[var(--color-text-muted)]">
+								<!-- `w-full`: this button is `items-start`, so the paragraph is
+								     NOT stretched — it sized to its own max-content (1290px for
+								     a description holding a pasted URL) and `line-clamp-2` then
+								     clipped nothing, because the box was as wide as the text. -->
+								<p class="mt-2 line-clamp-2 w-full break-words text-xs text-[var(--color-text-muted)]">
 									{ext.description}
 								</p>
 							{/if}

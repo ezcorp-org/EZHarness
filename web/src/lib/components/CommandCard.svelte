@@ -22,8 +22,12 @@
 	// data-source carries the raw value for tests.
 </script>
 
+<!-- `min-w-0` on the GRID ITEM — same defect as AgentCard: a 60-char command
+     slug (the API admits 64) set the grid track's min-content width, so the
+     card rendered 894px in a 393px viewport and the `truncate` on the name
+     was inert. -->
 <div
-	class="flex h-full flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]"
+	class="flex h-full min-w-0 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]"
 	data-testid="command-card"
 	data-source="user:db"
 >

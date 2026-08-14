@@ -17,7 +17,13 @@
 	let isReadOnly = $derived(agent.shared && agent.permission === "read");
 </script>
 
-<div class="flex h-full flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]">
+<!-- `min-w-0` on the GRID ITEM (this card is one). A grid item defaults to
+     `min-width: auto`, so the unbreakable agent name set the track's
+     min-content width: measured at a 393px viewport, the card rendered
+     1307px, `<main>` scrolled sideways to 1331px, and the heading's
+     `truncate` was INERT (clientWidth == scrollWidth == 1265) because the
+     heading had all the room it asked for. -->
+<div class="flex h-full min-w-0 flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-5 transition-colors hover:border-[var(--color-border)]">
 	<div class="mb-3 min-w-0">
 		<div class="flex flex-wrap items-center gap-2">
 			<h3 class="truncate text-lg font-semibold text-[var(--color-text-primary)]">{agent.name}</h3>
@@ -40,7 +46,12 @@
 			<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">{agent.category}</p>
 		{/if}
 	</div>
-	<p class="mb-3 text-sm text-[var(--color-text-secondary)]">{agent.description}</p>
+	<!-- `break-words`: the description is free text, so it carries pasted URLs.
+	     An unbreakable token overflows its own block box (the box stays 345px,
+	     the INK runs past it), which is invisible to a box-geometry check and
+	     still scrolled `<main>` to 1597px at a 393px viewport. TeamCard and
+	     CommandCard escape this only because they clip theirs. -->
+	<p class="mb-3 break-words text-sm text-[var(--color-text-secondary)]">{agent.description}</p>
 	<div class="flex flex-wrap gap-1.5">
 		{#each agent.capabilities as cap}
 			<span class="rounded-md bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">{cap}</span>
