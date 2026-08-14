@@ -20,6 +20,8 @@ export const RUNTIME_EVENT_NAMES = [
   "task:snapshot", "task:assignment_update",
   "ask-user:answer",
   "ez:client-tool",
+  // Caller-executed tool delivery — see `serveCallerTools` in `index.ts`.
+  "caller:tool-call",
   "ext:state",
   "ext:page-state",
   "extensions:installed",
