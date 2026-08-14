@@ -52,6 +52,25 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: mockGetConversationExtensionIds,
 }));
 
+// ── Wire-authz gate: mocked as a SEAM, not re-tested here. ──
+// The gate's own branch matrix (MCP detection, admin / creator / `use`-grant
+// rungs, fail-closed) is unit-tested in
+// `src/__tests__/extension-wire-authz.test.ts`, and the whole path is driven
+// against real PGlite in `src/__tests__/mcp-wire-authz.integration.test.ts`.
+// What this file owns is the ROUTE's half of the contract: that it consults
+// the gate at all, with the right coordinates, and that it reports a denial
+// as a miss.
+let deniedNames: string[] = [];
+const mockPartition = mock(
+  async (candidates: Array<{ id: string; name: string }>, _actor: unknown) => ({
+    allowed: candidates.filter((c) => !deniedNames.includes(c.name)),
+    deniedNames: candidates.filter((c) => deniedNames.includes(c.name)).map((c) => c.name),
+  }),
+);
+mock.module("$server/auth/extension-wire-authz", () => ({
+  partitionWirableExtensions: mockPartition,
+}));
+
 const { GET, POST } = await import("../../conversations/[id]/extensions/+server");
 
 const user = { id: "u1", email: "u@x", name: "u", role: "member" };
@@ -88,6 +107,8 @@ beforeEach(() => {
   extByName = new Map();
   extById = new Map();
   wiredIds = [];
+  deniedNames = [];
+  mockPartition.mockClear();
   mockResolveOwnership.mockClear();
   mockGetExtensionsByNames.mockClear();
   mockGetExtension.mockClear();
@@ -207,6 +228,68 @@ describe("POST — wiring", () => {
     expect(body.wired).toEqual(["a"]);
     expect(body.extensionIds).toEqual(["id-a"]);
     expect(mockAddConversationExtensions).toHaveBeenCalledWith("c1", [{ extensionId: "id-a" }]);
+  });
+});
+
+describe("POST — wire-authz (B1)", () => {
+  test("a denied name is reported as UNKNOWN, byte-identical to a missing one", async () => {
+    extByName.set("weather-mcp", { id: "id-mcp", name: "weather-mcp" });
+    deniedNames = ["weather-mcp"];
+
+    const res = await POST(postEvent({ locals: { user }, body: { names: ["weather-mcp"] } }));
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string; unknown?: string[] };
+    // The row EXISTS and resolved — the 404 is the authorization answer, and
+    // it must be indistinguishable from a genuine miss so a member cannot
+    // enumerate admin-installed MCP servers by probing names.
+    expect(body).toEqual({ error: "Unknown extension(s)", unknown: ["weather-mcp"] });
+    expect(mockAddConversationExtensions).not.toHaveBeenCalled();
+  });
+
+  test("a denial makes the batch ALL-OR-NOTHING — the allowed sibling is not wired", async () => {
+    extByName.set("ok", { id: "id-ok", name: "ok" });
+    extByName.set("weather-mcp", { id: "id-mcp", name: "weather-mcp" });
+    deniedNames = ["weather-mcp"];
+
+    const res = await POST(postEvent({ locals: { user }, body: { names: ["ok", "weather-mcp"] } }));
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { unknown?: string[] }).unknown).toEqual(["weather-mcp"]);
+    expect(mockAddConversationExtensions).not.toHaveBeenCalled();
+  });
+
+  test("unknown and denied names are reported TOGETHER, in request order", async () => {
+    extByName.set("weather-mcp", { id: "id-mcp", name: "weather-mcp" });
+    deniedNames = ["weather-mcp"];
+
+    const res = await POST(
+      postEvent({ locals: { user }, body: { names: ["weather-mcp", "ghost"] } }),
+    );
+    expect(((await res.json()) as { unknown?: string[] }).unknown).toEqual(["weather-mcp", "ghost"]);
+  });
+
+  test("the gate is asked ONLY about resolved rows, with the conversation's project", async () => {
+    ownershipResult = { conv: { id: "c1", projectId: "proj-9" }, root: { id: "c1" } };
+    extByName.set("a", { id: "id-a", name: "a" });
+
+    const res = await POST(postEvent({ locals: { user }, body: { names: ["a", "ghost"] } }));
+    expect(res.status).toBe(404); // "ghost" is unknown
+
+    expect(mockPartition).toHaveBeenCalledTimes(1);
+    const [candidates, actor] = mockPartition.mock.calls[0]!;
+    // "ghost" never resolved, so there is no row to authorize.
+    expect(candidates).toEqual([{ id: "id-a", name: "a" }]);
+    // The project coordinate comes off the CONVERSATION, never the body —
+    // a client-supplied project would let a caller pick the coordinates its
+    // grants happen to cover.
+    expect(actor).toEqual({ user: { id: "u1", role: "member" }, projectId: "proj-9" });
+  });
+
+  test("a conversation with no project checks at the all-projects (null) coordinate", async () => {
+    ownershipResult = { conv: { id: "c1" }, root: { id: "c1" } };
+    extByName.set("a", { id: "id-a", name: "a" });
+
+    await POST(postEvent({ locals: { user }, body: { names: ["a"] } }));
+    expect((mockPartition.mock.calls[0]![1] as { projectId: unknown }).projectId).toBeNull();
   });
 });
 

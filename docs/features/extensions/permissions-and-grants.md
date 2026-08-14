@@ -56,6 +56,26 @@ When `authorize` returns `prompt`, `ToolExecutor`:
 - `isReservedSensitivePath` is a **grant-independent hard-deny** wired BEFORE any allow (including the implicit install-dir allow) in both `checkFilesystemPermission` (read) and `checkPrefixForWrite` (write) in `fs-handler.ts`. It denies `<projectRoot>/.ezcorp/data`, `<projectRoot>/.ezcorp/backups`, and `getDbMaskDirs()` (`EZCORP_DB_PATH` + its `backups/` sibling) — the PGlite DB that holds the JWT/encryption secret in the `settings` table. Matching is realpath-resolved and **segment-bounded** (`p === reserved || p.startsWith(reserved + "/")`) so `.ezcorp/data-export` is NOT swept up. The extension store at `.ezcorp/extension-data/<name>/` stays fully allowed. This exists because Landlock is OFF in these containers, so the grant is otherwise the only gate.
 - **A reserved-path deny is NOT a security violation.** Both gates return a discriminated `FilesystemDenialKind` — `not-found` / `reserved-carveout` / `out-of-grant` — and only `out-of-grant` (checked via `isGrantEscape`, whose lookup table is `satisfies Record<FilesystemDenialKind, boolean>` so a new kind is a compile error until classified) trips `denyAndDisable`. A `reserved-carveout` deny stays `-32001`, leaves the extension **enabled**, and writes one `ext:perm:denied` audit row with `metadata.reason = "reserved-path"`. Why: under the shipped Docker layout (`Dockerfile` — `EZCORP_DB_PATH=/app/data/ezcorp`, project root `/app`) the datadir sits *inside* the `$CWD` grant, so every project-root-walking extension (`ez-factory` `read_files`, `todo-tracker`, `claude-design`, `file-refactor`) listed it on its first correct run and was permanently disabled — with no `clearSecurityViolations` route to recover. `fs-handler.ts`'s `refuseFs` is the single router and the only path to `denyAndDisable` from the fs gates.
 
+### Wiring an extension into a conversation (`src/auth/extension-wire-authz.ts`)
+
+Attaching an extension to a conversation is what makes its tools callable by an LLM turn, so it is its own authorization question — distinct from the PDP (what the extension may DO) and narrower than the RBAC resolver it consults.
+
+`canWireExtension(ext, actor)` is the single decision point, fail-closed:
+
+1. **Bundled** rows are always wire-able — first-party code, ceiling-clamped and lockfile-pinned, carrying no admin-supplied credential.
+2. **Non-MCP** extensions keep their prior behaviour (allowed). Gating every extension on the `use` scope would deny every member every extension on day one, because `extension_rbac_grants` is deny-by-default and no shipped instance seeds rows.
+3. **MCP** extensions (`manifest.kind === "mcp"` OR `source` starting `mcp:` — two host-written signals, either sufficient) are wire-able only by (a) an instance **admin**, (b) the row's own **`creatorUserId`**, or (c) a member holding the **`use`** grant at the conversation's (project, extension) coordinates. A NULL `creatorUserId` — every row predating the stamp — matches nobody, so legacy rows are admin-only.
+4. No acting user, an inactive/deleted user, or a throwing grants lookup all **deny**.
+
+Why MCP specifically: an MCP row is a stored connection plus the credential authenticating to it (`extension_secrets`, rehydrated host-side by `rehydrateMcpServerSecrets`). Installing one is admin-only on both axes, so wiring one must not be weaker than installing it. Before this gate any authenticated member could attach an admin-installed MCP server to their own chat and drive the admin's credential — and `requireScope(locals,"extensions")` was no barrier, because it is a no-op for cookie sessions.
+
+Both call sites report a denial as a **miss**, never as a distinct outcome, so a member cannot enumerate installed MCP servers by probing names:
+
+- `POST /api/conversations/[id]/extensions` folds the denied name into its existing all-or-nothing `404 {error:"Unknown extension(s)", unknown}`.
+- `![ext:…]` / `![agent:…]` mention wiring (`src/runtime/mention-wiring.ts`) drops it **silently** — the binding mention-grammar contract for an unknown target. The agent branch is gated too: an agent config's `extensions` array is user-authored, so gating only the direct mention would leave a one-hop bypass.
+
+The project coordinate is always derived server-side from the conversation row, never from the request — the same rule `resolveExtensionScopeGrant` follows in the tool-executor.
+
 ### Bundled capability ceiling (`bundled-ceiling.ts`)
 
 - `BUNDLED_CEILING` is a hardcoded `Record<name, ExtensionPermissions>` — the security *maximum* for each bundled extension, sourced from this code-reviewed file, NOT from the (potentially tampered) manifest. Keys mirror `BUNDLED_EXTENSIONS[*].name`.
@@ -113,6 +133,9 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 - `src/extensions/perm-expiry-config.ts` — `TTL_CONFIG` per-kind TTL table + `getForeverTtlMs()`.
 - `src/extensions/call-provenance.ts` — `registerCallProvenance`/`registerFireCallProvenance`/`resolveCallProvenance`/`releaseCallProvenance`.
 - `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS` + `AUDIT_PERM_*` constants.
+- `src/auth/extension-wire-authz.ts` — `canWireExtension` / `partitionWirableExtensions` / `loadWireActor` / `isMcpExtension`: the conversation-wiring gate.
+- `src/runtime/mention-wiring.ts` — `wireMentionedExtensions`; the mention-side call site (silent drop on denial).
+- `web/src/routes/api/conversations/[id]/extensions/+server.ts` — the typed wiring route (denial folded into the unknown-name 404).
 - `src/extensions/fs-handler.ts` — host read/write/list/stat gates; calls `engine.authorize` + `isReservedSensitivePath`.
 - `src/extensions/tool-executor/executor.ts` — forward-dispatch gate: `authorize` → prompt → `createExtensionPermissionGate` → `resolvePrompt`.
 - `src/routes/tool-permission.ts` — gate-answer handler (ownership + `forever` admin gate + TTL validation).
@@ -134,7 +157,7 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 - [[rbac-and-permission-modes]] — `scope: "forever"` and the permissions-overwrite PUT require the admin role.
 - [[agents]] — spawn-assignment writes per-conversation grant overrides = `intersect(parent, child-agent)`.
 - [[scheduling-and-loops]] — schedule/event fires mint fire-provenance tokens; schedule grants have their own ceiling + expiry tier.
-- [[mcp-servers]] — `mcp-proxy.ts` PDP-gates each MCP host call against the extension's network grant.
+- [[mcp-servers]] — `mcp-proxy.ts` PDP-gates each MCP host call against the extension's network grant; the wiring gate above decides who may attach an MCP extension in the first place, and the four lifecycle mutations are audited.
 - [[settings-system]] — always-allow rows + sticky picker TTLs persist in the `settings` KV table.
 
 ## Related docs
@@ -149,6 +172,7 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 
 - **The reserved-path hard-deny is the only DB protection in these containers.** Landlock is OFF (`EZCORP_PROJECT_ROOT` unset), so a bundled extension with a `$CWD`-widened-to-project-root grant would otherwise host-mediated-read `.ezcorp/data` (PGlite + JWT secret). `isReservedSensitivePath` closes that in software, wired before every allow on both read and write gates. The deny is realpath-resolved + segment-bounded so symlink/`..`/sibling tricks don't bypass it.
 - **Lexical vs. realpath asymmetry.** The extension FS gate (`checkFilesystemPermission`, `checkPrefixForWrite`) realpaths both target and prefix. The built-in file tools (`src/runtime/tools/validate.ts` `validatePath`) do a **lexical** containment check (no realpath), while the FS scanner / `@`-autocomplete (`src/runtime/fs/scan-fs.ts` `realpathInsideRoot`) does realpath. Don't assume one containment model platform-wide.
+- **The wiring gate is NOT the PDP, and neither subsumes the other.** The PDP asks what a running extension may do; the wiring gate asks who may make it runnable in this conversation. An MCP extension's credential lives in the transport rather than in a capability, so no PDP grant can narrow it — which is exactly why the wire step needed its own control.
 - **`prompt` ≠ `deny`.** A `prompt` decision means every cap was granted but a sensitive one lacks an always-allow row. The tool-executor opens the interactive gate and *can* still proceed; only a user decline (or missing grant) is a hard deny.
 - **Install/modify are never persistable.** `ezcorp:extension:install` / `ezcorp:extension:modify` force the always-allow read to `false`, are excluded from the bundled-ceiling auto-allow, and `resolvePrompt` returns early without writing a row — every install / reopen-for-edit re-consents. `modify` is additionally gated host-side (owner + admin-`modifiable` + not-bundled) in the drafts/reopen handler.
 - **Always-allow "forever" grants the whole kind.** Because the always-allow key is kind-only, "Allow forever" on `fs.write` authorizes *any* path under that cap, not just the prompted one. This was a deliberate collapse to fix a writer/reader key-shape mismatch where users hitting Allow Forever still re-prompted.

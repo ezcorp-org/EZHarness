@@ -88,7 +88,8 @@ Each write is independently try/caught; a failure is logged to `error_logs` and 
 
 ## Key files
 
-- `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS` (the typed `ext:*` action vocabulary) + `ExtensionAuditMetadata` contract.
+- `src/extensions/audit-actions.ts` — `EXT_AUDIT_ACTIONS` (the typed `ext:*` action vocabulary) + `ExtensionAuditMetadata` contract. Includes the MCP lifecycle rows `MCP_SERVER_INSTALLED` / `_UPDATED` / `_REFRESHED` and `EXTENSION_UNINSTALLED` — see [MCP servers § Audit trail](../tools/mcp-servers.md#audit-trail-mcp-lifecycle).
+- `src/extensions/mcp-audit.ts` — the credential-free projection an MCP server definition takes before it reaches `audit_log.metadata` (transport, executable or URL origin+path, auth KEY names, tool count). The first net; `redactForAudit` is the second.
 - `src/extensions/audit-redaction.ts` — `redactForAudit` (credential chokepoint, 8 KB cap, SHA-256 truncation) + `redactToolCallOutputContent`.
 - `src/extensions/recordCapabilityCall.ts` — triple-write wrapper (sdk row → per-resource audit → in-chat pill), each fail-open.
 - `src/db/queries/audit-log.ts` — `insertAuditEntry` (the single `audit_log` write, always redacted, fail-open), `listAuditLog`, `listAuditForExtension`.
