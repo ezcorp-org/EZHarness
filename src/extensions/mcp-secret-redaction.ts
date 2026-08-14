@@ -58,6 +58,18 @@
  * var, a header); the bare form does not, and is out of scope by design
  * rather than by omission.
  *
+ * A URL's PATH and FRAGMENT are also kept verbatim. `mcp-audit.ts` drops the
+ * path (a webhook-style endpoint carries its credential as an opaque SEGMENT)
+ * and can afford to, because an operator reads an audit row for *which host*.
+ * This layer feeds the Connection panel, which is where an admin VERIFIES the
+ * endpoint they configured — `https://h/` verifies nothing, and no heuristic
+ * separates a route word from a token (`T0001` passes any lax rule). The two
+ * layers choose differently on purpose. A fragment is never transmitted by
+ * `fetch`, so a credential there is inert as well as visible.
+ *
+ * The full residual list, with the reasoning, is in
+ * `docs/features/tools/mcp-servers.md` ("Credential isolation at rest").
+ *
  * A URL's HOST is never touched, on purpose: `mcpNetworkHosts` derives the
  * manifest's `network` ceiling from the stored (redacted) definition, so
  * blanking a host would silently shrink the grant and deny the connect the
