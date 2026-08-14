@@ -187,6 +187,79 @@ test.describe("Extensions — MCP edit-after-install", () => {
 		await expect(page.getByTestId("mcp-tool-delta")).toHaveCount(0);
 	});
 
+	test("issue #205 — a url-query / argv credential never renders, and the blank round-trips", async ({
+		page,
+		mockApi,
+	}) => {
+		// What the API now serves for an MCP row: the credential NAMES with
+		// blanked values (`?api_key=`, `--token=`), the real values in
+		// `extension_secrets`. The Connection panel prints the url and the
+		// command line verbatim, so this is the surface a member reads.
+		const redacted = baseExt([{ name: "forecast", description: "Get forecast" }]);
+		redacted.manifest.mcpServers = [
+			{
+				transport: "stdio",
+				name: "weather",
+				command: "npx",
+				args: ["weather", "--token=", "https://mcp.vendor.com/mcp?api_key="],
+			},
+		];
+
+		await mockApi({
+			projects: [proj],
+			extensions: [redacted],
+			routes: {
+				[`/api/extensions/${EXT_ID}`]: (url) => {
+					const p = url.pathname;
+					if (p === `/api/extensions/${EXT_ID}`) return redacted;
+					if (p.endsWith("/settings")) return { schema: {}, userValues: {} };
+					if (p.endsWith("/expired-grants")) return { grants: [] };
+					if (p.endsWith("/audit")) return { entries: [] };
+					if (p.endsWith("/violations")) return [];
+					return {};
+				},
+			},
+		});
+
+		let putBody: unknown;
+		await page.route(`**/api/mcp-servers/${EXT_ID}`, async (route) => {
+			putBody = route.request().postDataJSON();
+			await route.fulfill({ status: 200, json: redacted });
+		});
+
+		await page.goto(`/extensions/${EXT_ID}`);
+		const command = page.getByTestId("mcp-connection-command");
+		await expect(command).toBeVisible();
+
+		// The operator can still SEE which credentials the connection carries…
+		await expect(command).toContainText("--token=");
+		await expect(command).toContainText("api_key=");
+		// …and the host, which is what the network grant is derived from.
+		await expect(command).toContainText("mcp.vendor.com");
+
+		// Nothing anywhere on the page carries a value for either name. Asserted
+		// over the whole rendered document, not just the panel: the detail page
+		// also feeds `ext.manifest` into the permissions card, the tool list and
+		// the edit form's initial state.
+		const html = await page.content();
+		expect(html).not.toContain("api_key=SUPER");
+		expect(html).not.toContain("--token=ARGV");
+		expect(html).not.toMatch(/api_key=[^&"'\s<]/);
+		expect(html).not.toMatch(/--token=[^&"'\s<]/);
+
+		// The edit form pre-fills the BLANKED values, and posting them back is
+		// what the server reads as "keep the existing secret" — so a
+		// description-only edit must send exactly the blanks it was given.
+		await page.getByTestId("mcp-edit-connection-button").click();
+		await expect(page.getByTestId("mcp-edit-args")).toHaveValue(
+			"weather --token= https://mcp.vendor.com/mcp?api_key=",
+		);
+		await page.getByTestId("mcp-test-save-button").click();
+		await expect(page.getByText("Connection updated")).toBeVisible();
+		expect(JSON.stringify(putBody)).toContain("--token=");
+		expect(JSON.stringify(putBody)).not.toMatch(/--token=[^&"'\\\s]/);
+	});
+
 	test("Connection panel is hidden for a non-MCP extension", async ({ page, mockApi }) => {
 		const local = {
 			id: "local-x",

@@ -35,6 +35,7 @@
   "src/extensions/embed-worker.ts": 100,
   "src/extensions/audit-actions.ts": 100,
   "src/extensions/mcp-audit.ts": 100,
+  "src/extensions/mcp-secret-redaction.ts": 100,
   "src/extensions/capability-flags.ts": 100,
   "src/extensions/loop-events-handler.ts": 100,
   "src/extensions/loops-kill-switch.ts": 100,
