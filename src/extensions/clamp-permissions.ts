@@ -17,7 +17,10 @@
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { parseCron, type CronInstance } from "./cron";
 import { capabilityToolsDisabled } from "./capability-flags";
-import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
+import {
+  DIRECT_CARRIER_EVENT_TYPES,
+  SCOPED_RUNTIME_EVENT_TYPES,
+} from "../runtime/sse-conversation-filter";
 import { isValidWorkflowName } from "../runtime/workflow-name";
 import { WEBHOOK_PREFIX_RE } from "./manifest";
 
@@ -771,15 +774,26 @@ function normalizeManifestEventSubscriptions(
 }
 
 /** An extension's OWN custom event: `<ownName>:<event>` with non-empty
- *  halves. EXACT mirror of the dispatcher's Branch-2 acceptance parse
- *  (`event-subscription-dispatcher.ts:registerExtension`) — the clamp
- *  must never grant wider than the dispatcher will register, and after
- *  this fix it no longer grants NARROWER either. */
+ *  halves, and NOT a platform event name. EXACT mirror of the dispatcher's
+ *  Branch-2 acceptance parse (`event-subscription-dispatcher.ts:
+ *  registerExtension` → `registerExtensionEvent`) — the clamp must never
+ *  grant wider than the dispatcher will register, and after this fix it no
+ *  longer grants NARROWER either.
+ *
+ *  The platform-set exclusion is the shadowing guard `registerExtensionEvent`
+ *  already applies: an extension named `ez` or `run` would otherwise satisfy
+ *  the own-namespace parse for `ez:client-tool` / `run:token` and be granted a
+ *  subscription the dispatcher then refuses to wire — a grant row that reads
+ *  like access to another user's tool arguments or raw token stream. */
 function isOwnNamespaceEvent(eventType: string, ownName: string | undefined): boolean {
   if (!ownName) return false;
   const colon = eventType.indexOf(":");
   if (colon <= 0 || colon >= eventType.length - 1) return false;
-  return eventType.slice(0, colon) === ownName;
+  if (eventType.slice(0, colon) !== ownName) return false;
+  return (
+    !DIRECT_CARRIER_EVENT_TYPES.has(eventType as never)
+    && !SCOPED_RUNTIME_EVENT_TYPES.has(eventType as never)
+  );
 }
 
 /** Phase 51.4: detect whether a manifest's event-subscription grant

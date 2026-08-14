@@ -108,7 +108,7 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; modeId?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -120,6 +120,12 @@ export async function createConversation(
       provider: opts?.provider || null,
       systemPrompt: opts?.systemPrompt || null,
       agentConfigId: opts?.agentConfigId || null,
+      // The caller's mode, persisted at CREATE. `POST /api/conversations` has
+      // validated `modeId` since Phase 48 (404 unknown, 403 for the reserved
+      // 'ez' slug) but had nowhere to put it, so the create silently dropped a
+      // validated field and every caller had to follow up with a PUT. Callers
+      // that pass nothing keep the NULL the column already defaulted to.
+      modeId: opts?.modeId || null,
       parentConversationId: opts?.parentConversationId || null,
       parentMessageId: opts?.parentMessageId || null,
       forkedFromConversationId: opts?.forkedFromConversationId || null,

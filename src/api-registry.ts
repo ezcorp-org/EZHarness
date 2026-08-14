@@ -144,7 +144,7 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Agents
   { method: "GET", path: "/api/agents", description: "List available agents", category: "agents" },
-  { method: "POST", path: "/api/agents/:name/run", description: "Execute an agent by name", category: "agents", schemaKey: "runAgentSchema" },
+  { method: "POST", path: "/api/agents/:name/run", description: "Execute an agent by name", category: "agents", scope: "chat", schemaKey: "runAgentSchema" },
   { method: "GET", path: "/api/agents/:name/test-conversations", description: "List test conversations for agent", category: "agents" },
   // `POST /api/agents/:id/share` used to sit here described as "Share agent to
   // marketplace". It does not touch the marketplace (that is
@@ -345,7 +345,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Workflows
   { method: "GET", path: "/api/workflows", description: "List workflows the caller may see — filtered by ownership, so a read-scoped key with no project sees system workflows only (shorter array than pre-C6, same shape)", category: "workflows" },
   { method: "GET", path: "/api/workflows/:name", description: "Get workflow by name (404, not 403, when unauthorized — the endpoint is not an existence oracle)", category: "workflows" },
-  { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/run", description: "Execute a workflow", category: "workflows", scope: "chat" },
   // NOT `controllable` yet: that flag asserts a matching
   // `@ezcorp/harness-client` method exists, and the parity meta-test
   // correctly fails without one. Claiming it while shipping no client

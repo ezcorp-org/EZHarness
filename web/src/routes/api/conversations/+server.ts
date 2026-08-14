@@ -76,6 +76,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         "The 'ez' mode is reserved for the Ez concierge. Open the Ez panel instead of creating a regular conversation in this mode.",
       );
     }
+    // A private mode belongs to its author. `listModes(userId)` shows a caller
+    // only `builtin OR userId = caller`, so anything else is a mode they can't
+    // see — and until this route actually PERSISTED modeId, naming one here
+    // did nothing. Fail-closed 404 (not 403) to match the sibling routes and
+    // keep the endpoint from answering "does this mode id exist".
+    if (!mode.builtin && mode.userId && mode.userId !== user.id) {
+      return errorJson(404, "Mode not found");
+    }
   }
 
   const conv = await convQueries.createConversation(body.projectId, {
@@ -84,6 +92,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     provider: body.provider,
     agentConfigId: body.agentConfigId,
     systemPrompt,
+    modeId: body.modeId,
     test: body.test,
     userId: user.id,
     parentConversationId: body.parentConversationId,

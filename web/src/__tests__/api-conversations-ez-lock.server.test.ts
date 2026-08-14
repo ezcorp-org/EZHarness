@@ -230,7 +230,7 @@ describe("POST /api/conversations — Ez mode reservation", () => {
     expect(vi.mocked(createConversation)).not.toHaveBeenCalled();
   });
 
-  test("happy path: a regular (non-Ez) modeId is accepted", async () => {
+  test("happy path: a regular (non-Ez) modeId is accepted AND reaches the create call", async () => {
     vi.mocked(getMode).mockResolvedValue({
       id: REGULAR_MODE_ID,
       slug: "plan",
@@ -251,6 +251,12 @@ describe("POST /api/conversations — Ez mode reservation", () => {
     );
     expect(res.status).toBe(201);
     expect(vi.mocked(createConversation)).toHaveBeenCalledTimes(1);
+    // The half this route used to skip: it validated modeId and then built
+    // opts without it, so a 201 said "accepted" about a field that was
+    // discarded. Asserting the 201 alone passed throughout that bug.
+    expect(vi.mocked(createConversation).mock.calls[0]?.[1]).toMatchObject({
+      modeId: REGULAR_MODE_ID,
+    });
   });
 
   test("when modeId is omitted entirely, the lookup is skipped (no getMode call)", async () => {
@@ -263,5 +269,14 @@ describe("POST /api/conversations — Ez mode reservation", () => {
     );
     expect(vi.mocked(getMode)).not.toHaveBeenCalled();
     expect(vi.mocked(createConversation)).toHaveBeenCalledTimes(1);
+    // Nothing invented for the caller who named no mode.
+    expect(vi.mocked(createConversation).mock.calls[0]?.[1]).toMatchObject({
+      modeId: undefined,
+    });
   });
+
+  // The mode-OWNERSHIP arms of this same POST (another user's private mode is
+  // a 404) live with the route's other ownership guard in
+  // `security-web-conversations-parent-idor.server.test.ts` — same shape of
+  // check, and that file is in the coverage run-list for this route.
 });
