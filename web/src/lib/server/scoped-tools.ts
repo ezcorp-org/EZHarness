@@ -16,7 +16,9 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import {
   getBuiltInToolMetadata,
   getBuiltInCategoryDescription,
+  type BuiltInToolMeta,
 } from "$server/runtime/tools/builtin-registry";
+import { readCallerToolsFromMetadata } from "$server/runtime/caller-tool-declarations";
 import {
   applyToolFilters,
   ORCHESTRATION_TOOLS,
@@ -92,6 +94,9 @@ export async function resolveScopedTools(
   let toolScope: ToolFilterOptions | null = null;
   let mode: Mode | null = null;
   let projectId: string | null = null;
+  // Tools the conversation's connected client device declared. Empty for
+  // every mode-only call — a declaration is per-conversation by definition.
+  let callerTools: Array<{ name: string; description: string }> = [];
   if (conversationId || hasModeParam) {
     let convExtensionTools: Record<string, string[]> | null = null;
     let modeId = hasModeParam ? opts.modeId || null : null;
@@ -100,14 +105,43 @@ export async function resolveScopedTools(
       if (!owned) return null;
       convExtensionTools = owned.conv.extensionTools ?? null;
       projectId = owned.conv.projectId ?? null;
+      callerTools = readCallerToolsFromMetadata(owned.conv.metadata);
       if (!hasModeParam) modeId = owned.conv.modeId ?? null;
     }
     mode = modeId ? ((await getMode(modeId)) ?? null) : null;
-    toolScope = computeModeToolScope(mode, convExtensionTools, registry);
+    // The 4th argument is what makes the conversation's `caller` toggle a
+    // REAL revocation here and not just in the executor. `computeConvDenials`
+    // iterates `registry.getToolsForExtension(extId)`, and there is no
+    // registry entry for the pseudo-extension `caller`, so without the
+    // declared names passed in explicitly the `caller` key of
+    // `conv.extensionTools` compiles to zero denials — every toggle in the
+    // UI would keep passing while `/api/tools` kept listing the tool.
+    toolScope = computeModeToolScope(
+      mode,
+      convExtensionTools,
+      registry,
+      callerTools.map((t) => t.name),
+    );
   }
 
   let allExtTools = registry.getAllTools();
-  let builtInMeta = getBuiltInToolMetadata();
+  // NEVER `.push()` onto the result of `getBuiltInToolMetadata()`: it hands
+  // back the process-wide `_cachedTools` array BY REFERENCE, so a push would
+  // graft one user's caller tools onto every subsequent `/api/tools` response
+  // for the lifetime of the process. The spread is the whole guarantee.
+  //
+  // The rows go in the `BuiltInToolMeta` shape, which carries no `extension`
+  // field — `extension` is derived below as `t.category`. `category:
+  // "caller"` is therefore what makes them surface as `extension: "caller"`,
+  // matching the `conv.extensionTools` toggle key the UI writes.
+  let builtInMeta: BuiltInToolMeta[] = [
+    ...getBuiltInToolMetadata(),
+    ...callerTools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      category: "caller",
+    })),
+  ];
   // Capture the UNSCOPED tool surface before any mode/conversation filtering
   // reassigns the variables — orchestrationTools below must stay
   // conv/mode-independent.

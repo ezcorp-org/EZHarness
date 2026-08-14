@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { sendToolPermissionResponse } from "$lib/stores.svelte.js";
-	import { getSecurityNote, extractInputSummary } from "./utils.js";
+	import { getSecurityNote, describeToolInput } from "./utils.js";
 	import {
 		expiryCopy,
 		TTL_OPTIONS,
@@ -73,7 +73,11 @@
 
 	let securityNote = $derived(getSecurityNote(toolCall.category));
 
-	let inputSummary = $derived(extractInputSummary(toolCall.input) ?? '');
+	// `describeToolInput`, NOT `extractInputSummary`: a consent prompt that
+	// renders no arguments is asking for uninformed consent. Caller-executed
+	// tools declare arbitrary parameter names, so the header-summary allowlist
+	// misses nearly all of them — see the helper's own note.
+	let inputSummary = $derived(describeToolInput(toolCall.input) ?? '');
 
 	// Phase 4: expired-capability branch overrides everything else when
 	// set — the modal renders re-approve copy, not the install-time

@@ -447,3 +447,205 @@ describe("ConversationToolsSelector", () => {
 		);
 	});
 });
+
+/**
+ * Caller-executed tools are not installed extensions — they live in the
+ * conversation's metadata, declared over HTTP by a connected client device.
+ * They are synthesised into one pseudo-extension section keyed by the literal
+ * `"caller"` so the EXISTING toggle logic handles them with no special case:
+ * `tool-scope-logic.ts` reads `map[extId]` and never assumes a UUID.
+ */
+describe("ConversationToolsSelector — caller-executed tools", () => {
+	const CALLER_TOOLS = [
+		{ name: "open_app", description: "Open an app on the device" },
+		{ name: "capture_screen", description: null },
+	];
+
+	/** Serves both onMount reads; `callerTools: null` makes the second 500. */
+	function mockBothApis(extensions: unknown[], callerTools: unknown[] | null) {
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === "/api/extensions") {
+				return new Response(JSON.stringify({ extensions }), { status: 200 });
+			}
+			if (url === "/api/conversations/conv-1/caller-tools") {
+				return callerTools === null
+					? new Response("", { status: 500 })
+					: new Response(JSON.stringify({ tools: callerTools }), { status: 200 });
+			}
+			return new Response("", { status: 404 });
+		});
+		(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+		return fetchMock;
+	}
+
+	test("declared tools render as their own section, alongside the extensions", async () => {
+		mockBothApis([TWO_TOOL_EXT], CALLER_TOOLS);
+		const { getByTestId, findByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-ext-1-summarize");
+		const open = (await findByTestId("conv-tool-caller-open_app")) as HTMLInputElement;
+		expect(open.checked).toBe(true);
+		await findByTestId("conv-tool-caller-capture_screen");
+		await findByTestId("conv-ext-toggle-caller");
+		// 2 extension tools + 2 caller tools.
+		expect(getByTestId("conversation-tools-count").textContent?.trim()).toBe("4");
+	});
+
+	test("they are listed under a mode too — a mode can never name a caller tool", async () => {
+		mockBothApis([TWO_TOOL_EXT], CALLER_TOOLS);
+		const { getByTestId, findByTestId } = render(ConversationToolsSelector, {
+			selectedMode: makeMode(), // attaches ext-1 only
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-caller-open_app");
+	});
+
+	test("toggling one flows through the UNMODIFIED tool-scope logic", async () => {
+		mockBothApis([], CALLER_TOOLS);
+		const onchange = vi.fn();
+		const { getByTestId, findByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange,
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await fireEvent.click(await findByTestId("conv-tool-caller-capture_screen"));
+		// Plain `map[extId]` — the literal "caller" key needs no UUID.
+		expect(onchange).toHaveBeenCalledWith({ caller: ["open_app"] });
+	});
+
+	test("the master toggle emits the OFF marker the runtime reads as a revocation", async () => {
+		mockBothApis([], CALLER_TOOLS);
+		const onchange = vi.fn();
+		const { getByTestId, findByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange,
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await fireEvent.click(await findByTestId("conv-ext-toggle-caller"));
+		expect(onchange).toHaveBeenCalledWith({ caller: [] });
+	});
+
+	test("no conversation yet → the endpoint is never asked", async () => {
+		const fetchMock = mockBothApis([TWO_TOOL_EXT], CALLER_TOOLS);
+		const { getByTestId, findByTestId, queryByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-ext-1-summarize");
+		expect(queryByTestId("conv-ext-toggle-caller")).toBeNull();
+		expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(["/api/extensions"]);
+	});
+
+	test("an empty declaration list renders no section (not an empty one)", async () => {
+		mockBothApis([TWO_TOOL_EXT], []);
+		const { getByTestId, findByTestId, queryByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-ext-1-summarize");
+		expect(queryByTestId("conv-ext-toggle-caller")).toBeNull();
+	});
+
+	test("a failing caller-tools read does not hide the extensions that loaded", async () => {
+		// `Promise.allSettled`, not `all` — one read failing must not take the
+		// other's result down with it.
+		mockBothApis([TWO_TOOL_EXT], null);
+		const { getByTestId, findByTestId, queryByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-ext-1-summarize");
+		expect(queryByTestId("conv-ext-toggle-caller")).toBeNull();
+	});
+
+	test("a malformed payload is treated as no declarations", async () => {
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === "/api/extensions") return new Response(JSON.stringify({ extensions: [TWO_TOOL_EXT] }), { status: 200 });
+			return new Response(JSON.stringify({ tools: "not-an-array" }), { status: 200 });
+		});
+		(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+		const { getByTestId, findByTestId, queryByTestId } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await findByTestId("conv-tool-ext-1-summarize");
+		expect(queryByTestId("conv-ext-toggle-caller")).toBeNull();
+	});
+
+	test("the conversation id is percent-encoded into the path", async () => {
+		const urls: string[] = [];
+		const fetchMock = vi.fn(async (url: string) => {
+			urls.push(url);
+			return new Response(JSON.stringify({ tools: [] }), { status: 200 });
+		});
+		(globalThis as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
+		render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "a/../b",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		// A slash left raw would climb out of the conversation's own path.
+		await waitFor(() => expect(urls).toContain("/api/conversations/a%2F..%2Fb/caller-tools"));
+	});
+
+	/** Hovering a caller tool row — the description comes from the
+	 *  declaration, which is third-party text the user is entitled to read
+	 *  before leaving the tool switched on. */
+	async function hoverCallerTool(name: string) {
+		mockBothApis([], CALLER_TOOLS);
+		const { getByTestId, findByTestId, getByRole } = render(ConversationToolsSelector, {
+			selectedMode: null,
+			value: null,
+			conversationId: "conv-1",
+			onchange: vi.fn(),
+			onreset: vi.fn(),
+		});
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		const row = await findByTestId(`conv-tool-caller-${name}`);
+		await fireEvent.mouseEnter(row.closest("label")!.parentElement!);
+		return getByRole;
+	}
+
+	test("hovering a caller tool shows the declared description", async () => {
+		const getByRole = await hoverCallerTool("open_app");
+		await waitFor(() => expect(getByRole("tooltip")).toHaveTextContent("Open an app on the device"));
+	});
+
+	test("a caller tool with no description shows the fallback text", async () => {
+		const getByRole = await hoverCallerTool("capture_screen");
+		await waitFor(() => expect(getByRole("tooltip")).toHaveTextContent("No description provided."));
+	});
+});
