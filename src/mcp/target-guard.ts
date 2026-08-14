@@ -107,7 +107,9 @@ export type McpTargetBlockReason =
   | "malformed-url"
   | "scheme"
   | "no-address"
-  | "private-address";
+  | "private-address"
+  /** Too many `Location` hops — see `src/mcp/guarded-fetch.ts`. */
+  | "redirect-limit";
 
 export class McpTargetBlockedError extends Error {
   readonly code = "MCP_TARGET_BLOCKED";
@@ -152,6 +154,43 @@ export interface McpTargetGuardDeps {
   /** Raw allowlist text. Defaults to `process.env[MCP_TARGET_ALLOW_ENV]`,
    *  read per call so a test (or a reloaded config) is never stale. */
   allowRaw?: string;
+  /** Deadline for the DNS lookup, in ms. Default
+   *  {@link DEFAULT_RESOLVE_TIMEOUT_MS}. */
+  resolveTimeoutMs?: number;
+}
+
+/**
+ * How long a hostname lookup may take before the target is refused.
+ *
+ * `dns.lookup` has no timeout of its own — it inherits the resolver's, which
+ * against a blackholed nameserver was MEASURED at ~24s for a single lookup.
+ * That is an API handler occupied for half a minute, and the same lookup sits
+ * on the first tool dispatch inside a chat turn, where the user just sees a
+ * stall. `guardedFetch` already sets a deadline before resolving; this is the
+ * equivalent for the MCP path.
+ *
+ * A timeout collapses into `no-address`, which is already an
+ * indistinguishable 502, so no response contract moves.
+ */
+export const DEFAULT_RESOLVE_TIMEOUT_MS = 5_000;
+
+/** Reject with a `no-address` block if `promise` outlives `ms`. */
+async function withResolveDeadline<T>(
+  promise: Promise<T>,
+  ms: number,
+  host: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new McpTargetBlockedError("no-address", host)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /** Lowercase, strip IPv6 URL brackets, strip a trailing root dot.
@@ -275,8 +314,15 @@ export async function assertMcpTargetUrlAllowed(
     addresses = [host];
   } else {
     try {
-      addresses = await resolve(host);
-    } catch {
+      addresses = await withResolveDeadline(
+        resolve(host),
+        deps.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS,
+        host,
+      );
+    } catch (e) {
+      // Preserve a deadline block verbatim; any resolver failure is also
+      // `no-address`, so both collapse to the same uniform 502.
+      if (e instanceof McpTargetBlockedError) throw e;
       throw new McpTargetBlockedError("no-address", host);
     }
     if (addresses.length === 0) throw new McpTargetBlockedError("no-address", host);
