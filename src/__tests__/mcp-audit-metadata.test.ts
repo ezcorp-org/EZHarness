@@ -49,6 +49,20 @@ describe("describeMcpServerForAudit — stdio", () => {
     expect(serialized).not.toContain("weather-mcp"); // an argv value
   });
 
+  test("issue #205 — a URL typed into `command` loses its query values too", () => {
+    // `command` is free text an admin types, and the http/sse branch would
+    // never have written a query string into the row. Both branches now agree,
+    // through the SAME classifier the persistence layer uses.
+    const urlCommand = {
+      transport: "stdio",
+      name: "n",
+      command: `https://runner.example/exec?api_key=${SECRET}`,
+    } as McpServerDefinition;
+    const facts = describeMcpServerForAudit(urlCommand);
+    expect(facts.target).toBe("https://runner.example/exec?api_key=");
+    expect(JSON.stringify(facts)).not.toContain(SECRET);
+  });
+
   test("absent args / env read as zero and empty, not as a throw", () => {
     const bare = { transport: "stdio", name: "n", command: "run" } as McpServerDefinition;
     expect(describeMcpServerForAudit(bare)).toEqual({
