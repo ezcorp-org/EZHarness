@@ -98,8 +98,27 @@ vi.mock("$server/db/queries/extensions", () => ({
 		installedPermissions: { shell: true },
 		grantedPermissions: { shell: true, grantedAt: { shell: Date.now() } },
 	}),
+	// Returns an MCP manifest that still carries plaintext credentials — a
+	// legacy row the boot backfill has not reached. This handler is
+	// deliberately NON-admin (user self-service recovery) and echoes the whole
+	// row, so it is a member-reachable read of the connection (issue #205).
 	updateExtension: async (_id: string, patch: unknown) => ({
 		id: "ext-1",
+		name: "test-extension",
+		manifest: {
+			kind: "mcp",
+			name: "test-extension",
+			tools: [],
+			permissions: { shell: true },
+			mcpServers: [
+				{
+					transport: "http",
+					name: "test-extension",
+					url: "https://mcp.vendor.com/mcp?api_key=REAPPROVE-URL-LEAK",
+					headers: { Authorization: "Bearer REAPPROVE-HDR-LEAK" },
+				},
+			],
+		},
 		...(patch as Record<string, unknown>),
 	}),
 }));
@@ -383,6 +402,24 @@ describe("POST /api/extensions/[id]/reapprove — ttlOverrideMs", () => {
 		);
 		expect(res.status).toBe(403);
 		expect(writerCalls).toHaveLength(0);
+	});
+
+	test("issue #205 — the echoed row's MCP credentials are scrubbed for the member", async () => {
+		const res = await expectThrownOrResponse(() =>
+			POST(
+				makeEvent(
+					{ capability: "shell", scope: "conversation", ttlOverrideMs: null },
+					"member",
+				) as never,
+			),
+		);
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).not.toContain("REAPPROVE-URL-LEAK");
+		expect(body).not.toContain("REAPPROVE-HDR-LEAK");
+		// The parameter/header NAMES still travel — only the values are gone.
+		expect(body).toContain("api_key=");
+		expect(body).toContain("Authorization");
 	});
 
 	test("non-admin + scope='conversation' + ttlOverrideMs: null → 200 (picker Never is NOT scope escalation)", async () => {

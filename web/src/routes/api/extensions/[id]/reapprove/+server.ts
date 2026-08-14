@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
 import { getExtension, updateExtension } from "$server/db/queries/extensions";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth } from "$server/auth/middleware";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
@@ -373,5 +374,13 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     /* swallow — audit-write failure already routed through persistError */
   }
 
-  return json({ reapproved: true, capability, grantKey, extension: updated });
+  // #205: the row carries an MCP manifest for MCP-kind extensions, and this
+  // handler is deliberately NON-admin (user self-service recovery), so it is a
+  // member-reachable read of the whole row. Scrub it like GET /api/extensions.
+  return json({
+    reapproved: true,
+    capability,
+    grantKey,
+    extension: updated === null ? null : redactExtensionSecrets(updated),
+  });
 };

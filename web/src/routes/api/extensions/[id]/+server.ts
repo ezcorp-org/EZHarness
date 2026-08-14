@@ -6,6 +6,7 @@ import {
   getExtensionByRef,
   updateExtension,
 } from "$server/db/queries/extensions";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { uninstallExtension } from "$server/extensions/installer";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { getPageCache } from "$server/extensions/page-cache";
@@ -52,7 +53,11 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   requireAuth(locals);
   const ext = await getExtensionByRef(params.id);
   if (!ext) return errorJson(404, "Not found");
-  return json(ext);
+  // #205: `read` scope + any member role reaches this, and an MCP row's
+  // manifest carries the connection. The list sibling has always scrubbed;
+  // this single-row read had not, which made it the widest MCP credential
+  // read in the app. `redactExtensionSecrets` is a no-op for non-MCP rows.
+  return json(redactExtensionSecrets(ext));
 };
 
 export const PATCH: RequestHandler = async ({ request, params, locals }) => {

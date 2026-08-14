@@ -42,8 +42,9 @@ import {
 import { insertAuditEntry } from "../db/queries/audit-log";
 import {
   createPermAuditCoalescer,
-  type AllowAuditKey,
   type PermAuditCoalescer,
+  type PermAuditDecision,
+  type PermAuditKey,
 } from "./perm-audit-coalescer";
 import { logger } from "../logger";
 import {
@@ -221,31 +222,54 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     { extensionId: string; userId: string; capability: Capability }
   >();
 
-  // Burst-folding for the step-4 allow row ONLY. Per-engine, not
-  // module-global, so an engine built for a test cannot inherit another
-  // one's open windows.
-  const allowCoalescer: PermAuditCoalescer = createPermAuditCoalescer(
+  // Burst-folding for the step-4 allow row and the step-2 subset-check
+  // deny. Per-engine, not module-global, so an engine built for a test
+  // cannot inherit another one's open windows.
+  const permCoalescer: PermAuditCoalescer = createPermAuditCoalescer(
     (summary) => {
+      const { key } = summary;
+      const isDeny = key.decision === "deny";
+      // Self-describing, in the same spirit as the dispatcher's
+      // `sampled-1-in-N`: a reader must be able to tell a folded tail
+      // from an ordinary row without knowing this code exists. A deny
+      // KEEPS its original reason — the reason is the forensic content of
+      // the row, so it must not be overwritten — and the marker goes
+      // FIRST so it survives `sanitize`'s 1024-char truncation of a
+      // pathologically long reason.
+      const tail = `coalesced-${key.decision}-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`;
       // Fire-and-forget: the timer that triggers this has no caller to
       // await it, and `writeAuditRow` already swallows its own failures.
       void writeAuditRow(
-        AUDIT_PERM_ALLOWED,
+        isDeny ? AUDIT_PERM_DENIED : AUDIT_PERM_ALLOWED,
         crypto.randomUUID(),
         {
-          extensionId: summary.key.extensionId,
-          userId: summary.key.userId,
-          conversationId: summary.key.conversationId,
-          ...(summary.key.toolName !== null ? { toolName: summary.key.toolName } : {}),
-          ...(summary.key.callerExtensionId !== null
-            ? { callerExtensionId: summary.key.callerExtensionId }
+          extensionId: key.extensionId,
+          userId: key.userId,
+          conversationId: key.conversationId,
+          ...(key.toolName !== null ? { toolName: key.toolName } : {}),
+          ...(key.callerExtensionId !== null
+            ? { callerExtensionId: key.callerExtensionId }
             : {}),
         },
         undefined,
-        // Self-describing, in the same spirit as the dispatcher's
-        // `sampled-1-in-N`: a reader must be able to tell a folded tail
-        // from an ordinary allow without knowing this code exists.
-        `coalesced-allow-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`,
-        { suppressedAllows: summary.suppressed, headAuditId: summary.firstAuditId },
+        key.reason !== null ? `${tail} — ${key.reason}` : tail,
+        {
+          // The capability travels as metadata rather than as a rebuilt
+          // `Capability`, so the coalescer never has to know the kind
+          // union and nothing here needs a cast. `writeAuditRow` spreads
+          // `extra` last, so these land on the same two keys an
+          // un-folded deny writes.
+          ...(key.capabilityKind !== null ? { capabilityKind: key.capabilityKind } : {}),
+          ...(key.capabilityValue !== null ? { capabilityValue: key.capabilityValue } : {}),
+          suppressed: summary.suppressed,
+          // The head row is a real decision too, so the burst is one
+          // bigger than the suppressed count. Spelled out rather than
+          // left as an off-by-one for the reader to get right.
+          totalInWindow: summary.suppressed + 1,
+          firstAt: new Date(summary.firstAt).toISOString(),
+          lastAt: new Date(summary.lastAt).toISOString(),
+          headAuditId: summary.firstAuditId,
+        },
       );
     },
   );
@@ -314,10 +338,23 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     }
 
     // 2. Subset check. The first missing cap is the deny reason.
+    //
+    // The audit row is coalesced, the DECISION never is: a folded deny
+    // still returns deny to the caller. A persistent deny state (a
+    // revoked grant, an override that omits the cap) refuses every call
+    // and used to write one row per call — up to
+    // `MAX_TOOL_CALLS_PER_TURN` per turn per conversation, and a
+    // looping/scheduled agent against a revoked MCP server does that
+    // indefinitely (#206). The key carries the missing capability and the
+    // reason, so only byte-identical refusals fold, and the summary
+    // preserves the count plus the first/last timestamps — see
+    // `perm-audit-coalescer.ts`.
     const missing = firstMissingCapability(needed, granted);
     if (missing) {
       const reason = formatMissingReason(missing, ctx.toolName);
-      await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, missing, reason);
+      if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "deny", missing, reason), auditId)) {
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, missing, reason);
+      }
       return { decision: "deny", reason, auditId, missing };
     }
 
@@ -395,16 +432,16 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
 
     // 4. Allow.
     //
-    // The ONE audit row that is coalesced, and the only one that can be:
-    // this call site passes `cap: undefined`, so the row carries no
-    // capability kind and no value — a burst of them is one fact with a
-    // count, not N facts. `read_files` walking a project emitted up to
-    // 700 of them per tool call and evicted every other governance event
-    // from `/api/audit`'s first page. First-in-window is written
-    // verbatim; the tail becomes a single counted summary. Denials,
-    // prompts and the sensitive `bundled-ceiling-auto-allow` above are
-    // NEVER folded — see `perm-audit-coalescer.ts`.
-    if (allowCoalescer.shouldWrite(allowKeyOf(ctxWithChain), auditId)) {
+    // Coalesced: this call site passes `cap: undefined`, so the row
+    // carries no capability kind and no value — a burst of them is one
+    // fact with a count, not N facts. `read_files` walking a project
+    // emitted up to 700 of them per tool call and evicted every other
+    // governance event from `/api/audit`'s first page. First-in-window is
+    // written verbatim; the tail becomes a single counted summary.
+    // Prompts, the fail-closed `override-lookup-failed` deny and the
+    // sensitive `bundled-ceiling-auto-allow` above are NEVER folded —
+    // see `perm-audit-coalescer.ts`.
+    if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow"), auditId)) {
       await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined);
     }
     return { decision: "allow", auditId };
@@ -492,10 +529,10 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     allowCache.clear();
     pendingPrompts.clear();
     // Drop any open coalescing window WITHOUT emitting its summary — a
-    // leftover window would otherwise make the next test's first allow
+    // leftover window would otherwise make the next test's first decision
     // look like a folded tail, and a leftover timer would write an audit
     // row into whatever suite runs next.
-    allowCoalescer.dropAll();
+    permCoalescer.dropAll();
   }
 
   return { authorize, resolvePrompt, _resetCacheForTests };
@@ -743,24 +780,44 @@ function sanitize(s: string): string {
 }
 
 /**
- * The burst identity of a step-4 allow.
+ * The burst identity of a coalescable decision — the step-4 allow or the
+ * step-2 subset-check deny.
  *
- * Mirrors EXACTLY the fields that row's metadata would have carried
- * (`writeAuditRow` passes `cap: undefined` there), minus `auditId` and
- * `parentAuditId` — the two that are per-call by construction. That is
- * what makes folding the tail lossless: two allows with the same key
- * produce byte-identical rows apart from a random id and a timestamp.
+ * Mirrors EXACTLY the fields that row's metadata would have carried, minus
+ * `auditId` and `parentAuditId` (per-call by construction) and the
+ * timestamp. That is what makes folding the tail lossless: two decisions
+ * with the same key produce byte-identical rows apart from a random id and
+ * a time, and the summary carries the count plus both ends of the span.
+ *
+ * A deny adds the missing capability and its reason, so a refusal only
+ * ever folds into a refusal for the SAME missing capability. `decision`
+ * is in the key too, so an allow and a deny can never share a window.
  *
  * `conversationId` is normalised the same way `writeAuditRow` normalises
  * it, so a burst cannot be split across the sentinel values by accident.
  */
-function allowKeyOf(ctx: AuthorizeContext): AllowAuditKey {
+function permKeyOf(
+  ctx: AuthorizeContext,
+  decision: PermAuditDecision,
+  cap?: Capability,
+  reason?: string,
+): PermAuditKey {
   return {
+    decision,
     extensionId: ctx.extensionId,
     userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
     conversationId: auditConversationId(ctx),
     toolName: ctx.toolName ?? null,
     callerExtensionId: ctx.callerExtensionId ?? null,
+    capabilityKind: cap?.kind ?? null,
+    // Sanitised HERE, not at the write, for two reasons: the key then
+    // matches the row byte-for-byte (two values that produce the same row
+    // belong in the same burst), and the summary writer passes these
+    // through `extra`, which `writeAuditRow` does NOT run through
+    // `sanitize` — an unsanitised control char or a 10 KB value would
+    // otherwise reach `audit_log.metadata` on the tail row only.
+    capabilityValue: cap?.value !== undefined ? sanitize(cap.value) : null,
+    reason: reason !== undefined ? sanitize(reason) : null,
   };
 }
 

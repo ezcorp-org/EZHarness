@@ -192,6 +192,31 @@ resolves both trees), or parse the file rather than importing it. Worked
 examples: `web/src/__tests__/delegation-consent-handoff.unit.test.ts`,
 `src/__tests__/author-draft-allowlist-parity.test.ts`.
 
+**Coverage trap — the vitest leg can only measure `web/`, so a vitest test for
+a repo-root `src/` module contributes ZERO lcov.** That leg runs
+`cd web && npx vitest run …`, so all 224 `--coverage.include` patterns in
+`scripts/test-coverage.sh` are `web/`-relative and the leg's lcov is then
+re-rooted with `sed 's#^SF:src/#SF:web/src/#'`. Nothing outside `web/` can be
+named on either side. A `src/**` module exercised only by a vitest suite reads
+as untested however green that suite is — the mirror image of the two-allowlist
+trap the file already documents (a suite on the run list but not the include
+list). Cover a `src/` module from the bun pool; the vitest leg is for `web/`.
+
+**Coverage trap — an importing-only shard's flat zero block used to outvote the
+shard that RAN the code.** Bun span-fills an unexecuted function with a
+contiguous `DA:<line>,0` block (blanks and comments included), while the shard
+that executes it emits a sparse, sourcemap-shifted record set that skips real
+statements — measured on `src/runtime/mention-wiring.ts`: 512 records from the
+executing shard, 528 from the importing one, and 6 statements inside a function
+that ran 40+ times named by neither. `merge-lcov.ts` now drops such a zero as
+NO EVIDENCE (out of both `LH` and `LF`) when some shard executed straight
+across the line and no shard measured it per statement; a line no shard
+executed still reads as a miss. Two consequences for authors: you no longer
+have to reshape source so bun's shifted attribution lands on a statement, and
+`max`-per-line was never the fix — sum and max agree at the 0-vs-nonzero
+boundary, and these lines have no record at all in the executing shard. See
+`src/__tests__/merge-lcov-shard-vote.test.ts`.
+
 ## Binding invariants (digest)
 
 Full rules live in the linked docs and nested CLAUDE.md files; these are the

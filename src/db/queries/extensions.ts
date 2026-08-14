@@ -15,99 +15,97 @@ import {
   normalizeMcpManifest,
   withMcpToolCapabilities,
 } from "../../extensions/mcp-capabilities";
+import {
+  applyMcpSecretBlob,
+  buildMcpSecretBlob,
+  mcpServerHasPlaintextSecret,
+  parseMcpSecretBlob,
+  redactExtensionSecrets,
+  redactMcpServer,
+  serializeMcpSecretBlob,
+} from "../../extensions/mcp-secret-redaction";
 import { logger } from "../../logger";
 
 const backfillLog = logger.child("db.queries.extensions");
 
 // ── MCP credential isolation ──────────────────────────────────────────────
 //
-// An MCP server definition legitimately carries transport auth — `headers`
-// for http/sse (typically `Authorization` bearer tokens) and `env` for stdio
-// (API keys). Persisting those verbatim inside `manifest.mcpServers` leaked
-// them: the row (manifest included) is served by GET /api/extensions and many
-// other read-scope routes, so ANY authenticated member could exfiltrate the
-// credential. This mirrors the exact hole the github-projects PAT backfill
-// closed for the broadly-readable `settings` table.
+// An MCP server definition legitimately carries credentials in FOUR places:
+// `headers` for http/sse (typically `Authorization` bearer tokens), `env` for
+// stdio (API keys), the URL's query string (`?api_key=…`, a real MCP
+// convention) and stdio argv (`--token=…`). Persisting any of those verbatim
+// inside `manifest.mcpServers` leaked them: the row (manifest included) is
+// served by GET /api/extensions and many other read-scope routes, so ANY
+// authenticated member could exfiltrate the credential. This mirrors the exact
+// hole the github-projects PAT backfill closed for the broadly-readable
+// `settings` table.
 //
 // Fix (mirrors the github-projects precedent): the secret VALUES never touch
 // the manifest at rest. On install/update we move them into the AAD-bound
 // `extension_secrets` store keyed by the extension's stable slug (the FK
 // target of `extension_secrets.extension_id`, global scope). The manifest we
-// persist keeps only the secret KEYS with blanked values — enough for the edit
-// UI to show "which headers exist" without exposing the secret. The real
-// values are rehydrated on the server-side connect path via
-// `rehydrateMcpServerSecrets`.
+// persist keeps only the secret KEYS/NAMES with blanked values — enough for
+// the edit UI to show "which headers/parameters/flags exist" without exposing
+// the secret. The real values are rehydrated on the server-side connect path
+// via `rehydrateMcpServerSecrets`.
+//
+// WHICH bytes are a credential is decided in exactly one place —
+// `../../extensions/mcp-secret-redaction.ts` — shared by the at-rest writer,
+// the read-response scrubber, the rehydration guard, the boot backfill and the
+// audit projection. Read that module's header before changing any of them.
 
-/** Secret name for an MCP extension's transport auth blob (http/sse `headers`
- *  or stdio `env`) in the `extension_secrets` store. One JSON blob per
- *  extension, GLOBAL scope (projectId/userId null) — MCP servers are
- *  admin-installed platform-wide, not per-project/per-user. */
+/** Secret name for an MCP extension's credential blob (http/sse `headers`,
+ *  stdio `env`, the URL query values and the argv values) in the
+ *  `extension_secrets` store. One JSON blob per extension, GLOBAL scope
+ *  (projectId/userId null) — MCP servers are admin-installed platform-wide,
+ *  not per-project/per-user. */
 const MCP_AUTH_SECRET_NAME = "mcp:auth";
 
-/** The transport's sensitive map: `env` for stdio, `headers` for http/sse.
- *  Returns null when there is nothing sensitive to move. */
-function mcpSecretMap(server: McpServerDefinition): Record<string, string> | null {
-  const map = server.transport === "stdio" ? server.env : server.headers;
-  if (!map || Object.keys(map).length === 0) return null;
-  return map;
-}
+// Re-exported so the many existing importers (routes, tests) keep one import
+// path while the classifier itself lives beside the other MCP host logic. NEW
+// call sites import `../../extensions/mcp-secret-redaction` directly — it is
+// pure, so a route that does needs no DB module, and a route unit test can run
+// the REAL redaction while it mocks every query away.
+export { redactExtensionSecrets, redactMcpServer };
 
-/** Same-shaped map with every value blanked — keeps the KEY set (the edit UI
- *  pre-fills header keys with blank values) while carrying no plaintext. */
-function blankValues(map: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const k of Object.keys(map)) out[k] = "";
-  return out;
-}
-
-/**
- * Strip secret VALUES from an MCP server definition, preserving the KEY set.
- * The returned definition is safe to persist in the manifest and to serve to
- * read-scope clients. Non-secret-bearing definitions pass through untouched.
- */
-export function redactMcpServer(server: McpServerDefinition): McpServerDefinition {
-  if (server.transport === "stdio") {
-    if (!server.env || Object.keys(server.env).length === 0) return server;
-    return { ...server, env: blankValues(server.env) };
-  }
-  if (!server.headers || Object.keys(server.headers).length === 0) return server;
-  return { ...server, headers: blankValues(server.headers) };
-}
-
-/**
- * Redact the MCP transport secrets from an extension ROW's manifest for a
- * read-scope response. Defense-in-depth: new installs already store a redacted
- * manifest at rest, but this also scrubs any legacy row whose manifest still
- * carries plaintext (until a backfill migrates it). Non-MCP rows pass through.
- */
-export function redactExtensionSecrets<T extends { manifest: unknown }>(ext: T): T {
-  const manifest = ext.manifest as ExtensionManifestV2 | null;
-  if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) return ext;
-  return {
-    ...ext,
-    manifest: { ...manifest, mcpServers: manifest.mcpServers.map(redactMcpServer) },
-  };
-}
-
-/** Encrypt + store an MCP extension's transport auth in `extension_secrets`.
+/** Encrypt + store an MCP extension's credentials in `extension_secrets`.
  *  No-op when the definition carries nothing sensitive. The extension ROW must
  *  already exist — `extension_secrets.extension_id` is an FK to
- *  `extensions.name` (cascade-deletes with the extension). */
-async function persistMcpSecret(extensionName: string, server: McpServerDefinition): Promise<void> {
-  const map = mcpSecretMap(server);
-  if (!map) return;
-  await setSecret(extensionName, null, MCP_AUTH_SECRET_NAME, JSON.stringify(map));
+ *  `extensions.name` (cascade-deletes with the extension).
+ *
+ *  The write REPLACES the blob, which is what install/update need: an admin who
+ *  removes a header key must not leave its value behind in the store. The
+ *  backfill passes `mergeStored` because it sees the row's manifest, not the
+ *  admin's input — a row healed of its `headers`/`env` by an earlier build has
+ *  only blanks left there, so a replace would delete the auth map it cannot
+ *  rebuild. */
+async function persistMcpSecret(
+  extensionName: string,
+  server: McpServerDefinition,
+  opts?: { mergeStored?: boolean },
+): Promise<void> {
+  const blob = buildMcpSecretBlob(server);
+  if (!blob) return;
+  let next = blob;
+  if (opts?.mergeStored) {
+    const stored = await getSecret(extensionName, null, MCP_AUTH_SECRET_NAME);
+    const prior = stored === null ? null : parseMcpSecretBlob(stored);
+    if (prior) next = { ...prior, ...blob };
+  }
+  await setSecret(extensionName, null, MCP_AUTH_SECRET_NAME, serializeMcpSecretBlob(next));
 }
 
 /**
- * Rehydrate an MCP server definition's real transport auth from the
+ * Rehydrate an MCP server definition's real credentials from the
  * `extension_secrets` store — the inverse of {@link redactMcpServer}. Call this
  * on the server-side connect path (and the edit-merge path) where the live
  * credential is actually needed; NEVER on a response served to a client.
  *
- * The stored blob overlays the (blanked) manifest map, so keys present only in
- * the manifest survive as blanks and keys in the store win. Missing/corrupt
- * blob → the definition is returned unchanged.
+ * The stored `auth` map overlays the (blanked) manifest map, so keys present
+ * only in the manifest survive as blanks and keys in the store win. The URL /
+ * command / argv substitutions are each guarded by `applyMcpSecretBlob` —
+ * a stored value is used only when redacting it reproduces what is at rest.
+ * Missing/corrupt blob → the definition is returned unchanged.
  */
 export async function rehydrateMcpServerSecrets(
   extensionName: string,
@@ -132,16 +130,9 @@ export async function rehydrateMcpServerSecrets(
     return server;
   }
   if (!stored) return server;
-  let map: Record<string, string>;
-  try {
-    map = JSON.parse(stored) as Record<string, string>;
-  } catch {
-    return server;
-  }
-  if (server.transport === "stdio") {
-    return { ...server, env: { ...(server.env ?? {}), ...map } };
-  }
-  return { ...server, headers: { ...(server.headers ?? {}), ...map } };
+  const blob = parseMcpSecretBlob(stored);
+  if (!blob) return server;
+  return applyMcpSecretBlob(server, blob);
 }
 
 // Jsonb columns on `extensions` need DRIVER-SPECIFIC serialization:
@@ -186,23 +177,23 @@ function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
   return out as T;
 }
 
-/** True when an MCP definition still carries a NON-blank secret value at rest
- *  (a redacted definition keeps the keys but blanks the values). */
-function hasPlaintextMcpSecret(server: McpServerDefinition): boolean {
-  const map = server.transport === "stdio" ? server.env : server.headers;
-  if (!map) return false;
-  return Object.values(map).some((v) => typeof v === "string" && v.length > 0);
-}
-
 /**
  * db-audit (mcp-secrets): one-shot backfill for rows installed BEFORE MCP
- * transport auth moved to the encrypted store. New installs/updates already
+ * credentials moved to the encrypted store. New installs/updates already
  * redact-at-rest, and every read path scrubs legacy rows defensively, but the
  * plaintext still sits in `extensions.manifest` jsonb until migrated. This
  * moves each legacy secret into `extension_secrets` and rewrites the manifest
- * to its blanked form — idempotent (a blanked row has no plaintext, so a
- * re-run skips it) and fail-safe (a bad row warns by name and never bricks
- * boot). Mirrors `backfillGithubProjectsApiTokens`.
+ * to its blanked form — idempotent (`mcpServerHasPlaintextSecret` is literally
+ * "would redacting this change anything", so a migrated row is skipped and no
+ * second definition of "already clean" can drift from the redactor) and
+ * fail-safe (a bad row warns by name and never bricks boot). Mirrors
+ * `backfillGithubProjectsApiTokens`.
+ *
+ * Issue #205 widened what it migrates: a row whose URL query or argv carries a
+ * credential is now in scope, so a row already healed of its `headers`/`env`
+ * by an earlier build is picked up again for its `url`/`args`. That re-run is
+ * safe — `setSecret` overwrites the blob with one built from the row's own
+ * current plaintext, which still contains the auth map.
  */
 export async function backfillMcpManifestSecrets(
   // Accepts the migrate `db` handle OR getDb(); both are drizzle instances,
@@ -217,14 +208,14 @@ export async function backfillMcpManifestSecrets(
   let scanned = 0;
   for (const row of rows) {
     const manifest = row.manifest as ExtensionManifestV2 | null;
-    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    if (manifest?.kind !== "mcp" || !manifest.mcpServers?.length) continue;
     scanned += 1;
     const server = manifest.mcpServers[0];
-    if (!server || !hasPlaintextMcpSecret(server)) continue;
+    if (!server || !mcpServerHasPlaintextSecret(server)) continue;
     try {
       // Encrypt+store the real values FIRST, so a crash after this point leaves
       // the (still-plaintext) manifest recoverable on the next boot's re-run.
-      await persistMcpSecret(row.name, server);
+      await persistMcpSecret(row.name, server, { mergeStored: true });
       const redacted: ExtensionManifestV2 = {
         ...manifest,
         mcpServers: manifest.mcpServers.map(redactMcpServer),
@@ -659,7 +650,7 @@ export async function backfillMcpManifestCapabilities(
   let scanned = 0;
   for (const row of rows) {
     const manifest = row.manifest as ExtensionManifestV2 | null;
-    if (!manifest || manifest.kind !== "mcp" || !manifest.mcpServers?.length) continue;
+    if (manifest?.kind !== "mcp" || !manifest.mcpServers?.length) continue;
     scanned += 1;
     // Already declared — nothing to heal. Keeps the pass idempotent across
     // reboots and leaves a hand-narrowed ceiling untouched. Both keys are

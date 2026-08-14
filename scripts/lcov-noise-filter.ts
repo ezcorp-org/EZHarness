@@ -371,7 +371,12 @@ const srcCache = new Map<string, string[] | null>();
  *  from the source, reused across every DA record in a multi-pass merge). */
 const proseCache = new Map<string, Set<number>>();
 
-async function readSrcLines(path: string): Promise<string[] | null> {
+/**
+ * Read a source file's lines through the shared cache. Exported so
+ * merge-lcov.ts can classify a shard's zero-hit block against the same
+ * source text this filter uses, without a second read of every file.
+ */
+export async function readSourceLines(path: string): Promise<string[] | null> {
   const cached = srcCache.get(path);
   if (cached !== undefined) return cached;
   try {
@@ -395,7 +400,7 @@ export async function filterNoiseDA(
   absSrcPath: string,
   entries: Array<[number, number]>,
 ): Promise<Array<[number, number]>> {
-  const src = await readSrcLines(absSrcPath);
+  const src = await readSourceLines(absSrcPath);
   if (!src) return entries;
   let prose = proseCache.get(absSrcPath);
   if (prose === undefined) {

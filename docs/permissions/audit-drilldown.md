@@ -145,8 +145,31 @@ What's **not** logged:
   capability call (e.g. "MCP server X called network for host Y"); it
   does not capture the MCP protocol frames between the host and the
   MCP binary.
+- **Every repetition of an identical decision.** A burst of identical
+  permission decisions — the same extension, user, conversation, tool
+  and, for a refusal, the same missing capability and reason — is
+  **folded**: the first is recorded verbatim and the rest become one
+  row that says how many there were and when the first and last
+  happened. The row reads `coalesced-allow-tail` /
+  `coalesced-deny-tail (N suppressed in Xms)` and the panel renders it
+  as `… · N decisions folded into this row`. Nothing is lost, but
+  **counting rows under-counts decisions** — read the number off the
+  folded row instead. A refused call that looks like a one-off may be
+  a loop; that is what the count is for.
 
-There is no automatic audit-log retention policy in v1.3 — rows
-accumulate until manually pruned. Plan for log rotation in long-lived
-deployments; a built-in retention sweep is on the v1.5 candidate
-list.
+## Retention
+
+`audit_log` rows are swept hourly once they pass the retention
+window — **180 days by default**. That is deliberately longer than the
+30 days of `error_logs` and the 90 days of SDK capability telemetry,
+because these rows are the governance record rather than diagnostics.
+
+Operators change it with `EZCORP_AUDIT_RETENTION_DAYS` (see
+[production-guide.md](../production-guide.md#environment-variables)).
+It accepts 1–3650 days; a value below 1 — including a `0` written
+meaning "keep forever" — or an unparseable one keeps the 180-day
+default rather than purging. The window that actually took effect is
+logged at boot as `Audit-log retention sweep started`.
+
+If you need history beyond the window, export it (or ship the rows to
+a SIEM) before it ages out.

@@ -14,6 +14,7 @@ import {
 	getExtension,
 	setExtensionModifiable,
 } from "$server/db/queries/extensions";
+import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import type { RequestHandler } from "./$types";
@@ -48,8 +49,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	}
 
 	// Idempotent no-op: no write, no audit row, when already at target.
+	// #205: scrubbed on the way out like every other row-serving route.
 	if (ext.modifiable === modifiable) {
-		return json(ext);
+		return json(redactExtensionSecrets(ext));
 	}
 
 	const updated = await setExtensionModifiable(params.id, modifiable);
@@ -65,5 +67,5 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 			: "admin disabled creator modification for this extension",
 	});
 
-	return json(updated);
+	return json(redactExtensionSecrets(updated));
 };

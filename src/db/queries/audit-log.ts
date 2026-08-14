@@ -1,11 +1,64 @@
-import { desc, eq, and, like, or } from "drizzle-orm";
+import { desc, eq, and, inArray, like, lt, or } from "drizzle-orm";
 import { getDb } from "../connection";
+import { nowMinusInterval, safeIntervalCount } from "./sql-interval";
 import { auditLog } from "../schema";
 import type { AuditEntry } from "../schema";
 import { redactForAudit } from "../../extensions/audit-redaction";
 import { persistError } from "./error-logs";
 
 export type { AuditEntry };
+
+/**
+ * Default `audit_log` retention window, in days.
+ *
+ * 180 was chosen against the retention windows this repo already ships:
+ * `error_logs` keeps 30 days (transient diagnostics), and the longest
+ * existing window is 90 (`global:sdkLlmRetentionDays`,
+ * `…ScheduleRetentionDays`). `audit_log` is the governance record — the
+ * table a permission review, an incident reconstruction or a SIEM export
+ * reads — so it earns a longer window than the telemetry beside it, and
+ * double the longest existing one is the conservative step. It stays far
+ * inside the shared `safeIntervalCount` ceiling of 3650 days, so an
+ * operator who needs a compliance-mandated year (or ten) just sets the
+ * env var.
+ *
+ * Before #206 there was no sweep at all and the table grew for the life
+ * of the instance.
+ */
+export const DEFAULT_AUDIT_RETENTION_DAYS = 180;
+
+/** Env var an operator sets to change the window. */
+export const AUDIT_RETENTION_ENV = "EZCORP_AUDIT_RETENTION_DAYS";
+
+/**
+ * Resolve the effective retention window from a raw env string.
+ *
+ * Fail-safe direction: anything unparseable, or a value below one day,
+ * falls back to {@link DEFAULT_AUDIT_RETENTION_DAYS} rather than clamping
+ * to `1`. `EZCORP_AUDIT_RETENTION_DAYS=0` is the shape an operator writes
+ * meaning "keep forever"; clamping that to 1 would purge all but today's
+ * governance record, which is the one outcome this knob must never be
+ * able to produce by accident. (Disabling the sweep is deliberately NOT
+ * offered — the pre-#206 unbounded growth is the bug, not the feature.)
+ *
+ * The upper bound is `safeIntervalCount`'s own 3650, so the number here
+ * always means the same thing the SQL interval will mean.
+ */
+export function resolveAuditRetentionDays(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_AUDIT_RETENTION_DAYS;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_AUDIT_RETENTION_DAYS;
+  return safeIntervalCount(n, DEFAULT_AUDIT_RETENTION_DAYS);
+}
+
+/** Rows deleted per statement. Bounds both the transaction and the id
+ *  array held in memory on a first sweep over a long-lived instance. */
+const AUDIT_CLEANUP_BATCH_LIMIT = 5000;
+
+/** Batch ceiling per tick (5000 × 200 = 1M rows), so a pathological
+ *  backlog cannot hold the sweep — or PGlite — for an unbounded time.
+ *  The next hourly tick continues where this one stopped. */
+const AUDIT_CLEANUP_MAX_BATCHES = 200;
 
 /**
  * Insert a row into the shared `audit_log` table.
@@ -96,6 +149,46 @@ export async function listAuditLog(opts?: {
     .orderBy(desc(auditLog.createdAt))
     .limit(limit)
     .offset(offset);
+}
+
+/**
+ * Delete `audit_log` rows older than the retention window (#206).
+ *
+ * Runs hourly from `src/startup/background-timers.ts`, alongside the
+ * `error_logs` sweep it is modelled on. Batched — unlike
+ * `cleanupOldErrors`, which deletes in one statement — because this table
+ * has never been swept: the FIRST tick on an instance that has been up for
+ * a year is the large one, and a single unbounded `DELETE … RETURNING`
+ * would both lock the table and materialise every deleted id at once.
+ *
+ * Select-then-delete rather than a `DELETE … LIMIT` subselect so the count
+ * is exact on every driver (PGlite and `Bun.sql` report affected rows
+ * differently — see the shape-probing in
+ * `sdk-capability-calls.ts:cleanupOldSdkCapabilityCalls`).
+ *
+ * @param retentionDays Days to keep. Resolved through
+ *   {@link resolveAuditRetentionDays}, so a nonsense value keeps the
+ *   default window rather than purging.
+ * @returns Number of rows deleted.
+ */
+export async function cleanupOldAuditLog(
+  retentionDays: number = DEFAULT_AUDIT_RETENTION_DAYS,
+): Promise<number> {
+  const days = resolveAuditRetentionDays(String(retentionDays));
+  let deleted = 0;
+  for (let batch = 0; batch < AUDIT_CLEANUP_MAX_BATCHES; batch++) {
+    const stale: Array<{ id: string }> = await getDb()
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(lt(auditLog.createdAt, nowMinusInterval(days, "days", DEFAULT_AUDIT_RETENTION_DAYS)))
+      .limit(AUDIT_CLEANUP_BATCH_LIMIT);
+    if (stale.length === 0) break;
+    const ids = stale.map((row) => row.id);
+    await getDb().delete(auditLog).where(inArray(auditLog.id, ids));
+    deleted += stale.length;
+    if (stale.length < AUDIT_CLEANUP_BATCH_LIMIT) break;
+  }
+  return deleted;
 }
 
 /**

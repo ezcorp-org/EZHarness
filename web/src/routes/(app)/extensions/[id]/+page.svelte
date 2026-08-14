@@ -711,6 +711,50 @@
 		return null;
 	}
 
+	/**
+	 * PDP decision rows (`ext:perm:allowed` / `-denied` / `-prompted`).
+	 *
+	 * These do NOT carry `metadata.permission` — the engine writes
+	 * `capabilityKind` / `capabilityValue` / `toolName` / `reason` — so the
+	 * generic branch below rendered them as the bare slug `perm denied`:
+	 * which capability, which tool and why were all on the row and none of
+	 * them reached the screen. #206 makes that worse, because one folded row
+	 * can now stand for hundreds of refusals, and `suppressed` is the only
+	 * thing that says so.
+	 */
+	function permAuditSummary(action: string, m: Record<string, unknown>): string | null {
+		const verb =
+			action === "ext:perm:allowed"
+				? "Allowed"
+				: action === "ext:perm:denied"
+					? "Denied"
+					: action === "ext:perm:prompted"
+						? "Prompted for"
+						: null;
+		if (verb === null) return null;
+
+		const kind = typeof m.capabilityKind === "string" ? m.capabilityKind : "";
+		const value = typeof m.capabilityValue === "string" ? m.capabilityValue : "";
+		const cap = [kind, value].filter(Boolean).join(":");
+		const tool = typeof m.toolName === "string" ? m.toolName : "";
+		const reason = typeof m.reason === "string" ? m.reason : "";
+
+		// The capability is the subject when there is one. The reason is the
+		// whole content of the rows that have no capability — the fail-closed
+		// `override-lookup-failed` deny, and the plain step-4 allow.
+		let text = cap ? `${verb} ${cap}` : verb;
+		if (tool) text += ` — ${tool}`;
+		if (reason && !cap) text += ` — ${reason}`;
+
+		// A folded row is one row standing for many; say so, and say how many.
+		const suppressed = typeof m.suppressed === "number" ? m.suppressed : null;
+		if (suppressed !== null) {
+			const total = typeof m.totalInWindow === "number" ? m.totalInWindow : suppressed + 1;
+			text += ` · ${total} decisions folded into this row`;
+		}
+		return text;
+	}
+
 	function auditSummary(e: AuditEntry): string {
 		const m = e.metadata ?? {};
 		const perm = (m.permission as string | undefined) ?? "";
@@ -718,6 +762,10 @@
 		if (e.action.startsWith("ext:mcp:")) {
 			const mcp = mcpAuditSummary(e.action, m);
 			if (mcp) return mcp;
+		}
+		if (e.action.startsWith("ext:perm:")) {
+			const decision = permAuditSummary(e.action, m);
+			if (decision) return decision;
 		}
 		if (e.action === "ext:uninstalled") {
 			const purged = m.purgeData === true;
@@ -1684,6 +1732,19 @@
 				<h3 class="mb-2 text-sm font-medium text-[var(--color-text-muted)]">Audit Trail</h3>
 				<p class="mb-3 text-xs text-[var(--color-text-muted)]">
 					Permission grants and revokes, rejected attempts, and MCP server lifecycle (install, edit, refresh, uninstall) are recorded here. System rows capture automatic grants (bundled-install, bundled-regrant, drift detection, blocked version bumps).
+				</p>
+				<!--
+					#206 — the two things a reader of this panel would otherwise get
+					wrong. A repeated decision reads as one row (so "1 refusal" would
+					be the wrong conclusion from a folded row that says 100), and rows
+					no longer live forever now that a retention sweep exists. The number
+					is the DEFAULT, not the effective value — `EZCORP_AUDIT_RETENTION_DAYS`
+					overrides it and the boot log names what took effect.
+					`src/__tests__/audit-log.test.ts` pins this sentence's number to
+					`DEFAULT_AUDIT_RETENTION_DAYS` so the two cannot drift.
+				-->
+				<p class="mb-3 text-xs text-[var(--color-text-muted)]" data-testid="audit-trail-retention-note">
+					A burst of identical decisions is folded into one row that carries the count and the first/last times — a single row can stand for many. Entries are swept once they pass the audit retention window (180 days by default).
 				</p>
 				{#if auditLoading}
 					<p class="text-xs text-[var(--color-text-muted)]">Loading…</p>
