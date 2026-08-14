@@ -93,7 +93,10 @@ import {
   parseIpv4,
   type ResolveHost,
 } from "../search/egress";
+import { logger } from "../logger";
 import type { McpServerDefinition } from "../extensions/types";
+
+const guardLog = logger.child("mcp-target-guard");
 
 /** Env var holding the operator's allowlist. */
 export const MCP_TARGET_ALLOW_ENV = "EZCORP_MCP_TARGET_ALLOW";
@@ -144,6 +147,9 @@ export interface McpTargetAllowlist {
   hosts: ReadonlySet<string>;
   /** Vouched-for address ranges. */
   nets: readonly AllowNet[];
+  /** Human-readable reasons entries were thrown away, each quoting the
+   *  offending value. Surfaced by {@link warnAboutAllowlist}. */
+  problems: readonly string[];
 }
 
 export interface McpTargetGuardDeps {
@@ -157,6 +163,9 @@ export interface McpTargetGuardDeps {
   /** Deadline for the DNS lookup, in ms. Default
    *  {@link DEFAULT_RESOLVE_TIMEOUT_MS}. */
   resolveTimeoutMs?: number;
+  /** Sink for allowlist complaints. Defaults to the `mcp-target-guard`
+   *  logger; tests inject a spy. */
+  logger?: AllowlistLogger;
 }
 
 /**
@@ -229,40 +238,139 @@ function netContains(net: AllowNet, bytes: readonly number[]): boolean {
   return true;
 }
 
+/** A DNS name, as an allowlist entry may spell it. Deliberately narrow:
+ *  anything else is a typo we should complain about rather than silently
+ *  accept as a host vouch. */
+const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
 /**
  * Parse `EZCORP_MCP_TARGET_ALLOW` into host and network entries.
  *
- * Entries split on commas and/or whitespace. An entry containing `/` is a
- * CIDR; a bare IP literal is a host-length prefix; anything else is a
- * hostname. Anything unparseable (bad prefix length, bad address, empty)
- * is DROPPED — a dropped entry can only deny more, never allow more.
+ * Entries split on commas, semicolons and/or whitespace. An entry containing
+ * `/` is a CIDR; a bare IP literal is a host-length prefix; a bare DNS name
+ * is a host vouch.
+ *
+ * **Every rejection is reported in `problems`, by value.** Silence here was
+ * a real operator trap: the four spellings people actually type all failed
+ * QUIETLY, and the resulting 502 told them to set the variable they had
+ * already set —
+ *
+ *   - `192.168.1.50:8080`        → became a HOSTNAME vouch that can never
+ *                                   match `URL.hostname`, so still denied
+ *   - `http://192.168.1.50`      → dropped whole
+ *   - `10.0.0.0/8;172.16.0.0/12` → semicolon unsupported, BOTH dropped
+ *   - `10.0.0.0 / 8`             → split on the spaces; `/8` silently became
+ *                                   `/32` (16.7M addresses narrower) plus a
+ *                                   junk `8` host vouch
+ *
+ * The last two are the dangerous shape: a typo used to land in the `hosts`
+ * set, which is the validation-SKIPPING form. Nothing lands there now unless
+ * it is a well-formed DNS name.
  */
 export function parseMcpTargetAllowlist(raw: string | undefined | null): McpTargetAllowlist {
   const hosts = new Set<string>();
   const nets: AllowNet[] = [];
-  for (const rawEntry of (raw ?? "").split(/[\s,]+/)) {
+  const problems: string[] = [];
+  const reject = (entry: string, why: string) =>
+    problems.push(`ignored ${JSON.stringify(entry)} — ${why}`);
+
+  for (const rawEntry of (raw ?? "").split(/[\s,;]+/)) {
     const entry = rawEntry.trim();
     if (entry === "") continue;
+
+    if (entry.includes("://")) {
+      reject(entry, "looks like a URL; use just the host or a CIDR (e.g. 192.168.1.50)");
+      continue;
+    }
 
     const slash = entry.lastIndexOf("/");
     const addr = normalizeHost(slash === -1 ? entry : entry.slice(0, slash));
     const family = isIP(addr);
+
     if (family === 0) {
-      // Not an address, so it's a hostname vouch. A `/` in a hostname is
-      // malformed (a URL path crept into the list) — drop it.
-      if (slash === -1 && addr !== "") hosts.add(addr);
+      if (slash !== -1) {
+        reject(entry, "not a CIDR — the part before '/' must be an IP address");
+        continue;
+      }
+      if (addr === "") {
+        reject(entry, "empty host");
+        continue;
+      }
+      // `192.168.1.50:8080` used to land here as a host vouch that could
+      // never match. Ports are not part of the policy — the guard decides on
+      // the address, not the port.
+      if (addr.includes(":")) {
+        reject(entry, "host:port is not supported — drop the port, or use the bare IP/CIDR");
+        continue;
+      }
+      if (/^\d+$/.test(addr)) {
+        // Almost always the tail of a CIDR someone spaced out ("10.0.0.0 / 8").
+        reject(entry, "bare number is not a host — did you write a CIDR with spaces around '/'?");
+        continue;
+      }
+      if (!HOSTNAME_RE.test(addr)) {
+        reject(entry, "not a valid hostname, IP or CIDR");
+        continue;
+      }
+      hosts.add(addr);
       continue;
     }
+
     // A bare IP is its own /32 or /128.
     const bits = family === 4 ? 32 : 128;
     const prefixText = slash === -1 ? String(bits) : entry.slice(slash + 1);
     const bytes = toBytes16(addr);
-    if (!bytes || !/^\d{1,3}$/.test(prefixText) || Number(prefixText) > bits) continue;
+    if (!bytes) {
+      reject(entry, "address has no fixed byte form (a scoped IPv6 literal?)");
+      continue;
+    }
+    if (!/^\d{1,3}$/.test(prefixText)) {
+      reject(entry, `prefix ${JSON.stringify(prefixText)} is not a number`);
+      continue;
+    }
+    if (Number(prefixText) > bits) {
+      reject(entry, `prefix /${prefixText} is out of range for IPv${family} (max /${bits})`);
+      continue;
+    }
     // An IPv4 entry lives in the v4-mapped block, so its prefix counts from
     // bit 96 rather than bit 0.
     nets.push({ bytes, prefix: family === 4 ? Number(prefixText) + 96 : Number(prefixText) });
   }
-  return { hosts, nets };
+  return { hosts, nets, problems };
+}
+
+/**
+ * Raw allowlist values already reported. The guard reads the env on every
+ * call, so without this a malformed entry would warn once per MCP request.
+ */
+const warnedAllowlists = new Set<string>();
+
+/**
+ * Complain — once per distinct raw value — about entries we threw away.
+ *
+ * This is the whole point of collecting `problems`: a dropped entry is
+ * invisible at the API, because a denied target returns the same opaque 502
+ * as an unreachable one. The server log is the only place an operator can
+ * find out that the variable they set was not understood.
+ */
+export function warnAboutAllowlist(raw: string | undefined | null, log: AllowlistLogger): void {
+  const key = raw ?? "";
+  if (warnedAllowlists.has(key)) return;
+  warnedAllowlists.add(key);
+  const { problems } = parseMcpTargetAllowlist(raw);
+  for (const problem of problems) {
+    log.warn(`${MCP_TARGET_ALLOW_ENV}: ${problem}`);
+  }
+}
+
+/** Minimal logger shape, so this module keeps its no-DB/no-SDK footprint. */
+export interface AllowlistLogger {
+  warn(message: string): void;
+}
+
+/** Test seam: forget which raw values have already been reported. */
+export function resetAllowlistWarnings(): void {
+  warnedAllowlists.clear();
 }
 
 /** Is this otherwise-blocked address explicitly vouched for by a CIDR or
@@ -282,7 +390,12 @@ export async function assertMcpTargetUrlAllowed(
   rawUrl: string,
   deps: McpTargetGuardDeps = {},
 ): Promise<void> {
-  const allow = parseMcpTargetAllowlist(deps.allowRaw ?? process.env[MCP_TARGET_ALLOW_ENV]);
+  const rawAllow = deps.allowRaw ?? process.env[MCP_TARGET_ALLOW_ENV];
+  // Report a mis-typed allowlist BEFORE deciding, so the log line sits next
+  // to the denial it explains. De-duplicated per raw value, so this is once
+  // per process in practice.
+  warnAboutAllowlist(rawAllow, deps.logger ?? guardLog);
+  const allow = parseMcpTargetAllowlist(rawAllow);
   const resolve = deps.resolveHost ?? defaultResolveHost;
 
   let parsed: URL;

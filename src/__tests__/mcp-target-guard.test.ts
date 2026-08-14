@@ -17,7 +17,9 @@ import {
   McpTargetBlockedError,
   MCP_TARGET_ALLOW_ENV,
   parseMcpTargetAllowlist,
+  resetAllowlistWarnings,
   UNPARSEABLE_TARGET,
+  warnAboutAllowlist,
   type McpTargetBlockReason,
 } from "../mcp/target-guard";
 import type { McpServerDefinition } from "../extensions/types";
@@ -400,6 +402,185 @@ describe("allowlist enforcement", () => {
     expect(await verdict("http://10.9.9.9/", allow)).toBe("ALLOW");
     expect(await verdict("http://mcp.lan/", allow)).toBe("ALLOW");
     expect(await verdict("http://169.254.169.254/", allow)).toBe("BLOCK:private-address");
+  });
+});
+
+describe("allowlist spellings an operator actually types", () => {
+  // These four were MEASURED failing silently. Each produced "I set the
+  // documented variable and my LAN server still won't install, and the 502
+  // tells me to set the variable I already set." Two of them landed in the
+  // `hosts` set — the validation-SKIPPING form — so a typo was also the less
+  // safe outcome. Every one is now rejected BY VALUE, or parsed correctly.
+  test("host:port is rejected loudly, not turned into a host vouch", () => {
+    const parsed = parseMcpTargetAllowlist("192.168.1.50:8080");
+    expect([...parsed.hosts]).toEqual([]);
+    expect(parsed.nets).toHaveLength(0);
+    expect(parsed.problems.join()).toContain('"192.168.1.50:8080"');
+    expect(parsed.problems.join()).toContain("host:port");
+  });
+
+  test("a pasted URL is rejected loudly", () => {
+    const parsed = parseMcpTargetAllowlist("http://192.168.1.50");
+    expect([...parsed.hosts]).toEqual([]);
+    expect(parsed.problems.join()).toContain('"http://192.168.1.50"');
+    expect(parsed.problems.join()).toContain("URL");
+  });
+
+  test("semicolons separate entries instead of destroying both", () => {
+    const parsed = parseMcpTargetAllowlist("10.0.0.0/8;172.16.0.0/12");
+    // /8 and /12 in the v4-mapped block.
+    expect(parsed.nets.map((n) => n.prefix)).toEqual([104, 108]);
+    expect(parsed.problems).toHaveLength(0);
+  });
+
+  test("spaces around a CIDR slash are reported, not silently narrowed", () => {
+    // `10.0.0.0 / 8` splits into three tokens. The bare IP is still a valid
+    // /32 (we cannot know it was meant as /8), but the operator now gets two
+    // warnings naming exactly what was thrown away — previously the /8
+    // became a /32, 16.7M addresses narrower, in total silence.
+    const parsed = parseMcpTargetAllowlist("10.0.0.0 / 8");
+    expect([...parsed.hosts]).toEqual([]);
+    expect(parsed.problems).toHaveLength(2);
+    expect(parsed.problems.join()).toContain("CIDR");
+    // The stray prefix is NOT accepted as a hostname vouch any more.
+    expect(parsed.problems.join()).toContain('"8"');
+  });
+
+  test("a well-formed list still parses with no complaints", () => {
+    const parsed = parseMcpTargetAllowlist("127.0.0.1, ::1, 10.0.0.0/8, mcp.lan");
+    expect([...parsed.hosts]).toEqual(["mcp.lan"]);
+    expect(parsed.nets).toHaveLength(3);
+    expect(parsed.problems).toHaveLength(0);
+  });
+
+  test("a malformed hostname is rejected rather than vouched for", () => {
+    expect(parseMcpTargetAllowlist("not_a_host!").problems.join()).toContain("not a valid hostname");
+    expect([...parseMcpTargetAllowlist("not_a_host!").hosts]).toEqual([]);
+  });
+
+  test("a CIDR whose left side is not an IP is rejected", () => {
+    const parsed = parseMcpTargetAllowlist("mcp.lan/24");
+    expect(parsed.problems.join()).toContain("must be an IP");
+    expect([...parsed.hosts]).toEqual([]);
+  });
+
+  test("an out-of-range or non-numeric prefix names the value", () => {
+    expect(parseMcpTargetAllowlist("10.0.0.0/33").problems.join()).toContain("out of range");
+    expect(parseMcpTargetAllowlist("10.0.0.0/eight").problems.join()).toContain("not a number");
+  });
+
+  test("a scoped IPv6 literal is reported", () => {
+    expect(parseMcpTargetAllowlist("fe80::1%eth0/64").problems.join()).toContain("byte form");
+  });
+});
+
+describe("allowlist problems reach the operator's log", () => {
+  afterEach(() => resetAllowlistWarnings());
+
+  test("every dropped entry is warned by value", () => {
+    const lines: string[] = [];
+    warnAboutAllowlist("192.168.1.50:8080, http://10.0.0.1", { warn: (m) => lines.push(m) });
+    expect(lines).toHaveLength(2);
+    expect(lines.join()).toContain("192.168.1.50:8080");
+    expect(lines.join()).toContain("http://10.0.0.1");
+    expect(lines.every((l) => l.includes(MCP_TARGET_ALLOW_ENV))).toBe(true);
+  });
+
+  test("a clean allowlist produces no noise", () => {
+    const lines: string[] = [];
+    warnAboutAllowlist("127.0.0.1,::1", { warn: (m) => lines.push(m) });
+    expect(lines).toEqual([]);
+  });
+
+  test("the same raw value is reported once, not once per request", () => {
+    // The guard re-reads the env on every MCP request; without de-duplication
+    // a typo would print on every tool call.
+    const lines: string[] = [];
+    const log = { warn: (m: string) => lines.push(m) };
+    warnAboutAllowlist("bad:8080", log);
+    warnAboutAllowlist("bad:8080", log);
+    warnAboutAllowlist("bad:8080", log);
+    expect(lines).toHaveLength(1);
+  });
+
+  test("the guard itself emits the warning alongside the denial", async () => {
+    const lines: string[] = [];
+    await expect(
+      assertMcpTargetUrlAllowed("http://10.0.0.5/mcp", {
+        resolveHost,
+        allowRaw: "10.0.0.5:9000",
+        logger: { warn: (m) => lines.push(m) },
+      }),
+    ).rejects.toBeInstanceOf(McpTargetBlockedError);
+    // The denial is opaque at the API; this log line is the only place the
+    // operator can learn their entry was not understood.
+    expect(lines.join()).toContain("10.0.0.5:9000");
+  });
+});
+
+describe("the DNS lookup is bounded", () => {
+  test("a resolver that never settles is refused, not waited on", async () => {
+    // Measured against a blackholed nameserver, a bare dns.lookup took ~24s
+    // to fail — an API handler occupied for half a minute, and a stalled
+    // chat turn on the first tool dispatch. The never-settling resolver here
+    // makes the outcome deterministic: only the deadline can win the race,
+    // regardless of host load.
+    const never = () => new Promise<string[]>(() => {});
+    const err = await assertMcpTargetUrlAllowed("http://slow.test/mcp", {
+      resolveHost: never,
+      allowRaw: "",
+      resolveTimeoutMs: 5,
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(McpTargetBlockedError);
+    // Collapses into the existing uniform 502 — no new response shape.
+    expect((err as McpTargetBlockedError).reason).toBe("no-address");
+  });
+
+  test("a resolver that answers in time is unaffected", async () => {
+    await expect(
+      assertMcpTargetUrlAllowed("http://pub.test/mcp", {
+        resolveHost,
+        allowRaw: "",
+        resolveTimeoutMs: 5_000,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("an IP literal never waits on the resolver at all", async () => {
+    // No lookup happens, so a hung resolver cannot stall a literal target.
+    const never = () => new Promise<string[]>(() => {});
+    const err = await assertMcpTargetUrlAllowed("http://169.254.169.254/x", {
+      resolveHost: never,
+      allowRaw: "",
+      resolveTimeoutMs: 50_000,
+    }).catch((e) => e);
+    expect((err as McpTargetBlockedError).reason).toBe("private-address");
+  });
+});
+
+describe("localhost is dual-stack, and both addresses must be allowed", () => {
+  // The trap an operator hits when they trim the documented example down to
+  // "the one they think they need". Same shape as the SEARXNG_BASE_URL note
+  // already in docker-compose.yml.
+  const dualStack = async (host: string) =>
+    host === "localhost" ? ["127.0.0.1", "::1"] : [];
+
+  test("allowing only 127.0.0.1 still denies a localhost URL", async () => {
+    const err = await assertMcpTargetUrlAllowed("http://localhost:3000/mcp", {
+      resolveHost: dualStack,
+      allowRaw: "127.0.0.1",
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(McpTargetBlockedError);
+    expect((err as McpTargetBlockedError).target).toContain("::1");
+  });
+
+  test("allowing both spellings works", async () => {
+    await expect(
+      assertMcpTargetUrlAllowed("http://localhost:3000/mcp", {
+        resolveHost: dualStack,
+        allowRaw: "127.0.0.1,::1",
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 
