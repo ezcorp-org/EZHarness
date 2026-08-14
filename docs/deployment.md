@@ -478,8 +478,59 @@ EZCORP_MCP_TARGET_ALLOW=127.0.0.1,::1,192.168.1.50,10.0.0.0/8,mcp.lan
   validation entirely, so whoever controls DNS for that name controls
   the target. Prefer the IP/CIDR form.
 - Malformed entries are dropped, which can only deny more.
-- Read per connect; a restart is not required, but treat it as a
-  deploy-time setting like the flags above.
+- The value is re-read from `process.env` on every request, but Bun loads
+  `.env` once at process start — so **editing `.env` does require a
+  restart**. Treat it as a deploy-time setting like the flags above.
+- A **mistyped entry is dropped, and the API cannot tell you.** A denied
+  target returns the same opaque 502 as an unreachable one, deliberately.
+  The `mcp-target-guard` log warns once per distinct value, naming the
+  entry it did not understand — check there first if a target you
+  allowlisted is still refused. Common rejects:
+  `192.168.1.50:8080` (drop the port), `http://192.168.1.50` (host or
+  CIDR, not a URL), and `10.0.0.0 / 8` (no spaces around `/`).
+
+### `localhost` is dual-stack — allow both spellings
+
+Every resolved address must clear the guard, and `localhost` resolves to
+**both** `127.0.0.1` and `::1` on a dual-stack host. Allowing only one
+still denies the target, with the same opaque 502:
+
+```
+allow="127.0.0.1"       http://localhost:3000/mcp  → DENY (localhost → ::1)
+allow="127.0.0.1,::1"   http://localhost:3000/mcp  → ALLOW
+```
+
+Either list both, or point the URL at `127.0.0.1` directly. (This is the
+same trap the `SEARXNG_BASE_URL` comment in `docker-compose.yml` calls
+out for the search sidecar.)
+
+### Reaching an MCP server in another container
+
+`compose.prod.yml` declares no `networks:`, so it uses Docker's default
+bridge — which lives in **`172.16.0.0/12`, inside the deny set**. The
+natural wiring for an MCP sidecar, `http://mcp:8080/mcp`, is therefore
+denied by default (reproduced: `http://mcp-server:8080/mcp → 172.18.0.4
+→ DENY`). Two options:
+
+```sh
+# Either allow the bridge subnet. Note Docker REASSIGNS this on
+# `down`/`up`, so pin the subnet in compose if you rely on it.
+EZCORP_MCP_TARGET_ALLOW=172.18.0.0/16
+
+# Or vouch for the service name. Simpler and stable across re-creates,
+# but it SKIPS address validation — whoever controls that name controls
+# the target. Fine for a compose service you define; not for a name
+# resolved by anything you don't own.
+EZCORP_MCP_TARGET_ALLOW=mcp
+```
+
+Nothing shipped is affected: no bundled extension is `kind:"mcp"` (zero
+`mcpServers` across `src/extensions/bundled.ts` and `extensions/**`), so
+the default-deny posture breaks no first-party functionality.
+
+Note the dev stack (`docker-compose.yml`) is `network_mode: host` and
+passes the variable through explicitly; it is the localhost case above,
+not this one.
 
 When a target is refused, the API returns the same generic 502 as any
 unreachable server — deliberately, so the response cannot be used to

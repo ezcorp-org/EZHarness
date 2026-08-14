@@ -73,16 +73,31 @@
  *
  * Malformed entries are dropped, which can only make the guard STRICTER.
  *
- * ## Re-checked on every connect
+ * ## When this actually runs — precisely
  *
- * The guard runs inside `McpClient.connect()`, not at the route. So the
- * install-time check is not a one-off: a target that resolves public at
- * install and private later (DNS rebinding) is re-validated and refused
- * on the next connect. There is still a sub-second TOCTOU window between
- * our `dns.lookup` and the SDK transport's own connect — the SDK owns its
- * socket, so we cannot IP-pin the way `guardedFetch` does. Closing that
- * needs a pinned-dispatcher transport; the re-check per connect is what
- * bounds the exposure today.
+ * Two enforcement points, and the difference matters:
+ *
+ *   - `McpClient.connect()` calls this once, as a fail-fast. That is once
+ *     per CLIENT, not once per use: `connect()` returns early when
+ *     `this.connected` is set (only ever cleared by `close()`), and
+ *     `ExtensionRegistry.getMcpClient` returns early on `isConnected`. On a
+ *     long-lived registry client this is effectively once per process.
+ *   - `src/mcp/guarded-fetch.ts` calls it on **every HTTP request** an
+ *     `http`/`sse` transport makes, and on every redirect hop. That is the
+ *     load-bearing one: it covers `tools/list` and every `tools/call` on an
+ *     already-connected client, so a hostname rebound after connect is
+ *     refused on the next request.
+ *
+ * `stdio` has no network target and is a no-op in both.
+ *
+ * ## Residual: rebinding inside a single request
+ *
+ * We resolve, then the SDK's socket resolves again — the SDK owns its
+ * connection, so we cannot IP-pin the way `guardedFetch` does (and must
+ * not: pinning rewrites the URL host, which breaks TLS SNI for a vendor
+ * https endpoint). The window is between our `dns.lookup` and that connect,
+ * per request. Closing it needs a pinned-dispatcher transport. Re-checking
+ * per request — and per redirect hop — is what bounds the exposure today.
  */
 
 import { isIP } from "node:net";

@@ -169,6 +169,62 @@ describe("a reachable MCP server cannot redirect the platform onto a blocked add
     await client.close().catch(() => {});
   }, 20_000);
 
+  test("the guard re-runs on every REQUEST, not once per client", async () => {
+    // `connect()` short-circuits on `this.connected`, and the registry
+    // short-circuits on `isConnected`, so the connect-time check really does
+    // run once per client instantiation. Routing the transport through the
+    // guarded fetch is what makes revalidation per-request: a target that
+    // stops being allowed is refused on the NEXT call, on a client that is
+    // already connected.
+    let served = 0;
+    const srv = track(
+      Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(req) {
+          served++;
+          const body = (await req.json().catch(() => ({}))) as { method?: string; id?: unknown };
+          if (body.method === "initialize") {
+            return Response.json({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: {
+                protocolVersion: "2025-06-18",
+                capabilities: { tools: {} },
+                serverInfo: { name: "v", version: "1.0.0" },
+              },
+            });
+          }
+          if (body.method === "tools/list") {
+            return Response.json({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: { tools: [{ name: "ok", description: "d", inputSchema: { type: "object" } }] },
+            });
+          }
+          return new Response(null, { status: 202 });
+        },
+      }),
+    );
+
+    process.env[MCP_TARGET_ALLOW_ENV] = "127.0.0.1";
+    const client = new McpClient({
+      transport: "http",
+      name: "v",
+      url: `http://127.0.0.1:${srv.port}/mcp`,
+    });
+    expect((await client.listTools()).map((t) => t.name)).toEqual(["ok"]);
+    const servedWhileAllowed = served;
+
+    // Revoke the allowance. The client stays "connected"; the next request
+    // must still be refused.
+    delete process.env[MCP_TARGET_ALLOW_ENV];
+    await expect(client.listTools()).rejects.toBeInstanceOf(McpTargetBlockedError);
+    expect(served).toBe(servedWhileAllowed);
+
+    await client.close().catch(() => {});
+  }, 20_000);
+
   test("a same-origin redirect still works, so legitimate servers are not broken", async () => {
     // Guarding must not mean "no redirects at all" — a path canonicalization
     // on the SAME allowed origin has to keep working.
