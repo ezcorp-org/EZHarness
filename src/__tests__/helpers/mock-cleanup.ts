@@ -31,6 +31,10 @@ const MODULE_PATHS = [
   "../../auth/jwt",
   "../../auth/password",
   "../../auth/oauth-callback-server",
+  // extension-wire-authz.test.ts stubs `hasExtensionScope` to drive the wire
+  // gate's grant branch without a DB. Snapshot it: a leaked stub would answer
+  // the RBAC scope question for every later file, which is a silent ALLOW.
+  "../../auth/extension-rbac",
   "../../db/queries/settings",
   "../../db/queries/conversations",
   // Phase 63 Plan 03: message-embed-outbox.test.ts mocks this to inject a

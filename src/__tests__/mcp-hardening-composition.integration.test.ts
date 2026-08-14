@@ -81,7 +81,8 @@ import { auditLog, conversations, projects, users } from "../db/schema";
 import { EventBus } from "../runtime/events";
 import { and, eq } from "drizzle-orm";
 import type { AgentEvents } from "../types";
-import type { ExtensionManifestV2, NewExtension } from "../extensions/types";
+import type { ExtensionManifestV2 } from "../extensions/types";
+import type { NewExtension } from "../db/schema";
 
 /** A blocked target that is NOT the fixture — the cloud metadata address. */
 const METADATA_URL = "http://169.254.169.254/latest/meta-data/";
