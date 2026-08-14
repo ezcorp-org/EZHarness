@@ -36,6 +36,15 @@ const mockHasExtensionScope = mock(
 );
 mock.module("../auth/extension-rbac", () => ({ hasExtensionScope: mockHasExtensionScope }));
 
+// ── getExtension: the id-addressed form's only lookup. ────────────────
+let extensionRows = new Map<string, unknown>();
+let extensionLookupThrows = false;
+const mockGetExtension = mock(async (id: string) => {
+  if (extensionLookupThrows) throw new Error("extensions table unreachable");
+  return extensionRows.get(id) ?? null;
+});
+mock.module("../db/queries/extensions", () => ({ getExtension: mockGetExtension }));
+
 const {
   MCP_WIRE_SCOPE,
   isMcpExtension,
@@ -43,6 +52,7 @@ const {
   canWireExtension,
   partitionWirableExtensions,
   partitionWirableExtensionsForUser,
+  findUnauthorizedExtensionIds,
 } = await import("../auth/extension-wire-authz");
 
 type Row = Parameters<typeof canWireExtension>[0];
@@ -83,6 +93,9 @@ beforeEach(() => {
   grantThrows = false;
   mockGetUserById.mockClear();
   mockHasExtensionScope.mockClear();
+  extensionRows = new Map();
+  extensionLookupThrows = false;
+  mockGetExtension.mockClear();
 });
 
 afterAll(() => restoreModuleMocks());
@@ -310,5 +323,52 @@ describe("partitionWirableExtensionsForUser (lazy actor)", () => {
       await partitionWirableExtensionsForUser([], { userId: "member-1", projectId: null }),
     ).toEqual({ allowed: [], deniedNames: [] });
     expect(mockGetUserById).not.toHaveBeenCalled();
+  });
+});
+
+describe("findUnauthorizedExtensionIds — the id-addressed, write-time form", () => {
+  const actor = { user: MEMBER, projectId: "proj-1" };
+
+  test("an id that resolves to NO row is denied, so a typo reads like a refusal", async () => {
+    // Deliberate: distinguishing them would confirm which ids exist.
+    expect(await findUnauthorizedExtensionIds(["ghost"], actor)).toEqual(["ghost"]);
+  });
+
+  test("a lookup that THROWS denies rather than admits (fail-closed)", async () => {
+    extensionLookupThrows = true;
+    expect(await findUnauthorizedExtensionIds(["ext-mcp"], actor)).toEqual(["ext-mcp"]);
+  });
+
+  test("an ordinary extension the actor may wire is NOT denied", async () => {
+    extensionRows.set("ext-local", localRow());
+    expect(await findUnauthorizedExtensionIds(["ext-local"], actor)).toEqual([]);
+  });
+
+  test("an MCP row a member holds no grant for IS denied", async () => {
+    extensionRows.set("ext-mcp", mcpRow());
+    expect(await findUnauthorizedExtensionIds(["ext-mcp"], actor)).toEqual(["ext-mcp"]);
+  });
+
+  test("the mcp-wire grant clears it", async () => {
+    extensionRows.set("ext-mcp", mcpRow());
+    grantAnswer = true;
+    expect(await findUnauthorizedExtensionIds(["ext-mcp"], actor)).toEqual([]);
+  });
+
+  test("duplicates collapse to ONE lookup, and order follows the input", async () => {
+    extensionRows.set("ext-local", localRow());
+    extensionRows.set("ext-mcp", mcpRow());
+    const denied = await findUnauthorizedExtensionIds(
+      ["ext-mcp", "ext-local", "ext-mcp", "ghost"],
+      actor,
+    );
+    expect(denied).toEqual(["ext-mcp", "ghost"]);
+    // Three ids after the dedupe, not four.
+    expect(mockGetExtension).toHaveBeenCalledTimes(3);
+  });
+
+  test("an empty list needs no lookup at all", async () => {
+    expect(await findUnauthorizedExtensionIds([], actor)).toEqual([]);
+    expect(mockGetExtension).not.toHaveBeenCalled();
   });
 });
