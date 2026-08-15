@@ -796,6 +796,29 @@ function isOwnNamespaceEvent(eventType: string, ownName: string | undefined): bo
   );
 }
 
+/**
+ * May this event name appear in a GRANT at all?
+ *
+ * The dispatcher's acceptance rule, stated once: a platform direct-carrier
+ * event (its Branch 1), or the extension's own namespaced custom event (its
+ * Branch 2, which `registerExtensionEvent` refuses for any platform name).
+ * Anything else — another extension's namespace, a scoped runtime event like
+ * `run:token` or `caller:tool-call` — is refused at registration, so granting
+ * it writes a row that describes access the extension will never get.
+ *
+ * Exported because there are TWO grant writers and they must not disagree:
+ * this clamp, and `install-grant.ts`'s auto-approve path, which re-attaches
+ * the manifest's declared events after the clamp has run.
+ */
+export function isGrantableEventSubscription(
+  eventType: string,
+  ownName: string | undefined,
+): boolean {
+  return (
+    DIRECT_CARRIER_EVENT_TYPES.has(eventType as never) || isOwnNamespaceEvent(eventType, ownName)
+  );
+}
+
 /** Phase 51.4: detect whether a manifest's event-subscription grant
  *  asked for the full payload (no `tool:start`/`tool:complete` strip).
  *  The dispatcher reads this at install/registration time via
@@ -925,8 +948,7 @@ export function clampExtensionPermissions(
       const allowed = submittedEvents.filter(
         (e) => typeof e === "string"
           && manifestSet.has(e)
-          && (DIRECT_CARRIER_EVENT_TYPES.has(e as never)
-            || isOwnNamespaceEvent(e, manifestTopLevel?.name)),
+          && isGrantableEventSubscription(e, manifestTopLevel?.name),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
