@@ -496,7 +496,15 @@ services:
       # agent/ is harness session state — agent/auth.json alone is 3 KB of
       # live credentials. Masked as a DIRECTORY rather than per-file so
       # tokens written here later are covered without anyone remembering.
-      - /repo/agent:size=1m
+      #
+      # 16m, not 1m: the cap has to clear the tree it hides, or forgetting
+      # compose.podman.yml turns this mask into the ENOSPC abort described
+      # above instead of the legible boot guard. agent/sessions grows with
+      # harness use and passed 1m without anyone noticing — measured 1.6 MB
+      # on the primary dev box, i.e. this mask was already the smallest of
+      # the four AND the only one under its own tree. Sized to match
+      # .ezcorp so a few MB of session growth cannot re-cross it.
+      - /repo/agent:size=16m
     depends_on:
       postgres:
         condition: service_healthy

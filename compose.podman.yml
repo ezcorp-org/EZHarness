@@ -73,4 +73,7 @@ services:
       # the stakes are higher than for the base file: without notmpcopyup a
       # 26 GB tree is copied into RAM at container start.
       - /repo/.claude/worktrees:size=64m,notmpcopyup
-      - /repo/agent:size=1m,notmpcopyup
+      # 16m mirrors the base file — see the note there. The cap must clear
+      # agent/sessions (1.6 MB and growing), or this mask is itself an
+      # ENOSPC abort when the override is missed.
+      - /repo/agent:size=16m,notmpcopyup
