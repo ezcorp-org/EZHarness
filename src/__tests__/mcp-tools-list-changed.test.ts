@@ -38,10 +38,16 @@ const {
 } = await import("./helpers/stdio-mcp-fixture");
 import type { ExtensionManifestV2 } from "../extensions/types";
 
+type RefreshEntry = { promise: Promise<void>; queued: boolean };
 type RegistryInternals = {
   mcpClients: Map<string, unknown>;
-  mcpToolRefreshes: Map<string, Promise<void>>;
+  mcpToolRefreshes: Map<string, RefreshEntry>;
 };
+
+/** Await this extension's in-flight refresh AND its coalesced re-run. */
+async function settleRefresh(internals: RegistryInternals, extId: string): Promise<void> {
+  await internals.mcpToolRefreshes.get(extId)?.promise;
+}
 
 /** Install a real MCP row whose server is the controllable stdio fixture. */
 async function installFixtureRow(name: string) {
@@ -92,7 +98,7 @@ describe("notifications/tools/list_changed refreshes the catalog", () => {
 
     await client.callTool(MCP_FIXTURE_LIST_CHANGED_TOOL, {});
     await drainMicrotasks(() => internals.mcpToolRefreshes.has(ext.id));
-    await internals.mcpToolRefreshes.get(ext.id);
+    await settleRefresh(internals, ext.id);
 
     const fresh = `listchanged-wire__${MCP_FIXTURE_TOOL_AFTER_CHANGE}`;
     expect(registry.getToolExtension(fresh)).toBe(ext.id);
@@ -111,7 +117,7 @@ describe("notifications/tools/list_changed refreshes the catalog", () => {
     await deleteExtension(ext.id);
   });
 
-  test("overlapping notifications are serialized, and the tail owns the slot", async () => {
+  test("overlapping notifications are serialized, and the slot clears itself", async () => {
     const { ext, registry } = await installFixtureRow("listchanged-serialize");
     const internals = registry as unknown as RegistryInternals;
 
@@ -142,13 +148,16 @@ describe("notifications/tools/list_changed refreshes the catalog", () => {
     const fire = notifier(registry);
     fire(ext.id);
     await firstListStarted.promise;
-    const firstChain = internals.mcpToolRefreshes.get(ext.id);
+    const entry = internals.mcpToolRefreshes.get(ext.id)!;
+    expect(entry.queued).toBe(false);
     fire(ext.id);
-    const secondChain = internals.mcpToolRefreshes.get(ext.id);
-    expect(secondChain).not.toBe(firstChain);
+    // COALESCED: the second notification flags the SAME entry rather than
+    // appending a link to a chain the map holds no reference to.
+    expect(internals.mcpToolRefreshes.get(ext.id)).toBe(entry);
+    expect(entry.queued).toBe(true);
 
     releaseFirst!();
-    await secondChain;
+    await entry.promise;
 
     // Strictly serial: the second refresh never started before the first ended.
     expect(order).toEqual(["start-1", "end-1", "start-2", "end-2"]);
@@ -180,17 +189,170 @@ describe("notifications/tools/list_changed refreshes the catalog", () => {
 
     const fire = notifier(registry);
     fire(ext.id);
-    await internals.mcpToolRefreshes.get(ext.id);
+    await settleRefresh(internals, ext.id);
     // The failure did not surface as an unhandled rejection and left the old
     // catalog in place.
     expect(registry.getToolExtension("listchanged-refresh-fails__echo")).toBe(ext.id);
 
-    // A later notification still refreshes — one bad link cannot wedge it.
+    // A later notification still refreshes — one bad refresh cannot wedge it.
     fire(ext.id);
-    await internals.mcpToolRefreshes.get(ext.id);
+    await settleRefresh(internals, ext.id);
     expect(registry.getToolExtension("listchanged-refresh-fails__recovered")).toBe(ext.id);
 
     registry.killAll();
     await deleteExtension(ext.id);
+  });
+});
+
+// ── The burst is BOUNDED, and shutdown cancels what is queued ──────────────
+//
+// Serializing bounds interleaving, not work: the previous shape appended one
+// `prior.then(...)` link per notification, so N notifications bought N
+// `getMcpClient` + `tools/list` + read-every-extension-row + jsonb-write
+// cycles and N retained closures. Nothing debounced them and nothing dropped
+// them on shutdown.
+
+/** A hand-driven MCP client whose first `listTools` is held open. */
+function heldClient(): {
+  stub: Record<string, unknown>;
+  started: Promise<void>;
+  release: () => void;
+  calls: () => number;
+} {
+  const startedGate = Promise.withResolvers<void>();
+  let release: (() => void) | null = null;
+  let calls = 0;
+  return {
+    started: startedGate.promise,
+    release: () => release?.(),
+    calls: () => calls,
+    stub: {
+      isConnected: true,
+      connect: async () => {},
+      close: async () => {},
+      callTool: async () => ({ content: [], isError: false }),
+      listTools: async () => {
+        calls += 1;
+        const which = calls;
+        if (which === 1) {
+          startedGate.resolve();
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return [{ name: `tool-${which}`, description: "", inputSchema: { type: "object" } }];
+      },
+    },
+  };
+}
+
+/** Count `getMcpClient` entries — a reconnect after shutdown shows up here
+ *  even when the respawned client never reaches the stub's `listTools`. */
+function countConnects(registry: unknown): () => number {
+  const reg = registry as { getMcpClient: (id: string) => Promise<unknown> };
+  const real = reg.getMcpClient.bind(reg);
+  let calls = 0;
+  reg.getMcpClient = async (id: string) => {
+    calls += 1;
+    return real(id);
+  };
+  return () => calls;
+}
+
+describe("tools/list_changed refreshes are coalesced and cancellable", () => {
+  test("a burst of 25 notifications costs TWO refreshes, and the last one still wins", async () => {
+    const { ext, registry } = await installFixtureRow("listchanged-burst");
+    const internals = registry as unknown as RegistryInternals;
+    const held = heldClient();
+    internals.mcpClients.set(ext.id, held.stub);
+
+    const fire = notifier(registry);
+    fire(ext.id);
+    await held.started;
+    for (let i = 0; i < 24; i += 1) fire(ext.id);
+
+    // One entry, whatever the server does — the queue is a flag, not a chain.
+    expect(internals.mcpToolRefreshes.size).toBe(1);
+    expect(internals.mcpToolRefreshes.get(ext.id)!.queued).toBe(true);
+
+    held.release();
+    await settleRefresh(internals, ext.id);
+
+    // 25 notifications, exactly 2 refreshes: the in-flight one plus the ONE
+    // re-run the other 24 collapsed onto. An equality, not a budget — nothing
+    // here reads a clock.
+    expect(held.calls()).toBe(2);
+    // Coalescing did not cost correctness: the row describes the LAST list.
+    expect(registry.getToolExtension("listchanged-burst__tool-2")).toBe(ext.id);
+    expect(registry.getToolExtension("listchanged-burst__tool-1")).toBeNull();
+    expect(internals.mcpToolRefreshes.has(ext.id)).toBe(false);
+
+    registry.killAll();
+    await deleteExtension(ext.id);
+  });
+
+  test("killAll() cancels the queued refresh — no respawn after a deliberate close", async () => {
+    const { ext, registry } = await installFixtureRow("listchanged-shutdown");
+    const internals = registry as unknown as RegistryInternals;
+    const held = heldClient();
+    internals.mcpClients.set(ext.id, held.stub);
+    const connects = countConnects(registry);
+
+    const fire = notifier(registry);
+    fire(ext.id);
+    await held.started;
+    fire(ext.id);
+    const entry = internals.mcpToolRefreshes.get(ext.id)!;
+    expect(entry.queued).toBe(true);
+
+    // Deliberate shutdown while a refresh is queued.
+    registry.killAll();
+    expect(internals.mcpClients.size).toBe(0);
+    expect(internals.mcpToolRefreshes.size).toBe(0);
+
+    held.release();
+    await entry.promise;
+
+    // The queued refresh did NOT run. Had it run, `getMcpClient` would have
+    // missed the cache killAll just cleared, rebuilt the sandbox envelope and
+    // respawned the stdio child of a server the host just closed — leaving a
+    // live client behind after shutdown.
+    expect(held.calls()).toBe(1);
+    expect(connects()).toBe(1);
+    expect(internals.mcpClients.size).toBe(0);
+
+    await deleteExtension(ext.id);
+  });
+
+  test("reload() cancels a queued refresh for an extension it just dropped", async () => {
+    const { ext, registry } = await installFixtureRow("listchanged-reload");
+    const internals = registry as unknown as RegistryInternals;
+    const held = heldClient();
+    internals.mcpClients.set(ext.id, held.stub);
+    const connects = countConnects(registry);
+
+    const fire = notifier(registry);
+    fire(ext.id);
+    await held.started;
+    fire(ext.id);
+    const entry = internals.mcpToolRefreshes.get(ext.id)!;
+    expect(entry.queued).toBe(true);
+
+    // Uninstalled underneath the queued refresh.
+    await deleteExtension(ext.id);
+    await registry.reload();
+    expect(internals.mcpClients.has(ext.id)).toBe(false);
+    expect(internals.mcpToolRefreshes.has(ext.id)).toBe(false);
+
+    held.release();
+    await entry.promise;
+
+    // Same interlock as killAll: a queued refresh for an extension the
+    // registry no longer runs must not reconnect it.
+    expect(held.calls()).toBe(1);
+    expect(connects()).toBe(1);
+    expect(internals.mcpClients.has(ext.id)).toBe(false);
+
+    registry.killAll();
   });
 });
