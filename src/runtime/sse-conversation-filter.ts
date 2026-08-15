@@ -194,13 +194,21 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "ez:client-tool",
   // Caller-executed tool delivery. Belongs here for BOTH of the reasons
   // above, and more sharply: the payload's `input` is the LLM's raw
-  // arguments for a call that will run on the user's OWN MACHINE, and the
-  // event additionally carries `userId` so the exact-user narrowing branch
-  // can confine delivery to the declaring owner's own connections. Fail
+  // arguments for a call that will run on the user's OWN MACHINE. Fail
   // CLOSED and never extension-subscribable — an extension that received
   // these could watch, and (through a forged result POST it is not
   // authorized to make) at least infer, everything the companion device is
   // asked to do.
+  //
+  // WHICH CHECK PROTECTS IT: branch 1 — the top-level `conversationId`,
+  // resolved against conversation OWNERSHIP, fail-closed. NOT the `userId`
+  // branch: the resolution order returns on the FIRST key present, and
+  // `caller:tool-call` always carries `conversationId` (`src/types.ts`), so
+  // branch 3 is unreachable for it and the `userId` the payload also carries
+  // narrows nothing. Anyone tempted to drop `conversationId` from the payload
+  // should read that as the load-bearing field: without it the event falls to
+  // branch 4 (runId → run-scope resolution through a cache and a DB row), a
+  // strictly weaker check for a strictly more sensitive payload.
   "caller:tool-call",
 ]);
 
