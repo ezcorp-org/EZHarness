@@ -22,15 +22,21 @@
  * silently stops matching the tool it is supposed to revoke.
  */
 import { z } from "zod";
+// The BOUNDS are imported, never restated. A number duplicated here and in the
+// validator is a number that can drift, and the drift is silent in the worst
+// direction: the wire would accept a declaration the runtime then refuses (or
+// worse, the reverse) with nothing to indicate which layer is wrong.
+import {
+  MAX_CALLER_TOOLS,
+  MAX_CALLER_TOOL_DESCRIPTION,
+  MIN_CALLER_TOOL_TIMEOUT_MS,
+  MAX_CALLER_TOOL_TIMEOUT_MS,
+} from "$server/runtime/caller-tool-declarations";
 
 /** See the module header — the `__` ban is a namespace-stripping invariant. */
 export const CALLER_TOOL_NAME_RE = /^[a-z](?!.*__)[a-z0-9_]{2,47}$/;
 
-/** Per-conversation declaration ceiling. */
-export const MAX_CALLER_TOOLS = 16;
-
-/** Applied by the runtime when a declaration omits `timeoutMs`. */
-export const DEFAULT_CALLER_TOOL_TIMEOUT_MS = 120_000;
+export { MAX_CALLER_TOOLS };
 
 /**
  * One declared tool.
@@ -46,9 +52,14 @@ export const DEFAULT_CALLER_TOOL_TIMEOUT_MS = 120_000;
 export const callerToolSchema = z
   .object({
     name: z.string().regex(CALLER_TOOL_NAME_RE),
-    description: z.string().min(1).max(1024),
+    description: z.string().min(1).max(MAX_CALLER_TOOL_DESCRIPTION),
     parameters: z.record(z.string(), z.unknown()),
-    timeoutMs: z.number().int().min(5_000).max(600_000).optional(),
+    timeoutMs: z
+      .number()
+      .int()
+      .min(MIN_CALLER_TOOL_TIMEOUT_MS)
+      .max(MAX_CALLER_TOOL_TIMEOUT_MS)
+      .optional(),
   })
   .strict();
 

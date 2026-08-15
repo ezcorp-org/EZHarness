@@ -147,8 +147,17 @@ export interface DeclareCallerToolsResult {
   activeRunId: string | null;
 }
 
-/** One inbound `caller:tool-call`. `toolName` is the NAMESPACED runtime name
- *  (`_caller__<name>`); handlers are keyed by the bare name. */
+/**
+ * One inbound `caller:tool-call`.
+ *
+ * `toolName` is the BARE declared name (`open_app`) — the app registered its
+ * handler under what it declared, and the `_caller__` prefix is the server's
+ * wire concern. The two events are deliberately asymmetric on this point:
+ * `tool:permission_request` carries the WIRE name, because that gate is the
+ * generic one every tool passes through and it reports the tool as the
+ * runtime knows it. {@link HarnessClient.serveCallerTools} strips the prefix
+ * before looking a handler up anyway, so it is correct against either form.
+ */
 export interface CallerToolCall {
   conversationId: string;
   runId: string;
@@ -223,6 +232,12 @@ const CALLER_TOOL_NAMESPACE = "_caller__";
  */
 const DEDUPE_CEILING = 512;
 
+/**
+ * Handlers are keyed by the BARE declared name. `caller:tool-call` already
+ * carries that form, so this is normally a no-op — kept because it makes the
+ * lookup correct against the wire form too, and the two events on this
+ * feature disagree about which they send (see {@link CallerToolCall}).
+ */
 function stripCallerNamespace(name: string): string {
   return name.startsWith(CALLER_TOOL_NAMESPACE)
     ? name.slice(CALLER_TOOL_NAMESPACE.length)

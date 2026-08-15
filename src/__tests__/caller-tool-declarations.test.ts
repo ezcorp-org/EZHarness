@@ -14,9 +14,9 @@ import {
   CALLER_TOOL_NAMESPACE,
   CALLER_TOOL_RESERVED_NAMES,
   MAX_CALLER_TOOLS,
-  MAX_PARAMETERS_BYTES,
-  MAX_PARAMETERS_DEPTH,
-  MAX_PARAMETERS_PROPERTIES,
+  MAX_CALLER_TOOL_PARAMETERS_CHARS,
+  MAX_CALLER_TOOL_PARAMETER_DEPTH,
+  MAX_CALLER_TOOL_PROPERTIES,
   readCallerToolsFromMetadata,
   validateCallerToolDeclarations,
 } from "../runtime/caller-tool-declarations";
@@ -189,7 +189,7 @@ describe("validateCallerToolDeclarations — the parameters schema", () => {
     expect(accept([tool({ parameters: params })])).toHaveLength(1);
   });
 
-  test(`nesting is counted as an author would read it, and stops at ${MAX_PARAMETERS_DEPTH}`, () => {
+  test(`nesting is counted as an author would read it, and stops at ${MAX_CALLER_TOOL_PARAMETER_DEPTH}`, () => {
     // One `properties` hop = ONE level: a `properties` map is a container,
     // not a schema. Charging two would reject plainly-shallow schemas.
     const nest = (levels: number) => {
@@ -197,17 +197,17 @@ describe("validateCallerToolDeclarations — the parameters schema", () => {
       for (let i = 1; i < levels; i++) node = { type: "object", properties: { a: node } };
       return node;
     };
-    expect(accept([tool({ parameters: nest(MAX_PARAMETERS_DEPTH) })])).toHaveLength(1);
-    expect(reject([tool({ parameters: nest(MAX_PARAMETERS_DEPTH + 1) })]).error).toContain(
-      String(MAX_PARAMETERS_DEPTH),
+    expect(accept([tool({ parameters: nest(MAX_CALLER_TOOL_PARAMETER_DEPTH) })])).toHaveLength(1);
+    expect(reject([tool({ parameters: nest(MAX_CALLER_TOOL_PARAMETER_DEPTH + 1) })]).error).toContain(
+      String(MAX_CALLER_TOOL_PARAMETER_DEPTH),
     );
   });
 
-  test(`more than ${MAX_PARAMETERS_PROPERTIES} properties in total is refused`, () => {
+  test(`more than ${MAX_CALLER_TOOL_PROPERTIES} properties in total is refused`, () => {
     const props: Record<string, unknown> = {};
-    for (let i = 0; i <= MAX_PARAMETERS_PROPERTIES; i++) props[`p${i}`] = { type: "string" };
+    for (let i = 0; i <= MAX_CALLER_TOOL_PROPERTIES; i++) props[`p${i}`] = { type: "string" };
     expect(reject([tool({ parameters: { type: "object", properties: props } })]).error).toContain(
-      String(MAX_PARAMETERS_PROPERTIES),
+      String(MAX_CALLER_TOOL_PROPERTIES),
     );
   });
 
@@ -220,13 +220,13 @@ describe("validateCallerToolDeclarations — the parameters schema", () => {
     // 40 + 40 = 80 > 64, though neither level exceeds the budget alone.
     const params = { type: "object", properties: { a: half(40), ...half(40).properties } };
     expect(reject([tool({ parameters: params })]).error).toContain(
-      String(MAX_PARAMETERS_PROPERTIES),
+      String(MAX_CALLER_TOOL_PROPERTIES),
     );
   });
 
-  test(`a schema over ${MAX_PARAMETERS_BYTES} bytes is refused`, () => {
-    const params = { type: "object", description: "x".repeat(MAX_PARAMETERS_BYTES) };
-    expect(reject([tool({ parameters: params })]).error).toContain(String(MAX_PARAMETERS_BYTES));
+  test(`a schema over ${MAX_CALLER_TOOL_PARAMETERS_CHARS} bytes is refused`, () => {
+    const params = { type: "object", description: "x".repeat(MAX_CALLER_TOOL_PARAMETERS_CHARS) };
+    expect(reject([tool({ parameters: params })]).error).toContain(String(MAX_CALLER_TOOL_PARAMETERS_CHARS));
   });
 
   test("a null subschema is walked without throwing", () => {

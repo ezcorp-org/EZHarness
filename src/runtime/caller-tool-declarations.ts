@@ -23,19 +23,26 @@ import { getBuiltInToolMetadata } from "./tools/builtin-registry";
 export const CALLER_TOOL_NAMESPACE = "_caller__";
 
 /** Applied when a declaration omits `timeoutMs`. */
-export const CALLER_TOOL_DEFAULT_TIMEOUT_MS = 120_000;
+export const DEFAULT_CALLER_TOOL_TIMEOUT_MS = 120_000;
 
 /** Per-conversation declaration ceiling. */
 export const MAX_CALLER_TOOLS = 16;
 
+/** Description ceiling — the LLM reads this, so it is a prompt-budget bound. */
+export const MAX_CALLER_TOOL_DESCRIPTION = 1024;
+
+/** Per-declaration timeout bounds. */
+export const MIN_CALLER_TOOL_TIMEOUT_MS = 5_000;
+export const MAX_CALLER_TOOL_TIMEOUT_MS = 600_000;
+
 /** `JSON.stringify(parameters)` byte ceiling. */
-export const MAX_PARAMETERS_BYTES = 8_192;
+export const MAX_CALLER_TOOL_PARAMETERS_CHARS = 8_192;
 
 /** Deepest nesting `parameters` may reach. */
-export const MAX_PARAMETERS_DEPTH = 5;
+export const MAX_CALLER_TOOL_PARAMETER_DEPTH = 5;
 
 /** Total `properties` entries allowed across the whole schema. */
-export const MAX_PARAMETERS_PROPERTIES = 64;
+export const MAX_CALLER_TOOL_PROPERTIES = 64;
 
 /** Mirrors the HTTP schema. See that file's header for the `__` ban. */
 const CALLER_TOOL_NAME_RE = /^[a-z](?!.*__)[a-z0-9_]{2,47}$/;
@@ -116,15 +123,15 @@ function scanSchema(node: unknown, depth: number, counter: { n: number }): strin
     return null;
   }
   if (!isPlainObject(node)) return null;
-  if (depth > MAX_PARAMETERS_DEPTH) return `parameters nests deeper than ${MAX_PARAMETERS_DEPTH}`;
+  if (depth > MAX_CALLER_TOOL_PARAMETER_DEPTH) return `parameters nests deeper than ${MAX_CALLER_TOOL_PARAMETER_DEPTH}`;
   for (const keyword of FORBIDDEN_SCHEMA_KEYWORDS) {
     if (keyword in node) return `parameters may not use ${keyword}`;
   }
   const props = node.properties;
   if (isPlainObject(props)) {
     counter.n += Object.keys(props).length;
-    if (counter.n > MAX_PARAMETERS_PROPERTIES) {
-      return `parameters declares more than ${MAX_PARAMETERS_PROPERTIES} properties`;
+    if (counter.n > MAX_CALLER_TOOL_PROPERTIES) {
+      return `parameters declares more than ${MAX_CALLER_TOOL_PROPERTIES} properties`;
     }
   }
   for (const [key, value] of Object.entries(node)) {
@@ -145,8 +152,8 @@ function validateParameters(parameters: unknown): string | null {
   if ("properties" in parameters && !isPlainObject(parameters.properties)) {
     return "parameters.properties must be an object";
   }
-  if (JSON.stringify(parameters).length > MAX_PARAMETERS_BYTES) {
-    return `parameters exceeds ${MAX_PARAMETERS_BYTES} bytes`;
+  if (JSON.stringify(parameters).length > MAX_CALLER_TOOL_PARAMETERS_CHARS) {
+    return `parameters exceeds ${MAX_CALLER_TOOL_PARAMETERS_CHARS} bytes`;
   }
   return scanSchema(parameters, 1, { n: 0 });
 }

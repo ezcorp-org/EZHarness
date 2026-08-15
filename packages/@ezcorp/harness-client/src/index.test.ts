@@ -1305,3 +1305,39 @@ describe("HarnessClient — serveCallerTools", () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe("serveCallerTools — the two events disagree about the tool-name form", () => {
+  test("dispatch works on the BARE name the caller:tool-call actually carries", async () => {
+    // `caller:tool-call` sends `decl.name` (`open_app`), while
+    // `tool:permission_request` sends the runtime's `_caller__open_app`. A
+    // client that assumed one form for both would either never approve its
+    // own gates or never find its own handlers.
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: "tc-gate" } })}\n\n`,
+          callerEvent({ toolCallId: "tc-bare", toolName: "open_app" }),
+        ],
+      ],
+    });
+    let ran = 0;
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { ran += 1; return {}; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    // The WIRE-form gate was approved…
+    expect(calls.filter((c) => c.path.endsWith("/permission")).map((c) => c.path)).toEqual([
+      "/api/tool-calls/tc-gate/permission",
+    ]);
+    // …and the BARE-form call found its handler.
+    expect(ran).toBe(1);
+    expect(resultPosts(calls)[0]!.body).toMatchObject({
+      toolCallId: "tc-bare",
+      result: { ok: true, toolName: "open_app" },
+    });
+  });
+});
