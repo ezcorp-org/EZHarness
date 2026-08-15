@@ -368,9 +368,14 @@ describe("results", () => {
   test("with no bus the call fails concretely rather than parking", async () => {
     const turn = wire({ withBus: false });
     const call = turn.agentTools[0]!.execute("tc-nobus", { app: "Mail" });
+    // The gate still opens — the missing bus is discovered by the tool body,
+    // after approval, not instead of it.
     await until(() => turn.perms.pendingPermissions.has("tc-nobus"));
     resolvePermission("tc-nobus", true);
-    expectText(await call, "caller-tool bus not wired");
+    const result = await call;
+    expectText(result, "caller-tool bus not wired");
+    expect(expectDetails<{ isError?: boolean }>(result).isError).toBe(true);
+    expect(getPendingRemoteTool("tc-nobus")).toBeUndefined();
   });
 
   test("N parallel calls of one turn settle independently", async () => {
