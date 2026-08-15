@@ -138,6 +138,37 @@ export interface CallerToolDeclaration {
   timeoutMs?: number;
 }
 
+/**
+ * A per-key TOOL POLICY as the mint route accepts it.
+ *
+ * Mirrors `ToolPolicy` in `src/auth/tool-policy.ts` by hand — this package
+ * ships standalone and cannot import the server tree — plus the `routeBundle`
+ * input alias, which the route expands and never stores. State the bundle by
+ * NAME: it is a reviewed set, and every entry is validated against the API
+ * registry at mint time so a typo is a 400 rather than a route that silently
+ * denies forever.
+ *
+ * Give `routeBundle` OR `routeAllowlist`, never both.
+ */
+export interface ToolPolicyInput {
+  routeBundle?: string;
+  routeAllowlist?: string[];
+  allowedCallerTools?: string[];
+  maxCallerTools?: number;
+  lockedModeId?: string;
+}
+
+/** `POST /api/settings/developer/api-keys`. `key` is the raw secret and is
+ *  returned EXACTLY once — only its hash is persisted. */
+export interface MintedApiKey {
+  key: string;
+  keyId: string;
+  name: string;
+  scopes: string[];
+  role: string;
+  toolPolicy?: ToolPolicyInput;
+}
+
 /** `PUT …/caller-tools`. `appliedFrom` is always `"next-turn"` — tool
  *  definitions bind once at turn setup, so `activeRunId` names the run this
  *  declaration will NOT affect. */
@@ -317,6 +348,44 @@ export class HarnessClient {
     return this.route("setSetting", { key }, { value });
   }
 
+  // ── Provisioning ───────────────────────────────────────────────────
+  /**
+   * Mint a NEW API key for the calling principal's own user
+   * (`POST /api/settings/developer/api-keys`). Needs the `admin` scope.
+   *
+   * The point of the `toolPolicy` argument is provisioning a CONFINED
+   * credential — a companion app asks its operator's admin key for a key that
+   * reaches only the `desktop-companion` route bundle, runs only under one
+   * mode, and may declare only the tools it actually implements:
+   *
+   * ```ts
+   * const child = await admin.mintApiKey("my-app", ["read", "write", "chat"], {
+   *   toolPolicy: {
+   *     routeBundle: "desktop-companion",
+   *     allowedCallerTools: ["open_app"],
+   *     maxCallerTools: 1,
+   *     lockedModeId: modeId,
+   *   },
+   * });
+   * ```
+   *
+   * A POLICIED key calling this can only mint an equal-or-narrower key, and
+   * can never mint an unpolicied one — a widening request is a 403 naming the
+   * fields it widened.
+   */
+  mintApiKey(
+    name: string,
+    scopes: string[],
+    opts: { role?: "member" | "admin"; toolPolicy?: ToolPolicyInput } = {},
+  ): Promise<MintedApiKey> {
+    return this.route("mintApiKey", undefined, {
+      name,
+      scopes,
+      ...(opts.role !== undefined ? { role: opts.role } : {}),
+      ...(opts.toolPolicy !== undefined ? { toolPolicy: opts.toolPolicy } : {}),
+    });
+  }
+
   // ── Conversations + drive ──────────────────────────────────────────
   /** `projectId` is REQUIRED by the server (`createConversationSchema`);
    *  default it to the `"global"` project so the zero-config call works —
@@ -326,6 +395,27 @@ export class HarnessClient {
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
     return this.route("sendMessage", { id: conversationId }, { content, ...opts });
+  }
+
+  /** Update a conversation's title / model / provider / system prompt / mode
+   *  (`PUT /api/conversations/:id`). Needs the `chat` scope.
+   *
+   *  `modeId` is the field a confined key cares about: a key minted with
+   *  `toolPolicy.lockedModeId` is refused on every send whose conversation is
+   *  not under that mode, and this is how a client puts it there. Passing
+   *  `modeId: null` clears the mode — which, for a locked key, BRICKS that
+   *  conversation for it (the lock is fail-closed on `null` by design). */
+  updateConversation(
+    conversationId: string,
+    patch: {
+      title?: string;
+      model?: string;
+      provider?: string;
+      systemPrompt?: string;
+      modeId?: string | null;
+    },
+  ): Promise<{ id: string; [k: string]: unknown }> {
+    return this.route("updateConversation", { id: conversationId }, patch);
   }
 
   /** Fetch a conversation's session-backed message tree + durable leaf pointer

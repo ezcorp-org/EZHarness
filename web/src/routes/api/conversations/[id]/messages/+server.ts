@@ -12,6 +12,7 @@ import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
 import { checkPermissionModeCeiling } from "$server/auth/permission-mode-ceiling";
+import { runStartPolicyDenial } from "$server/auth/tool-policy";
 import { getCapabilitiesWithExtensions, classifyMimeWithCaps } from "$server/providers/model-capabilities";
 import {
   getConversationExtensionMimes,
@@ -189,6 +190,25 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // the paused→active flip when the POST is itself a `/goal …` command
   // (I5d) — the parsed subcommand owns resume/clear/replace.
   const goalIsCmd = isGoalCommand(body.content);
+
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
+  // This is the only conversation-scoped run-start route the
+  // `desktop-companion` bundle permits, and `tool-policy.ts` refuses to MINT
+  // a `lockedModeId` policy whose allowlist reaches a run-start route that
+  // does not run this guard — so the set enforced here and the set reachable
+  // by a policied key cannot drift apart.
+  //
+  // Checked against the PERSISTED `conv.modeId`, not a per-turn hint: the
+  // executor's own fail-open-on-missing-mode never comes into play because
+  // the run is refused here, before anything is written. Refused BEFORE the
+  // user row is persisted so a rejected turn leaves no trace in the thread.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, conv, {
+    isGoalCommand: goalIsCmd,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
+
   const goalHost = getGoalHost();
   if (goalHost) {
     try {

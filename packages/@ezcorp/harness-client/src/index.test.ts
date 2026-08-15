@@ -40,6 +40,8 @@ let server: ReturnType<typeof Bun.serve>;
 let lastAuth: string | null = null;
 let lastUrl: string | null = null;
 let lastConversationBody: Record<string, unknown> | null = null;
+let lastUpdateConversationBody: Record<string, unknown> | null = null;
+let lastMintBody: Record<string, unknown> | null = null;
 let scripted: { scriptKey: string; turns: unknown[] } | null = null;
 let lastWireBody: Record<string, unknown> | null = null;
 let lastRewindBody: Record<string, unknown> | null = null;
@@ -68,6 +70,17 @@ beforeAll(() => {
       if (req.method === "POST" && p === "/api/conversations") {
         lastConversationBody = (await req.json()) as Record<string, unknown>;
         return Response.json({ id: "c1" });
+      }
+      if (req.method === "PUT" && /^\/api\/conversations\/[^/]+$/.test(p)) {
+        lastUpdateConversationBody = (await req.json()) as Record<string, unknown>;
+        return Response.json({ id: p.split("/").pop(), ...lastUpdateConversationBody });
+      }
+      if (req.method === "POST" && p === "/api/settings/developer/api-keys") {
+        lastMintBody = (await req.json()) as Record<string, unknown>;
+        return Response.json(
+          { key: "ezk_child", keyId: "k-child", ...lastMintBody },
+          { status: 201 },
+        );
       }
       // Capture-only route: echoes the raw path so encoding can be asserted.
       if (req.method === "GET" && p.startsWith("/api/runs/")) {
@@ -1338,6 +1351,65 @@ describe("serveCallerTools — the two events disagree about the tool-name form"
     expect(resultPosts(calls)[0]!.body).toMatchObject({
       toolCallId: "tc-bare",
       result: { ok: true, toolName: "open_app" },
+    });
+  });
+});
+
+// ── Provisioning + mode placement ───────────────────────────────────────
+//
+// The two writes a CONFINED companion key needs on either side of it: an
+// operator's admin key mints the narrow key, and the app puts its
+// conversation under the mode that key is locked to.
+describe("mintApiKey / updateConversation", () => {
+  test("mintApiKey posts name + scopes and omits the optional fields when absent", async () => {
+    const minted = await client().mintApiKey("plain", ["read"]);
+    expect(lastMintBody).toEqual({ name: "plain", scopes: ["read"] });
+    expect(minted.key).toBe("ezk_child");
+    expect(minted.keyId).toBe("k-child");
+  });
+
+  test("mintApiKey forwards role + toolPolicy, bundle NAME included", async () => {
+    await client().mintApiKey("companion", ["read", "write", "chat"], {
+      role: "member",
+      toolPolicy: {
+        routeBundle: "desktop-companion",
+        allowedCallerTools: ["open_app"],
+        maxCallerTools: 1,
+        lockedModeId: "mode-1",
+      },
+    });
+    expect(lastMintBody).toEqual({
+      name: "companion",
+      scopes: ["read", "write", "chat"],
+      role: "member",
+      toolPolicy: {
+        routeBundle: "desktop-companion",
+        allowedCallerTools: ["open_app"],
+        maxCallerTools: 1,
+        lockedModeId: "mode-1",
+      },
+    });
+  });
+
+  test("updateConversation PUTs the patch at the conversation path", async () => {
+    const res = await client().updateConversation("c1", { modeId: "mode-1", title: "t" });
+    expect(lastUpdateConversationBody).toEqual({ modeId: "mode-1", title: "t" });
+    expect(res.id).toBe("c1");
+  });
+
+  test("updateConversation can CLEAR the mode (which bricks a locked key, by design)", async () => {
+    await client().updateConversation("c1", { modeId: null });
+    expect(lastUpdateConversationBody).toEqual({ modeId: null });
+  });
+
+  test("both routes are in the shared table (one place a path is written)", () => {
+    expect(HARNESS_ROUTES.mintApiKey).toEqual({
+      httpMethod: "POST",
+      pathTemplate: "/api/settings/developer/api-keys",
+    });
+    expect(HARNESS_ROUTES.updateConversation).toEqual({
+      httpMethod: "PUT",
+      pathTemplate: "/api/conversations/:id",
     });
   });
 });

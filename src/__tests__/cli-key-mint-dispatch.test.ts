@@ -36,6 +36,11 @@ mock.module("../db/queries/settings", () => ({
   getSetting: async () => undefined,
   getAllSettings: async () => ({}),
 }));
+// `--locked-mode` is validated against the modes the KEY OWNER can see, so the
+// dispatch reads the modes table. `mode-ok` is the one visible mode.
+mock.module("../db/queries/modes", () => ({
+  getVisibleMode: async (id: string) => (id === "mode-ok" ? { id } : null),
+}));
 
 const { cli } = await import("../cli");
 
@@ -189,6 +194,42 @@ describe("cli key:mint dispatch", () => {
     );
     expect(code).toBe(1);
     expect(errs.join("\n")).toContain('invalid role "superuser"');
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  // ── tool policy ───────────────────────────────────────────────────────
+  test("--route-bundle mints a policied key and prints the policy", async () => {
+    await cli([
+      "key", "mint",
+      "--user", "admin@x.test",
+      "--route-bundle", "desktop-companion",
+      "--locked-mode", "mode-ok",
+      "--caller-tools", "open_app",
+      "--max-caller-tools", "1",
+    ]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect(row).toBeDefined();
+    const policy = (row![1] as { toolPolicy?: Record<string, unknown> }).toolPolicy!;
+    expect(policy.lockedModeId).toBe("mode-ok");
+    expect(policy.allowedCallerTools).toEqual(["open_app"]);
+    expect(policy.maxCallerTools).toBe(1);
+    expect((policy.routeAllowlist as string[]).length).toBe(14);
+    expect(logs.join("\n")).toContain("policy:");
+  });
+
+  test("an unpolicied mint stores NO toolPolicy field and prints no policy line", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test"]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect(Object.keys(row![1] as object)).not.toContain("toolPolicy");
+    expect(logs.join("\n")).not.toContain("policy:");
+  });
+
+  test("a --locked-mode the owner cannot see exits(1) and mints nothing", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-nope"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain("not a mode visible to the key owner");
     expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
   });
 

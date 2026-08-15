@@ -23,6 +23,18 @@ declare global {
 			 */
 			apiKeyId?: string;
 			/**
+			 * The verifying key's per-key TOOL POLICY, stamped with
+			 * `apiKeyId` in bearer-auth.ts and ONLY when the key row
+			 * carries one. Its positive presence is the single signal
+			 * every boundary binds on: the route allowlist in
+			 * hooks.server.ts, the locked-mode + autopilot refusals on
+			 * the run-start routes, and the caller-tool declaration cap.
+			 * Absent on a cookie session, on an unpolicied key, and on
+			 * an internal `ezkint_` principal — all three unchanged.
+			 * See `src/auth/tool-policy.ts`.
+			 */
+			apiKeyToolPolicy?: import("../../src/auth/tool-policy").ToolPolicy;
+			/**
 			 * First-time onboarding stamp, populated by hooks.server.ts on
 			 * page navigations after auth succeeds. Null = not yet
 			 * onboarded; a Date = stamped at first wizard finish. Routes

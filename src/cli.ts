@@ -24,6 +24,14 @@ import {
   type ApiKeyScope,
 } from "./auth/api-key";
 import { mintApiKeyForUser } from "./auth/mint-api-key";
+import {
+  resolveRouteBundle,
+  routeBundleNames,
+  validateToolPolicy,
+  type ToolPolicy,
+} from "./auth/tool-policy";
+import { getVisibleMode } from "./db/queries/modes";
+import { apiRegistry } from "./api-registry";
 import { installFromLocal, installWithDependencies, updateExtension as updateExt, removeExtension as removeExt, checkForUpdates } from "./extensions/installer";
 import { satisfiesRange } from "./extensions/manifest";
 import type { DependencyTreeNode } from "./extensions/dependency-resolver";
@@ -79,6 +87,10 @@ export interface ParsedArgs {
   userRef?: string;      // for key:mint --user (email or id)
   keyName?: string;      // for key:mint --name
   role?: string;         // for key:mint --role (member|admin)
+  routeBundle?: string;      // for key:mint --route-bundle <name>
+  lockedMode?: string;       // for key:mint --locked-mode <modeId>
+  callerTools?: string;      // for key:mint --caller-tools (comma-separated)
+  maxCallerTools?: string;   // for key:mint --max-caller-tools <n>
 }
 
 /**
@@ -190,6 +202,10 @@ export function parseArgs(args: string[]): ParsedArgs {
         userRef: flag("--user"),
         keyName: flag("--name"),
         role: flag("--role"),
+        routeBundle: flag("--route-bundle"),
+        lockedMode: flag("--locked-mode"),
+        callerTools: flag("--caller-tools"),
+        maxCallerTools: flag("--max-caller-tools"),
       };
     }
     return { command: "help" };
@@ -235,6 +251,7 @@ function printUsage(): void {
       "  ezcorp ext publish [--token <token>]                  Publish extension to marketplace",
       "  ezcorp serve [--port 3001]                           Start API server",
       "  ezcorp key mint [--scopes read,write,chat] [--role member|admin] [--user <email|id>] [--name <label>]  Mint a remote-control API key",
+      "                  [--route-bundle <name>] [--locked-mode <modeId>] [--caller-tools a,b] [--max-caller-tools <n>]  Confine the key (tool policy)",
       "      Scope and role are INDEPENDENT axes and admin routes require BOTH:",
       "      use --scopes admin --role admin for a key that can administer the instance.",
       "  ezcorp help                                          Show this help",
@@ -339,6 +356,63 @@ export function parseKeyRole(raw: string | undefined): ApiKeyRole {
     process.exit(1);
   }
   return trimmed;
+}
+
+/**
+ * Assemble a {@link ToolPolicy} from the `key:mint` policy flags, or
+ * `undefined` when none were given (the unchanged, unpolicied posture).
+ *
+ * Flag VALUES only — this helper resolves `--route-bundle` to its route list
+ * and exits(1) on an unknown bundle name, because that is a spelling question
+ * this file can answer without a database. Everything that needs the DB or the
+ * registry (does the mode exist, is it visible to the owner, does every route
+ * resolve) is `validateToolPolicy`'s, run at the `key:mint` call site so the
+ * CLI and the HTTP route enforce ONE definition of a valid policy.
+ */
+export function parseKeyToolPolicy(args: {
+  routeBundle?: string;
+  lockedMode?: string;
+  callerTools?: string;
+  maxCallerTools?: string;
+}): ToolPolicy | undefined {
+  const policy: ToolPolicy = {};
+
+  if (args.routeBundle) {
+    const routes = resolveRouteBundle(args.routeBundle);
+    if (!routes) {
+      console.error(
+        `Error: unknown route bundle "${args.routeBundle}". ` +
+          `Known bundles: ${routeBundleNames().join(", ")}`,
+      );
+      process.exit(1);
+    }
+    policy.routeAllowlist = [...routes];
+  }
+
+  if (args.lockedMode) policy.lockedModeId = args.lockedMode;
+
+  if (args.callerTools) {
+    const names = args.callerTools
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (names.length === 0) {
+      console.error("Error: --caller-tools was given but names no tools.");
+      process.exit(1);
+    }
+    policy.allowedCallerTools = [...new Set(names)];
+  }
+
+  if (args.maxCallerTools) {
+    const n = Number(args.maxCallerTools);
+    if (!Number.isInteger(n)) {
+      console.error(`Error: --max-caller-tools must be an integer (got "${args.maxCallerTools}").`);
+      process.exit(1);
+    }
+    policy.maxCallerTools = n;
+  }
+
+  return Object.keys(policy).length > 0 ? policy : undefined;
 }
 
 /**
@@ -830,11 +904,30 @@ export async function cli(args: string[]): Promise<void> {
       const roleScopeWarning = adminRoleScopeWarning(role, scopes);
       if (roleScopeWarning) console.warn(`\n${roleScopeWarning}`);
 
+      // Per-key tool policy. Same ordering as the HTTP mint route — scope
+      // ceiling, role ceiling, then policy validity. There is no POLICY
+      // ceiling leg here: the CLI has no acting principal (shell access is
+      // its trust boundary), exactly as it has no `canMintRole(actor, …)` leg.
+      const toolPolicy = parseKeyToolPolicy(parsed);
+      const policyErrors = await validateToolPolicy(toolPolicy, {
+        getMode: (id, ownerId) => getVisibleMode(id, ownerId),
+        ownerId: user.id,
+        registry: apiRegistry,
+      });
+      if (policyErrors) {
+        console.error("Error: invalid tool policy:");
+        for (const e of policyErrors) console.error(`  - ${e}`);
+        process.exit(1);
+      }
+
       const name = parsed.keyName ?? "cli-minted";
-      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
+      const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role, toolPolicy);
       console.log(`\nMinted API key for ${user.email} (${user.id})`);
       console.log(`  scopes: ${scopes.join(", ")}`);
       console.log(`  role:   ${role}`);
+      if (toolPolicy) {
+        console.log(`  policy: ${JSON.stringify(toolPolicy)}`);
+      }
       console.log(`  keyId:  ${keyId}`);
       console.log(`  name:   ${name}`);
       console.log(`\n  ${raw}\n`);

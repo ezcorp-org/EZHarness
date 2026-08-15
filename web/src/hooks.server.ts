@@ -7,6 +7,7 @@ import { devPageTransform } from "$server/dev-git-info";
 import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
+import { routeAllowlistDenial } from "$lib/server/security/route-allowlist";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
 import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
@@ -800,6 +801,25 @@ const handleApp: Handle = async ({ event, resolve }) => {
         stampSessionPrincipal(event.locals, verdict.payload);
       }
     }
+  }
+
+  // ── Boundary 1: per-API-key route allowlist ──────────────────────
+  // The auth branch above has closed, so the principal (cookie, `ezk_`,
+  // `ezkint_` or anonymous-on-a-public-path) is final. A key minted with a
+  // `toolPolicy.routeAllowlist` may reach ONLY the routes it names —
+  // everything else is denied by default, including routes added to the app
+  // after the key was minted.
+  //
+  // `event.route.id` is SvelteKit's own match (set at respond.js:340, before
+  // this hook runs at :457) and is `null` for an unmatched path, which
+  // `routeAllowlistKey` turns into a key no validated allowlist can contain.
+  // Read only when a policy is present, so an unpolicied request touches
+  // nothing new — the same positive-presence rule app.d.ts states for
+  // `authMethod`.
+  const routeAllow = event.locals.apiKeyToolPolicy?.routeAllowlist;
+  if (routeAllow) {
+    const denial = routeAllowlistDenial(routeAllow, request.method, event.route.id);
+    if (denial) return denial;
   }
 
   // ── First-time onboarding gate ───────────────────────────────────

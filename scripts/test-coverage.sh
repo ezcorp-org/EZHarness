@@ -584,6 +584,11 @@ run_legs() {
       src/__tests__/api-caller-tools.server.test.ts \
       src/__tests__/tools-api-caller-parity.server.test.ts \
       src/__tests__/api-conversations-tool-results.server.test.ts \
+      src/__tests__/hooks-server-route-allowlist.server.test.ts \
+      src/__tests__/api-conversations-id-messages.server.test.ts \
+      src/__tests__/api-conversations-id-messages-coverage.server.test.ts \
+      src/__tests__/api-conversations-id-messages-goal.server.test.ts \
+      src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -730,6 +735,9 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/tool-results/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/caller-tools/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/caller-tools/schema.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/messages/+server.ts' \
+      --coverage.include='src/routes/api/settings/developer/api-keys/+server.ts' \
+      --coverage.include='src/routes/api/settings/developer/schema.ts' \
       --coverage.include='src/lib/utils/fetch-policy.ts' \
       --coverage.include='src/lib/chat/page-handlers/stream-resume.svelte.ts' \
       --coverage.include='src/lib/chat/page-handlers/task-hydrate.svelte.ts' \
