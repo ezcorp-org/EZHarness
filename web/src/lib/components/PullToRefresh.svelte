@@ -74,6 +74,7 @@
 
 {#if pull.distance > 0}
 	<div
+		data-testid="pull-to-refresh"
 		class="md:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-center transition-transform pointer-events-none"
 		style="transform: translateY({pull.distance - 40}px); height: 40px;"
 	>
