@@ -98,9 +98,23 @@ actor is unconstrained, which is the common case (the mint route is
 **`validateToolPolicy` resolves every route against `src/api-registry.ts`.** A
 typo would otherwise mint a key denied on a route its operator believes they
 granted — a silent deny, and the failure mode that makes route allowlists rot.
-It also refuses a `lockedModeId` whose allowlist reaches a conversation-scoped
-run-start route that does not run the mode guard, so the guarded set and the
-reachable set cannot drift apart.
+It also refuses a `lockedModeId` whose allowlist reaches ANY run-start route
+that does not run the mode guard, so the guarded set and the reachable set
+cannot drift apart.
+
+**`RUN_START_ROUTES` is derived from the tree, not trusted as a list.** The
+hand-written predecessor named three routes and had omitted four — including
+`…/tasks/[taskId]/assignments/[…]/start` and `…/tasks/[taskId]/retry`, which
+reach `startAssignment` and so start a run with no mode check at all. Its only
+test asserted `MODE_GUARDED ⊆ RUN_START`, the subset direction that cannot
+detect an omission, so a `lockedModeId` policy naming either task route
+validated cleanly and never consulted the lock.
+`src/__tests__/policy-run-start-surface.test.ts` walks every handler under
+`web/src/routes/api/**` per exported HTTP verb and fails when the list and the
+tree disagree in either direction. Two of the seven routes
+(`agents/[name]/run`, `workflows/[name]/run`) have no conversation to read a
+`mode_id` from, so a lock is not enforceable on them even in principle — which
+is exactly why a locked key must not be able to name them.
 
 ## Route bundles
 
@@ -137,10 +151,12 @@ is a footgun no code can catch — bundle review is the control.
 
 ## Key files
 
-- `src/auth/tool-policy.ts` — the shape, `ROUTE_BUNDLES`, and every predicate
-  (`policyOverCeiling`, `validateToolPolicy`, `mayUseMode`,
-  `mayDeclareCallerTools`, `runStartPolicyDenial`,
+- `src/auth/tool-policy.ts` — the shape, `ROUTE_BUNDLES`, `RUN_START_ROUTES`,
+  and every predicate (`policyOverCeiling`, `validateToolPolicy`,
+  `mayUseMode`, `mayDeclareCallerTools`, `runStartPolicyDenial`,
   `runStartToolPolicyOptions`)
+- `src/__tests__/policy-run-start-surface.test.ts` — the tree-derived
+  assertion that keeps `RUN_START_ROUTES` exhaustive and Boundary 3 wired
 - `web/src/lib/server/security/route-allowlist.ts` — the hook predicate + the
   403 shape
 - `web/src/hooks.server.ts` — Boundary 1, after the auth branch closes

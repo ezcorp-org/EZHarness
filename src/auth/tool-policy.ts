@@ -112,20 +112,39 @@ export const ROUTE_BUNDLES: Record<string, readonly string[]> = {
 };
 
 /**
- * Conversation-scoped run-start routes: the routes that turn an HTTP request
- * into a `streamChat` run against a conversation whose `mode_id` Boundary 2
- * is supposed to pin.
+ * RUN-START ROUTES: every `/api/*` route that turns one HTTP request into an
+ * agent run — `streamChat`, `runAgent`, `runWorkflow` or `startAssignment`.
  *
  * {@link MODE_GUARDED_RUN_START_ROUTES} is the subset that actually CALLS
  * {@link mayUseMode} today. The difference between the two sets is a hole, so
  * {@link validateToolPolicy} refuses to mint a `lockedModeId` policy whose
  * allowlist reaches an unguarded one — a route can join a bundle only after
  * its guard exists.
+ *
+ * THIS LIST IS HAND-WRITTEN AND THEREFORE UNTRUSTWORTHY ON ITS OWN. Its only
+ * test used to be `MODE_GUARDED ⊆ CONVERSATION_RUN_START`, which is the
+ * subset direction that cannot detect an omission — and it HAD omitted four
+ * routes, two of them conversation-scoped (`…/tasks/[taskId]/…`, which reach
+ * `startAssignment` and so start a run with no mode check at all). A
+ * `lockedModeId` policy naming one of those validated cleanly and never
+ * consulted the lock. `policy-run-start-surface.test.ts` now DERIVES the set
+ * by walking every route handler under `web/src/routes/api/**` and fails when
+ * this list and the tree disagree in EITHER direction.
+ *
+ * Scope note: the set is no longer conversation-scoped. `POST
+ * /api/agents/[name]/run` and `POST /api/workflows/[name]/run` start a run
+ * with no conversation to read a `mode_id` from, so a locked mode is not
+ * enforceable on them even in principle — which is exactly why a locked key
+ * must not be able to name them.
  */
-export const CONVERSATION_RUN_START_ROUTES: readonly string[] = [
-  "POST /api/conversations/[id]/messages",
+export const RUN_START_ROUTES: readonly string[] = [
+  "POST /api/agents/[name]/run",
   "POST /api/conversations/[id]/agent-chat",
+  "POST /api/conversations/[id]/messages",
   "POST /api/conversations/[id]/messages/[mid]/retry",
+  "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+  "POST /api/conversations/[id]/tasks/[taskId]/retry",
+  "POST /api/workflows/[name]/run",
 ];
 
 /** The run-start routes that enforce {@link mayUseMode}. Grows only alongside
@@ -241,12 +260,12 @@ export async function validateToolPolicy(
       }
     }
     // A locked mode that the key can route AROUND is not a lock. Every
-    // conversation-scoped run-start route in the allowlist must be one that
-    // actually calls mayUseMode; otherwise the mint is refused so the hole
-    // cannot ship as a bundle entry.
+    // run-start route in the allowlist must be one that actually calls
+    // mayUseMode; otherwise the mint is refused so the hole cannot ship as a
+    // bundle entry.
     const guarded = new Set(MODE_GUARDED_RUN_START_ROUTES);
     const unguarded = (policy.routeAllowlist ?? []).filter(
-      (r) => CONVERSATION_RUN_START_ROUTES.includes(r) && !guarded.has(r),
+      (r) => RUN_START_ROUTES.includes(r) && !guarded.has(r),
     );
     for (const r of unguarded) {
       errors.push(

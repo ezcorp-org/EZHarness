@@ -22,10 +22,10 @@ import { describe, expect, test } from "bun:test";
 import { apiRegistry } from "../api-registry";
 import { MAX_CALLER_TOOLS } from "../runtime/caller-tool-declarations";
 import {
-  CONVERSATION_RUN_START_ROUTES,
   MAX_POLICY_ROUTES,
   MODE_GUARDED_RUN_START_ROUTES,
   ROUTE_BUNDLES,
+  RUN_START_ROUTES,
   TOOL_POLICY_FIELDS,
   mayDeclareCallerTools,
   mayUseMode,
@@ -113,9 +113,35 @@ describe("route bundles", () => {
   });
 
   test("every mode-guarded run-start route is a run-start route", () => {
+    // The SUBSET direction only. It cannot detect an omission from
+    // RUN_START_ROUTES — that is exactly how four run-start routes stayed
+    // missing from the list — so exhaustiveness is derived from the tree in
+    // `policy-run-start-surface.test.ts` instead.
     for (const r of MODE_GUARDED_RUN_START_ROUTES) {
-      expect(CONVERSATION_RUN_START_ROUTES).toContain(r);
+      expect(RUN_START_ROUTES).toContain(r);
     }
+  });
+
+  test("RUN_START_ROUTES is sorted and free of duplicates", () => {
+    // Sorted so the tree-derived comparison in `policy-run-start-surface`
+    // can be an equality on a stable order, and so a hand edit lands where a
+    // reader expects it.
+    expect([...RUN_START_ROUTES]).toEqual([...RUN_START_ROUTES].sort());
+    expect(new Set(RUN_START_ROUTES).size).toBe(RUN_START_ROUTES.length);
+  });
+
+  test("every run-start route resolves to a registered route", () => {
+    // Same closed-set check the bundles get: a typo here would silently stop
+    // refusing a lock the allowlist can route around, because the allowlist
+    // entry it is compared against never matches.
+    const known = new Set(apiRegistry.map((e) => `${e.method} ${e.path}`));
+    const unresolved = RUN_START_ROUTES.filter((entry) => {
+      const space = entry.indexOf(" ");
+      return !known.has(
+        `${entry.slice(0, space)} ${routeIdToRegistryPath(entry.slice(space + 1))}`,
+      );
+    });
+    expect(unresolved).toEqual([]);
   });
 
   test("TOOL_POLICY_FIELDS names every field of ToolPolicy", () => {
@@ -336,6 +362,59 @@ describe("validateToolPolicy", () => {
       expect(
         await validateToolPolicy(
           { routeAllowlist: ["POST /api/conversations/[id]/agent-chat"] },
+          ctxModeOk,
+        ),
+      ).toBeNull();
+    });
+
+    test("refuses a lock on the task run-start routes the old list omitted", async () => {
+      // Both reach `startAssignment`, which starts a run against the
+      // conversation with no mode check anywhere on the path. They were
+      // absent from the hand-written run-start list, so a `lockedModeId`
+      // policy naming either one validated CLEANLY and then never consulted
+      // the lock — the lock was decorative on exactly the routes that spawn.
+      const errs = await validateToolPolicy(
+        {
+          lockedModeId: "mode-1",
+          routeAllowlist: [
+            "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+            "POST /api/conversations/[id]/tasks/[taskId]/retry",
+          ],
+        },
+        ctxModeOk,
+      );
+      expect(errs).toEqual([
+        'lockedModeId cannot be enforced on "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start" — remove it from routeAllowlist',
+        'lockedModeId cannot be enforced on "POST /api/conversations/[id]/tasks/[taskId]/retry" — remove it from routeAllowlist',
+      ]);
+    });
+
+    test("refuses a lock on the two run-start routes that have no conversation", async () => {
+      // `agents/[name]/run` and `workflows/[name]/run` start a run with no
+      // conversation to read a `mode_id` from, so a locked mode is not
+      // enforceable on them even in principle — which is precisely why a
+      // locked key must not be able to name them.
+      for (const route of [
+        "POST /api/agents/[name]/run",
+        "POST /api/workflows/[name]/run",
+      ]) {
+        expect(
+          await validateToolPolicy(
+            { lockedModeId: "mode-1", routeAllowlist: [route] },
+            ctxModeOk,
+          ),
+        ).toEqual([
+          `lockedModeId cannot be enforced on "${route}" — remove it from routeAllowlist`,
+        ]);
+      }
+    });
+
+    test("the desktop-companion bundle still mints under a lock", async () => {
+      // The widened refusal must not have broken the one reviewed bundle:
+      // its single run-start route is the mode-guarded one.
+      expect(
+        await validateToolPolicy(
+          { lockedModeId: "mode-1", routeAllowlist: [...BUNDLE] },
           ctxModeOk,
         ),
       ).toBeNull();

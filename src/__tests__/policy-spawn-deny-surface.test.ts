@@ -29,16 +29,13 @@
  * false positive costs one deny-set entry and a false negative costs the
  * boundary.
  *
- *   1. Segment each file into TOP-LEVEL declarations by line: a declaration
- *      owns every line from its own to the line before the next top-level
- *      declaration. No brace matching (nothing to get wrong on a `"{"` inside
- *      a string), and a nested helper is attributed to its enclosing
- *      declaration — which over-approximates, as intended.
- *   2. Seed: a declaration is SPAWNING if its lines mention a primitive.
- *   3. Propagate to a fixed point: a declaration that CALLS a spawning
- *      declaration is spawning. Module-level aliases need no special case —
- *      `let spawn: SpawnFn = spawnAssignment` is just a declaration that
- *      mentions a primitive, so `spawn(` propagates like any other call.
+ * Steps 1–3 — segment into top-level declarations, seed on the primitives,
+ * propagate calls to a fixed point — are `helpers/source-walk.ts`, shared
+ * with `policy-run-start-surface.test.ts` (the second suite to derive a
+ * security set from the tree rather than trust a hand list; its walk found
+ * four run-start routes missing from `RUN_START_ROUTES`). Only step 4, the
+ * name binding, is specific to tools:
+ *
  *   4. Bind tool names to handlers two ways: the `Record<string, ToolHandler>`
  *      / `createToolDispatcher({…})` maps, and the loop manual triggers.
  *
@@ -82,6 +79,12 @@ import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
 import { join, relative } from "node:path";
 import { POLICY_LEAF_SPAWN_DENY } from "../runtime/tools/filter";
+import {
+  computeReaching,
+  declarationsOf,
+  stringConstants,
+  type Decl,
+} from "./helpers/source-walk";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
@@ -127,12 +130,6 @@ const MUST_DETECT = [
   "run_workflow",
 ] as const;
 
-interface Decl {
-  name: string;
-  /** Every source line this declaration owns, joined. */
-  body: string;
-}
-
 interface FileAnalysis {
   path: string;
   decls: Map<string, Decl>;
@@ -144,10 +141,6 @@ interface FileAnalysis {
   unresolvedManualTools: string[];
 }
 
-/** A top-level declaration opener, anchored at column 0. */
-const TOP_LEVEL_DECL =
-  /^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+([A-Za-z_$][\w$]*)/;
-
 /**
  * `[<(]`, not `(` — `defineLoop<DocsInput, DocsOutcome>({…})` is a GENERIC
  * call, and matching a literal `defineLoop(` silently skipped the one
@@ -156,164 +149,6 @@ const TOP_LEVEL_DECL =
  */
 const CALLS_DEFINE_LOOP = /\bdefineLoop\s*[<(]/;
 const CALLS_DISPATCHER = /\bcreateToolDispatcher\s*[<(]/;
-
-/**
- * `Bun.spawn` is a PROCESS spawn, not a run spawn. Erased before matching so
- * a file that shells out cannot be dragged in through a `spawn(` substring.
- */
-function eraseProcessSpawns(source: string): string {
-  return source.replaceAll("Bun.spawn", "Bun.__process_spawn__");
-}
-
-/**
- * Blank every comment, preserving line count so a declaration's span is
- * unchanged.
- *
- * NOT cosmetic — comments were the first thing this analysis got wrong, and
- * in the direction that matters least but is loudest. `task_complete` and
- * `task_stop` both read as spawn-reaching on the strength of a doc comment
- * saying the words "fire `spawnAssignment` for newly-unblocked dependents",
- * which would have forced two deliberately-KEPT tools into the deny set on
- * the authority of prose. Segmentation makes it worse: a doc comment sits
- * ABOVE the declaration it documents, so it is attributed to the PREVIOUS
- * one — `stopHandler` inherited `resumeHandler`'s.
- *
- * Character-scanned rather than regex-replaced, so a `//` inside a string
- * (`"https://…"`) and a `/*` inside a template literal are left alone.
- */
-function stripComments(source: string): string {
-  let out = "";
-  let i = 0;
-  // "code" | "line" | "block" | the quote char of the string being scanned
-  let state: "code" | "line" | "block" | '"' | "'" | "`" = "code";
-  while (i < source.length) {
-    const ch = source[i] as string;
-    const next = source[i + 1];
-    if (state === "code") {
-      if (ch === "/" && next === "/") {
-        state = "line";
-        out += "  ";
-        i += 2;
-        continue;
-      }
-      if (ch === "/" && next === "*") {
-        state = "block";
-        out += "  ";
-        i += 2;
-        continue;
-      }
-      if (ch === '"' || ch === "'" || ch === "`") state = ch;
-      out += ch;
-      i += 1;
-      continue;
-    }
-    if (state === "line") {
-      if (ch === "\n") {
-        state = "code";
-        out += ch;
-      } else {
-        out += " ";
-      }
-      i += 1;
-      continue;
-    }
-    if (state === "block") {
-      if (ch === "*" && next === "/") {
-        state = "code";
-        out += "  ";
-        i += 2;
-        continue;
-      }
-      // Newlines survive so line numbers and declaration spans hold.
-      out += ch === "\n" ? "\n" : " ";
-      i += 1;
-      continue;
-    }
-    // Inside a string literal: copy verbatim, honour escapes, close on the
-    // matching quote.
-    if (ch === "\\") {
-      out += ch + (next ?? "");
-      i += 2;
-      continue;
-    }
-    if (ch === state) state = "code";
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
-function segmentDeclarations(source: string): Map<string, Decl> {
-  const lines = source.split("\n");
-  const decls = new Map<string, Decl>();
-  let current: { name: string; lines: string[] } | null = null;
-  const flush = (): void => {
-    if (!current) return;
-    // A re-declared name (a `let x` reassigned in a later top-level
-    // statement) merges rather than replaces — losing either half would lose
-    // reachability.
-    const previous = decls.get(current.name);
-    const body = current.lines.join("\n");
-    decls.set(current.name, {
-      name: current.name,
-      body: previous ? `${previous.body}\n${body}` : body,
-    });
-  };
-  for (const line of lines) {
-    const match = TOP_LEVEL_DECL.exec(line);
-    if (match?.[1]) {
-      flush();
-      current = { name: match[1], lines: [line] };
-      continue;
-    }
-    if (current) current.lines.push(line);
-  }
-  flush();
-  return decls;
-}
-
-/** True when `body` calls `name` — call-shaped, so a bare mention of a
- *  common identifier cannot create a false edge. */
-function callsDeclaration(body: string, name: string): boolean {
-  return new RegExp(`\\b${name}\\s*\\(`).test(body);
-}
-
-function computeSpawning(decls: Map<string, Decl>): Set<string> {
-  const spawning = new Set<string>();
-  for (const decl of decls.values()) {
-    if (SPAWN_PRIMITIVES.some((p) => decl.body.includes(p))) spawning.add(decl.name);
-  }
-  // Fixed point. Bounded by the declaration count: each pass either adds a
-  // declaration or stops.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const decl of decls.values()) {
-      if (spawning.has(decl.name)) continue;
-      for (const target of spawning) {
-        if (target === decl.name) continue;
-        if (callsDeclaration(decl.body, target)) {
-          spawning.add(decl.name);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
-  return spawning;
-}
-
-/** Top-level `const NAME = "literal"` values, for `tool: PING_TOOL` forms. */
-function stringConstants(decls: Map<string, Decl>): Map<string, string> {
-  const out = new Map<string, string>();
-  for (const decl of decls.values()) {
-    const m = new RegExp(
-      `^(?:export\\s+)?(?:const|let)\\s+${decl.name}\\s*(?::[^=]+)?=\\s*["'\`]([^"'\`]+)["'\`]`,
-    ).exec(decl.body);
-    if (m?.[1]) out.set(decl.name, m[1]);
-  }
-  return out;
-}
 
 /**
  * Bind tool names to handler declarations.
@@ -382,10 +217,9 @@ function builtinToolNames(decl: Decl, consts: Map<string, string>): string[] {
 }
 
 async function analyzeFile(absPath: string): Promise<FileAnalysis> {
-  const source = eraseProcessSpawns(stripComments(await Bun.file(absPath).text()));
-  const decls = segmentDeclarations(source);
+  const decls = await declarationsOf(absPath);
   const consts = stringConstants(decls);
-  const spawning = computeSpawning(decls);
+  const spawning = computeReaching(decls, SPAWN_PRIMITIVES);
   const { bindings, unresolved } = extractToolBindings(decls, consts);
 
   // Builtin defs: a spawning factory owns the tool names it declares.

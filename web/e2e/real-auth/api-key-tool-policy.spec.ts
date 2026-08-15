@@ -21,13 +21,18 @@
  *   7. a conversation under the WRONG mode, and a conversation whose locked
  *      mode the owner DELETED, are both refused — the deleted case bricks the
  *      key rather than freeing it, which is the whole point of fail-closed;
- *   8. an UNPOLICIED key is untouched by all of it.
+ *   8. an UNPOLICIED key is untouched by all of it;
+ *   9. a lock the allowlist could ROUTE AROUND is refused at MINT — over real
+ *      HTTP, on the routes the hand-written run-start list had omitted.
  *
- * NOT covered here, deliberately: Boundary 3 (the LLM emitting `invoke_agent`
- * / `ez-code__dispatch_run` mid-turn). That layer is the run tool-surface
- * filter, it needs a scripted LLM turn, and it lives in
- * `src/runtime/tools/filter.ts` + `executor.ts` — a different change. Its
- * spec belongs with it.
+ * NOT covered here, deliberately: the mid-turn half of Boundary 3 (the LLM
+ * emitting `invoke_agent` / `ez-code__dispatch_run`). Observing it needs a
+ * scripted LLM turn, so an e2e would assert the mock rather than the
+ * boundary. It is covered where it can be observed honestly: the per-turn
+ * tool surface in `src/__tests__/policy-force-deny-wired-surface.test.ts`,
+ * and — the part that was MISSING, and why the boundary shipped inert — the
+ * ROUTE-side wiring in `src/__tests__/policy-run-start-surface.test.ts` plus
+ * the three run-start route suites under `web/src/__tests__/`.
  */
 import { test, expect } from "../fixtures/hydration.js";
 
@@ -219,5 +224,57 @@ test.describe("per-API-key tool policy", () => {
     const brickedText = await bricked.text();
     expect(bricked.status, brickedText).toBe(403);
     expect(JSON.parse(brickedText)).toMatchObject({ field: "lockedModeId" });
+  });
+
+  test("a lock the allowlist can route around is refused at MINT", async ({ request }) => {
+    // The mint route takes a RAW `routeAllowlist`, not only a bundle name, so
+    // this is the operator-facing half of the anti-routing-around guard: name
+    // a run-start route that does not run the mode guard and the mint is a
+    // 400, rather than a key whose "lock" is decorative on that route.
+    //
+    // Both routes below reach `startAssignment` — they start a run against
+    // the conversation with no mode check anywhere on the path — and BOTH were
+    // missing from the hand-written run-start list, so this exact mint used
+    // to succeed.
+    const slug = `e2e-policy-lock-${Date.now().toString(36)}`;
+    const modeRes = await request.post("/api/modes", {
+      data: { name: "E2E lock mode", slug, systemPromptInstruction: "Brief." },
+    });
+    expect(modeRes.status(), await modeRes.text()).toBe(201);
+    const modeId = ((await modeRes.json()) as { id: string }).id;
+
+    for (const route of [
+      "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+      "POST /api/conversations/[id]/tasks/[taskId]/retry",
+      "POST /api/agents/[name]/run",
+    ]) {
+      const res = await request.post("/api/settings/developer/api-keys", {
+        data: {
+          name: `e2e-routes-around-${route.length}`,
+          scopes: ["read", "chat"],
+          toolPolicy: {
+            routeAllowlist: ["POST /api/conversations/[id]/messages", route],
+            lockedModeId: modeId,
+          },
+        },
+      });
+      const text = await res.text();
+      expect(res.status(), text).toBe(400);
+      expect(text).toContain(`lockedModeId cannot be enforced on "${route}"`);
+    }
+
+    // The control: the SAME policy minus the unguarded route mints cleanly, so
+    // the refusal is about the route and not about locks in general.
+    const ok = await request.post("/api/settings/developer/api-keys", {
+      data: {
+        name: "e2e-lock-ok",
+        scopes: ["read", "chat"],
+        toolPolicy: {
+          routeAllowlist: ["POST /api/conversations/[id]/messages"],
+          lockedModeId: modeId,
+        },
+      },
+    });
+    expect(ok.status(), await ok.text()).toBe(201);
   });
 });
