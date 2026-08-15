@@ -60,6 +60,26 @@ function nested(levels: number): Record<string, unknown> {
 // ── Accepted declarations ──────────────────────────────────────────────
 
 describe("accepted", () => {
+  test("an ABSENT properties map is accepted and means the same as an empty one", () => {
+    // A zero-argument tool is spelled `{type:"object"}` in ordinary JSON
+    // Schema. Demanding an explicit `properties: {}` would 400 a correct
+    // declaration for no security gain — an absent map constrains nothing
+    // exactly as an empty one does.
+    const r = validateCallerToolDeclarations([decl({ parameters: { type: "object" } })]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("unreachable — asserted above");
+    expect(r.tools[0]?.parameters).toEqual({ type: "object" });
+  });
+
+  test("a properties map that is present but NOT an object is still refused", () => {
+    const r = validateCallerToolDeclarations([
+      decl({ parameters: { type: "object", properties: [] } }),
+    ]);
+    expect(r.ok).toBe(false);
+    if (r.ok) throw new Error("unreachable — asserted above");
+    expect(r.error).toMatch(/properties must be an object/);
+  });
+
   test("a minimal declaration round-trips with its fields intact", () => {
     const r = validateCallerToolDeclarations([decl()]);
     expect(r).toEqual({
@@ -183,11 +203,6 @@ const REJECTED: Array<[label: string, input: unknown, errorMatch: RegExp, field?
     "a non-object type",
     [decl({ parameters: { type: "string", properties: {} } })],
     /type must be exactly "object"/,
-  ],
-  [
-    "a missing properties map",
-    [decl({ parameters: { type: "object" } })],
-    /properties must be an object/,
   ],
   [
     "an array properties map",

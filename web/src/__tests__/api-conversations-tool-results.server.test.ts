@@ -197,7 +197,7 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
     expect(((await POST(chunked)) as Response).status).toBe(413);
 
     // Neither attempt touched the pending gate.
-    expect(getPendingEzClientTool("call-fat")).toBeDefined();
+    expect(getPendingRemoteTool("call-fat")).toBeDefined();
   });
 
   test("a body that is not JSON at all is a 400, not a crash", async () => {
@@ -365,6 +365,6 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
     expect(await res.json()).toEqual({ error: "Authentication required" });
     await new Promise<void>((r) => setTimeout(r, 0));
     expect(resolved).toBe(false);
-    expect(getPendingEzClientTool("call-no-auth")).toBeDefined();
+    expect(getPendingRemoteTool("call-no-auth")).toBeDefined();
   });
 });

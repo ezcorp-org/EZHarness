@@ -35,7 +35,7 @@
  * `forceDeniedTools`, it outranks the preservation the executor grants them.
  */
 
-import { CALLER_TOOL_SCOPE_KEY } from "../caller-tool-declarations";
+import { CALLER_TOOL_SCOPE_KEY, callerToolWireName } from "../caller-tool-declarations";
 import { stripToolNamespace, type ToolFilterOptions } from "./filter";
 
 /** The mode fields the scope decision reads (subset of DbMode). */
@@ -61,9 +61,11 @@ export function computeModeToolScope(
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
   /**
-   * Wire names (`_caller__<name>`) of the caller-executed tools this
-   * conversation declared. Defaults to none, which is both the honest answer
-   * for every conversation that never declared any and what lets a caller be
+   * The caller-executed tools this conversation declared, in EITHER the wire
+   * form (`_caller__open_app`) or the bare declared form (`open_app`) — the
+   * two callers legitimately hold different ones, and `callerDenials`
+   * normalises to both. Defaults to none, which is both the honest answer for
+   * every conversation that never declared any and what lets a caller be
    * wired independently of the executor.
    */
   callerToolNames: readonly string[] = [],
@@ -223,10 +225,20 @@ function computeConvDenials(
  */
 function callerDenials(subset: string[], callerToolNames: readonly string[]): string[] {
   const denied: string[] = [];
-  for (const wireName of callerToolNames) {
-    const bare = stripToolNamespace(wireName);
-    if (subset.length > 0 && (subset.includes(wireName) || subset.includes(bare))) continue;
-    denied.push(wireName, bare);
+  for (const declaredName of callerToolNames) {
+    // The two callers name caller tools in DIFFERENT domains, and both are
+    // legitimate: the executor filters `ctx.agentTools`, whose members carry
+    // the wire name (`_caller__open_app`), while `/api/tools` lists synthetic
+    // rows carrying the bare declared name. Normalising to both forms here —
+    // rather than demanding one at the boundary — is what keeps the two
+    // call sites from silently disagreeing, which is the exact failure mode
+    // where the UI toggle keeps passing while the tool stays listed.
+    const bare = stripToolNamespace(declaredName);
+    const wire = callerToolWireName(bare);
+    if (subset.length > 0 && (subset.includes(wire) || subset.includes(bare))) continue;
+    // Order is not semantic — the list is consumed as a membership test — but
+    // it is asserted, so keep wire-then-bare stable.
+    denied.push(wire, bare);
   }
   return denied;
 }

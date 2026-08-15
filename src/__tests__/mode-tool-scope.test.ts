@@ -348,10 +348,10 @@ describe("computeModeToolScope — the `caller` pseudo-extension", () => {
   test("an EMPTY subset (master toggle OFF) denies every declared tool, both forms", () => {
     const scope = computeModeToolScope(null, { caller: [] }, registry, declared)!;
     expect(scope.forceDeniedTools).toEqual([
-      "open_app",
       "_caller__open_app",
-      "capture_screen",
+      "open_app",
       "_caller__capture_screen",
+      "capture_screen",
     ]);
     // Both forms are emitted because the two consumers see different ones:
     // the executor filters `_caller__*` AgentTools, /api/tools filters bare
@@ -408,7 +408,7 @@ describe("computeModeToolScope — the `caller` pseudo-extension", () => {
       declared,
     )!;
     expect(scope.toolRestriction).toBe("read-only");
-    expect(scope.forceDeniedTools).toEqual(["capture_screen", "_caller__capture_screen"]);
+    expect(scope.forceDeniedTools).toEqual(["_caller__capture_screen", "capture_screen"]);
   });
 
   test("a real extension keyed beside `caller` is still compiled by the registry loop", () => {
@@ -419,8 +419,8 @@ describe("computeModeToolScope — the `caller` pseudo-extension", () => {
       ["open_app"],
     )!;
     expect(scope.forceDeniedTools).toEqual([
-      "open_app",
       "_caller__open_app",
+      "open_app",
       "bravo__summarize",
     ]);
   });

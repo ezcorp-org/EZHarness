@@ -211,7 +211,13 @@ function validateParameters(parameters: unknown, name: string): string | undefin
   if (parameters.type !== "object") {
     return `${name}.parameters.type must be exactly "object"`;
   }
-  if (!isPlainObject(parameters.properties)) {
+  // ABSENT `properties` is accepted and means the same as `{}`. A
+  // zero-argument tool (`capture_screen`) is spelled `{type:"object"}` in
+  // ordinary JSON Schema, and the provider accepts it; demanding an explicit
+  // empty map would 400 a correct declaration for no security gain, since an
+  // absent map constrains nothing exactly as an empty one does. Present-but-
+  // not-an-object is still refused — that is a malformed schema, not a terse one.
+  if (parameters.properties !== undefined && !isPlainObject(parameters.properties)) {
     return `${name}.parameters.properties must be an object (it may be empty)`;
   }
   // Cheapest ceiling first: a schema over the byte cap need not be walked.

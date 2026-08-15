@@ -250,7 +250,7 @@ describe("PUT /api/conversations/[id]/caller-tools", () => {
       event({ user, body: { tools: [{ ...openApp, name: "invoke_agent" }] } }),
     )) as Response;
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "tool name is reserved", field: "invoke_agent" });
+    expect(await res.json()).toEqual({ error: '"invoke_agent" is a reserved tool name', field: "invoke_agent" });
     expect(mergeConversationMetadata).not.toHaveBeenCalled();
   });
 
