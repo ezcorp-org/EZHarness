@@ -5,6 +5,7 @@ import {
   applyToolFilters,
   ORCHESTRATION_TOOLS,
   isPreservedOrchestrationTool,
+  POLICY_LEAF_SPAWN_DENY,
 } from "../runtime/tools/filter";
 
 // Minimal test fixtures — we only need `name`, so cast the rest.
@@ -331,5 +332,95 @@ describe("applyToolFilters — carve-out matches namespaced task-tracking tools"
     // Arbitrary tool → not preserved.
     expect(isPreservedOrchestrationTool("myext__do_thing")).toBe(false);
     expect(isPreservedOrchestrationTool("write_file")).toBe(false);
+  });
+});
+
+// ── policyForceDenyBare — the per-API-key tool policy layer ────────
+//
+// A NAMESPACE-STRIPPING deny, applied after `forceDeniedTools` and exempt
+// from nothing. The three properties below are the layer: it catches the
+// namespaced form (which exact-match `forceDeniedTools` misses, and which is
+// how every spawn primitive except the orchestration trio is actually
+// wired), it outranks the orchestration carve-out, and it lets a caller tool
+// through. The wired-surface suite
+// (`policy-force-deny-wired-surface.test.ts`) proves the same three against
+// the REAL registry; these pin the filter itself.
+
+describe("policyForceDenyBare", () => {
+  const mixed = (): AgentTool[] => [
+    tool("read_file"),
+    tool("invoke_agent"),
+    tool("task-tracking__task_add"),
+    tool("task-tracking__task_complete"),
+    tool("ez-code__dispatch_run"),
+    tool("_caller__open_app"),
+  ];
+
+  test("matches a NAMESPACED tool by its stripped name", () => {
+    const out = names(
+      applyToolFilters(mixed(), builtinDefs, { policyForceDenyBare: ["task_add"] }),
+    );
+    expect(out).not.toContain("task-tracking__task_add");
+    // The sibling that strips to a name NOT in the set is untouched.
+    expect(out).toContain("task-tracking__task_complete");
+  });
+
+  test("contrast pin: forceDeniedTools is exact-match and MISSES the namespaced form", () => {
+    // This is the defect the layer exists for. If this contrast ever stops
+    // holding, `policyForceDenyBare` has become redundant — and if it holds
+    // while the test above fails, the policy is not enforcing anything.
+    const out = names(
+      applyToolFilters(mixed(), builtinDefs, { forceDeniedTools: ["task_add"] }),
+    );
+    expect(out).toContain("task-tracking__task_add");
+  });
+
+  test("a BARE builtin self-matches (stripToolNamespace is identity on it)", () => {
+    const out = names(
+      applyToolFilters(mixed(), builtinDefs, { policyForceDenyBare: ["invoke_agent"] }),
+    );
+    expect(out).not.toContain("invoke_agent");
+  });
+
+  test("outranks the orchestration carve-out AND preservedTools", () => {
+    // Both preservation mechanisms name the tool; neither may save it. A
+    // credential confinement a mode could re-admit would not be one.
+    const out = names(
+      applyToolFilters(mixed(), builtinDefs, {
+        toolRestriction: "none",
+        preservedTools: ["task-tracking__task_add"],
+        policyForceDenyBare: ["task_add", "invoke_agent"],
+      }),
+    );
+    expect(out).not.toContain("task-tracking__task_add");
+    expect(out).not.toContain("invoke_agent");
+  });
+
+  test("a caller tool SURVIVES — `_caller__open_app` strips to `open_app`", () => {
+    const out = names(
+      applyToolFilters(mixed(), builtinDefs, {
+        policyForceDenyBare: [...POLICY_LEAF_SPAWN_DENY],
+        preservedTools: ["_caller__open_app"],
+      }),
+    );
+    expect(out).toContain("_caller__open_app");
+    // …while the whole spawn surface went.
+    expect(out).not.toContain("invoke_agent");
+    expect(out).not.toContain("task-tracking__task_add");
+    expect(out).not.toContain("ez-code__dispatch_run");
+  });
+
+  test("empty / absent is a no-op — an unpolicied key sees the old surface", () => {
+    expect(applyToolFilters(mixed(), builtinDefs, { policyForceDenyBare: [] })).toHaveLength(6);
+    expect(applyToolFilters(mixed(), builtinDefs, {})).toHaveLength(6);
+  });
+
+  test("the deliberately-KEPT task tools are not in the set", () => {
+    for (const kept of ["task_start", "task_complete", "task_fail", "task_list"]) {
+      expect({ tool: kept, denied: POLICY_LEAF_SPAWN_DENY.has(kept) }).toEqual({
+        tool: kept,
+        denied: false,
+      });
+    }
   });
 });

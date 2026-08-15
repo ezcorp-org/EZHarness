@@ -27,11 +27,16 @@ import {
   MAX_CALLER_TOOLS,
   MAX_CALLER_TOOL_DESCRIPTION,
   MAX_CALLER_TOOL_PARAMETERS_CHARS,
+  applyCallerToolAllowlist,
   callerToolWireName,
   readCallerToolsFromMetadata,
   validateCallerToolDeclarations,
 } from "../runtime/caller-tool-declarations";
-import { ORCHESTRATION_TOOLS, isPreservedOrchestrationTool } from "../runtime/tools/filter";
+import {
+  ORCHESTRATION_TOOLS,
+  POLICY_LEAF_SPAWN_DENY,
+  isPreservedOrchestrationTool,
+} from "../runtime/tools/filter";
 
 const OK_PARAMS = {
   type: "object",
@@ -407,5 +412,73 @@ describe("the wire name", () => {
 
   test("the scope key is the one literal shared by category, toggle and listing", () => {
     expect(CALLER_TOOL_SCOPE_KEY).toBe("caller");
+  });
+});
+
+// ── The per-API-key policy seam ────────────────────────────────────
+
+describe("the reserved set unions the leaf-spawn deny set", () => {
+  test("every POLICY_LEAF_SPAWN_DENY member is refused as a declaration name", () => {
+    // Consistency between the declare route and the run-time deny layer. A
+    // caller tool named `dispatch_run` would otherwise be accepted here and
+    // then silently stripped from every policied run — a 400 is the better
+    // answer, and it is the same answer for every member of the set, forever,
+    // because this is a union rather than a copy.
+    const accepted = [...POLICY_LEAF_SPAWN_DENY].filter(
+      (name) => !CALLER_TOOL_RESERVED_NAMES.has(name),
+    );
+    expect(accepted).toEqual([]);
+  });
+
+  test("the four names the union newly reserves are refused end to end", () => {
+    // ORCHESTRATION_TOOLS and the base extras already covered the rest; these
+    // four arrive with the union, so they are the ones a route test would
+    // otherwise never exercise.
+    for (const name of ["steer_run", "cancel_run", "run_docs_update", "spawn_one"]) {
+      const result = validateCallerToolDeclarations([decl({ name })]);
+      expect({ name, ok: result.ok }).toEqual({ name, ok: false });
+      expect(result.ok === false && result.error).toContain("reserved");
+    }
+  });
+
+  test("an ordinary name is still accepted — the union did not swallow everything", () => {
+    expect(validateCallerToolDeclarations([decl({ name: "open_app" })]).ok).toBe(true);
+  });
+});
+
+describe("applyCallerToolAllowlist", () => {
+  const tools = [
+    { name: "open_app", description: "d", parameters: OK_PARAMS },
+    { name: "capture_screen", description: "d", parameters: OK_PARAMS },
+  ];
+
+  test("nullish means UNPOLICIED — the input is returned untouched", () => {
+    expect(applyCallerToolAllowlist(tools, undefined)).toEqual(tools);
+    expect(applyCallerToolAllowlist(tools, null)).toEqual(tools);
+  });
+
+  test("an EMPTY allowlist means NONE, not all", () => {
+    // The falsy-vs-nullish trap. `if (allowlist?.length)` reads `[]` as "no
+    // constraint" and hands the key every declared tool, inverting the policy
+    // at exactly the value an operator uses to lock a key down hardest.
+    expect(applyCallerToolAllowlist(tools, [])).toEqual([]);
+  });
+
+  test("keeps only the named declarations, by BARE name", () => {
+    expect(applyCallerToolAllowlist(tools, ["open_app"]).map((t) => t.name)).toEqual([
+      "open_app",
+    ]);
+  });
+
+  test("a wire name in the allowlist matches NOTHING — both sides are bare", () => {
+    // Guards the seam between this cap and `callerToolWireName`: an operator
+    // (or a route) that passed `_caller__open_app` must get an empty surface
+    // rather than a silently-unfiltered one.
+    expect(applyCallerToolAllowlist(tools, [callerToolWireName("open_app")])).toEqual([]);
+  });
+
+  test("an allowlist entry that was never declared adds nothing", () => {
+    expect(applyCallerToolAllowlist(tools, ["open_app", "never_declared"]).map((t) => t.name))
+      .toEqual(["open_app"]);
   });
 });

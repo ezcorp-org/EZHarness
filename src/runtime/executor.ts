@@ -966,7 +966,24 @@ export class AgentExecutor {
   async streamChat(
     conversationId: string,
     userMessage: string,
-    options: { projectId?: string; workingDir?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
+    options: { projectId?: string; workingDir?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver;
+      /**
+       * ── Per-API-key tool policy (Boundary 3) ──────────────────────────
+       * Two scalars, BOTH defaulting to undefined so that a cookie session
+       * and an unpolicied key get the pre-policy surface byte for byte. The
+       * caller (the run-start route) is the only populator; nothing here is
+       * read from the request body.
+       */
+      /** The only caller tools this run may wire/execute, by bare declaration
+       *  name. Nullish ⇒ no cap; EMPTY ⇒ none (see
+       *  `applyCallerToolAllowlist`). */
+      callerToolAllowlist?: string[];
+      /** Strip every spawn primitive from the run's tool surface, matched
+       *  namespace-stripped so `task-tracking__task_assign` and
+       *  `ez-code__dispatch_run` are caught along with the bare builtins. The
+       *  LLM-initiated half of the confinement — a route allowlist cannot see
+       *  a mid-turn `invoke_agent`, because it issues no HTTP request. */
+      forceDenyOrchestration?: boolean },
   ): Promise<AgentRun> {
     const run: AgentRun = {
       id: options.runId ?? crypto.randomUUID(),
@@ -1126,12 +1143,14 @@ export class AgentExecutor {
     // from the conversation's own stored declarations, and it rides every
     // scope pushed below so `prepareNextTurnWithContext` re-applies it when the
     // toolset is re-assembled mid-run.
-    const { readCallerToolsFromMetadata, callerToolWireName } = await import(
-      "./caller-tool-declarations"
-    );
-    const callerToolNames = readCallerToolsFromMetadata(convRecord?.metadata).map(
-      (decl) => callerToolWireName(decl.name),
-    );
+    const { readCallerToolsFromMetadata, callerToolWireName, applyCallerToolAllowlist } =
+      await import("./caller-tool-declarations");
+    // The SAME cap the wire applies (setup-tools → caller-tools-host), so a
+    // tool the policy excluded is never preserved for a surface it is not on.
+    const callerToolNames = applyCallerToolAllowlist(
+      readCallerToolsFromMetadata(convRecord?.metadata),
+      options.callerToolAllowlist,
+    ).map((decl) => callerToolWireName(decl.name));
     const pushScope = (scope: import("./tools/filter").ToolFilterOptions): void => {
       const withPreserved =
         callerToolNames.length > 0 ? { ...scope, preservedTools: callerToolNames } : scope;
@@ -1174,6 +1193,16 @@ export class AgentExecutor {
         readOnlyAllowedTools: options.readOnlyAllowedTools,
       };
       pushScope(invocationScope);
+    }
+
+    // Per-API-key tool policy (Boundary 3). LAST, so nothing above can widen
+    // it, and pushed through `pushScope` so it rides `runToolScopes` and
+    // `prepareNextTurnWithContext` re-applies it to anything installed
+    // mid-turn — an extension that lands during the turn must not arrive
+    // holding a spawn primitive this key was confined away from.
+    if (options.forceDenyOrchestration) {
+      const { POLICY_LEAF_SPAWN_DENY } = await import("./tools/filter");
+      pushScope({ policyForceDenyBare: [...POLICY_LEAF_SPAWN_DENY] });
     }
 
     /**

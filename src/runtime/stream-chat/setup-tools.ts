@@ -109,6 +109,9 @@ export interface SetupToolsOptions {
   /** WS3: explicit quality-tier hint. When set (and no model is pinned),
    *  the classifier honors it over the length/tools heuristic. */
   tier?: RoutingTier;
+  /** Per-API-key policy: the only caller tools this run may WIRE, by bare
+   *  declaration name. Absent ⇒ unpolicied ⇒ every declaration is wired. */
+  callerToolAllowlist?: string[];
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -333,6 +336,12 @@ export async function wireCallerToolsIfDeclared(args: {
   /** The run's own abort signal, so a cancelled turn tears its caller
    *  permission gates down instead of leaving cards nobody can answer. */
   runSignal?: AbortSignal;
+  /** Per-API-key execution cap, by bare declaration name. Nullish ⇒ no cap.
+   *  Forwarded through a conditional spread (the shape
+   *  `exactOptionalPropertyTypes` requires), and the condition tests the
+   *  ARRAY, never its length — so an EMPTY allowlist, which means "none",
+   *  still reaches the wire. */
+  callerToolAllowlist?: string[];
 }): Promise<void> {
   try {
     const { wireCallerToolsForTurn } = await import("../caller-tools-host");
@@ -346,6 +355,7 @@ export async function wireCallerToolsIfDeclared(args: {
       permissionDeps: args.permissionDeps,
       ...(args.bus ? { bus: args.bus } : {}),
       ...(args.runSignal ? { runSignal: args.runSignal } : {}),
+      ...(args.callerToolAllowlist ? { callerToolAllowlist: args.callerToolAllowlist } : {}),
     });
   } catch (callerWireErr) {
     log.warn("Caller tools wire failed — declared caller tools unavailable this turn", {
@@ -1529,6 +1539,9 @@ export async function setupTools(
         bus: host.bus,
         permissionDeps,
         runSignal: host.controllers.get(run.id)?.signal,
+        ...(options.callerToolAllowlist
+          ? { callerToolAllowlist: options.callerToolAllowlist }
+          : {}),
       });
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools

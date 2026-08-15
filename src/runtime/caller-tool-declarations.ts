@@ -18,7 +18,11 @@
  * per-API-key policy addendum unions into rather than re-edits.
  */
 
-import { ORCHESTRATION_TOOLS, stripToolNamespace } from "./tools/filter";
+import {
+  ORCHESTRATION_TOOLS,
+  POLICY_LEAF_SPAWN_DENY,
+  stripToolNamespace,
+} from "./tools/filter";
 
 /** Wire prefix every caller tool is registered under. `manifest.ts` forbids
  *  an extension name starting with `_`, so no extension can ever produce a
@@ -81,11 +85,43 @@ export const CALLER_TOOL_RESERVED_NAMES: ReadonlySet<string> = new Set<string>([
   // (`ask-user__ask_user_question`); the stripped form is what a caller name
   // would actually collide with.
   ...[...ORCHESTRATION_TOOLS].map(stripToolNamespace),
+  // The promised one-line union. Every member is already BARE (the policy
+  // matcher strips before comparing), so no second `.map` is needed. This
+  // keeps the declare route consistent with the policy deny layer: a caller
+  // tool that could be named `dispatch_run` would be accepted at declare time
+  // and then silently stripped from every policied run, which is a worse
+  // answer than a 400.
+  ...POLICY_LEAF_SPAWN_DENY,
   "run_workflow",
   "task_add",
   "task_resume",
   "dispatch_run",
 ]);
+
+/**
+ * Narrow declarations to the names a per-API-key policy permits.
+ *
+ * NULLISH, not falsy: an EMPTY allowlist means "no caller tools", and reading
+ * it as "no constraint" would invert the policy at exactly the value an
+ * operator would use to lock a key down hardest. `undefined` / `null` means
+ * unpolicied and returns the input untouched.
+ *
+ * Bare ∩ bare — both sides are declaration names, never wire names, so no
+ * caller ever has to reason about the `_caller__` prefix.
+ *
+ * Shared, because two call sites must agree: the wire (`caller-tools-host`,
+ * which decides what EXECUTES) and the executor's `preservedTools`
+ * computation (which decides what SURVIVES a mode). If those two disagreed, a
+ * tool would be preserved under a mode and then not exist, or worse.
+ */
+export function applyCallerToolAllowlist(
+  declarations: CallerToolDeclaration[],
+  allowlist: readonly string[] | null | undefined,
+): CallerToolDeclaration[] {
+  if (allowlist == null) return declarations;
+  const allow = new Set(allowlist);
+  return declarations.filter((d) => allow.has(d.name));
+}
 
 /**
  * Names of the tools this server wires itself.

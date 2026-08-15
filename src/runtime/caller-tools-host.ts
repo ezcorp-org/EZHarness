@@ -34,6 +34,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { logger } from "../logger";
 import type { AgentEvents } from "../types";
 import {
+  applyCallerToolAllowlist,
   callerToolWireName,
   readCallerToolsFromMetadata,
   DEFAULT_CALLER_TOOL_TIMEOUT_MS,
@@ -104,6 +105,19 @@ export interface WireCallerToolsForTurnParams {
    * permission card standing that no run is left to answer into.
    */
   runSignal?: AbortSignal;
+  /**
+   * Per-API-key EXECUTION cap on the declared caller tools, by bare name.
+   *
+   * A conversation's declarations belong to the conversation, so a key that
+   * inherits one (declared earlier by the owner's cookie, or by a different
+   * key) would otherwise get the whole inherited surface. Capping at the WIRE
+   * is what makes the cap real: an unwired tool is not merely filtered out of
+   * the model's list, it has no `execute` at all.
+   *
+   * `undefined` ⇒ unpolicied ⇒ every declaration is wired, unchanged. See
+   * {@link applyCallerToolAllowlist} for the nullish-not-falsy rule.
+   */
+  callerToolAllowlist?: string[];
 }
 
 /**
@@ -182,7 +196,8 @@ export function wireCallerToolsForTurn(
   params: WireCallerToolsForTurnParams,
 ): string[] {
   const { agentTools, builtinToolDefsMap, conversationId, runId, bus } = params;
-  const declarations = readCallerToolsFromMetadata(params.metadata);
+  const declared = readCallerToolsFromMetadata(params.metadata);
+  const declarations = applyCallerToolAllowlist(declared, params.callerToolAllowlist);
   if (declarations.length === 0) return [];
 
   const userId = params.userId;
@@ -224,7 +239,10 @@ export function wireCallerToolsForTurn(
   log.info("Caller tools wired for turn", {
     conversationId,
     runId,
-    declared: declarations.length,
+    declared: declared.length,
+    // Below `declared` when a key's policy capped the surface — the one signal
+    // that says "this run saw fewer tools than the conversation declared".
+    permitted: declarations.length,
     wired: wired.length,
   });
   return wired;
