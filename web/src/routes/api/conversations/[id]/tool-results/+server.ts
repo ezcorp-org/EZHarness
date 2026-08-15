@@ -1,7 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
-import { requireAuth } from "$server/auth/middleware";
+import { isInteractiveSession, requireAuth } from "$server/auth/middleware";
+import { isSessionPrincipalId, principalId } from "$server/auth/principal-id";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { createRateLimiter } from "$server/extensions/rate-limit";
@@ -9,6 +10,7 @@ import * as convQueries from "$server/db/queries/conversations";
 import {
   getPendingRemoteTool,
   resolveRemoteTool,
+  type PendingRemoteToolInfo,
 } from "$server/runtime/remote-tool-registry";
 
 /**
@@ -78,6 +80,62 @@ const MAX_RESULT_BODY_BYTES = 256 * 1024;
  */
 const resultLimiter = createRateLimiter(20);
 
+/**
+ * May THIS principal settle THAT suspended call?
+ *
+ * Ownership is not attribution, and every other check in this handler is
+ * satisfied by ANY credential of the same user. Both families' call events ride
+ * SSE to every connection that user holds, so before this a narrow key that may
+ * only read the event stream could lift a `toolCallId` off it and POST a forged
+ * result — winning, because `resolveRemoteTool` is first-write-wins — and put
+ * attacker-chosen text into the owner's LLM context. `origin` was recorded from
+ * the start (`remote-tool-registry.ts`) and simply never read.
+ *
+ * ── 1. FAMILY ────────────────────────────────────────────────────────────
+ *
+ * `origin` names the client the call was ADDRESSED to, and a principal names
+ * one too. `ez` is this app's own in-page panel, which is only ever a cookie
+ * session; `caller` is an external application on the user's own machine, which
+ * is only ever an API key. Neither can EXECUTE the other's call, so neither has
+ * any business answering it. This is the rule that refuses the leaked companion
+ * key forging a `read_page` result, and equally the caller-tools client
+ * answering an Ez call.
+ *
+ * ── 2. KEY ───────────────────────────────────────────────────────────────
+ *
+ * Within the caller family, a key may not settle a call raised by a run some
+ * OTHER key started — the confinement `handleToolPermission` applies to a gate
+ * ANSWER, via the same `principalId`.
+ *
+ * It is narrower there than here, deliberately. That route can demand the
+ * initiator outright because a gate is a decision and an unattributed one is
+ * always answerable by the owner's session instead. A tool RESULT is not: it is
+ * the only way the run can proceed, and the documented caller-tools topology
+ * has a person send the message and approve the gate while the APP — a
+ * different principal — executes and returns the call. Demanding an initiator
+ * match there would break the feature rather than close a hole. So a call
+ * attributable to a SESSION (or to nothing) rests on rule 1, which is already
+ * enough to exclude every principal that cannot execute the call at all.
+ */
+function maySettleRemoteTool(
+  locals: App.Locals,
+  pending: PendingRemoteToolInfo,
+): boolean {
+  const bySession = isInteractiveSession(locals);
+  if (pending.origin !== (bySession ? "ez" : "caller")) return false;
+  if (bySession) return true;
+
+  const me = principalId(locals);
+  // An unnameable principal can never be SHOWN to match — the deny side, and
+  // the same reading of `undefined` `principalId` documents.
+  if (me === undefined) return false;
+  const raisedByAnotherKey =
+    pending.initiator !== undefined &&
+    !isSessionPrincipalId(pending.initiator) &&
+    pending.initiator !== me;
+  return !raisedByAnotherKey;
+}
+
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
@@ -125,6 +183,14 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // time (see ez-tools-host.ts → fill-form.ts ctx.userId). Mismatch ⇒
   // 404 (not 403) — same posture as ask-user/answer's auth chain.
   if (pending.userId !== null && pending.userId !== user.id) {
+    return errorJson(404, "Not found");
+  }
+
+  // Settlement confinement — see `maySettleRemoteTool`. 404 like its
+  // neighbours: a refusal that said 403 would confirm the toolCallId names a
+  // real suspended call, which is precisely what an attacker who lifted one off
+  // the event stream wants confirmed.
+  if (!maySettleRemoteTool(locals, pending)) {
     return errorJson(404, "Not found");
   }
 
