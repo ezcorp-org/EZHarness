@@ -27,6 +27,7 @@ import type { PendingPermissionInfo, StreamChatHost } from "../stream-chat/host"
 import { builtinToAgentTool } from "./agent-tool";
 import {
   DEFAULT_PERMISSION_MODE,
+  PermissionGateAbortedError,
   PermissionGateTimeoutError,
   createPermissionGate,
   needsApproval,
@@ -87,13 +88,22 @@ export interface PermissionWrapDeps {
 
 /**
  * The user-visible tool result for a gate that did not resolve approved.
- * A timeout is called out concretely — "denied" and "nobody answered in
- * time" are different facts, and only the second one is worth retrying.
+ *
+ * THREE facts, three texts. "The user said no", "nobody answered in time" and
+ * "the request was torn down before anyone could answer" are different things
+ * to tell a model: only the first is a decision, and the last one is not even
+ * about the user. An aborted gate — the run was cancelled, or
+ * `abortPendingApprovalsForScope` tore the conversation's cards down — used to
+ * fall through to the denial string, so the model was told the user refused
+ * something the user was never asked about, and might report that back.
  */
 function refusalText(toolName: string, err: unknown): string {
   if (err instanceof PermissionGateTimeoutError) {
     const seconds = Math.round(err.timeoutMs / 1000);
     return `Permission for ${toolName} expired after ${seconds}s with no decision`;
+  }
+  if (err instanceof PermissionGateAbortedError) {
+    return `Permission for ${toolName} was cancelled before anyone decided`;
   }
   return "Permission denied by user";
 }

@@ -29,6 +29,7 @@ import { Type } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { withPermissionGate } from "../runtime/tools/permission-wrap";
 import {
+  abortPendingApprovalsForScope,
   getPendingApproval,
   needsApproval,
   resolvePermission,
@@ -335,21 +336,65 @@ describe("withPermissionGate — bounded gates", () => {
     expect(textOf(await pending)).toBe("Permission denied by user");
   });
 
-  test("a signal-bounded gate refuses when the run is aborted", async () => {
+  test("a signal-bounded gate refuses when the run is aborted, and says CANCELLED — not denied", async () => {
+    // The user never saw this card. Reporting "denied by user" makes the model
+    // narrate a refusal that nobody made; the three refusal facts each get
+    // their own text (`refusalText`).
     const ac = new AbortController();
     const h = makeTestPermissionDeps({
       storedMode: "ask",
       gateOptions: { signal: ac.signal },
     });
-    const tool = withPermissionGate(makeDef({ category: "execute" }), h.deps);
+    const calls: ToolCall[] = [];
+    const tool = withPermissionGate(makeDef({ name: "shell", category: "execute" }, calls), h.deps);
 
     const pending = tool.execute("call-abort", {});
     await flush();
     ac.abort();
 
     const res = await pending;
-    expect(textOf(res)).toBe("Permission denied by user");
+    expect(textOf(res)).toBe("Permission for shell was cancelled before anyone decided");
+    expect((res.details as { isError?: boolean }).isError).toBe(true);
+    // Still a refusal: the tool did not run.
+    expect(calls).toHaveLength(0);
     expect(h.pendingPermissions.size).toBe(0);
+    expect(h.toolAbortControllers.size).toBe(0);
+  });
+
+  test("a gate torn down by abortPendingApprovalsForScope reads as cancelled too", async () => {
+    // The second abort door: cancelling a run (or ending an interactive
+    // workflow) rejects every gate pending on the conversation. Same fact,
+    // same text — a scope teardown is not a user decision either.
+    const ac = new AbortController();
+    const h = makeTestPermissionDeps({
+      storedMode: "ask",
+      conversationId: "conv-scope-abort",
+      gateOptions: { signal: ac.signal },
+    });
+    const tool = withPermissionGate(makeDef({ name: "write_file", category: "write" }), h.deps);
+
+    const pending = tool.execute("call-scope-abort", {});
+    await flush();
+    abortPendingApprovalsForScope("conv-scope-abort");
+
+    expect(textOf(await pending)).toBe(
+      "Permission for write_file was cancelled before anyone decided",
+    );
+    expect(getPendingApproval("call-scope-abort")).toBe(false);
+  });
+
+  test("an explicit denial still reads as denied", async () => {
+    // The guard for both arms above: the denial string did not simply move.
+    const h = makeTestPermissionDeps({
+      storedMode: "ask",
+      gateOptions: { signal: new AbortController().signal },
+    });
+    const tool = withPermissionGate(makeDef({ name: "shell", category: "execute" }), h.deps);
+
+    const pending = tool.execute("call-denied", {});
+    await flush();
+    resolvePermission("call-denied", false);
+    expect(textOf(await pending)).toBe("Permission denied by user");
   });
 });
 
