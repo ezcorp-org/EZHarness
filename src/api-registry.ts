@@ -269,7 +269,12 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/settings/:key", description: "Update a setting value (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "DELETE", path: "/api/settings/:key", description: "Delete a setting value; internally-managed keys (the sensitive deny-list) are refused with 403 (requires an admin-role key)", category: "settings", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "GET", path: "/api/settings/developer", description: "Get developer settings and API keys", category: "settings" },
-  { method: "POST", path: "/api/settings/developer/api-keys", description: "Create API key", category: "settings", schemaKey: "createApiKeySchema" },
+  // Controllable: provisioning a CONFINED child key is a harness operation —
+  // an operator's admin key mints the narrow key its companion app then runs
+  // as (`toolPolicy`, optionally from a named `routeBundle`). Gate is
+  // requireScope("admin") in the handler; the scope column stays unset here
+  // because the scope-ratchet meta-test freezes that list.
+  { method: "POST", path: "/api/settings/developer/api-keys", description: "Create API key (optionally confined by a `toolPolicy` — route allowlist / locked mode / caller-tool caps)", category: "settings", harness: { controllable: true }, schemaKey: "createApiKeySchema" },
   // Self-service key management. The `admin` SCOPE on the write paths is a
   // write-gate for KEY principals only — there is no role check, and none is
   // wanted: every row is filtered to the CALLING user, so forcing an admin
@@ -574,7 +579,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/conversations/:id/extension-toolbar", description: "Union of the `messageToolbar[]` items declared by every ENABLED installed extension, for MessageToolbar.svelte. Scope is `chat`, not `read`, so a read-scoped key cannot fetch it", category: "conversations", scope: "chat" },
 
   // ── Conversations: writes ─────────────────────────────────────────────
-  { method: "PUT", path: "/api/conversations/:id", description: "Update a conversation's title, model, system prompt or project (the registry previously advertised this as PATCH; the handler exports PUT)", category: "conversations", scope: "chat", schemaKey: "updateConversationSchema" },
+  // Controllable: a key minted with `toolPolicy.lockedModeId` must be able to
+  // put its conversation under that mode before its first send, and the mode
+  // MUTATION routes are deliberately absent from the companion bundle. See
+  // HarnessClient.updateConversation.
+  { method: "PUT", path: "/api/conversations/:id", description: "Update a conversation's title, model, system prompt or project (the registry previously advertised this as PATCH; the handler exports PUT)", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "updateConversationSchema" },
   { method: "PATCH", path: "/api/conversations/:id/messages/:mid", description: "Edit ONE message's content, or toggle its `excluded` flag — XOR, never both; refused while a run is active. Never touches parentMessageId (the session-tree invariant)", category: "conversations", scope: "chat" },
   { method: "POST", path: "/api/conversations/:id/clone-turns", description: "Copy a span of turns into another conversation (fork/branch support)", category: "conversations", scope: "chat" },
   { method: "POST", path: "/api/conversations/:id/agent-chat", description: "Send a message to a named agent config inside the conversation, spawning its sub-conversation run", category: "conversations", scope: "chat" },

@@ -8,6 +8,7 @@
 import type { ApiKeyScope } from "$lib/server/security/api-keys";
 import { verifyApiKey } from "$lib/server/security/api-keys";
 import type { AuthMethod } from "$server/auth/middleware";
+import type { ToolPolicy } from "$server/auth/tool-policy";
 import {
   INTERNAL_KEY_PREFIX,
   verifyInternalKey,
@@ -40,6 +41,13 @@ export interface BearerAuthEvent {
      *  which one, and the pair is what `principalId` turns into a comparable
      *  identity for gate confinement. Never set on the cookie path. */
     apiKeyId?: string;
+    /** The verifying key's tool policy, stamped ONLY when the key carries
+     *  one. Its POSITIVE PRESENCE is what every downstream boundary binds on
+     *  — the route allowlist in `hooks.server.ts`, the mode lock and the
+     *  autopilot refusals on the run-start routes, the caller-tool
+     *  declaration cap. A cookie session, an unpolicied key and an internal
+     *  `ezkint_` principal all leave it undefined and are unchanged. */
+    apiKeyToolPolicy?: ToolPolicy;
   };
   /** Remote IP as reported by the adapter; SvelteKit's `getClientAddress()`
    *  on the Bun adapter returns the direct socket peer. Critically: when
@@ -195,6 +203,10 @@ export async function attachBearerAuth(
     event.locals.apiKeyScopes = keyData.scopes;
     event.locals.authMethod = "api-key";
     event.locals.apiKeyId = keyData.keyId;
+    // Assigned only when the row carried one, so an unpolicied key leaves the
+    // field genuinely absent rather than explicitly undefined. Every boundary
+    // downstream tests presence.
+    if (keyData.toolPolicy) event.locals.apiKeyToolPolicy = keyData.toolPolicy;
     return true;
   } catch {
     // DB not available (e.g., PI_SKIP_INIT for unit tests) — fall through.

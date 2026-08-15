@@ -15,6 +15,15 @@ import {
   type ApiKeyEntry,
 } from "$lib/server/security/api-keys";
 import { canMintRole, scopesOverCeiling } from "$server/auth/api-key";
+import {
+  policyOverCeiling,
+  resolveRouteBundle,
+  routeBundleNames,
+  validateToolPolicy,
+  type ToolPolicy,
+} from "$server/auth/tool-policy";
+import { getVisibleMode } from "$server/db/queries/modes";
+import { apiRegistry } from "$server/api-registry";
 import { mintApiKeyForUser, deleteApiKeyForUser } from "$server/auth/mint-api-key";
 import { validationError } from "$lib/server/security/validation";
 import { createApiKeySchema, deleteApiKeySchema } from "../schema";
@@ -48,6 +57,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const { name, scopes, role } = result.data;
 
+  // Expand `routeBundle` into the concrete route list BEFORE any ceiling or
+  // validity check, so both run against the routes that will actually be
+  // stored. The bundle NAME is never persisted: a stored name would silently
+  // change meaning the day the bundle is edited, and a key's reach must be
+  // whatever it was reviewed as at mint time.
+  let requestedPolicy: ToolPolicy | undefined;
+  if (result.data.toolPolicy) {
+    const { routeBundle, ...rest } = result.data.toolPolicy;
+    if (routeBundle !== undefined) {
+      if (rest.routeAllowlist !== undefined) {
+        return errorJson(400, "Specify routeBundle or routeAllowlist, not both");
+      }
+      const resolved = resolveRouteBundle(routeBundle);
+      if (!resolved) {
+        return errorJson(
+          400,
+          `Unknown routeBundle "${routeBundle}". Known bundles: ${routeBundleNames().join(", ")}`,
+        );
+      }
+      rest.routeAllowlist = [...resolved];
+    }
+    requestedPolicy = rest;
+  }
+
   // Scope ceiling: a key must never carry authority its OWNER lacks. A
   // non-admin self-minting an `admin`-scoped key would be a privilege
   // escalation (the zod schema permits "admin", and requireScope("admin")
@@ -68,9 +101,45 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return errorJson(403, `Cannot mint a key with role "${role}": requires admin role`);
   }
 
-  const { raw, keyId } = await mintApiKeyForUser(user.id, scopes, name, role);
+  // Policy ceiling, on the same axis as the two checks above and in the same
+  // order: what the ACTOR may hand out, before what is intrinsically valid.
+  // For every field the acting key's own policy constrains, an ABSENT field
+  // in the request is WIDENING — so a policied actor can mint only an
+  // equal-or-narrower key, and can never mint an unpolicied one. The common
+  // case is an unpolicied admin (this route is `admin`-scoped), for whom
+  // `policyOverCeiling` returns [] and nothing changes.
+  const policyOver = policyOverCeiling(locals.apiKeyToolPolicy, requestedPolicy);
+  if (policyOver.length > 0) {
+    return errorJson(
+      403,
+      `Cannot mint a key that widens your own policy: ${policyOver.join(", ")}`,
+    );
+  }
 
-  return json({ key: raw, keyId, name, scopes, role }, { status: 201 });
+  // Intrinsic validity LAST: every route resolves against the registry (so a
+  // typo is a 400 rather than a route that silently denies forever), the
+  // locked mode is one the OWNER can see, the caller-tool names are spellable.
+  const policyErrors = await validateToolPolicy(requestedPolicy, {
+    getMode: (id, ownerId) => getVisibleMode(id, ownerId),
+    ownerId: user.id,
+    registry: apiRegistry,
+  });
+  if (policyErrors) {
+    return errorJson(400, "Invalid toolPolicy", { details: policyErrors });
+  }
+
+  const { raw, keyId } = await mintApiKeyForUser(
+    user.id,
+    scopes,
+    name,
+    role,
+    requestedPolicy,
+  );
+
+  return json(
+    { key: raw, keyId, name, scopes, role, ...(requestedPolicy ? { toolPolicy: requestedPolicy } : {}) },
+    { status: 201 },
+  );
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {

@@ -132,6 +132,14 @@ export const BUILT_IN_TOOL_NAMES: ReadonlySet<string> = new Set<string>([
  */
 const CALLER_TOOL_NAME_RE = /^[a-z](?!.*__)[a-z0-9_]{2,47}$/;
 
+/** The name rule as a predicate, so the per-API-key policy validator
+ *  (`src/auth/tool-policy.ts`) checks an `allowedCallerTools` entry against
+ *  the SAME rule the declaration route applies — a policy that names a tool
+ *  no declaration could ever be spelled as is a policy that confines nothing. */
+export function isValidCallerToolName(name: string): boolean {
+  return CALLER_TOOL_NAME_RE.test(name);
+}
+
 /** JSON Schema keywords a declaration may not use anywhere in `parameters`.
  *  Each either points outside the document (`$ref`, `$id`), or defines a
  *  target for something that does (`$defs`, `definitions`), or asserts a
@@ -260,7 +268,7 @@ export function validateCallerToolDeclarations(
     if (!isPlainObject(entry)) return fail("each tool must be an object");
 
     const { name, description, parameters, timeoutMs } = entry;
-    if (typeof name !== "string" || !CALLER_TOOL_NAME_RE.test(name)) {
+    if (typeof name !== "string" || !isValidCallerToolName(name)) {
       return fail(
         "name must be 3–48 chars, lowercase letters/digits/underscores, " +
           "start with a letter, and contain no double underscore",

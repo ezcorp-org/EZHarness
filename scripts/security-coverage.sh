@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Coverage producer for the 9 web security helpers that the node/vitest v8
+# Coverage producer for the web security helpers that the node/vitest v8
 # coverage leg CANNOT measure: their bun:test suites re-register mocks per
 # `beforeEach` via `mock.module` — a bun-runtime feature with no `vi.mock`
 # (statically hoisted) equivalent. This runs the security bun:test suites
 # per-file under `bun --coverage` (from web/, so $lib resolves), re-roots the
 # web SF paths (bun emits them relative to web/, like the node-vitest leg does),
-# merges, and FILTERS the merged lcov to EXACTLY the 9 un-excluded security
-# source files.
+# merges, and FILTERS the merged lcov to EXACTLY the un-excluded security
+# source files listed in SEC_SRC below.
 #
-# Why filter to only the 9: an unfiltered bun coverage run from web/ instruments
+# Why filter to only SEC_SRC: an unfiltered bun coverage run from web/ instruments
 # the whole transitively-imported web/src/lib tree, emitting bun's TypeScript
 # span-set DA records. Merged with the v8/vitest leg's clean line-set that would
 # drag OTHER files' merged percentage below either measurement alone (the
 # documented "dual bun+v8 instrumentation union" hazard — see EXCLUDES in
-# scripts/coverage-config.ts). The 9 security files themselves have NO such
+# scripts/coverage-config.ts). The SEC_SRC files themselves have NO such
 # hazard (vitest can't measure them, nothing else feeds their coverage), so
 # scoping to exactly them — the coverage equivalent of the vitest leg's
 # `--coverage.include` — is precise and safe. Uploaded as an `lcov-cov-*`
@@ -38,7 +38,8 @@ PARALLEL=${PARALLEL:-$(default_parallel)}
 COV_OUT=${COV_OUT:-coverage-shard}
 mkdir -p "$COV_OUT"
 
-# The 9 security source files removed from EXCLUDES in scripts/coverage-config.ts.
+# The security source files removed from EXCLUDES in scripts/coverage-config.ts,
+# plus route-allowlist.ts (new, never excluded — see its entry below).
 # KEEP IN SYNC with that removal — this is the filter allowlist so only these
 # enter the merged gate lcov (see header). validation.ts is intentionally NOT
 # here: it is measurable by the vitest leg and must not be double-instrumented.
@@ -52,6 +53,12 @@ SEC_SRC=(
   web/src/lib/server/security/rate-limiter.ts
   web/src/lib/server/security/api-keys.ts
   web/src/lib/server/security/resource-quotas.ts
+  # Boundary 1 (per-API-key route allowlist). Measured HERE rather than by the
+  # vitest leg for the same reason the nine above are: hooks.server.ts imports
+  # it statically, so a bun shard that imports hooks.server.ts already emits
+  # bun span records for it, and adding a second v8 measurement would union two
+  # different line sets. One producer, filtered to this list.
+  web/src/lib/server/security/route-allowlist.ts
 )
 
 mapfile -t FILES < <(security_test_files)
@@ -100,7 +107,7 @@ done
 # Merge (applies the repo's noise filter + SF canonicalisation).
 bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"
 
-# Filter the merged lcov to EXACTLY the 9 security source files.
+# Filter the merged lcov to EXACTLY the SEC_SRC security source files.
 OUT_LCOV="$COV_OUT/lcov_security.info"
 : > "$OUT_LCOV"
 keep=" ${SEC_SRC[*]} "
@@ -118,7 +125,7 @@ while IFS= read -r line; do
 done < "$TMPDIR/merged.lcov" >> "$OUT_LCOV"
 
 echo "wrote $kept security source record(s) → $OUT_LCOV"
-# We must emit coverage for all 9 files or the gate can't enforce them.
+# We must emit coverage for every SEC_SRC file or the gate can't enforce them.
 if [ "$kept" -ne "${#SEC_SRC[@]}" ]; then
   echo "::error::expected coverage for ${#SEC_SRC[@]} security files, got $kept"
   exit 1

@@ -24,7 +24,8 @@ function installUserMocks(): void {
 }
 installUserMocks();
 
-const { parseArgs, parseKeyScopes, parseKeyRole, resolveKeyMintUser } = await import("../cli");
+const { parseArgs, parseKeyScopes, parseKeyRole, parseKeyToolPolicy, resolveKeyMintUser } =
+  await import("../cli");
 const { scopesOverCeiling, canMintRole, isApiKeyRole, adminRoleScopeWarning } =
   await import("../auth/api-key");
 
@@ -251,5 +252,67 @@ describe("adminRoleScopeWarning (mint-time role/scope footgun)", () => {
 
   test("an admin-role key with an empty scope set warns", () => {
     expect(adminRoleScopeWarning("admin", [])).not.toBeNull();
+  });
+});
+
+// ── `key mint` tool-policy flags ────────────────────────────────────────
+//
+// The helper resolves flag VALUES only. Everything needing the DB or the API
+// registry (does the mode exist, does every route resolve) belongs to
+// `validateToolPolicy`, run at the dispatch site so the CLI and the HTTP mint
+// route enforce ONE definition of a valid policy — see
+// cli-key-mint-dispatch.test.ts.
+describe("parseKeyToolPolicy", () => {
+  test("no flags ⇒ no policy (the unchanged, unpolicied posture)", () => {
+    expect(parseKeyToolPolicy({})).toBeUndefined();
+  });
+
+  test("--route-bundle expands to the reviewed route list", () => {
+    const policy = parseKeyToolPolicy({ routeBundle: "desktop-companion" });
+    expect(policy!.routeAllowlist).toContain("POST /api/conversations/[id]/messages");
+    // Expanded, never stored as a name: a stored name would silently change
+    // meaning the day the bundle is edited.
+    expect(policy!.routeAllowlist!.length).toBe(14);
+  });
+
+  test("an unknown bundle exits(1) and names the known ones", async () => {
+    const code = await captureExit(() => parseKeyToolPolicy({ routeBundle: "nope" }));
+    expect(code).toBe(1);
+  });
+
+  test("--caller-tools splits, trims and de-dupes", () => {
+    expect(
+      parseKeyToolPolicy({ callerTools: " open_app , close_app ,open_app" })!.allowedCallerTools,
+    ).toEqual(["open_app", "close_app"]);
+  });
+
+  test("--caller-tools with nothing but separators exits(1)", async () => {
+    expect(await captureExit(() => parseKeyToolPolicy({ callerTools: " , " }))).toBe(1);
+  });
+
+  test("--max-caller-tools must be an integer", async () => {
+    expect(parseKeyToolPolicy({ maxCallerTools: "3" })!.maxCallerTools).toBe(3);
+    expect(await captureExit(() => parseKeyToolPolicy({ maxCallerTools: "lots" }))).toBe(1);
+  });
+
+  test("--locked-mode rides through verbatim (existence is the validator's question)", () => {
+    expect(parseKeyToolPolicy({ lockedMode: "mode-1" })!.lockedModeId).toBe("mode-1");
+  });
+
+  test("parseArgs threads every policy flag", () => {
+    const parsed = parseArgs([
+      "key", "mint",
+      "--route-bundle", "desktop-companion",
+      "--locked-mode", "mode-1",
+      "--caller-tools", "open_app",
+      "--max-caller-tools", "1",
+    ]);
+    expect(parsed).toMatchObject({
+      command: "key:mint",
+      routeBundle: "desktop-companion",
+      lockedMode: "mode-1",
+      callerTools: "open_app",
+      maxCallerTools: "1",
+    });
   });
 });

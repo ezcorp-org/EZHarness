@@ -28,9 +28,14 @@ export const HARNESS_ROUTES = {
   // Configure
   getSetting: { httpMethod: "GET", pathTemplate: "/api/settings/:key" },
   setSetting: { httpMethod: "PUT", pathTemplate: "/api/settings/:key" },
+  // Provisioning: mint a (optionally policy-confined) child key
+  mintApiKey: { httpMethod: "POST", pathTemplate: "/api/settings/developer/api-keys" },
   // Conversations + drive
   createConversation: { httpMethod: "POST", pathTemplate: "/api/conversations" },
   sendMessage: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/messages" },
+  // Put a conversation under a mode (or clear it) — the write a key minted
+  // with `toolPolicy.lockedModeId` needs before its first send.
+  updateConversation: { httpMethod: "PUT", pathTemplate: "/api/conversations/:id" },
   // Sessions P4 rewind/checkpoint
   getConversationTree: { httpMethod: "GET", pathTemplate: "/api/conversations/:id/tree" },
   rewindConversation: { httpMethod: "POST", pathTemplate: "/api/conversations/:id/rewind" },

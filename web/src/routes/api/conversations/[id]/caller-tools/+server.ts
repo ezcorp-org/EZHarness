@@ -56,6 +56,7 @@ import {
   readCallerToolsFromMetadata,
   validateCallerToolDeclarations,
 } from "$server/runtime/caller-tool-declarations";
+import { mayDeclareCallerTools } from "$server/auth/tool-policy";
 import { getActiveRun } from "$server/db/queries/active-runs";
 import { declareCallerToolsSchema } from "./schema";
 
@@ -157,6 +158,24 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const checked = validateCallerToolDeclarations(parsed.data.tools);
   if (!checked.ok) {
     return errorJson(400, checked.error, checked.field ? { field: checked.field } : undefined);
+  }
+
+  // Per-API-key declaration cap. Runs AFTER the semantic check so a
+  // malformed declaration still reports what is wrong with it rather than
+  // which policy field it happens to trip, and it is a 403 (not the 400 above)
+  // because the declaration is well-formed — this credential simply may not
+  // make it. A cookie session and an unpolicied key take the `ok: true` path
+  // unchanged. Boundary 3 caps EXECUTION separately, because the bag on the
+  // conversation may have been written by a different principal.
+  const declareVerdict = mayDeclareCallerTools(
+    locals.apiKeyToolPolicy,
+    checked.tools.map((t) => t.name),
+  );
+  if (!declareVerdict.ok) {
+    return errorJson(403, "Tool not permitted for this key", {
+      field: declareVerdict.field,
+      ...(declareVerdict.offender ? { tool: declareVerdict.offender } : {}),
+    });
   }
 
   await mergeConversationMetadata(params.id, { callerTools: checked.tools });

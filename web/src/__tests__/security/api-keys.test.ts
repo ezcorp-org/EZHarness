@@ -215,3 +215,58 @@ test("verifyApiKey rejects a key whose index pointer row has a mismatched hash",
   const result = await verifyApiKey(raw);
   expect(result).toBeNull();
 });
+
+// ── per-key tool policy hydration ─────────────────────────────────────
+// The policy rides the SAME settings row as `role`, so it hydrates the same
+// way and needs no migration. BOTH return sites are asserted: a policied key
+// that happens to verify on the legacy scan (no index pointer yet) must be
+// exactly as confined as one that verifies on the fast path. Missing one
+// would be a silent hole, not a visible failure.
+
+const COMPANION_POLICY = {
+  routeAllowlist: ["POST /api/conversations/[id]/messages"],
+  allowedCallerTools: ["open_app"],
+  maxCallerTools: 1,
+  lockedModeId: "mode-1",
+};
+
+test("verifyApiKey hydrates toolPolicy on the FAST path (hash-index hit)", async () => {
+  const { raw, hash, keyId } = generateApiKey();
+  const userId = "user-policied-fast";
+  mockSettings[apiKeySettingsKey(userId, keyId)] = {
+    hash, userId, scopes: ["chat"], name: "Companion", createdAt: 1,
+    toolPolicy: COMPANION_POLICY,
+  };
+  mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
+
+  const result = await verifyApiKey(raw);
+  expect(getAllCalls).toBe(0); // proves the fast path was the one taken
+  expect(result!.toolPolicy).toEqual(COMPANION_POLICY);
+});
+
+test("verifyApiKey hydrates toolPolicy on the LEGACY path (no index pointer)", async () => {
+  const { raw, hash, keyId } = generateApiKey();
+  const userId = "user-policied-slow";
+  mockSettings[apiKeySettingsKey(userId, keyId)] = {
+    hash, userId, scopes: ["chat"], name: "Companion", createdAt: 1,
+    toolPolicy: COMPANION_POLICY,
+  };
+
+  const result = await verifyApiKey(raw);
+  expect(getAllCalls).toBe(1); // proves the legacy scan was the one taken
+  expect(result!.toolPolicy).toEqual(COMPANION_POLICY);
+});
+
+test("an UNPOLICIED row reads back with NO toolPolicy key at all", async () => {
+  // Every boundary binds on positive PRESENCE, so absence must be genuine
+  // absence — not an explicit `undefined` a `in`-check would see.
+  const { raw, hash, keyId } = generateApiKey();
+  const userId = "user-unpolicied";
+  mockSettings[apiKeySettingsKey(userId, keyId)] = {
+    hash, userId, scopes: ["chat"], name: "Plain", createdAt: 1,
+  };
+  mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
+
+  const result = await verifyApiKey(raw);
+  expect(Object.keys(result!)).not.toContain("toolPolicy");
+});

@@ -57,12 +57,16 @@ function event(opts: {
   conversationId?: string;
   headers?: Record<string, string>;
   method?: string;
+  /** The verifying key's tool policy. Present ⇒ a POLICIED key; absent ⇒ an
+   *  unpolicied key (with `scopes`) or a cookie session (without). */
+  policy?: Record<string, unknown>;
 }) {
   const id = opts.conversationId ?? CONV;
   const href = `http://localhost/api/conversations/${id}/caller-tools`;
   const locals: Record<string, unknown> = {};
   if (opts.user) locals.user = opts.user;
   if (opts.scopes) locals.apiKeyScopes = opts.scopes;
+  if (opts.policy) locals.apiKeyToolPolicy = opts.policy;
   return makeRequestEvent(href, {
     locals,
     params: { id },
@@ -400,5 +404,90 @@ describe("DELETE /api/conversations/[id]/caller-tools", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+});
+
+// ── Per-API-key declaration cap ─────────────────────────────────────────
+//
+// The DECLARATION cap (here) and Boundary 3's EXECUTION cap are both needed:
+// this one stops the bag being written at all, the other filters a bag a
+// different principal — the owner's own cookie session — wrote earlier onto
+// the same conversation.
+//
+// It is a 403, not the 400 above: the declaration is well-formed, this
+// credential simply may not make it. And it runs AFTER the semantic check so
+// a malformed declaration still reports what is wrong with it.
+describe("PUT … caller-tools — per-API-key tool policy", () => {
+  const captureScreen = {
+    name: "capture_screen",
+    description: "Screenshot the connected device",
+    parameters: { type: "object", properties: {} },
+  };
+  test("a name outside allowedCallerTools is 403, naming the field and the tool", async () => {
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(
+      event({ user: u, scopes: ["chat"], policy: { allowedCallerTools: ["open_app"] }, body: { tools: [openApp, captureScreen] } }),
+    )) as Response;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({
+      field: "allowedCallerTools",
+      tool: "capture_screen",
+    });
+    expect(mergeConversationMetadata).not.toHaveBeenCalled();
+  });
+
+  test("an in-policy declaration is written", async () => {
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(
+      event({ user: u, scopes: ["chat"], policy: { allowedCallerTools: ["open_app"] }, body: { tools: [openApp] } }),
+    )) as Response;
+    expect(res.status).toBe(200);
+    expect(mergeConversationMetadata).toHaveBeenCalledTimes(1);
+  });
+
+  test("exceeding maxCallerTools is 403 with no single offender", async () => {
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(
+      event({ user: u, scopes: ["chat"], policy: { maxCallerTools: 1 }, body: { tools: [openApp, captureScreen] } }),
+    )) as Response;
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ field: "maxCallerTools" });
+    expect(body).not.toHaveProperty("tool");
+  });
+
+  test("a MALFORMED declaration still reports the shape error, not the policy", async () => {
+    // Ordering: semantic validation first, so a client that got the schema
+    // wrong is told that rather than which policy field it happened to trip.
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(
+      event({
+        user: u,
+        scopes: ["chat"],
+        policy: { allowedCallerTools: ["open_app"] },
+        body: { tools: [{ ...captureScreen, name: "Capture_Screen" }] },
+      }),
+    )) as Response;
+    expect(res.status).toBe(400);
+  });
+
+  test("an UNPOLICIED key declares whatever the semantic rules allow", async () => {
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(
+      event({ user: u, scopes: ["chat"], body: { tools: [openApp, captureScreen] } }),
+    )) as Response;
+    expect(res.status).toBe(200);
+  });
+
+  test("a COOKIE SESSION is never confined", async () => {
+    const u = nextUser();
+    ownRoot(u);
+    const res = (await PUT(event({ user: u, body: { tools: [openApp, captureScreen] } }))) as Response;
+    expect(res.status).toBe(200);
   });
 });
