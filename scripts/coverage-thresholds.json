@@ -404,6 +404,7 @@
   "src/auth/api-key.ts": 100,
   "src/auth/extension-rbac.ts": 100,
   "src/auth/extension-wire-authz.ts": 100,
+  "src/auth/gate-initiator.ts": 100,
   "src/auth/mint-api-key.ts": 100,
   "src/auth/permission-mode-ceiling.ts": 100,
   "src/auth/principal-id.ts": 100,

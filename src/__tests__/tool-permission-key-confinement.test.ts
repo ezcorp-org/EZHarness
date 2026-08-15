@@ -50,9 +50,12 @@ const {
   createExtensionPermissionGate,
   getPendingApproval,
   getPendingApprovalInitiator,
-  runWithGateInitiator,
   resolvePermission,
 } = await import("../runtime/tools/permissions");
+// The ambient store is a LEAF module (`src/auth/gate-initiator.ts`) so the
+// remote-tool registry can stamp the same one without importing the tools
+// layer. Same instance either way — this import is the writer's entry point.
+const { runWithGateInitiator } = await import("../auth/gate-initiator");
 
 const OWNER: AuthUser = {
   id: "owner-user-1",
