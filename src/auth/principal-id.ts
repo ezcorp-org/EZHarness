@@ -26,6 +26,15 @@ export interface PrincipalLocals {
 }
 
 /**
+ * Method prefix an INTERACTIVE SESSION principal's id carries.
+ *
+ * Named once and read by both the minter below and
+ * {@link isSessionPrincipalId}, so the reader of an id cannot drift from the
+ * writer of it.
+ */
+const SESSION_PRINCIPAL_PREFIX = "session:";
+
+/**
  * Opaque, comparable id for the principal, or `undefined` when the request
  * carries no principal this function can name.
  *
@@ -45,8 +54,24 @@ export function principalId(locals: PrincipalLocals): string | undefined {
   if (method === undefined) return undefined;
   if (method === "session") {
     const userId = locals.user?.id;
-    return userId === undefined ? undefined : `session:${userId}`;
+    return userId === undefined ? undefined : `${SESSION_PRINCIPAL_PREFIX}${userId}`;
   }
   const keyId = locals.apiKeyId;
   return keyId === undefined || keyId === "" ? undefined : `${method}:${keyId}`;
+}
+
+/**
+ * Does `id` name an interactive session, as opposed to a key?
+ *
+ * The question a STORED id raises that `isInteractiveSession` cannot answer:
+ * that predicate reads live `locals`, and an id recorded on a parked gate has
+ * outlived the request whose `locals` it came from. The method prefix is what
+ * survives, and it is the whole answer because the prefix is what keeps the
+ * id-spaces disjoint in the first place.
+ *
+ * `undefined` — a gate raised outside any request scope — is NOT a session.
+ * Same deny-side reading of `undefined` that {@link principalId} documents.
+ */
+export function isSessionPrincipalId(id: string | undefined): boolean {
+  return id?.startsWith(SESSION_PRINCIPAL_PREFIX) === true;
 }

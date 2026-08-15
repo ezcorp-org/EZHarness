@@ -14,7 +14,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { principalId } from "../auth/principal-id";
+import { isSessionPrincipalId, principalId } from "../auth/principal-id";
 
 describe("principalId", () => {
   test("cookie session -> session:<userId>", () => {
@@ -73,5 +73,45 @@ describe("principalId", () => {
     // The id keys on the KEY, not its owner — so it survives the owner
     // being absent from `locals` for any reason.
     expect(principalId({ authMethod: "api-key", apiKeyId: "k9" })).toBe("api-key:k9");
+  });
+});
+
+/**
+ * The same question `isInteractiveSession` answers, asked of a STORED id.
+ *
+ * That predicate reads live `locals`; an id recorded on a parked gate or a
+ * suspended remote tool call has outlived the request whose `locals` it came
+ * from. The method prefix is what survives — and it is the whole answer,
+ * because keeping the id-spaces disjoint is what the prefix is FOR.
+ */
+describe("isSessionPrincipalId", () => {
+  test("agrees with what principalId minted, for every method", () => {
+    // Derived from the minter rather than from a literal, so a change to the
+    // prefix cannot leave the reader asserting the old one.
+    expect(isSessionPrincipalId(principalId({ authMethod: "session", user: { id: "u1" } }))).toBe(
+      true,
+    );
+    expect(
+      isSessionPrincipalId(
+        principalId({ authMethod: "api-key", user: { id: "u1" }, apiKeyId: "k1" }),
+      ),
+    ).toBe(false);
+    expect(
+      isSessionPrincipalId(
+        principalId({ authMethod: "internal", user: { id: "u1" }, apiKeyId: "ik1" }),
+      ),
+    ).toBe(false);
+  });
+
+  test("undefined is NOT a session — the deny side, as everywhere else", () => {
+    // A gate raised outside any request scope records `undefined`. Reading it
+    // as a session would hand every unattributed call the session's latitude.
+    expect(isSessionPrincipalId(undefined)).toBe(false);
+  });
+
+  test("a key whose id merely CONTAINS the prefix is not a session", () => {
+    // The check is anchored at the start; a key named `x-session:` must not
+    // read as one.
+    expect(isSessionPrincipalId("api-key:session:u1")).toBe(false);
   });
 });

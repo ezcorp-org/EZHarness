@@ -50,10 +50,14 @@
  * terminal event, and so a conversation-wide sweep can report which run each
  * orphan belonged to.
  *
- * Deliberately dependency-free: the `tool-results` API route imports it, and
- * a route should not pull the tools layer (and through it pi-agent-core) into
- * its module graph.
+ * Nearly dependency-free: the `tool-results` API route imports it, and a route
+ * should not pull the tools layer (and through it pi-agent-core) into its
+ * module graph. `src/auth/gate-initiator.ts` is the ONE import, and it is a
+ * leaf that imports nothing itself — which is exactly why the ambient store
+ * lives there rather than beside the permission gate that also reads it.
  */
+
+import { getAmbientGateInitiator } from "../auth/gate-initiator";
 
 /** Which family a pending entry belongs to. */
 export type RemoteToolOrigin = "ez" | "caller";
@@ -79,6 +83,18 @@ export interface PendingRemoteToolInfo {
   /** Run that opened this call, when the opener knows it. */
   runId: string | null;
   origin: RemoteToolOrigin;
+  /**
+   * Opaque id of the PRINCIPAL whose request started the run that opened this
+   * call (see `principalId` in `src/auth/principal-id.ts`). Read at
+   * registration time from the ambient store, never from anything the
+   * ANSWERING request supplies — the same discipline, and the same store, as
+   * `createPermissionGate`'s `initiator`.
+   *
+   * `undefined` means the call was opened outside any HTTP request scope: a
+   * goal-autopilot re-entry, a briefing, a CLI run. The settlement route reads
+   * that as "cannot be shown to match", never as "matches anything".
+   */
+  initiator: string | undefined;
   /** Created-at ms, for diagnostics and the reconnect drain's ordering. */
   createdAt: number;
 }
@@ -138,6 +154,11 @@ export function registerPendingRemoteTool(
     }, timeoutMs);
     pendingByToolCallId.set(toolCallId, {
       ...info,
+      // Read here, at the single registration point, for the same reason
+      // `createPermissionGate` reads it at its own: the tool's `execute` runs
+      // in the request's async subtree, so this is the last place the ambient
+      // principal is available AND the first place it can be recorded.
+      initiator: getAmbientGateInitiator(),
       resolve,
       reject,
       createdAt: Date.now(),
@@ -210,6 +231,58 @@ export function getPendingRemoteToolsForConversation(
 }
 
 /**
+ * One suspended caller-executed call, in the shape that goes OVER THE WIRE.
+ *
+ * Field-for-field the `caller:tool-call` event minus its `userId` — a client
+ * draining this already knows whose conversation it asked about, and the
+ * recovery payload must be re-dispatchable, not merely informative. Deliberately
+ * NOT `PendingRemoteToolInfo`: that carries `initiator` (an internal principal
+ * id, and the very value the settlement check compares against), `userId`, and
+ * `origin`. None of the three is the client's business, and a projection that
+ * simply spread the entry would hand all three out the moment one was added.
+ */
+export interface PendingCallerToolCall {
+  conversationId: string;
+  runId: string | null;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+}
+
+/**
+ * The caller-executed calls `userId` is entitled to answer on this
+ * conversation, oldest first — the payload behind `GET …/active-run`'s
+ * `pendingCallerTools`, and the AUTHORITATIVE recovery channel a reconnecting
+ * client drains before it trusts a single replayed event.
+ *
+ * TWO narrowings, and both are load-bearing:
+ *
+ *   - `origin: "caller"` — an external application must never be handed the Ez
+ *     panel's pending DOM operations, which are a different family answered by
+ *     a different client.
+ *   - `entry.userId === userId` — the same exact-user narrowing the
+ *     `caller:tool-call` SSE event gets, so the drain can only return calls the
+ *     requester was already entitled to receive live. The route's ownership
+ *     walk is not sufficient on its own: it admits an ADMIN reading another
+ *     user's conversation, and the payload here is the LLM's raw arguments for
+ *     something about to run on that user's own machine.
+ */
+export function getPendingCallerToolCallsForUser(
+  conversationId: string,
+  userId: string,
+): PendingCallerToolCall[] {
+  return getPendingRemoteToolsForConversation(conversationId, "caller")
+    .filter((entry) => entry.userId === userId)
+    .map((entry) => ({
+      conversationId: entry.conversationId,
+      runId: entry.runId,
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      input: entry.input,
+    }));
+}
+
+/**
  * Reject every call suspended on `conversationId`, returning how many were
  * torn down. Called when the conversation's declarations are revoked or the
  * conversation itself goes away: the client that would have answered is
@@ -267,6 +340,7 @@ function publicInfo(entry: PendingRemoteToolEntry): PendingRemoteToolInfo {
     input: entry.input,
     runId: entry.runId,
     origin: entry.origin,
+    initiator: entry.initiator,
     createdAt: entry.createdAt,
   };
 }
