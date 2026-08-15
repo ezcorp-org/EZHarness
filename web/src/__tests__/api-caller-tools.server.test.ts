@@ -8,10 +8,10 @@
  *
  * ── EVERY TEST MINTS ITS OWN USER ID ─────────────────────────────────────
  *
- * The declaration limiter is a module-level token bucket keyed by user id at
- * 1/s, so two tests sharing a user id would make the second one's outcome
- * depend on how fast the first ran. `nextUser()` is what keeps this file
- * from asserting on the host's clock.
+ * The declaration limiter is a module-level token bucket keyed by user id
+ * (`DECLARE_WRITES_PER_SECOND`), so two tests sharing a user id would make the
+ * second one's outcome depend on how fast the first ran. `nextUser()` is what
+ * keeps this file from asserting on the host's clock.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent, expectThrownResponse } from "./helpers/server-route-test-utils";
@@ -31,10 +31,10 @@ vi.mock("$server/db/queries/active-runs", () => ({ getActiveRun }));
 // The budget is IMPORTED, never restated — a number duplicated here and in the
 // route is a number that can drift, and the drift is silent: the test would
 // keep passing against a limit nobody meant to ship.
-const { PUT, GET, DELETE, DECLARE_WRITES_PER_SECOND } = await import(
+const { PUT, GET, DELETE } = await import(
   "../routes/api/conversations/[id]/caller-tools/+server.ts"
 );
-const { CALLER_TOOL_NAME_RE, MAX_CALLER_TOOLS } = await import(
+const { CALLER_TOOL_NAME_RE, MAX_CALLER_TOOLS, DECLARE_WRITES_PER_SECOND } = await import(
   "../routes/api/conversations/[id]/caller-tools/schema.ts"
 );
 

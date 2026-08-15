@@ -71,3 +71,16 @@ export const declareCallerToolsSchema = z
 
 export type CallerToolInput = z.infer<typeof callerToolSchema>;
 export type DeclareCallerToolsBody = z.infer<typeof declareCallerToolsSchema>;
+
+/**
+ * Declaration WRITES per second per user, shared by PUT and DELETE.
+ *
+ * It lives HERE rather than beside the limiter it feeds because a SvelteKit
+ * `+server.ts` may only export the HTTP verbs and a fixed set of route
+ * options — any other named export is a BUILD error, not a lint warning
+ * (`Invalid export … valid exports are GET, POST, …`). This module is the
+ * route folder's existing home for bounds, and the same rule applies to it as
+ * to the ones above: imported by the route and by the route's test, never
+ * restated, so the test can never pass against a limit nobody meant to ship.
+ */
+export const DECLARE_WRITES_PER_SECOND = 5;

@@ -66,7 +66,7 @@ import {
 } from "$server/runtime/caller-tool-declarations";
 import { mayDeclareCallerTools } from "$server/auth/tool-policy";
 import { getActiveRun } from "$server/db/queries/active-runs";
-import { declareCallerToolsSchema } from "./schema";
+import { DECLARE_WRITES_PER_SECOND, declareCallerToolsSchema } from "./schema";
 
 /**
  * Declaration bodies are small by construction (16 tools × an 8 KiB schema
@@ -88,7 +88,6 @@ const MAX_DECLARE_BODY_BYTES = 64 * 1024;
  * amplification on one row, and five single-row jsonb merges per second is
  * still orders of magnitude below anything abusive.
  */
-export const DECLARE_WRITES_PER_SECOND = 5;
 const declareLimiter = createRateLimiter(DECLARE_WRITES_PER_SECOND);
 
 /** Both mutating verbs share the budget — they write the same jsonb key. */
