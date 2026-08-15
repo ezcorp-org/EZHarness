@@ -260,7 +260,12 @@ test.describe("per-API-key tool policy", () => {
       });
       const text = await res.text();
       expect(res.status(), text).toBe(400);
-      expect(text).toContain(`lockedModeId cannot be enforced on "${route}"`);
+      // Assert on the PARSED detail, not the raw body: the message quotes the
+      // route, and in the JSON text those quotes arrive backslash-escaped.
+      const { details } = JSON.parse(text) as { details?: string[] };
+      expect(details ?? [], text).toContain(
+        `lockedModeId cannot be enforced on "${route}" — remove it from routeAllowlist`,
+      );
     }
 
     // The control: the SAME policy minus the unguarded route mints cleanly, so
