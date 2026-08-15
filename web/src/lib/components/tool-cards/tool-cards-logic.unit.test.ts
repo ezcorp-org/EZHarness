@@ -26,6 +26,7 @@ import {
 	extractDiffDetails,
 	extractDiffInput,
 	extractInputSummary,
+	describeToolInput,
 	formatOutputPreview,
 	generateDiffText,
 	getCardComponentName,
@@ -111,6 +112,36 @@ describe("getSecurityNote", () => {
 		expect(getSecurityNote("read")).toBe("");
 		expect(getSecurityNote("something-else")).toBe("");
 		expect(getSecurityNote(undefined)).toBe("");
+	});
+});
+
+describe("describeToolInput — the consent-prompt summary", () => {
+	test("prefers the known dev-tool key when there is one", () => {
+		expect(describeToolInput({ command: "ls -la", other: 1 })).toBe("ls -la");
+	});
+
+	test("falls back to compact JSON for arbitrary argument names", () => {
+		// Caller-executed tools declare their OWN parameter names, so the
+		// allowlist misses them and the gate would otherwise render nothing —
+		// asking the user to authorise arguments they cannot see.
+		expect(describeToolInput({ app: "Notes" })).toBe('{"app":"Notes"}');
+		expect(describeToolInput({ bundleId: "com.x", activate: true })).toBe(
+			'{"bundleId":"com.x","activate":true}',
+		);
+	});
+
+	test("truncates a long fallback rather than flooding the prompt", () => {
+		const long = describeToolInput({ blob: "x".repeat(400) }, 60)!;
+		expect(long).toHaveLength(60);
+		expect(long.endsWith("...")).toBe(true);
+	});
+
+	test("nothing to say stays undefined", () => {
+		// `{}` tells the reader nothing the tool name did not.
+		expect(describeToolInput({})).toBeUndefined();
+		expect(describeToolInput(null)).toBeUndefined();
+		expect(describeToolInput("a string")).toBeUndefined();
+		expect(describeToolInput(undefined)).toBeUndefined();
 	});
 });
 

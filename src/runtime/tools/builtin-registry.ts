@@ -58,6 +58,13 @@ const CATEGORY_DESCRIPTIONS: Record<string, string> = {
   // chat extension) — the description is here only for UI surfaces that
   // group tools by category.
   ez: "In-app concierge tools (Ez)",
+  // Caller-executed tools. There is no registry behind this category — the
+  // rows are synthesised per request from the conversation's own
+  // `metadata.callerTools` (see `web/src/lib/server/scoped-tools.ts`), so it
+  // never appears in `getTools()` and is never mentionable. The description
+  // lives here because `/api/tools` groups by category and reads it through
+  // `getBuiltInCategoryDescription`.
+  caller: "Tools executed on your connected client device",
 };
 
 /** Description for a built-in category regardless of mentionability —

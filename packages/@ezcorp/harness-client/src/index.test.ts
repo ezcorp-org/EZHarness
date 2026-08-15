@@ -4,7 +4,7 @@
  * driven against a live fake server.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath } from "./index";
+import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath, type CallerToolCall } from "./index";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../web/src/lib/runtime-event-names";
 
@@ -769,5 +769,575 @@ describe("HarnessClient — deliverHook (Loops EZ Mode Phase 4)", () => {
     await client.deliverHook("ext/../evil", "a b", { token: "t" });
     // Both segments are opaque — the slash and space never climb or split.
     expect(new URL(captured[0]!.url).pathname).toBe("/api/hooks/ext%2F..%2Fevil/a%20b");
+  });
+});
+
+// ── Caller-executed tools ────────────────────────────────────────────────
+
+describe("SseDataBuffer — lastEventId", () => {
+  test("starts empty and tracks the most recent id: field", () => {
+    const b = new SseDataBuffer();
+    expect(b.lastEventId).toBe("");
+    b.push('id: 7\ndata: {"type":"run:start"}\n\n');
+    expect(b.lastEventId).toBe("7");
+  });
+
+  test("an id-only record still updates the cursor and yields no payload", () => {
+    const b = new SseDataBuffer();
+    expect(b.push("id: 3\n\n")).toEqual([]);
+    expect(b.lastEventId).toBe("3");
+  });
+
+  test("a record with no id: leaves the cursor where it was (SSE persistence)", () => {
+    const b = new SseDataBuffer();
+    b.push("id: 11\ndata: a\n\n");
+    b.push("data: b\n\n");
+    expect(b.lastEventId).toBe("11");
+  });
+});
+
+/** One request the fake saw. */
+interface FakeCall {
+  method: string;
+  path: string;
+  body: unknown;
+  headers: Record<string, string>;
+}
+
+function sseBody(frames: string[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(c) {
+      const enc = new TextEncoder();
+      for (const f of frames) c.enqueue(enc.encode(f));
+      c.close();
+    },
+  });
+}
+
+/**
+ * A scripted stand-in for the whole caller-tools surface. Deliberately a stub
+ * `fetch` rather than a live server: `serveCallerTools` is a reconnect loop,
+ * and driving reconnection, a transport failure, and abort deterministically
+ * needs per-connection control that a real socket cannot give without timing
+ * assumptions.
+ *
+ * Termination is scripted too — `abortAfterActiveRunCalls` fires the caller's
+ * AbortController from inside the Nth drain, and the stub then honours
+ * `init.signal` exactly as a real fetch does, so the loop exits through its
+ * own aborted check rather than a timer the test would have to race.
+ */
+function callerToolsFake(opts: {
+  controller: AbortController;
+  abortAfterActiveRunCalls: number;
+  pendings?: CallerToolCall[][];
+  connections?: Array<string[] | "throw">;
+  resolvedAck?: boolean;
+}): { stub: typeof fetch; calls: FakeCall[] } {
+  const calls: FakeCall[] = [];
+  let activeRunCalls = 0;
+  let connections = 0;
+  const stub = ((input: string | URL | Request, init?: RequestInit) => {
+    const href = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(href);
+    const method = init?.method ?? "GET";
+    const headers = (init?.headers ?? {}) as Record<string, string>;
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    // Checked BEFORE recording: a real fetch on an aborted signal never
+    // reaches the server, so counting it would make `calls` describe traffic
+    // that did not happen.
+    if (init?.signal?.aborted) {
+      return Promise.reject(new DOMException("Aborted", "AbortError"));
+    }
+    calls.push({ method, path: url.pathname, body, headers });
+    if (url.pathname.endsWith("/active-run")) {
+      const pending = opts.pendings?.[activeRunCalls] ?? [];
+      activeRunCalls += 1;
+      if (activeRunCalls >= opts.abortAfterActiveRunCalls) opts.controller.abort();
+      return Promise.resolve(Response.json({ runId: "run-1", pendingCallerTools: pending }));
+    }
+    if (url.pathname.endsWith("/tool-results")) {
+      const resolved = opts.resolvedAck ?? true;
+      return Promise.resolve(
+        Response.json(resolved ? { ok: true, resolved } : { ok: true, resolved, reason: "already-resolved" }),
+      );
+    }
+    if (url.pathname.endsWith("/permission")) return Promise.resolve(Response.json({ ok: true }));
+    if (url.pathname === "/api/runtime-events") {
+      const script = opts.connections?.[connections];
+      connections += 1;
+      if (script === "throw") return Promise.reject(new Error("connection reset"));
+      return Promise.resolve(
+        new Response(sseBody(script ?? []), { headers: { "Content-Type": "text/event-stream" } }),
+      );
+    }
+    return Promise.resolve(Response.json({ error: "unrouted" }, { status: 404 }));
+  }) as unknown as typeof fetch;
+  return { stub, calls };
+}
+
+function fakeClient(stub: typeof fetch): HarnessClient {
+  return new HarnessClient({ baseUrl: "http://h", apiKey: "ezk_test", fetch: stub });
+}
+
+function callerEvent(over: Partial<CallerToolCall> = {}): string {
+  const data = {
+    conversationId: "c1",
+    runId: "run-1",
+    toolCallId: "tc-1",
+    toolName: "_caller__open_app",
+    input: { app: "notes" },
+    ...over,
+  };
+  return `data: ${JSON.stringify({ type: "caller:tool-call", data })}\n\n`;
+}
+
+const resultPosts = (calls: FakeCall[]) => calls.filter((c) => c.path.endsWith("/tool-results"));
+
+describe("HarnessClient — caller-tool route table + methods", () => {
+  test("every caller-tools route is in the shared table at the registered path", () => {
+    expect(HARNESS_ROUTES.declareCallerTools).toEqual({
+      httpMethod: "PUT",
+      pathTemplate: "/api/conversations/:id/caller-tools",
+    });
+    expect(HARNESS_ROUTES.getCallerTools).toEqual({
+      httpMethod: "GET",
+      pathTemplate: "/api/conversations/:id/caller-tools",
+    });
+    expect(HARNESS_ROUTES.clearCallerTools).toEqual({
+      httpMethod: "DELETE",
+      pathTemplate: "/api/conversations/:id/caller-tools",
+    });
+    expect(HARNESS_ROUTES.submitToolResult).toEqual({
+      httpMethod: "POST",
+      pathTemplate: "/api/conversations/:id/tool-results",
+    });
+    expect(HARNESS_ROUTES.getActiveRun).toEqual({
+      httpMethod: "GET",
+      pathTemplate: "/api/conversations/:id/active-run",
+    });
+  });
+
+  test("declare / read / clear / submit / drain each drive their own verb+path", async () => {
+    const calls: FakeCall[] = [];
+    const stub = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : String(input));
+      calls.push({
+        method: init?.method ?? "GET",
+        path: url.pathname,
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        headers: {},
+      });
+      if (url.pathname.endsWith("/caller-tools") && init?.method === "PUT") {
+        return Promise.resolve(
+          Response.json({ tools: [{ name: "open_app" }], appliedFrom: "next-turn", activeRunId: "r9" }),
+        );
+      }
+      if (url.pathname.endsWith("/caller-tools") && init?.method === "DELETE") {
+        return Promise.resolve(Response.json({ ok: true, cleared: 2 }));
+      }
+      if (url.pathname.endsWith("/caller-tools")) {
+        return Promise.resolve(Response.json({ tools: [{ name: "open_app", description: "d", parameters: {} }] }));
+      }
+      if (url.pathname.endsWith("/tool-results")) {
+        return Promise.resolve(Response.json({ ok: true, resolved: false, reason: "already-resolved" }));
+      }
+      return Promise.resolve(Response.json({ runId: "r9", pendingCallerTools: [] }));
+    }) as unknown as typeof fetch;
+    const c = fakeClient(stub);
+
+    const declared = await c.declareCallerTools("c1", [
+      { name: "open_app", description: "Open an app", parameters: { type: "object" } },
+    ]);
+    expect(declared).toMatchObject({ appliedFrom: "next-turn", activeRunId: "r9" });
+
+    expect(await c.getCallerTools("c1")).toEqual([
+      { name: "open_app", description: "d", parameters: {} },
+    ]);
+    expect(await c.clearCallerTools("c1")).toEqual({ ok: true, cleared: 2 });
+    expect(await c.submitToolResult("c1", "tc-1", { ok: true })).toEqual({
+      ok: true,
+      resolved: false,
+      reason: "already-resolved",
+    });
+    expect(await c.getActiveRun("c1")).toMatchObject({ runId: "r9" });
+
+    expect(calls.map((x) => `${x.method} ${x.path}`)).toEqual([
+      "PUT /api/conversations/c1/caller-tools",
+      "GET /api/conversations/c1/caller-tools",
+      "DELETE /api/conversations/c1/caller-tools",
+      "POST /api/conversations/c1/tool-results",
+      "GET /api/conversations/c1/active-run",
+    ]);
+    expect(calls[0]!.body).toEqual({
+      tools: [{ name: "open_app", description: "Open an app", parameters: { type: "object" } }],
+    });
+    expect(calls[3]!.body).toEqual({ toolCallId: "tc-1", result: { ok: true } });
+  });
+});
+
+describe("HarnessClient — serveCallerTools", () => {
+  test("drains pending calls from active-run BEFORE consuming any event", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      pendings: [
+        [
+          {
+            conversationId: "c1",
+            runId: "run-1",
+            toolCallId: "tc-recovered",
+            toolName: "_caller__open_app",
+            input: { app: "notes" },
+          },
+        ],
+      ],
+      connections: [[]],
+    });
+    const seen: unknown[] = [];
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: (input) => { seen.push(input); return { opened: true }; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(seen).toEqual([{ app: "notes" }]);
+    // The drain POST lands before the SSE connection is even opened.
+    const order = calls.map((c) => c.path);
+    expect(order.indexOf("/api/conversations/c1/tool-results")).toBeLessThan(
+      order.indexOf("/api/runtime-events"),
+    );
+    expect(resultPosts(calls)[0]!.body).toEqual({
+      toolCallId: "tc-recovered",
+      result: {
+        ok: true,
+        toolName: "_caller__open_app",
+        toolCallId: "tc-recovered",
+        detail: { opened: true },
+      },
+    });
+  });
+
+  test("a call delivered by BOTH drain and SSE executes exactly once", async () => {
+    const controller = new AbortController();
+    const call: CallerToolCall = {
+      conversationId: "c1",
+      runId: "run-1",
+      toolCallId: "tc-dupe",
+      toolName: "_caller__open_app",
+      input: {},
+    };
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      pendings: [[call]],
+      connections: [[callerEvent({ toolCallId: "tc-dupe" })]],
+    });
+    let runs = 0;
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { runs += 1; return {}; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(runs).toBe(1);
+    expect(resultPosts(calls)).toHaveLength(1);
+  });
+
+  test("an unknown tool is answered immediately, never parked", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [[callerEvent({ toolCallId: "tc-ghost", toolName: "_caller__no_such_tool" })]],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    const posts = resultPosts(calls);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.body).toMatchObject({
+      toolCallId: "tc-ghost",
+      result: { ok: false, code: "unknown-tool" },
+    });
+    expect((posts[0]!.body as { result: { error: string } }).result.error).toContain("no_such_tool");
+  });
+
+  test("a throwing handler reports a tool-level failure and keeps serving", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          callerEvent({ toolCallId: "tc-boom" }),
+          callerEvent({ toolCallId: "tc-after", toolName: "_caller__ping" }),
+        ],
+      ],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      {
+        open_app: () => { throw new Error("device refused"); },
+        ping: () => "pong",
+      },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    const posts = resultPosts(calls);
+    expect(posts).toHaveLength(2);
+    expect(posts[0]!.body).toMatchObject({
+      result: { ok: false, code: "rejected", error: "device refused" },
+    });
+    expect(posts[1]!.body).toMatchObject({ result: { ok: true, detail: "pong" } });
+  });
+
+  test("a non-Error throw is stringified rather than lost", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [[callerEvent({ toolCallId: "tc-str" })]],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { throw "plain string"; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(resultPosts(calls)[0]!.body).toMatchObject({
+      result: { ok: false, error: "plain string" },
+    });
+  });
+
+  test("a call for another conversation is ignored", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [[callerEvent({ conversationId: "OTHER", toolCallId: "tc-foreign" })]],
+    });
+    let runs = 0;
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { runs += 1; return {}; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(runs).toBe(0);
+    expect(resultPosts(calls)).toHaveLength(0);
+  });
+
+  test("a malformed caller:tool-call payload is dropped, not thrown on", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          // Missing toolCallId / toolName — the two narrowing branches.
+          `data: ${JSON.stringify({ type: "caller:tool-call", data: { conversationId: "c1", runId: "r" } })}\n\n`,
+          `data: ${JSON.stringify({ type: "caller:tool-call", data: { toolCallId: "x", toolName: "y" } })}\n\n`,
+        ],
+      ],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(resultPosts(calls)).toHaveLength(0);
+  });
+
+  test("auto-approves a _caller__* gate and leaves every other gate alone", async () => {
+    const controller = new AbortController();
+    const gate = (toolName: string, toolCallId: string) =>
+      `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName, toolCallId, conversationId: "c1" } })}\n\n`;
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          gate("_caller__open_app", "tc-gate"),
+          gate("shell", "tc-shell"),
+          // A gate with a non-string toolCallId must not be answered either.
+          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: 7 } })}\n\n`,
+        ],
+      ],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    const approvals = calls.filter((c) => c.path.endsWith("/permission"));
+    expect(approvals.map((a) => a.path)).toEqual(["/api/tool-calls/tc-gate/permission"]);
+    expect(approvals[0]!.body).toEqual({ approved: true });
+  });
+
+  test("autoApprove:false answers no gate at all", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: "tc-gate" } })}\n\n`,
+        ],
+      ],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0, autoApprove: false },
+    );
+    expect(calls.filter((c) => c.path.endsWith("/permission"))).toHaveLength(0);
+  });
+
+  test("a run's terminal event drops that run's open calls (and a runId-less one is ignored)", async () => {
+    const controller = new AbortController();
+    const { stub } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          callerEvent({ toolCallId: "tc-open" }),
+          `data: ${JSON.stringify({ type: "run:complete", data: { runId: "run-1" } })}\n\n`,
+          `data: ${JSON.stringify({ type: "run:error", data: {} })}\n\n`,
+          `data: ${JSON.stringify({ type: "run:cancel", data: { runId: "unknown-run" } })}\n\n`,
+        ],
+      ],
+    });
+    // The assertion that matters is that the loop survives all three shapes
+    // and still exits cleanly — a thrown TypeError on the runId-less event
+    // would end the serve loop through the catch and reconnect forever.
+    await expect(
+      fakeClient(stub).serveCallerTools(
+        "c1",
+        { open_app: () => ({}) },
+        { signal: controller.signal, reconnectDelayMs: 0 },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  test("reconnects after a transport failure, re-drains, and reports the error", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 3,
+      pendings: [
+        [],
+        [
+          {
+            conversationId: "c1",
+            runId: "run-2",
+            toolCallId: "tc-missed",
+            toolName: "_caller__open_app",
+            input: {},
+          },
+        ],
+      ],
+      connections: ["throw", []],
+    });
+    const errors: unknown[] = [];
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({ recovered: true }) },
+      { signal: controller.signal, reconnectDelayMs: 0, onError: (e) => errors.push(e) },
+    );
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe("connection reset");
+    // The SECOND drain is what recovered the missed call — replay could not
+    // have, and this is the whole point of draining on every reconnect.
+    expect(resultPosts(calls)[0]!.body).toMatchObject({ toolCallId: "tc-missed" });
+    expect(calls.filter((c) => c.path.endsWith("/active-run"))).toHaveLength(3);
+  });
+
+  test("sends Last-Event-ID on the reconnect, and nothing on the first connect", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 3,
+      connections: [[`id: 42\n${callerEvent({ toolCallId: "tc-id" })}`], []],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    const streams = calls.filter((c) => c.path === "/api/runtime-events");
+    expect(streams).toHaveLength(2);
+    expect(streams[0]!.headers["Last-Event-ID"]).toBeUndefined();
+    expect(streams[1]!.headers["Last-Event-ID"]).toBe("42");
+  });
+
+  test("the dedupe set is bounded — the oldest id is evicted past the ceiling", async () => {
+    // 513 = the 512-entry ceiling + 1. The first id must have been evicted,
+    // so re-delivering it executes again; a later one must NOT.
+    const controller = new AbortController();
+    const many: CallerToolCall[] = Array.from({ length: 513 }, (_, i) => ({
+      conversationId: "c1",
+      runId: "run-1",
+      toolCallId: `tc-${i}`,
+      toolName: "_caller__open_app",
+      input: {},
+    }));
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      pendings: [many],
+      connections: [[callerEvent({ toolCallId: "tc-0" }), callerEvent({ toolCallId: "tc-512" })]],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    const posted = resultPosts(calls).map((c) => (c.body as { toolCallId: string }).toolCallId);
+    // 513 from the drain + one re-run of the evicted tc-0.
+    expect(posted).toHaveLength(514);
+    expect(posted.filter((id) => id === "tc-0")).toHaveLength(2);
+    expect(posted.filter((id) => id === "tc-512")).toHaveLength(1);
+  });
+
+  test("a pre-aborted signal never opens a connection", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { stub, calls } = callerToolsFake({ controller, abortAfterActiveRunCalls: 99 });
+    await fakeClient(stub).serveCallerTools("c1", {}, { signal: controller.signal });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("serveCallerTools — the two events disagree about the tool-name form", () => {
+  test("dispatch works on the BARE name the caller:tool-call actually carries", async () => {
+    // `caller:tool-call` sends `decl.name` (`open_app`), while
+    // `tool:permission_request` sends the runtime's `_caller__open_app`. A
+    // client that assumed one form for both would either never approve its
+    // own gates or never find its own handlers.
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: "tc-gate" } })}\n\n`,
+          callerEvent({ toolCallId: "tc-bare", toolName: "open_app" }),
+        ],
+      ],
+    });
+    let ran = 0;
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { ran += 1; return {}; } },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    // The WIRE-form gate was approved…
+    expect(calls.filter((c) => c.path.endsWith("/permission")).map((c) => c.path)).toEqual([
+      "/api/tool-calls/tc-gate/permission",
+    ]);
+    // …and the BARE-form call found its handler.
+    expect(ran).toBe(1);
+    expect(resultPosts(calls)[0]!.body).toMatchObject({
+      toolCallId: "tc-bare",
+      result: { ok: true, toolName: "open_app" },
+    });
   });
 });

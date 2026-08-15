@@ -558,7 +558,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   // Every one is ownership-gated with the fail-closed sec-H3 idiom: a row
   // with a NULL user_id is admin-only, and denial is 404 rather than 403 so
   // the endpoint is not a conversation-id oracle.
-  { method: "GET", path: "/api/conversations/:id/active-run", description: "The conversation's in-flight run, if any, plus any pending ask-user prompt", category: "conversations", scope: "read" },
+  // Controllable: a caller-executed-tools client re-drains this on every SSE
+  // (re)connect to recover tool calls it missed while disconnected — the SSE
+  // resume ring is 500 GLOBAL entries including every `run:token`, i.e.
+  // seconds of turnover, so replay is best-effort and this read is the
+  // authoritative one.
+  { method: "GET", path: "/api/conversations/:id/active-run", description: "The conversation's in-flight run, if any, plus any pending ask-user prompt and any caller-executed tool calls awaiting a result", category: "conversations", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/conversations/:id/caller-tools", description: "The caller-executed tool declarations currently stored on the conversation (`metadata.callerTools`). Ownership-gated to the root conversation's owner; 404 rather than 403 so it is not a conversation-id oracle", category: "conversations", scope: "read", harness: { controllable: true }, responseDescription: "{ tools: [{ name, description, parameters, timeoutMs? }] }" },
   { method: "GET", path: "/api/conversations/:id/sub-conversations", description: "Enumerate a conversation's sub-conversations (sub-agent spawns)", category: "conversations", scope: "read" },
   { method: "GET", path: "/api/conversations/:id/tasks", description: "Cold-start read of the task-tracking panel snapshot, straight from the task-tracking bundled extension's extension_storage row (409 when that extension is not installed)", category: "conversations", scope: "read" },
   { method: "GET", path: "/api/conversations/:id/tasks/:taskId/messages", description: "Messages for every assignment on one task, grouped by assignment (each assignment's sub-conversation loaded from the DB)", category: "conversations", scope: "read" },
@@ -572,7 +578,13 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PATCH", path: "/api/conversations/:id/messages/:mid", description: "Edit ONE message's content, or toggle its `excluded` flag — XOR, never both; refused while a run is active. Never touches parentMessageId (the session-tree invariant)", category: "conversations", scope: "chat" },
   { method: "POST", path: "/api/conversations/:id/clone-turns", description: "Copy a span of turns into another conversation (fork/branch support)", category: "conversations", scope: "chat" },
   { method: "POST", path: "/api/conversations/:id/agent-chat", description: "Send a message to a named agent config inside the conversation, spawning its sub-conversation run", category: "conversations", scope: "chat" },
-  { method: "POST", path: "/api/conversations/:id/tool-results", description: "Return a CLIENT-side EZ tool's result to the waiting host invocation (resolves the pending ez-client-tool registry entry)", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/tool-results", description: "Return a CLIENT-side tool's result (EZ concierge or caller-executed) to the waiting host invocation. Body capped at 256 KiB, rate-limited 20/s per user. `{ ok, resolved, reason? }` — `ok` means the request was accepted, `resolved` means THIS result reached the waiting tool; a second device that lost the race gets `resolved: false, reason: \"already-resolved\"`", category: "conversations", scope: "chat", harness: { controllable: true }, responseDescription: "{ ok: true, resolved: boolean, reason?: \"already-resolved\" }" },
+  // Caller-executed tool declarations. ROOT-ONLY (400 on a sub-conversation):
+  // the runtime wires caller tools from the conversation it is running and a
+  // sub-conversation inherits none, so accepting a declaration there would
+  // look like it worked and do nothing.
+  { method: "PUT", path: "/api/conversations/:id/caller-tools", description: "Declare the tools this conversation's connected client device can execute (≤16, wired as `_caller__<name>`). Root conversations only — 400 on a sub-conversation. Rate-limited 1/s per user; body capped at 64 KiB", category: "conversations", scope: "chat", harness: { controllable: true }, responseDescription: "{ tools, appliedFrom: \"next-turn\", activeRunId }" },
+  { method: "DELETE", path: "/api/conversations/:id/caller-tools", description: "Drop every caller-executed tool declaration from the conversation. Idempotent — clearing an empty bag is `{ ok: true, cleared: 0 }`, not a 404", category: "conversations", scope: "chat", harness: { controllable: true }, responseDescription: "{ ok: true, cleared: number }" },
   { method: "POST", path: "/api/ask-user/answer", description: "Answer a host-minted `ask_user` prompt by toolCallId — the option label or free text the user submitted", category: "conversations", scope: "chat" },
 
   // ── Task tracking (task-tracking bundled extension's HTTP surface) ────

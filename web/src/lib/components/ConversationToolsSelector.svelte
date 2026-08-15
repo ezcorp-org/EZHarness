@@ -36,11 +36,15 @@
 		selectedMode = null,
 		value = null,
 		orchestrationTools = [],
+		conversationId = "",
 		onchange,
 		onreset,
 	}: {
 		selectedMode?: Mode | null;
 		value?: ToolScopeMap | null;
+		/** Scopes the caller-tools fetch. Empty (no conversation yet) skips it —
+		 *  declarations are per-conversation, so there is nothing to ask for. */
+		conversationId?: string;
 		/** Namespaced (`<ext>__<tool>`) names of the always-wired
 		 *  orchestration tools — their extensions (ask-user, scratchpad)
 		 *  are listed even when the active mode doesn't attach them, since
@@ -54,32 +58,72 @@
 	interface ToolInfo { name: string; description?: string | null }
 	interface ExtInfo { id: string; name: string; description?: string | null; enabled?: boolean; tools: ToolInfo[] }
 
+	/** The pseudo-extension id caller tools are toggled under. A literal, not a
+	 *  UUID — a real extension NAMED `caller` cannot collide, because
+	 *  `extData` and the persisted map are both keyed by extension UUID. */
+	const CALLER_EXT_ID = "caller";
+
 	let open = $state(false);
 	let extData = $state<Record<string, ExtInfo>>({});
+	let callerSection = $state<ExtInfo | null>(null);
 	let loaded = $state(false);
 
+	async function loadExtensions(): Promise<void> {
+		const res = await fetch("/api/extensions");
+		if (!res.ok) return;
+		const data = await res.json();
+		const list: unknown[] = Array.isArray(data)
+			? data
+			: Array.isArray(data?.extensions) ? data.extensions : [];
+		const map: Record<string, ExtInfo> = {};
+		for (const e of list as Array<{ id: string; name?: string; description?: string | null; enabled?: boolean; manifest?: { tools?: ToolInfo[] } }>) {
+			map[e.id] = {
+				id: e.id,
+				name: e.name ?? e.id,
+				description: e.description,
+				enabled: e.enabled,
+				tools: Array.isArray(e.manifest?.tools) ? e.manifest!.tools! : [],
+			};
+		}
+		extData = map;
+	}
+
+	/**
+	 * Caller-executed tools are NOT in `/api/extensions` — they live in the
+	 * conversation's own metadata, declared over HTTP by whatever client
+	 * device is connected. They are synthesised into one section so the
+	 * existing toggle path treats them like any other extension: the
+	 * persisted map is `Record<extId, string[]>` with plain `map[extId]`
+	 * access, so `"caller"` needs no special case anywhere downstream.
+	 */
+	async function loadCallerTools(): Promise<void> {
+		if (!conversationId) return;
+		const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/caller-tools`);
+		if (!res.ok) return;
+		const data = await res.json();
+		const tools: ToolInfo[] = Array.isArray(data?.tools)
+			? (data.tools as Array<{ name: string; description?: string | null }>).map((t) => ({
+					name: t.name,
+					description: t.description,
+				}))
+			: [];
+		if (tools.length === 0) return;
+		callerSection = {
+			id: CALLER_EXT_ID,
+			name: "Caller tools",
+			description: "Tools executed on your connected client device",
+			tools,
+		};
+	}
+
 	onMount(async () => {
-		try {
-			const res = await fetch("/api/extensions");
-			if (res.ok) {
-				const data = await res.json();
-				const list: unknown[] = Array.isArray(data)
-					? data
-					: Array.isArray(data?.extensions) ? data.extensions : [];
-				const map: Record<string, ExtInfo> = {};
-				for (const e of list as Array<{ id: string; name?: string; description?: string | null; enabled?: boolean; manifest?: { tools?: ToolInfo[] } }>) {
-					map[e.id] = {
-						id: e.id,
-						name: e.name ?? e.id,
-						description: e.description,
-						enabled: e.enabled,
-						tools: Array.isArray(e.manifest?.tools) ? e.manifest!.tools! : [],
-					};
-				}
-				extData = map;
-			}
-		} catch { /* non-fatal */ }
-		finally { loaded = true; }
+		// Both in flight together: they are independent reads and the popover
+		// is gated on ONE `loaded` flag, so serialising them would just make
+		// the first paint later. `allSettled` (not `all`) because either read
+		// failing is non-fatal and must not hide the other's success — the
+		// popover renders whatever resolved.
+		await Promise.allSettled([loadExtensions(), loadCallerTools()]);
+		loaded = true;
 	});
 
 	// The inherited baseline: the mode's attached extensions, each restricted
@@ -103,6 +147,11 @@
 		ext.tools.some((t) => orchestrationSet.has(`${ext.name}__${t.name}`));
 	// `undefined` (older API shapes / fixtures) counts as enabled.
 	const isEnabledExt = (ext: ExtInfo) => ext.enabled !== false;
+	// The caller section, when the conversation declared any. Appended LAST in
+	// both branches: a mode cannot name a caller tool (modes reference
+	// extension ids), so it belongs to neither the inherited baseline nor the
+	// installed-extension listing — it is the connected device's own surface.
+	const callerSections = $derived(callerSection ? [callerSection] : []);
 	let sections = $derived(
 		hasMode
 			? [
@@ -121,10 +170,14 @@
 					...Object.values(extData)
 						.filter((ext) => isEnabledExt(ext) && !modeExtIds.includes(ext.id) && isOrchestrationExt(ext))
 						.sort((a, b) => a.name.localeCompare(b.name)),
+					...callerSections,
 				]
-			: Object.values(extData)
-					.filter((ext) => isEnabledExt(ext) && ext.tools.length > 0)
-					.sort((a, b) => a.name.localeCompare(b.name)),
+			: [
+					...Object.values(extData)
+						.filter((ext) => isEnabledExt(ext) && ext.tools.length > 0)
+						.sort((a, b) => a.name.localeCompare(b.name)),
+					...callerSections,
+				],
 	);
 
 	// The conversation override map we mutate. Null means "inherit" — we treat

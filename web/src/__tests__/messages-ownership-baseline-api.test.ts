@@ -110,19 +110,22 @@ mock.module("$server/db/queries/projects", () => ({
 // ── auth + scope ───────────────────────────────────────────────────────
 
 let mockAuthUser: { id: string; email: string; name: string; role: string } | null = ownerUser;
+const { isInteractiveSession } = await import("$server/auth/middleware");
+
+// `isInteractiveSession` is re-exported from the REAL module rather than
+// re-implemented: `mock.module` REPLACES the whole module object, so a
+// partial factory turns any other export into a load-time
+// `SyntaxError: Export named '…' not found`. The messages route reaches it
+// through `auth/permission-mode-ceiling.ts`, which landed after this mock
+// was written — a re-implementation here would just re-break on the next
+// export the ceiling grows.
 mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: { user?: unknown }) => {
     const u = locals?.user ?? mockAuthUser;
     if (!u) throw Response.json({ error: "Unauthorized" }, { status: 401 });
     return u;
   },
-  // `permission-mode-ceiling.ts` imports `isInteractiveSession` from this same
-  // module, so a partial factory here makes the WHOLE mock fail to link:
-  // "Export named 'isInteractiveSession' not found". The messages route reaches
-  // the ceiling module, so the omission reds this file outright rather than
-  // failing an assertion. Cookie/session is the honest answer for these suites
-  // — every one of them drives the route as an interactive user.
-  isInteractiveSession: () => true,
+  isInteractiveSession,
 }));
 
 mock.module("$lib/server/security/api-keys", () => ({
