@@ -192,6 +192,16 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // the Ez panel is the only consumer, its tool call times out and reports
   // an error, and nothing is silently mis-filled.
   "ez:client-tool",
+  // Caller-executed tool delivery. Belongs here for BOTH of the reasons
+  // above, and more sharply: the payload's `input` is the LLM's raw
+  // arguments for a call that will run on the user's OWN MACHINE, and the
+  // event additionally carries `userId` so the exact-user narrowing branch
+  // can confine delivery to the declaring owner's own connections. Fail
+  // CLOSED and never extension-subscribable — an extension that received
+  // these could watch, and (through a forged result POST it is not
+  // authorized to make) at least infer, everything the companion device is
+  // asked to do.
+  "caller:tool-call",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────

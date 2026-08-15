@@ -12,7 +12,7 @@
  *     without rejecting (mirrors `/api/ask-user/answer`'s
  *     optimistic-dismissal contract).
  *   - Happy path: resolves the registered Promise via
- *     `resolveEzClientTool` so the suspended tool body wakes.
+ *     `resolveRemoteTool` so the suspended tool body wakes.
  *
  * The registry side is exercised here with the real module — it's
  * stateless server-local code that the endpoint imports directly.
@@ -30,10 +30,33 @@ const { POST } = await import(
   "../routes/api/conversations/[id]/tool-results/+server.ts"
 );
 const {
-  registerPendingEzClientTool,
-  getPendingEzClientTool,
-  _resetPendingEzClientToolsForTests,
-} = await import("$server/runtime/ez-client-tool-registry");
+  registerPendingRemoteTool,
+  getPendingRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} = await import("$server/runtime/remote-tool-registry");
+
+/**
+ * Register a pending entry the way the Ez client-tool adapter does. The
+ * generalized registry serves two families, so the family-specific fields
+ * (origin, gate budget, timeout sentence) are explicit at every call site —
+ * this helper supplies the Ez ones so the endpoint tests below stay about the
+ * HTTP boundary.
+ */
+function registerEzPending(opts: {
+  toolCallId: string;
+  conversationId: string;
+  userId: string | null;
+}): Promise<unknown> {
+  return registerPendingRemoteTool({
+    ...opts,
+    toolName: "fill_form",
+    input: { formId: "agent-new", values: {} },
+    runId: null,
+    origin: "ez",
+    timeoutMs: 5 * 60_000,
+    timeoutMessage: "Timed out waiting for Ez client tool result",
+  });
+}
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -58,7 +81,7 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => {
   beforeEach(() => {
     getConversation.mockReset();
-    _resetPendingEzClientToolsForTests();
+    _resetPendingRemoteToolsForTests();
   });
 
   test("happy path: resolves the registered Promise with the panel's payload", async () => {
@@ -66,7 +89,7 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
 
     // Register a pending entry as if a fill_form had just suspended.
     let resolved: unknown = null;
-    const pending = registerPendingEzClientTool({
+    const pending = registerEzPending({
       toolCallId: "call-fill-1",
       conversationId: "ez-conv",
       userId: "u1",
@@ -90,12 +113,12 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
     expect(json.resolved).toBe(true);
 
     // The Promise should have settled by the time the response was
-    // returned (resolveEzClientTool calls resolve synchronously).
+    // returned (resolveRemoteTool calls resolve synchronously).
     await new Promise<void>((r) => setTimeout(r, 0));
     expect(resolved).toMatchObject({ ok: true, detail: { formId: "agent-new" } });
 
     // Registry entry cleared.
-    expect(getPendingEzClientTool("call-fill-1")).toBeUndefined();
+    expect(getPendingRemoteTool("call-fill-1")).toBeUndefined();
   });
 
   test("late POST: no pending entry → returns { ok: true, late: true } without erroring", async () => {
@@ -115,7 +138,7 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
 
   test("conversation mismatch: URL [id] != pending.conversationId → 404, Promise NOT resolved", async () => {
     let resolved = false;
-    const pending = registerPendingEzClientTool({
+    const pending = registerEzPending({
       toolCallId: "call-mismatch",
       conversationId: "ez-conv-A",
       userId: "u1",
@@ -139,13 +162,13 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
     expect(resolved).toBe(false);
     // Entry remains pending so a correctly-routed POST can still
     // resolve it.
-    expect(getPendingEzClientTool("call-mismatch")).toBeDefined();
+    expect(getPendingRemoteTool("call-mismatch")).toBeDefined();
   });
 
   test("user mismatch: pending.userId != acting user → 404, Promise NOT resolved", async () => {
     getConversation.mockResolvedValue({ id: "ez-conv", userId: "OTHER", kind: "ez" });
     let resolved = false;
-    const pending = registerPendingEzClientTool({
+    const pending = registerEzPending({
       toolCallId: "call-cross-user",
       conversationId: "ez-conv",
       userId: "OTHER", // not u1
@@ -166,7 +189,7 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
   });
 
   test("malformed body → 400 (extra unknown key under strict() schema)", async () => {
-    registerPendingEzClientTool({
+    registerEzPending({
       toolCallId: "call-malformed",
       conversationId: "ez-conv",
       userId: "u1",
@@ -197,7 +220,7 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
   });
 
   test("unauthenticated request: requireAuth throws → propagates as a server error", async () => {
-    registerPendingEzClientTool({
+    registerEzPending({
       toolCallId: "call-no-auth",
       conversationId: "ez-conv",
       userId: "u1",

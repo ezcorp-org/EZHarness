@@ -97,8 +97,13 @@ export const LONG_BLOCKING_WATCHDOG_BUDGET_MS = 3_600_000;
  *  under their runtime AgentTool name, which is `<ext>__<tool>` for every
  *  extension EXCEPT orchestration (wired bare), so a bare set entry never
  *  matches a namespaced tool name without this. Returns the input unchanged
- *  when there's no `__`. */
-function stripToolNamespace(name: string): string {
+ *  when there's no `__`.
+ *
+ *  Exported because the caller-tool declaration rules are stated in terms of
+ *  it: a declared name is refused when `_caller__<name>` strips into a
+ *  reserved set, and that check has to use the SAME strip this file's
+ *  preservation test uses or the two can disagree. */
+export function stripToolNamespace(name: string): string {
   const i = name.indexOf("__");
   return i === -1 ? name : name.slice(i + 2);
 }
@@ -158,6 +163,27 @@ export interface ToolFilterOptions {
    * HOST-CODE trust declaration — never populate it from user input.
    */
   readOnlyAllowedTools?: string[];
+  /**
+   * Tool names carried through the restriction / allow / deny layers exactly
+   * as {@link ORCHESTRATION_TOOLS} are — and, exactly as they are, still
+   * removable by `forceDeniedTools`.
+   *
+   * Exists for caller-executed tools. A mode names its tool surface with
+   * `extensionIds` / `allowedTools`, and a caller tool belongs to no
+   * extension and cannot be named by either, so ANY mode with `extensionIds`,
+   * `read-only`, `none`, or `allowlist` would silently strip every caller tool
+   * from a conversation that declared them. Preservation is what makes the
+   * declaration mean something under a mode.
+   *
+   * NOT preservation for the `forceDeniedTools` layer, and that asymmetry is
+   * the design: that layer carries the conversation's own Tools-dropdown
+   * toggles, so switching caller tools off has to be a real revocation rather
+   * than a suggestion.
+   *
+   * HOST-CODE trust declaration, like `readOnlyAllowedTools`: the executor is
+   * the sole populator, from the conversation's own stored declarations.
+   */
+  preservedTools?: string[];
 }
 
 /**
@@ -181,17 +207,22 @@ export function applyToolFilters<T extends { name: string }>(
   opts: ToolFilterOptions,
 ): T[] {
   let out = tools;
+  // Orchestration tools plus the caller's declared tools: one predicate, used
+  // by every layer EXCEPT `forceDeniedTools` (see `preservedTools`).
+  const hostPreserved = new Set(opts.preservedTools ?? []);
+  const keep = (name: string): boolean =>
+    isPreservedOrchestrationTool(name) || hostPreserved.has(name);
 
   if (opts.toolRestriction === "read-only") {
     const readOnlyVouched = new Set(opts.readOnlyAllowedTools ?? []);
     out = out.filter((t) => {
-      if (isPreservedOrchestrationTool(t.name)) return true;
+      if (keep(t.name)) return true;
       if (readOnlyVouched.has(t.name)) return true;
       const def = builtinDefs.get(t.name);
       return def ? def.category === "read" : false;
     });
   } else if (opts.toolRestriction === "none") {
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name));
+    out = out.filter((t) => keep(t.name));
   } else if (opts.toolRestriction === "allowlist") {
     // Fail-closed: 'allowlist' restriction without an allowedTools list is a
     // misconfiguration. Strip everything except orchestration tools so a stray
@@ -199,18 +230,18 @@ export function applyToolFilters<T extends { name: string }>(
     // The intended path supplies allowedTools below; this branch only fires
     // if allowedTools is missing/empty alongside restriction='allowlist'.
     if (!opts.allowedTools || opts.allowedTools.length === 0) {
-      out = out.filter((t) => isPreservedOrchestrationTool(t.name));
+      out = out.filter((t) => keep(t.name));
     }
   }
 
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     const allow = new Set(opts.allowedTools);
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || allow.has(t.name));
+    out = out.filter((t) => keep(t.name) || allow.has(t.name));
   }
 
   if (opts.deniedTools && opts.deniedTools.length > 0) {
     const deny = new Set(opts.deniedTools);
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || !deny.has(t.name));
+    out = out.filter((t) => keep(t.name) || !deny.has(t.name));
   }
 
   if (opts.forceDeniedTools && opts.forceDeniedTools.length > 0) {

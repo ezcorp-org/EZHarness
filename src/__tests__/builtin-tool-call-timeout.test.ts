@@ -76,7 +76,7 @@ import {
   createNavigateToTool,
   createReadPageTool,
 } from "../runtime/tools/ez";
-import { ezClientToolWatchdogBudgetMs } from "../runtime/ez-client-tool-registry";
+import { ezClientToolWatchdogBudgetMs } from "../runtime/tools/ez/client-tool";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────

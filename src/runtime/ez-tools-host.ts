@@ -12,7 +12,7 @@
  *     `bus`). Wiring them inline in setup-tools.ts would balloon the
  *     already-dense tool-loading block.
  *   - Three of them (`fill_form`, `navigate_to`, `read_page`) are client-side and
- *     suspend on the `ez-client-tool-registry`. Hosting their
+ *     suspend on the `remote-tool-registry`. Hosting their
  *     registration here keeps the registry coupling local.
  *   - The Ez tools must reach `ctx.agentTools` BEFORE the executor's
  *     allowlist filter runs (executor.ts:432-435) — otherwise the

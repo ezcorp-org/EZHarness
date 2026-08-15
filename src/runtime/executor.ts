@@ -1119,6 +1119,25 @@ export class AgentExecutor {
     // SAME narrowing — a mode allowlist or a team deny-list must not be
     // widenable by installing something.
     const runToolScopes: import("./tools/filter").ToolFilterOptions[] = [];
+    // Caller-executed tools belong to no extension, so no mode can name them
+    // in `extensionIds` / `allowedTools` and every narrowing layer would strip
+    // them from a conversation that explicitly declared them. THIS is the sole
+    // populator of `preservedTools` — it is a host-code trust declaration, read
+    // from the conversation's own stored declarations, and it rides every
+    // scope pushed below so `prepareNextTurnWithContext` re-applies it when the
+    // toolset is re-assembled mid-run.
+    const { readCallerToolsFromMetadata, callerToolWireName } = await import(
+      "./caller-tool-declarations"
+    );
+    const callerToolNames = readCallerToolsFromMetadata(convRecord?.metadata).map(
+      (decl) => callerToolWireName(decl.name),
+    );
+    const pushScope = (scope: import("./tools/filter").ToolFilterOptions): void => {
+      const withPreserved =
+        callerToolNames.length > 0 ? { ...scope, preservedTools: callerToolNames } : scope;
+      runToolScopes.push(withPreserved);
+      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, withPreserved);
+    };
     try {
       const { computeModeToolScope } = await import("./tools/mode-tool-scope");
       let mode = null;
@@ -1136,11 +1155,9 @@ export class AgentExecutor {
         mode,
         convRecord?.extensionTools ?? null,
         ExtensionRegistry.getInstance(),
+        callerToolNames,
       );
-      if (scope) {
-        runToolScopes.push(scope);
-        ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, scope);
-      }
+      if (scope) pushScope(scope);
     } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
 
     // Apply invocation-level scoping (member override restriction + team-level
@@ -1156,8 +1173,7 @@ export class AgentExecutor {
         // unattended run's read-only restriction — see tools/filter.ts).
         readOnlyAllowedTools: options.readOnlyAllowedTools,
       };
-      runToolScopes.push(invocationScope);
-      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, invocationScope);
+      pushScope(invocationScope);
     }
 
     /**

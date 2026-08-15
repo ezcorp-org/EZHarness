@@ -6,9 +6,9 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import {
-  getPendingEzClientTool,
-  resolveEzClientTool,
-} from "$server/runtime/ez-client-tool-registry";
+  getPendingRemoteTool,
+  resolveRemoteTool,
+} from "$server/runtime/remote-tool-registry";
 
 /**
  * POST /api/conversations/[id]/tool-results
@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   // Late-POST: registry entry already cleared (timeout/abort/server
   // restart). Return ok without emitting — mirrors ask-user/answer.
-  const pending = getPendingEzClientTool(toolCallId);
+  const pending = getPendingRemoteTool(toolCallId);
   if (!pending) return json({ ok: true, late: true });
 
   // Authorization: the URL [id] must agree with the registered
@@ -89,6 +89,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(404, "Not found");
   }
 
-  const resolved = resolveEzClientTool(toolCallId, result);
+  const resolved = resolveRemoteTool(toolCallId, result);
   return json({ ok: true, resolved });
 };

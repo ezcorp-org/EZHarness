@@ -7,8 +7,8 @@
  * result. This test pins the new contract:
  *
  *   - `createFillFormTool({...}).execute(...)` SUSPENDS until the
- *     `ez-client-tool-registry` resolves the matching `toolCallId`.
- *   - `resolveEzClientTool(toolCallId, panelResult)` wakes the suspended
+ *     `remote-tool-registry` resolves the matching `toolCallId`.
+ *   - `resolveRemoteTool(toolCallId, panelResult)` wakes the suspended
  *     Promise and the tool returns a normalized AgentToolResult.
  *   - The result the LLM sees reflects `{ ok: true, detail: { formId } }`
  *     vs `{ ok: false, error, code }` in the panel's DispatchResult shape.
@@ -24,21 +24,23 @@ import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import { createFillFormTool, createNavigateToTool } from "../runtime/tools/ez";
 import {
-  resolveEzClientTool,
-  rejectEzClientTool,
-  getPendingEzClientTool,
   _setEzClientToolTimeoutForTests,
   _resetEzClientToolTimeoutForTests,
-  _resetPendingEzClientToolsForTests,
-} from "../runtime/ez-client-tool-registry";
+} from "../runtime/tools/ez/client-tool";
+import {
+  resolveRemoteTool,
+  rejectRemoteTool,
+  getPendingRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} from "../runtime/remote-tool-registry";
 
 beforeEach(() => {
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 afterEach(() => {
   _resetEzClientToolTimeoutForTests();
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 function bus(): EventBus<AgentEvents> {
@@ -46,7 +48,7 @@ function bus(): EventBus<AgentEvents> {
 }
 
 describe("fill_form / navigate_to round-trip via the ez-client-tool registry", () => {
-  test("fill_form Promise suspends until resolveEzClientTool is called", async () => {
+  test("fill_form Promise suspends until resolveRemoteTool is called", async () => {
     const tool = createFillFormTool({
       conversationId: "conv-1",
       bus: bus(),
@@ -84,7 +86,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     observedToolCallId = events[0]!.toolCallId;
 
     // The registry must hold the pending entry between emit and resolve.
-    const pendingEntry = getPendingEzClientTool(observedToolCallId);
+    const pendingEntry = getPendingRemoteTool(observedToolCallId);
     expect(pendingEntry).toBeDefined();
     expect(pendingEntry!.conversationId).toBe("conv-1");
     expect(pendingEntry!.userId).toBe("user-1");
@@ -96,7 +98,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
       toolCallId: observedToolCallId,
       detail: { formId: "agent-new" },
     };
-    const resolved = resolveEzClientTool(observedToolCallId, dispatchSuccess);
+    const resolved = resolveRemoteTool(observedToolCallId, dispatchSuccess);
     expect(resolved).toBe(true);
 
     const result = await pending;
@@ -127,7 +129,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
       error: "No handler registered for form 'agent-new'",
       code: "no-handler" as const,
     };
-    expect(resolveEzClientTool("call-fill-2", dispatchFailure)).toBe(true);
+    expect(resolveRemoteTool("call-fill-2", dispatchFailure)).toBe(true);
 
     const result = await pending;
     expect((result.details as Record<string, unknown>).isError).toBe(true);
@@ -158,7 +160,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     expect(events[0]!.input).toEqual({ path: "/marketplace?q=pdf" });
 
     expect(
-      resolveEzClientTool("call-nav-1", {
+      resolveRemoteTool("call-nav-1", {
         ok: true,
         toolName: "navigate_to",
         toolCallId: "call-nav-1",
@@ -171,7 +173,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     expect((result.details as Record<string, unknown>).isError).toBeUndefined();
   });
 
-  test("rejectEzClientTool returns a tool error result (abort path)", async () => {
+  test("rejectRemoteTool returns a tool error result (abort path)", async () => {
     const sharedBus = bus();
     const tool = createFillFormTool({
       conversationId: "conv-3",
@@ -181,7 +183,7 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     const pending = tool.execute("call-fill-abort", { formId: "agent-new", values: { name: "X" } });
 
     await new Promise<void>((r) => setTimeout(r, 0));
-    expect(rejectEzClientTool("call-fill-abort", "User aborted before answering")).toBe(true);
+    expect(rejectRemoteTool("call-fill-abort", "User aborted before answering")).toBe(true);
 
     const result = await pending;
     expect((result.details as Record<string, unknown>).isError).toBe(true);
@@ -207,11 +209,11 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     }
   });
 
-  test("late resolveEzClientTool (after the gate already cleared) is a silent no-op", () => {
-    expect(resolveEzClientTool("never-registered-id", { ok: true })).toBe(false);
+  test("late resolveRemoteTool (after the gate already cleared) is a silent no-op", () => {
+    expect(resolveRemoteTool("never-registered-id", { ok: true })).toBe(false);
   });
 
-  test("getPendingEzClientTool returns the conversationId + userId captured at register-time", async () => {
+  test("getPendingRemoteTool returns the registration the ez adapter made", async () => {
     const sharedBus = bus();
     const tool = createFillFormTool({
       conversationId: "conv-auth",
@@ -220,11 +222,20 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
     });
     const pending = tool.execute("call-auth", { formId: "agent-new", values: { name: "X" } });
     await new Promise<void>((r) => setTimeout(r, 0));
-    const entry = getPendingEzClientTool("call-auth");
-    expect(entry).toEqual({ conversationId: "conv-auth", userId: "user-auth" });
+    const entry = getPendingRemoteTool("call-auth");
+    // conversationId + userId are what the POST endpoint authorizes against;
+    // origin + toolName are what tell the two remote-tool families apart in
+    // one shared map.
+    expect(entry).toMatchObject({
+      conversationId: "conv-auth",
+      userId: "user-auth",
+      toolName: "fill_form",
+      origin: "ez",
+      runId: null,
+    });
 
     // Cleanup so the test doesn't hang the suite after the timeout window.
-    resolveEzClientTool("call-auth", { ok: true, detail: {} });
+    resolveRemoteTool("call-auth", { ok: true, detail: {} });
     await pending;
   });
 });

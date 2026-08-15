@@ -7,8 +7,8 @@
  *
  * After the Wave 2 fix-wiring change the tools no longer return a
  * synchronous `EZ_CLIENT_TOOL_DEFERRED_MARKER` placeholder — they
- * suspend on the `ez-client-tool-registry`'s Promise until the panel's
- * POST handler calls `resolveEzClientTool(toolCallId, dispatchResult)`.
+ * suspend on the `remote-tool-registry`'s Promise until the panel's
+ * POST handler calls `resolveRemoteTool(toolCallId, dispatchResult)`.
  * The full round-trip contract is pinned in
  * `ez-client-tool-roundtrip.test.ts`. THIS suite stays focused on the
  * stub-shape invariants:
@@ -33,9 +33,9 @@ import {
   isValidInAppPath,
 } from "../runtime/tools/ez";
 import {
-  resolveEzClientTool,
-  _resetPendingEzClientToolsForTests,
-} from "../runtime/ez-client-tool-registry";
+  resolveRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} from "../runtime/remote-tool-registry";
 import { expectDetails, expectText } from "./helpers/expect-tool-result";
 
 interface ClientToolDetails {
@@ -48,11 +48,11 @@ interface ClientToolDetails {
 }
 
 beforeEach(() => {
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 afterEach(() => {
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 function bus(): EventBus<AgentEvents> {
@@ -86,7 +86,7 @@ describe("fill_form (client-side stub)", () => {
     const tool = createFillFormTool({ conversationId: "conv-x", bus: b });
 
     // Spawn the call — DO NOT await synchronously, the tool now suspends
-    // until resolveEzClientTool is called.
+    // until resolveRemoteTool is called.
     const pending = tool.execute("call-1", { formId: "agent-new", values: { name: "Foo" } });
 
     await tick();
@@ -100,7 +100,7 @@ describe("fill_form (client-side stub)", () => {
 
     // Wake the suspended Promise with a panel-shaped success result.
     expect(
-      resolveEzClientTool("call-1", {
+      resolveRemoteTool("call-1", {
         ok: true,
         toolName: "fill_form",
         toolCallId: "call-1",
@@ -161,7 +161,7 @@ describe("navigate_to (client-side stub)", () => {
     });
 
     expect(
-      resolveEzClientTool("nav-1", {
+      resolveRemoteTool("nav-1", {
         ok: true,
         toolName: "navigate_to",
         toolCallId: "nav-1",

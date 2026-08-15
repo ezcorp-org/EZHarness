@@ -25,6 +25,14 @@ export interface TestPermissionDeps {
   toolAbortControllers: Map<string, AbortController>;
   /** `(runId, toolCallId)` pairs passed to `watchdog.refreshToolStart`. */
   refreshed: Array<{ runId: string; toolCallId: string }>;
+  /**
+   * Every `projectId` handed to `getPermissionMode`, in call order.
+   *
+   * A gate that must fire REGARDLESS of mode is only proven by showing the
+   * mode was never asked for — an assertion on the outcome alone passes just
+   * as well against a wrapper that resolved `ask` and gated on that.
+   */
+  modeLookups: string[];
   /** Reassign to drive mid-run permission-mode switching. */
   setBusOverrideMode(mode: PermissionMode | undefined): void;
 }
@@ -47,6 +55,7 @@ export function makeTestPermissionDeps(
   const pendingPermissions = new Map<string, PendingPermissionInfo>();
   const toolAbortControllers = new Map<string, AbortController>();
   const refreshed: Array<{ runId: string; toolCallId: string }> = [];
+  const modeLookups: string[] = [];
   let busOverrideMode: PermissionMode | undefined;
 
   const ctx = { toolAbortControllers } as unknown as StreamChatContext;
@@ -68,7 +77,10 @@ export function makeTestPermissionDeps(
     projectId: "projectId" in opts ? opts.projectId : "proj-test",
     requestedMode: opts.requestedMode,
     getBusOverrideMode: () => busOverrideMode,
-    getPermissionMode: async () => opts.storedMode ?? "yolo",
+    getPermissionMode: async (projectId: string) => {
+      modeLookups.push(projectId);
+      return opts.storedMode ?? "yolo";
+    },
     watchdog: host.watchdog,
     ...(opts.gateOptions ? { gateOptions: opts.gateOptions } : {}),
   };
@@ -79,6 +91,7 @@ export function makeTestPermissionDeps(
     pendingPermissions,
     toolAbortControllers,
     refreshed,
+    modeLookups,
     setBusOverrideMode: (mode) => {
       busOverrideMode = mode;
     },

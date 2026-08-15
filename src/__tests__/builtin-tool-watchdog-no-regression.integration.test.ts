@@ -79,11 +79,13 @@ import type { BuiltinToolDef } from "../runtime/tools/types";
 import { createReadPageTool } from "../runtime/tools/ez";
 import {
   ezClientToolWatchdogBudgetMs,
-  resolveEzClientTool,
   _setEzClientToolTimeoutForTests,
   _resetEzClientToolTimeoutForTests,
-  _resetPendingEzClientToolsForTests,
-} from "../runtime/ez-client-tool-registry";
+} from "../runtime/tools/ez/client-tool";
+import {
+  resolveRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} from "../runtime/remote-tool-registry";
 import { Type } from "@earendil-works/pi-ai";
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
@@ -115,7 +117,7 @@ afterEach(() => {
   // The Ez suite below installs a shortened gate + leaves entries behind
   // on its abort path; clear both so no real 5-minute timer outlives a test.
   _resetEzClientToolTimeoutForTests();
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 async function advanceAndTick(deltaMs: number): Promise<void> {
@@ -493,7 +495,7 @@ describe("Ez client-side tool: watchdog defers for the whole panel round-trip", 
 
     // The panel finally answers (user was reading, or the link was slow).
     expect(
-      resolveEzClientTool(toolCallId, {
+      resolveRemoteTool(toolCallId, {
         ok: true,
         detail: { route: "/agents/new", title: "New agent" },
       }),

@@ -928,6 +928,22 @@ export interface AgentEvents {
     toolName: string;
     input: unknown;
   };
+  // ── Caller-executed tools.
+  //    Emitted when the LLM calls a tool an external application declared on
+  //    this conversation: the app receives it over SSE, runs the call on ITS
+  //    machine, and POSTs the result back to the same `tool-results` endpoint
+  //    the Ez panel uses. `userId` is the conversation owner, carried so the
+  //    SSE filter can narrow delivery to that user's own connections.
+  //    `toolName` is the BARE declared name the app dispatches on, never the
+  //    `_caller__` wire form.
+  "caller:tool-call": {
+    conversationId: string;
+    runId: string;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    userId: string;
+  };
   // ── Task Tracking Panel ──
   "task:snapshot": {
     conversationId: string;
