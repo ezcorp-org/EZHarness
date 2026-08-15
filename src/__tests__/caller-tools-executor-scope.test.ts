@@ -25,13 +25,25 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 // ── Capture what pi-agent-core's Agent receives ──────────────────────
-let capturedAgentOpts: { initialState: { tools: Array<{ name: string }> } } | null = null;
+type CapturedTool = {
+  name: string;
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal?: AbortSignal,
+  ) => Promise<{ content: Array<{ type: string; text: string }> }>;
+};
+let capturedAgentOpts: { initialState: { tools: CapturedTool[] } } | null = null;
+/** Fires inside the Agent constructor — i.e. AFTER setupTools has resolved and
+ *  BEFORE the run tears down. The one deterministic mid-run seam. */
+let onAgentConstructed: (() => void) | null = null;
 
 mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: undefined };
-    constructor(opts: { initialState: { tools: Array<{ name: string }> } }) {
+    constructor(opts: { initialState: { tools: CapturedTool[] } }) {
       capturedAgentOpts = opts;
+      onAgentConstructed?.();
     }
     prompt = mock(async () => {});
     subscribe = mock((fn: (e: { type: string; messages: unknown[] }) => void) => {
@@ -157,6 +169,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   capturedAgentOpts = null;
+  onAgentConstructed = null;
 });
 
 async function conversationWithCallerTools(
@@ -222,5 +235,76 @@ describe("revocation outranks preservation", () => {
       extensionTools: { caller: ["open_app"] },
     });
     expect(await toolNames(convId, readOnlyModeId)).toContain("_caller__open_app");
+  });
+});
+
+describe("a mid-run permission-mode switch reaches tools already wrapped", () => {
+  // Shares this file's bootstrap because it needs the same thing nothing else
+  // provides: the REAL setup-tools wiring, driven through streamChat.
+  //
+  // `busOverrideMode` is a `let` that a `tool:permission_mode_change`
+  // subscription reassigns AFTER every tool has been wrapped, so
+  // `PermissionWrapDeps.getBusOverrideMode` must be a GETTER. Capturing the
+  // value at wrap time fails silently and completely: the tools still run,
+  // just under the mode that was in effect when the turn started, and every
+  // unit test of the wrapper still passes. `permission-wrap.test.ts` pins the
+  // getter against a synthetic deps object; only a real run can show that
+  // setup-tools' subscription is actually connected to it.
+  test("switching to `ask` mid-run makes an already-wrapped shell call gate", async () => {
+    const { resolvePermission } = await import("../runtime/tools/permissions");
+    const convId = await conversationWithCallerTools({ declare: false });
+    const bus = new EventBus<AgentEvents>();
+    const requests: string[] = [];
+    bus.on("tool:permission_request", (e) => requests.push(e.toolName));
+
+    // The project has no stored mode, so the turn starts at the default
+    // (`yolo`) — under which `shell` runs ungated.
+    onAgentConstructed = () => {
+      bus.emit("tool:permission_mode_change", { conversationId: convId, mode: "ask" });
+    };
+    const executor = new AgentExecutor(new Map(), bus, { persist: false });
+    await executor.streamChat(convId, "do something", { projectId });
+
+    const shell = capturedAgentOpts?.initialState.tools.find((t) => t.name === "shell");
+    if (!shell) throw new Error("the shell tool was not wired");
+    const call = shell.execute("tc-mode-switch", { command: "echo hi" });
+    // The gate opened, which it could only do if the wrapper re-read the
+    // override rather than the start-of-turn mode. Polled, not timed: the
+    // emit is a couple of microtasks away and this waits for the STATE, so a
+    // loaded box makes it slower, never red.
+    for (let i = 0; i < 200 && requests.length === 0; i++) {
+      await new Promise<void>((r) => setTimeout(r, 1));
+    }
+    expect(requests).toEqual(["shell"]);
+
+    resolvePermission("tc-mode-switch", false);
+    expect((await call).content[0]!.text).toContain("Permission denied");
+  });
+
+  test("a mode change for ANOTHER conversation is ignored", async () => {
+    const { getPendingApproval } = await import("../runtime/tools/permissions");
+    const convId = await conversationWithCallerTools({ declare: false });
+    const bus = new EventBus<AgentEvents>();
+    const requests: string[] = [];
+    bus.on("tool:permission_request", (e) => requests.push(e.toolName));
+
+    onAgentConstructed = () => {
+      bus.emit("tool:permission_mode_change", {
+        conversationId: "some-other-conversation",
+        mode: "ask",
+      });
+    };
+    const executor = new AgentExecutor(new Map(), bus, { persist: false });
+    await executor.streamChat(convId, "do something", { projectId });
+
+    const shell = capturedAgentOpts?.initialState.tools.find((t) => t.name === "shell");
+    if (!shell) throw new Error("the shell tool was not wired");
+    await shell.execute("tc-other-conv", { command: "echo hi" });
+    // No gate: the switch belonged to a different chat, so this turn is still
+    // at the default mode. The call itself is allowed to succeed or fail on
+    // the environment — what is asserted is that nothing ASKED, and that no
+    // gate was left parked.
+    expect(requests).toEqual([]);
+    expect(getPendingApproval("tc-other-conv")).toBe(false);
   });
 });

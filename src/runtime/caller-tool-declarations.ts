@@ -39,9 +39,18 @@ export const MAX_CALLER_TOOLS = 16;
 export const MAX_CALLER_TOOL_DESCRIPTION = 1024;
 /** Serialized ceiling on one `parameters` schema, in UTF-16 code units. */
 export const MAX_CALLER_TOOL_PARAMETERS_CHARS = 8_192;
-/** Deepest JSON nesting allowed inside `parameters` — the root object counts
- *  as depth 1, so `{type,properties:{a:{type:"string"}}}` is depth 3 and one
- *  level of nested object schema is depth 5. Two levels are refused. */
+/**
+ * Deepest nesting allowed inside `parameters`, COUNTED THE WAY AN AUTHOR
+ * READS IT: one level per schema, root = 1.
+ *
+ * `{type:"object", properties:{a:{type:"string"}}}` is 2, not 3 — a
+ * `properties` / `patternProperties` map is a container the JSON Schema
+ * grammar requires, not a level of the author's data, so it is walked
+ * through rather than charged for. A naive value-walk charges two levels per
+ * hop, which puts an ordinary two-deep argument object at 4 and then refuses
+ * it the moment any member carries an `enum` or `anyOf`. Arrays DO count, so
+ * no construct can nest without bound.
+ */
 export const MAX_CALLER_TOOL_PARAMETER_DEPTH = 5;
 /** Most named properties allowed across the whole schema, all levels. */
 export const MAX_CALLER_TOOL_PROPERTIES = 64;
@@ -130,6 +139,11 @@ const CALLER_TOOL_NAME_RE = /^[a-z](?!.*__)[a-z0-9_]{2,47}$/;
  *  schema whose meaning depends on one is a schema we would be guessing at. */
 const FORBIDDEN_SCHEMA_KEYS = ["$ref", "$defs", "definitions", "$schema", "$id"] as const;
 
+/** Keys whose value is a MAP OF SCHEMAS rather than a schema — walked through
+ *  for depth (see {@link MAX_CALLER_TOOL_PARAMETER_DEPTH}) and counted for the
+ *  property budget. */
+const PROPERTY_MAP_KEYS = new Set(["properties", "patternProperties"]);
+
 /** Failure shape. `field` names the offending declaration when one entry is
  *  at fault, so the client can point at the tool it got wrong. */
 export type CallerToolValidationResult =
@@ -146,9 +160,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 interface SchemaScan {
-  /** Deepest CONTAINER nesting reached — objects and arrays only, root = 1.
-   *  `{type,properties:{a:{type:"string"}}}` is 3; the `"string"` leaf adds
-   *  nothing. */
+  /** Deepest nesting reached, per {@link MAX_CALLER_TOOL_PARAMETER_DEPTH}:
+   *  schemas and arrays count, `properties` maps and scalar leaves do not. */
   depth: number;
   /** Named properties across every `properties` map in the tree. */
   properties: number;
@@ -168,9 +181,8 @@ function scanSchema(node: unknown, depth: number, acc: SchemaScan): void {
     for (const item of node) scanSchema(item, depth + 1, acc);
     return;
   }
-  // Scalars contribute no depth: nesting is about CONTAINERS, so a string
-  // leaf must not make an otherwise-flat schema read one level deeper than
-  // the author wrote it.
+  // Scalars contribute no depth: a string leaf must not make an otherwise
+  // flat schema read one level deeper than the author wrote it.
   if (!isPlainObject(node)) return;
   if (depth > acc.depth) acc.depth = depth;
   for (const key of Object.keys(node)) {
@@ -178,9 +190,19 @@ function scanSchema(node: unknown, depth: number, acc: SchemaScan): void {
       acc.forbidden = key;
     }
   }
-  const props = node.properties;
-  if (isPlainObject(props)) acc.properties += Object.keys(props).length;
-  for (const value of Object.values(node)) scanSchema(value, depth + 1, acc);
+  for (const [key, value] of Object.entries(node)) {
+    // A `properties` / `patternProperties` map is grammar, not a level the
+    // author wrote — walk THROUGH it to its members at the same depth its
+    // owning schema would have charged them. Its member count is the other
+    // budget, and it is counted here because this is where the map is known
+    // to be one.
+    if (PROPERTY_MAP_KEYS.has(key) && isPlainObject(value)) {
+      acc.properties += Object.keys(value).length;
+      for (const member of Object.values(value)) scanSchema(member, depth + 1, acc);
+      continue;
+    }
+    scanSchema(value, depth + 1, acc);
+  }
 }
 
 /** Validate one declaration's `parameters`, or describe why it is refused. */

@@ -62,12 +62,11 @@ export function computeModeToolScope(
   registry: ModeScopeRegistry,
   /**
    * Wire names (`_caller__<name>`) of the caller-executed tools this
-   * conversation declared. OPTIONAL so the `/api/tools` listing caller can be
-   * wired independently of the executor; omitting it means "this conversation
-   * has none", which is also the honest answer for every conversation that
-   * never declared any.
+   * conversation declared. Defaults to none, which is both the honest answer
+   * for every conversation that never declared any and what lets a caller be
+   * wired independently of the executor.
    */
-  callerToolNames?: string[],
+  callerToolNames: readonly string[] = [],
 ): ToolFilterOptions | null {
   const extensionIds = mode?.extensionIds ?? [];
   if (mode && extensionIds.length > 0) {
@@ -173,7 +172,7 @@ export function computeModeToolScope(
 function computeConvDenials(
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
-  callerToolNames: string[] | undefined,
+  callerToolNames: readonly string[],
 ): string[] {
   const denied: string[] = [];
   if (!convExtensionTools) return denied;
@@ -186,7 +185,7 @@ function computeConvDenials(
     // must deny everything. Hence a separate branch, not a special case
     // inside the loop.
     if (extId === CALLER_TOOL_SCOPE_KEY) {
-      denied.push(...callerDenials(subset, callerToolNames ?? []));
+      denied.push(...callerDenials(subset, callerToolNames));
       continue;
     }
     for (const t of registry.getToolsForExtension(extId)) {
@@ -211,11 +210,23 @@ function computeConvDenials(
  * `_caller__open_app`) because the composer persists whatever the UI held;
  * matching both is what makes the toggle work without teaching the UI about
  * the namespace.
+ *
+ * A denial is EMITTED IN BOTH FORMS for the same reason, one layer down:
+ * `forceDeniedTools` is exact-match, and the two surfaces it feeds carry
+ * different names for one tool — the executor filters `AgentTool`s named
+ * `_caller__open_app`, while `/api/tools` filters synthetic metadata rows
+ * named `open_app`. Emitting one form alone revokes in one surface and leaves
+ * the other showing a tool the runtime will not honour (or vice versa). The
+ * extra name matches nothing else: a caller name cannot collide with a
+ * built-in, an orchestration tool or a namespaced extension tool, because the
+ * declaration validator refuses all three.
  */
-function callerDenials(subset: string[], callerToolNames: string[]): string[] {
-  return callerToolNames.filter(
-    (wireName) =>
-      subset.length === 0 ||
-      (!subset.includes(wireName) && !subset.includes(stripToolNamespace(wireName))),
-  );
+function callerDenials(subset: string[], callerToolNames: readonly string[]): string[] {
+  const denied: string[] = [];
+  for (const wireName of callerToolNames) {
+    const bare = stripToolNamespace(wireName);
+    if (subset.length > 0 && (subset.includes(wireName) || subset.includes(bare))) continue;
+    denied.push(wireName, bare);
+  }
+  return denied;
 }

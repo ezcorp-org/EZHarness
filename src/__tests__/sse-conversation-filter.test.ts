@@ -830,13 +830,16 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "agent:spawn", "agent:status", "agent:complete",
     "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
     "workflow:approval_request",
-    // Not run-scoped — a plain conversation carrier that belongs here for the
+    // Not run-scoped — plain conversation carriers that belong here for the
     // set's OTHER two properties (fail-closed, not extension-subscribable).
     "ez:client-tool",
+    // Caller-executed tools: the payload is the LLM's raw arguments for a
+    // call that will run on the user's own machine.
+    "caller:tool-call",
   ] as const;
 
-  test("enumerates the 15 scoped runtime events", () => {
-    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(15);
+  test("enumerates the 16 scoped runtime events", () => {
+    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(16);
     for (const name of MEMBERS) {
       expect(SCOPED_RUNTIME_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -866,6 +869,14 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     // extension whose manifest name is `ez` would otherwise be able to declare
     // `ez:client-tool` as its OWN namespaced event and get it back.
     expect(registerExtensionEvent("ez", "client-tool")).toBe(false);
+    __clearExtensionEventRegistryForTests();
+  });
+
+  test("an extension named 'caller' cannot shadow caller:tool-call", () => {
+    // Same closure, and it matters more here: re-registering the name would
+    // make the event extension-subscribable, handing every such extension the
+    // arguments of every call the user's connected device is asked to run.
+    expect(registerExtensionEvent("caller", "tool-call")).toBe(false);
     __clearExtensionEventRegistryForTests();
   });
 });

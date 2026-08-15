@@ -67,6 +67,15 @@ export interface PendingRemoteToolInfo {
   /** Name the CLIENT dispatches on — the bare declared name, matching the
    *  `toolName` field of the emitted event (never the `_caller__` wire form). */
   toolName: string;
+  /**
+   * The call's arguments, exactly as emitted.
+   *
+   * Held because the reconnect drain below has to be able to RE-DISPATCH the
+   * call, not merely report that one is outstanding: a client that missed the
+   * event has the toolCallId but nothing to run. This is the same value the
+   * event carried, so it leaks nothing the client was not already sent.
+   */
+  input: unknown;
   /** Run that opened this call, when the opener knows it. */
   runId: string | null;
   origin: RemoteToolOrigin;
@@ -87,6 +96,7 @@ export interface RegisterPendingRemoteToolOptions {
   conversationId: string;
   userId: string | null;
   toolName: string;
+  input: unknown;
   runId: string | null;
   origin: RemoteToolOrigin;
   /** How long the client may take to POST before the gate rejects. */
@@ -254,6 +264,7 @@ function publicInfo(entry: PendingRemoteToolEntry): PendingRemoteToolInfo {
     conversationId: entry.conversationId,
     userId: entry.userId,
     toolName: entry.toolName,
+    input: entry.input,
     runId: entry.runId,
     origin: entry.origin,
     createdAt: entry.createdAt,

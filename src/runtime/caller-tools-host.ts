@@ -152,6 +152,7 @@ export function buildCallerToolDef(
         origin: "caller",
         toolCallId,
         toolName: decl.name,
+        input: params,
         conversationId: ctx.conversationId,
         userId: ctx.userId,
         runId: ctx.runId,

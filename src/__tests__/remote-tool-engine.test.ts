@@ -178,6 +178,7 @@ function runCaller(args: {
     origin: "caller",
     toolCallId,
     toolName: "open_app",
+    input: { app: "Mail" },
     conversationId: "conv-1",
     userId: "user-1",
     runId: "run-1",

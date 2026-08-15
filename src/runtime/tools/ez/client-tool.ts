@@ -124,6 +124,7 @@ export async function runEzClientTool(args: {
     origin: "ez",
     toolCallId,
     toolName,
+    input,
     conversationId: ctx.conversationId,
     userId: ctx.userId ?? null,
     // The Ez panel drops its pending list wholesale on disconnect rather than

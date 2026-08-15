@@ -154,15 +154,25 @@ describe("the conversation's caller toggle", () => {
     // Unreachable through the `getToolsForExtension` loop, which is the whole
     // reason for the separate branch: that call returns [] for "caller", so
     // the loop would deny nothing and the toggle would do nothing.
-    expect(scopeFor({ caller: [] })).toEqual({ forceDeniedTools: [OPEN, CLOSE] });
+    expect(scopeFor({ caller: [] })).toEqual({
+      forceDeniedTools: [OPEN, "open_app", CLOSE, "close_app"],
+    });
   });
 
-  test("non-empty subset → the tools it omits are force-denied", () => {
-    expect(scopeFor({ caller: [OPEN] })).toEqual({ forceDeniedTools: [CLOSE] });
+  test("a denial is emitted in BOTH forms, because two surfaces read it", () => {
+    // `forceDeniedTools` is exact-match. The executor filters AgentTools named
+    // `_caller__open_app`; `/api/tools` filters synthetic rows named
+    // `open_app`. One form alone revokes in one surface and leaves the other
+    // advertising a tool the runtime will not honour.
+    expect(scopeFor({ caller: [OPEN] })).toEqual({
+      forceDeniedTools: [CLOSE, "close_app"],
+    });
   });
 
   test("the subset matches the BARE name too, since that is what the UI holds", () => {
-    expect(scopeFor({ caller: ["open_app"] })).toEqual({ forceDeniedTools: [CLOSE] });
+    expect(scopeFor({ caller: ["open_app"] })).toEqual({
+      forceDeniedTools: [CLOSE, "close_app"],
+    });
     expect(scopeFor({ caller: ["open_app", CLOSE] })).toBeNull();
   });
 
@@ -173,7 +183,7 @@ describe("the conversation's caller toggle", () => {
 
   test("caller and real-extension toggles compose in one map", () => {
     expect(scopeFor({ caller: [OPEN], "ext-a": [] })).toEqual({
-      forceDeniedTools: [CLOSE, "ext-a__do_thing"],
+      forceDeniedTools: [CLOSE, "close_app", "ext-a__do_thing"],
     });
   });
 
@@ -204,7 +214,7 @@ describe("the caller branch inside a mode's extension allowlist", () => {
 
   test("…and the conversation toggle still revokes them under that mode", () => {
     const scope = computeModeToolScope(mode, { caller: [] }, registry, CALLER_NAMES)!;
-    expect(scope.forceDeniedTools).toEqual([OPEN, CLOSE]);
+    expect(scope.forceDeniedTools).toEqual([OPEN, "open_app", CLOSE, "close_app"]);
     expect(names({ ...scope, ...PRESERVED })).toEqual(["invoke_agent", "ext-a__do_thing"]);
   });
 });
@@ -220,7 +230,7 @@ describe("the legacy toolRestriction path threads the caller denials too", () =>
     expect(scope).toEqual({
       toolRestriction: "read-only",
       allowedTools: undefined,
-      forceDeniedTools: [CLOSE],
+      forceDeniedTools: [CLOSE, "close_app"],
     });
   });
 });

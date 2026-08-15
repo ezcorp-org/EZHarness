@@ -50,6 +50,7 @@ function registerEzPending(opts: {
   return registerPendingRemoteTool({
     ...opts,
     toolName: "fill_form",
+    input: { formId: "agent-new", values: {} },
     runId: null,
     origin: "ez",
     timeoutMs: 5 * 60_000,

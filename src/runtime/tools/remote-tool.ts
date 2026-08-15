@@ -190,6 +190,11 @@ export interface RunRemoteToolArgs<K extends RemoteToolEventName> {
   toolCallId: string;
   /** The name the CLIENT dispatches on — bare, matching `event.toolName`. */
   toolName: string;
+  /** The call's arguments. Stated separately from `event` (which also carries
+   *  them) because a generic `AgentEvents[K]` cannot be narrowed to read the
+   *  field, and the registry needs it so a reconnecting client can be handed
+   *  the call to re-dispatch. */
+  input: unknown;
   conversationId: string;
   userId: string | null;
   runId: string | null;
@@ -223,6 +228,7 @@ export async function runRemoteTool<K extends RemoteToolEventName>(
     conversationId: args.conversationId,
     userId: args.userId,
     toolName,
+    input: args.input,
     runId: args.runId,
     origin: args.origin,
     timeoutMs: args.timeoutMs,

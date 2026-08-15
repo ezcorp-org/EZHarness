@@ -44,19 +44,14 @@ function decl(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 }
 
 /**
- * A schema whose deepest CONTAINER sits exactly `levels` deep (root = 1).
- *
- * The chain alternates: root(1) → its `properties` map(2) → a property
- * schema(3) → that schema's `properties` map(4) → … so one wrap adds two
- * levels, and the parity of the target picks the innermost node — a scalar
- * leaf (odd, contributes no depth) or an empty `properties` map (even).
+ * A schema nested exactly `levels` deep, counted the way the validator does:
+ * one level per SCHEMA, the `properties` map walked through. So
+ * `{type,properties:{child:{type:"string"}}}` is 2, and each extra wrap adds
+ * exactly one.
  */
 function nested(levels: number): Record<string, unknown> {
-  const even = levels % 2 === 0;
-  let node: Record<string, unknown> = even
-    ? { type: "object", properties: {} }
-    : { type: "string" };
-  for (let current = even ? 2 : 1; current < levels; current += 2) {
+  let node: Record<string, unknown> = { type: "object", properties: {} };
+  for (let current = 1; current < levels; current++) {
     node = { type: "object", properties: { child: node } };
   }
   return node;
@@ -76,6 +71,30 @@ describe("accepted", () => {
   test("an empty properties map is legal — a no-argument tool is a real tool", () => {
     const r = validateCallerToolDeclarations([
       decl({ parameters: { type: "object", properties: {} } }),
+    ]);
+    expect(r.ok).toBe(true);
+  });
+
+  test("an ordinary nested argument object, with the enums a real one carries", () => {
+    // The shape the depth rule exists to ADMIT. A naive value-walk charges
+    // two levels per `properties` hop and refuses this at the same limit.
+    const r = validateCallerToolDeclarations([
+      decl({
+        parameters: {
+          type: "object",
+          properties: {
+            event: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                visibility: { type: "string", enum: ["public", "private"] },
+                attendees: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+          required: ["event"],
+        },
+      }),
     ]);
     expect(r.ok).toBe(true);
   });
@@ -206,6 +225,18 @@ const REJECTED: Array<[label: string, input: unknown, errorMatch: RegExp, field?
     /must not use "\$ref"/,
   ],
   ["six levels of nesting", [decl({ parameters: nested(6) })], /nests deeper than 5/],
+  [
+    "an array chain that outruns the limit — arrays DO count",
+    [
+      decl({
+        parameters: {
+          type: "object",
+          properties: { a: { anyOf: [[[[{ type: "string" }]]]] } },
+        },
+      }),
+    ],
+    /nests deeper than 5/,
+  ],
 ];
 
 describe("rejected", () => {

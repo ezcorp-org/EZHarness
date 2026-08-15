@@ -45,6 +45,7 @@ function register(
     conversationId: "conv-1",
     userId: "user-1",
     toolName: "open_app",
+    input: { app: "Mail" },
     runId: "run-1",
     origin: "caller",
     timeoutMs: 60_000,
@@ -154,6 +155,7 @@ describe("per-run stamping", () => {
     expect(Object.keys(getPendingRemoteTool("opaque") ?? {}).sort()).toEqual([
       "conversationId",
       "createdAt",
+      "input",
       "origin",
       "runId",
       "toolName",
@@ -175,6 +177,26 @@ describe("per-conversation sweeps", () => {
       getPendingRemoteToolsForConversation("conv-2").map((e) => e.toolCallId),
     ).toEqual(["c2-a"]);
     expect(getPendingRemoteToolsForConversation("conv-nope")).toEqual([]);
+  });
+
+  test("the drain carries enough to RE-DISPATCH, not just to report", () => {
+    // A client that missed the SSE event has the toolCallId and nothing to
+    // run. The drain is the authoritative recovery channel (the resume ring
+    // holds 500 GLOBAL entries including every token, so a caller call turns
+    // over in seconds), so it has to hand back the arguments too.
+    register({ toolCallId: "redispatch", input: { app: "Calendar", window: 2 } });
+    expect(getPendingRemoteToolsForConversation("conv-1", "caller")).toEqual([
+      {
+        toolCallId: "redispatch",
+        conversationId: "conv-1",
+        userId: "user-1",
+        toolName: "open_app",
+        input: { app: "Calendar", window: 2 },
+        runId: "run-1",
+        origin: "caller",
+        createdAt: expect.any(Number),
+      },
+    ]);
   });
 
   test("the drain narrows by origin so one family never sees the other's calls", () => {
