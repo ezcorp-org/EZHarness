@@ -24,7 +24,8 @@
  * ── THE GATE CHAIN, AND WHY IT IS IN THAT ORDER ──────────────────────────
  *
  *   requireScope → requireAuth → ownership (404) → root-only (400)
- *     → rate limit (429) → body cap (413) → shape (400) → semantics (400)
+ *     → body cap (413) → shape (400) → semantics (400) → policy (403)
+ *     → rate limit (429) → write
  *
  * Ownership resolves BEFORE the root-only check so a sub-conversation
  * belonging to somebody else reports 404 (nothing leaked) rather than the
@@ -32,6 +33,13 @@
  * limit sits AFTER ownership for the same reason — a limiter that answers
  * before the ownership check turns into a conversation-existence oracle
  * clocked by response timing.
+ *
+ * It sits LAST, immediately before the write, because it budgets WRITES.
+ * A request refused for shape, semantics or policy never touches the row, so
+ * spending its token only served to make this route's own 400s unreachable:
+ * a single typo burned the budget and the corrected retry came back 429,
+ * with nothing telling the client what it had got wrong. The body cap still
+ * runs early — that one bounds ALLOCATION, which an unparsed body can abuse.
  *
  * ── ROOT-ONLY IS A SEMANTIC RULE, NOT A CONVENIENCE ──────────────────────
  *
@@ -68,13 +76,20 @@ import { declareCallerToolsSchema } from "./schema";
 const MAX_DECLARE_BODY_BYTES = 64 * 1024;
 
 /**
- * One declaration write per second per USER (not per key): the identity that
+ * Declaration WRITES per second per USER (not per key): the identity that
  * matters is whose conversation is being rewritten, and a user with three
- * keys must not get three times the budget. Declaring is a setup step an app
- * performs once per conversation — a caller that needs more than 1/s is
- * looping on a bug.
+ * keys must not get three times the budget.
+ *
+ * Five, not one. Declaring looks like a once-per-conversation setup step, but
+ * the ORDINARY sequences are multi-write: declare → clear when a session ends,
+ * and declare → re-declare when the app's tool set changes. Both mutating
+ * verbs share this budget (they write the same jsonb key), so a 1/s ceiling
+ * refused a client doing nothing wrong. The limit exists to bound write
+ * amplification on one row, and five single-row jsonb merges per second is
+ * still orders of magnitude below anything abusive.
  */
-const declareLimiter = createRateLimiter(1);
+export const DECLARE_WRITES_PER_SECOND = 5;
+const declareLimiter = createRateLimiter(DECLARE_WRITES_PER_SECOND);
 
 /** Both mutating verbs share the budget — they write the same jsonb key. */
 function rateLimited(userId: string): Response | null {
@@ -141,9 +156,6 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const target = await resolveTarget(params.id, locals, { rootOnly: true });
   if (!target.ok) return target.response;
 
-  const limited = rateLimited(target.userId);
-  if (limited) return limited;
-
   const body = await readCappedBody(request);
   if (!body.ok) return body.response;
 
@@ -177,6 +189,16 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
       ...(declareVerdict.offender ? { tool: declareVerdict.offender } : {}),
     });
   }
+
+  // Charged LAST, immediately before the write, for the same reason the policy
+  // cap above runs after the semantic check: a REJECTED declaration performs no
+  // write, so it must not spend write budget. Charging it earlier made the
+  // route's own 400s unreachable — one typo burned the token and the corrected
+  // retry came back 429, so a client could never read what was wrong with its
+  // schema. Still after the ownership walk, so it cannot become a
+  // conversation-existence oracle clocked by response timing.
+  const limited = rateLimited(target.userId);
+  if (limited) return limited;
 
   await mergeConversationMetadata(params.id, { callerTools: checked.tools });
 

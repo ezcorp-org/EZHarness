@@ -28,7 +28,10 @@ vi.mock("$server/db/queries/conversation-metadata", () => ({
 }));
 vi.mock("$server/db/queries/active-runs", () => ({ getActiveRun }));
 
-const { PUT, GET, DELETE } = await import(
+// The budget is IMPORTED, never restated — a number duplicated here and in the
+// route is a number that can drift, and the drift is silent: the test would
+// keep passing against a limit nobody meant to ship.
+const { PUT, GET, DELETE, DECLARE_WRITES_PER_SECOND } = await import(
   "../routes/api/conversations/[id]/caller-tools/+server.ts"
 );
 const { CALLER_TOOL_NAME_RE, MAX_CALLER_TOOLS } = await import(
@@ -152,21 +155,49 @@ describe("PUT /api/conversations/[id]/caller-tools", () => {
     expect(mergeConversationMetadata).not.toHaveBeenCalled();
   });
 
-  test("the second declaration inside one second is 429 with a Retry-After", async () => {
+  test("declaration writes past the per-second budget are 429 with a Retry-After", async () => {
     const user = nextUser();
     ownRoot(user);
     // The bucket refills against `Date.now()`, so freezing it is what makes
     // this assert on the LIMITER rather than on how fast the host ran the
-    // two calls. Unfrozen, a slow enough box refills a token between them
-    // and the test goes green on a broken limiter.
+    // calls. Unfrozen, a slow enough box refills a token mid-loop and the
+    // test goes green on a broken limiter.
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
-      const first = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
-      expect(first.status).toBe(200);
-      const second = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
-      expect(second.status).toBe(429);
-      expect(second.headers.get("Retry-After")).toBe("1");
-      // The refused call wrote nothing — one merge, from the first request.
+      for (let i = 0; i < DECLARE_WRITES_PER_SECOND; i++) {
+        const ok = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
+        expect(ok.status).toBe(200);
+      }
+      const over = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
+      expect(over.status).toBe(429);
+      expect(over.headers.get("Retry-After")).toBe("1");
+      // The refused call wrote nothing — only the in-budget ones merged.
+      expect(mergeConversationMetadata).toHaveBeenCalledTimes(DECLARE_WRITES_PER_SECOND);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("a REJECTED declaration spends no write budget, so the fixed retry still lands", async () => {
+    // The regression this pins: the limiter used to be charged before
+    // validation, so one malformed declaration burned the token and the
+    // corrected retry came back 429 — the route's own 400 was unreachable and
+    // a client could never learn what its schema had got wrong. Caught by the
+    // real-tier e2e, which declares an invalid tool and then a valid one.
+    const user = nextUser();
+    ownRoot(user);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      for (let i = 0; i < DECLARE_WRITES_PER_SECOND * 3; i++) {
+        const bad = (await PUT(
+          event({ user, body: { tools: [{ ...openApp, name: "open__app" }] } }),
+        )) as Response;
+        expect(bad.status).toBe(400);
+      }
+      expect(mergeConversationMetadata).not.toHaveBeenCalled();
+
+      const good = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
+      expect(good.status).toBe(200);
       expect(mergeConversationMetadata).toHaveBeenCalledTimes(1);
     } finally {
       clock.mockRestore();
@@ -393,14 +424,22 @@ describe("DELETE /api/conversations/[id]/caller-tools", () => {
     expect(deleteCallerToolsMetadata).not.toHaveBeenCalled();
   });
 
-  test("DELETE shares PUT's 1/s budget — they write the same jsonb key", async () => {
+  test("DELETE shares PUT's budget — they write the same jsonb key", async () => {
+    // Asserted as SHARING, not as a count: spend one token on DELETE, the rest
+    // on PUT, and the next PUT must still be refused. If the two verbs held
+    // separate buckets that final PUT would be the budget-th PUT and would
+    // pass, so this fails for the right reason if the buckets are ever split.
     const user = nextUser();
     ownRoot(user, { callerTools: [openApp] });
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       expect(((await DELETE(event({ user, method: "DELETE" }))) as Response).status).toBe(200);
-      const second = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
-      expect(second.status).toBe(429);
+      for (let i = 0; i < DECLARE_WRITES_PER_SECOND - 1; i++) {
+        const ok = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
+        expect(ok.status).toBe(200);
+      }
+      const over = (await PUT(event({ user, body: { tools: [openApp] } }))) as Response;
+      expect(over.status).toBe(429);
     } finally {
       clock.mockRestore();
     }
