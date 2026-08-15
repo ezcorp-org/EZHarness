@@ -251,6 +251,11 @@
     "web/src/routes/(app)/settings/permissions/+page.svelte",
     "web/src/routes/(app)/settings/+layout.svelte"
   ],
+  "web/e2e/resume-bounce-no-loop.spec.ts": [
+    "web/src/routes/+page.svelte",
+    "web/src/routes/(app)/admin/dashboard/+page.svelte",
+    "web/src/routes/(app)/admin/moderation/+page.svelte"
+  ],
   "web/e2e/resume-last-path.spec.ts": [
     "web/src/routes/+page.svelte",
     "web/src/routes/+layout.svelte",
