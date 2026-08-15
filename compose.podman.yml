@@ -27,9 +27,29 @@
 # `notmpcopyup` restores Docker's semantics. It cannot live in
 # docker-compose.yml because the Docker daemon rejects the option outright
 # ("Error response from daemon: invalid tmpfs option [notmpcopyup]") and the
-# container never starts. Hence: opt-in override, plus a boot-time guard in the
-# app `command:` that fails the container if the masks did not take effect —
-# a blacklist fails open, so forgetting this file must be loud, not silent.
+# container never starts. Hence: opt-in override.
+#
+# ── What catches you for forgetting it ──────────────────────────────────────
+#
+# A blacklist fails open, so forgetting this file has to be caught. It is,
+# both ways — but the loud mechanism is not the legible one, and which one
+# fires is decided by the size of the masked tree rather than by anything the
+# operator did.
+#
+#   large tree   The copy-up runs while the OCI runtime builds the mount
+#                namespace, BEFORE the container's process. A tree bigger than
+#                its size= cap (worktrees is tens of GB against 64m) exhausts
+#                the mount there, so the container dies at `Created` with an
+#                ENOSPC from crun that names neither the mask nor this file.
+#                This is the case an operator actually hits.
+#   small tree   The copy-up fits, the container starts, and the boot-time
+#                guard in the app `command:` finds the masked dir non-empty
+#                and exits 1 with a message naming the fix. That guard is the
+#                legible one, and it only ever runs when EVERY mask fits.
+#
+# Both errors, and the fix, are in docs/deployment.md §"Running under Podman".
+# `bun run podman` refuses the invocations that drop this file in the first
+# place (see scripts/podman-compose.sh).
 #
 # ── Why `!override` ─────────────────────────────────────────────────────────
 #

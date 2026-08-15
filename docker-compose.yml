@@ -1,7 +1,10 @@
 # Dev stack. Runs on Docker as-is; for Podman use `bun run podman <args>`,
 # which layers `compose.podman.yml` on top (see docs/deployment.md §Podman).
 # That override is REQUIRED under Podman — the `tmpfs:` secret masks below
-# fail open without it. The boot-time guard in the app `command:` enforces it.
+# fail open without it. Forgetting it fails closed either way, but only the
+# small-mask case reaches the legible boot-time guard in the app `command:`;
+# a mask over a large tree dies earlier, in the OCI runtime. See the guard's
+# own comment below.
 #
 # Image names are fully qualified (docker.io/...) so this file resolves the
 # same way on a host whose containers/registries.conf has no
@@ -138,8 +141,18 @@ services:
         # That is not hypothetical: Podman seeds a tmpfs with the directory
         # underneath it (`tmpcopyup`) unless `compose.podman.yml` is layered
         # on, so a plain `docker compose -f docker-compose.yml up` against a
-        # Podman socket silently exposes both trees. Assert the masks landed
-        # rather than trusting that they were declared.
+        # Podman socket exposes the very tree the mask covers. Assert the
+        # masks landed rather than trusting that they were declared.
+        #
+        # KNOW WHAT THIS CAN AND CANNOT CATCH. The copy-up happens while the
+        # OCI runtime builds the mount namespace — before this script exists.
+        # So the loop below runs only when EVERY mask FITS its tmpfs. A mask
+        # over a tree larger than its size= cap (worktrees is tens of GB
+        # against 64m) exhausts the mount there instead, and the container
+        # dies at `Created` with an opaque ENOSPC from crun; nothing here ever
+        # executes. Still fail-closed, far worse to diagnose.
+        # docs/deployment.md §"Running under Podman" maps both errors to this
+        # cause; `bun run podman` refuses the invocations that cause them.
         #
         # The paths here MUST match the `tmpfs:` list —
         # src/__tests__/compose-podman-masks.test.ts holds the two together.
@@ -449,9 +462,11 @@ services:
       # Docker REJECTS `notmpcopyup` outright ("invalid tmpfs option"), which
       # is why it lives in an override rather than here.
       #
-      # A blacklist mask fails OPEN, so the app `command:` re-verifies both
-      # paths are empty at boot and exits non-zero if not. Do not rely on the
-      # declaration alone.
+      # A blacklist mask fails OPEN, so the app `command:` re-verifies every
+      # path is empty at boot and exits non-zero if not. Do not rely on the
+      # declaration alone — nor on that guard alone: it only runs if the
+      # container starts, which a copy-up larger than the size= cap below
+      # prevents. See the guard's comment in `command:` above.
       #
       # size= caps the mask. Nothing should legitimately write here — these
       # are hiding places, not scratch space — and the tmpfs default is half

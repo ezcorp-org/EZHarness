@@ -20,8 +20,10 @@ per-MCP forward proxy operates entirely inside the container.
 ## Running under Podman
 
 The dev stack runs on rootless Podman. Use the wrapper — it is the
-supported entry point and it exists because the two things it sets are
-both silent failures when forgotten:
+supported entry point. Both of the things it sets go wrong when
+forgotten: without `DOCKER_HOST` you drive Docker instead of Podman and
+nothing says so, and without the compose override you get a failure that
+[never names its cause](#if-you-forget-the-override).
 
 ```sh
 bun run podman up -d
@@ -42,6 +44,21 @@ once per host:
 systemctl --user enable --now podman.socket
 ```
 
+The wrapper also refuses two invocations that would quietly undo what it
+just set up:
+
+- **A `-f` / `--file` passed through it.** Compose's `-f` *replaces* the
+  file list rather than adding to it, so `bun run podman -f
+  docker-compose.yml up -d` would run without the override. Name every
+  file when you layer your own: `bun run podman -f docker-compose.yml -f
+  compose.podman.yml -f mine.yml up -d`. A `-f` *after* the subcommand
+  belongs to that subcommand and passes through untouched — `bun run
+  podman logs -f app` is `--follow`.
+- **A `COMPOSE_FILE` exported in your shell that omits
+  `compose.podman.yml`.** The wrapper exports its own value over yours,
+  so yours would disappear without a word. A value that already names the
+  override is kept as-is.
+
 **Use the Docker Compose CLI against the Podman socket, not
 `podman-compose`.** `ollama-init` waits on `depends_on: condition:
 service_healthy`, which podman-compose has historically handled
@@ -51,29 +68,65 @@ as the server.
 
 ### The one behavioural difference: `tmpfs:`
 
-`docker-compose.yml` masks two directories out of the `.:/repo` bind —
-`/repo/.ezcorp` (the prod stack's live PGlite DB and keys) and
-`/repo/worktrees` (agent scratch). Docker mounts an empty tmpfs over
-each. **Podman does not.** Its tmpfs default is `tmpcopyup`, which seeds
-the tmpfs with the contents of the directory underneath, publishing into
-the container exactly what the mask exists to hide — and copying it into
-RAM, since tmpfs is memory-backed.
+`docker-compose.yml` masks four directories out of the `.:/repo` bind:
+`/repo/.ezcorp` (the prod stack's live PGlite DB and keys), `/repo/agent`
+(harness session credentials), and `/repo/worktrees` plus
+`/repo/.claude/worktrees` (agent scratch — tens of GB on a working dev
+box). Docker mounts an empty tmpfs over each. **Podman does not.** Its
+tmpfs default is `tmpcopyup`, which seeds the tmpfs with the contents of
+the directory underneath, publishing into the container exactly what the
+mask exists to hide — and copying it into RAM, since tmpfs is
+memory-backed.
 
-`compose.podman.yml` re-declares both masks with `notmpcopyup`, which
+`compose.podman.yml` re-declares every mask with `notmpcopyup`, which
 restores Docker's semantics. It has to be a separate file because the
 Docker daemon rejects the option outright (`invalid tmpfs option
 [notmpcopyup]`) and the container then never starts.
 
-A mask is a blacklist, so forgetting the override must be loud rather
-than silent. The app's boot script re-checks that both paths are empty
-inside the container and exits non-zero if they are not:
+#### If you forget the override
+
+A mask is a blacklist, so forgetting the override fails closed either
+way — nothing leaks. But the two mechanisms that catch it are not equally
+legible, and the one you hit is chosen by the SIZE of the masked tree,
+not by anything you did.
+
+**Large tree — an opaque ENOSPC.** This is the usual case, because
+`worktrees/` and `.claude/worktrees/` are tens of GB against a 64 MB
+tmpfs. The copy-up runs while the OCI runtime builds the container's
+mount namespace, so it fails before the container's own process starts:
+
+```
+Error response from daemon: crun: write: No space left on device: OCI runtime error
+```
+
+A bare `podman run` words the same failure the other way round:
+
+```
+Error: OCI runtime error: crun: write: No space left on device
+```
+
+The container stays in `Created` and never runs, `docker compose logs`
+shows nothing, and neither message names the mask or the missing file.
+**If you see this, you started the stack without `compose.podman.yml`.**
+Start it with the wrapper instead:
+
+```sh
+bun run podman up -d
+```
+
+**Small tree — the boot guard, which says what is wrong.** A mask reaches
+the app only if its copy-up FITS the tmpfs. Then the container starts,
+and the guard in the app `command:` finds the masked path non-empty and
+aborts:
 
 ```
 FATAL: /repo/.ezcorp is not empty inside the container.
        Its tmpfs mask is not in effect ...
 ```
 
-If you see that, you started the stack without the override.
+Same cause, same fix. Do not read a clean boot as proof that this guard
+checked anything: it runs only when EVERY mask fits, so on a box with a
+large `worktrees/` it never gets to speak.
 
 > **Do not set `COMPOSE_FILE` in `.env` on a host that also runs
 > Docker.** Compose reads `COMPOSE_FILE` from `.env` for every runtime,
