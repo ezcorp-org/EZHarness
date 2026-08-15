@@ -21,6 +21,9 @@ import {
   unregisterExtensionEvents,
   type GetRunScope,
 } from "../runtime/sse-conversation-filter";
+// The canonical client-facing list. Pure data (no imports), which is what
+// makes it safe to pull into a backend suite — see "The fourth mirror" below.
+import { RUNTIME_EVENT_NAMES } from "../../web/src/lib/runtime-event-names";
 
 // ── Fake getConversation ──
 type FakeRow = { userId?: string | null; parentConversationId?: string | null } | null;
@@ -106,6 +109,109 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     // Still authorization-filtered, so the move is a tightening and not a
     // hole: the event did not fall out of the filter altogether.
     expect(isDirectCarrierEvent("ez:client-tool")).toBe(true);
+  });
+});
+
+// ── The fourth mirror ───────────────────────────────────────────────────
+//
+// `web/src/lib/runtime-event-names.ts` is the canonical client-facing event
+// list, and THREE hand-maintained copies mirror it: `@ezcorp/ai-kit`,
+// `@ezcorp/harness-client`, and these two SSE filter sets. The first two are
+// pinned by equality tests (`ai-kit/test/unit/events.test.ts`,
+// `harness-client/src/index.test.ts`), so a name missing from either FAILS.
+//
+// The sets below were pinned only by their frozen SIZES, which says nothing
+// about WHICH names are in them. A new canonical name classified in NEITHER
+// set falls through `shouldDeliverEvent`'s "not a direct carrier → pass"
+// branch and BROADCASTS to every authenticated subscriber — the one mirror
+// where omission fails OPEN was the one with no parity guard.
+//
+// So: every canonical name is classified, or it is listed here with the
+// reason it is safe to broadcast. Adding a name to the canonical list and
+// nothing else now fails.
+const INTENTIONALLY_BROADCAST: ReadonlyMap<string, string> = new Map([
+  [
+    "ext:state",
+    "Extension bottom-panel state. Instance-scoped, not conversation- or " +
+      "user-scoped: the mediator gates the push on a DECLARED panel, strips " +
+      "HTML and caps the size, and every authenticated subscriber's panel is " +
+      "meant to show the same extension's state. Pinned by 'passes ext:state " +
+      "events' below.",
+  ],
+  [
+    "ext:page-state",
+    "Content-free invalidation nudge — {extensionId, extensionName, pageId}. " +
+      "The mediator strips the page tree BEFORE emitting, so the frame says " +
+      "only 'page X changed' and the Hub re-fetches through an authorized " +
+      "GET. Called out as intentionally absent on DIRECT_CARRIER_EVENT_TYPES.",
+  ],
+  [
+    "github-projects:proposal-update",
+    "Content-free Hub-refresh nudge — {projectId} and nothing else. Same " +
+      "shape as ext:page-state: the authorized GET is the source of truth, " +
+      "and the frame carries no proposal content.",
+  ],
+]);
+
+describe("canonical runtime event names ⇄ the SSE filter sets", () => {
+  const direct = DIRECT_CARRIER_EVENT_TYPES as ReadonlySet<string>;
+  const scoped = SCOPED_RUNTIME_EVENT_TYPES as ReadonlySet<string>;
+  const canonical: readonly string[] = RUNTIME_EVENT_NAMES;
+
+  test("both sides are non-empty (guards against a vacuous pass)", () => {
+    expect(canonical.length).toBeGreaterThan(0);
+    expect(direct.size + scoped.size).toBeGreaterThan(0);
+  });
+
+  test("every canonical name is classified, or explicitly justified as broadcast", () => {
+    const unclassified = canonical.filter(
+      (n) => !direct.has(n) && !scoped.has(n) && !INTENTIONALLY_BROADCAST.has(n),
+    );
+    // A name here reaches every authenticated SSE subscriber. Put it in
+    // SCOPED_RUNTIME_EVENT_TYPES (fail-closed, not extension-subscribable) or
+    // DIRECT_CARRIER_EVENT_TYPES — or add it to INTENTIONALLY_BROADCAST with
+    // the reason its payload is safe to hand to everyone.
+    expect(unclassified).toEqual([]);
+  });
+
+  test("no name is in BOTH sets — they confer different authorization paths", () => {
+    expect(canonical.filter((n) => direct.has(n) && scoped.has(n))).toEqual([]);
+  });
+
+  test("the broadcast escape hatch cannot hide a classified name", () => {
+    // Otherwise a later edit could move a scoped event here and read as
+    // 'still accounted for' while it started broadcasting.
+    const alsoClassified = [...INTENTIONALLY_BROADCAST.keys()].filter(
+      (n) => direct.has(n) || scoped.has(n),
+    );
+    expect(alsoClassified).toEqual([]);
+  });
+
+  test("the escape hatch carries no stale entry and no empty justification", () => {
+    for (const [name, why] of INTENTIONALLY_BROADCAST) {
+      expect(canonical).toContain(name);
+      // A reason, not a shrug: an author must state why the payload is safe.
+      expect(why.length).toBeGreaterThan(60);
+    }
+  });
+
+  test("caller:tool-call is canonical AND scoped — never broadcast", () => {
+    // The PR's new name, checked on both surfaces this file can reach. The
+    // other two mirrors (ai-kit, harness-client) are equality-pinned against
+    // the canonical list, so its presence there follows from the first
+    // assertion.
+    expect(canonical).toContain("caller:tool-call");
+    expect(scoped.has("caller:tool-call")).toBe(true);
+    expect(direct.has("caller:tool-call")).toBe(false);
+    expect(INTENTIONALLY_BROADCAST.has("caller:tool-call")).toBe(false);
+  });
+
+  test("a classified name that is NOT canonical is server-only, by name", () => {
+    // The canonical list is a curated SUBSET — server-only events are filtered
+    // but never shipped to a browser. Enumerated so a client-facing name
+    // cannot quietly join them.
+    const serverOnly = [...direct, ...scoped].filter((n) => !canonical.includes(n)).sort();
+    expect(serverOnly).toEqual(["briefing:delivered", "obs:turn", "tool:permission_mode_change"]);
   });
 });
 
