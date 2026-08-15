@@ -60,6 +60,17 @@ export const EXCLUDES: readonly string[] = [
   // two type files above. Flagged by the new-file gate as "no measured
   // coverage" because there is, by construction, nothing to line-measure.
   "packages/@ezcorp/sdk/src/runtime/loop-types.ts",
+  // Stream-chat host/ctx type surface — two `export interface` blocks, no
+  // `const`/`function`/`class`, compiles to empty. Identical justification to
+  // the type files above. It was ALREADY unmeasured; it only became VISIBLE to
+  // the patch gate when `PendingPermissionInfo` gained the optional
+  // `runId?: string` that the per-run watchdog deferral reads. An interface
+  // field has no executable line, so there is nothing a test could cover here.
+  // The BEHAVIOUR that field drives is covered:
+  // `src/__tests__/executor-watchdog-inflight-tools.test.ts` (run A's open gate
+  // must not shield run B from the idle kill) and
+  // `src/__tests__/permission-wrap.test.ts` (the wrapper populates it).
+  "src/runtime/stream-chat/host.ts",
   // NOTE: the 9 web security helpers (bearer-auth, openai-extension-creds,
   // payload, internal-auth, system-user, bundled-creds, rate-limiter, api-keys,
   // resource-quotas) were REMOVED from this list. Their bun:test suites rely on
