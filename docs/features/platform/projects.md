@@ -22,7 +22,7 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/project-
 
 ### Per-project tool-permission mode
 
-8. Stored as a **settings KV entry**, not a project column: key `project:<projectId>:tool_permission_mode`, value one of `ask` / `auto-edit` / `yolo`. Read/written by `handleGetPermissionMode` / `handleSetPermissionMode` in `src/routes/tool-permission.ts`, fronted by `web/src/routes/api/projects/[id]/tool-permission-mode/+server.ts`. `GET` falls back to `DEFAULT_PERMISSION_MODE` (`"yolo"`) when unset. `PUT` upserts the setting and, if a `conversationId` is supplied, emits a `tool:permission_mode_change` bus event so live UIs update.
+8. Stored as a **settings KV entry**, not a project column: key `project:<projectId>:tool_permission_mode`, value one of `ask` / `auto-edit` / `yolo`. Read/written by `handleGetPermissionMode` / `handleSetPermissionMode` in `src/routes/tool-permission.ts`, fronted by `web/src/routes/api/projects/[id]/tool-permission-mode/+server.ts`. `GET` falls back to `DEFAULT_PERMISSION_MODE` (`"yolo"`) when unset. `PUT` upserts the setting and, if a `conversationId` is supplied, emits a `tool:permission_mode_change` bus event so live UIs update. **Both verbs require project `member` role**, and the `conversationId` is authorization input, not a label: it must name a chat the caller owns inside this project, or the whole request is refused `403` with nothing written — see [[rbac-and-permission-modes]].
 
 ### The install-root resolver (host-internal, unrelated)
 
@@ -46,8 +46,8 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/project-
 - `GET /api/projects/:id/members` — list a project's members. **Requires project `member` role.**
 - `POST /api/projects/:id/members` — add a member or change an existing member's role. Body `{ userId, role? }` (`role ∈ {member, owner}`, defaults `member`). **Requires project `owner` role.**
 - `DELETE /api/projects/:id/members/:userId` — remove a member. **Requires project `owner` role**; refuses with `409` if it would remove the last member.
-- `GET /api/projects/:id/tool-permission-mode` — `{ mode }` (defaults `"yolo"`).
-- `PUT /api/projects/:id/tool-permission-mode` — body `{ mode, conversationId? }`; `mode ∈ {ask, auto-edit, yolo}` (`chat` scope for `PUT`, `read` for `GET`).
+- `GET /api/projects/:id/tool-permission-mode` — `{ mode }` (defaults `"yolo"`). **Requires project `member` role.**
+- `PUT /api/projects/:id/tool-permission-mode` — body `{ mode, conversationId? }`; `mode ∈ {ask, auto-edit, yolo}` (`chat` scope for `PUT`, `read` for `GET`). **Requires project `member` role**, and a supplied `conversationId` must name a chat the caller owns inside this project; `403` otherwise.
 - `/api/projects/:id/features…` — the per-project feature index lives under this prefix (separate feature; see [[feature-index]]).
 
 **Frontend**
