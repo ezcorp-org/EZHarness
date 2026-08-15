@@ -58,8 +58,14 @@ export function sanitizeNulString(value: string): string {
  * destroy it (a `Date` would come back as `{}`), which is a far worse bug than
  * the one we are fixing. Values reaching a jsonb column in this codebase are
  * object/array literals or `JSON.parse` output, both of which are plain.
+ *
+ * Exported because the jsonb WRITERS need the same question answered: a jsonb
+ * `||` merge whose right operand is an array or a scalar produces an ARRAY
+ * rather than an object, silently (see `./queries/conversation-metadata.ts`).
+ * `Object.create(null)` counts — it is `JSON.stringify`-identical to a literal.
  */
-function isPlainObject(value: object): boolean {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
