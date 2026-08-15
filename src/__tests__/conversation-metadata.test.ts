@@ -178,6 +178,59 @@ describe("the NUL scrub is load-bearing, not decorative", () => {
   });
 });
 
+describe("a non-object patch is REFUSED, never concatenated", () => {
+  // `Record<string, unknown>` is erased at runtime and jsonb `||` does not
+  // reject a non-object right operand — it CONCATENATES, turning the bag into
+  // an array. Every arm below is measured against the engine, and the control
+  // at the end proves the guard rescues a real corruption rather than a
+  // hypothetical one.
+  const NOT_OBJECTS: Array<[string, unknown]> = [
+    ["an array", [1, 2]],
+    ["a string", "hi"],
+    ["a number", 7],
+    ["null", null],
+    ["undefined", undefined],
+  ];
+
+  for (const [label, patch] of NOT_OBJECTS) {
+    test(`${label} throws and leaves the row untouched`, async () => {
+      await seed(`{"goal": "g", "spawnDepth": 3}`);
+      await expect(
+        mergeConversationMetadata(CONV, patch as Record<string, unknown>),
+      ).rejects.toThrow(/must be a plain object/);
+
+      const raw = await readRaw();
+      expect(raw.typ).toBe("object");
+      expect(raw.goal).toBe("g");
+      expect(await readMeta()).toEqual({ goal: "g", spawnDepth: 3 });
+    });
+  }
+
+  test("a null-prototype object is still a plain object and merges", async () => {
+    const patch = Object.create(null) as Record<string, unknown>;
+    patch.goal = "from-null-proto";
+    await mergeConversationMetadata(CONV, patch);
+    expect(await readMeta()).toEqual({ spawnDepth: 3, goal: "from-null-proto" });
+  });
+
+  test("WITHOUT the guard the same statement CORRUPTS the bag into an array", async () => {
+    // The control for the arms above: the production statement, byte for byte,
+    // with an array operand. Nothing throws — `metadata` silently becomes an
+    // ARRAY and `->>'goal'` reads NULL from then on, which is the exact
+    // observable failure the `::text::jsonb` cast exists to prevent.
+    await seed(`{"goal": "g", "spawnDepth": 3}`);
+    await getTestPglite().query(
+      `UPDATE conversations SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::text::jsonb WHERE id = $2`,
+      [JSON.stringify([1, 2]), CONV],
+    );
+
+    const raw = await readRaw();
+    expect(raw.typ).toBe("array");
+    expect(raw.goal).toBeNull();
+    expect(raw.text).toBe(`[{"goal": "g", "spawnDepth": 3}, 1, 2]`);
+  });
+});
+
 describe("deleteCallerToolsMetadata / deleteGoalMetadata", () => {
   test("removes only the named key", async () => {
     await seed(`{"callerTools": {"a": 1}, "goal": "keep", "spawnDepth": 3}`);

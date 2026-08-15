@@ -50,7 +50,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { conversations } from "../schema";
-import { sanitizeNulDeep } from "../sanitize-nul";
+import { isPlainObject, sanitizeNulDeep } from "../sanitize-nul";
 
 /**
  * Merge `patch` into `conversations.metadata` in ONE statement.
@@ -59,11 +59,35 @@ import { sanitizeNulDeep } from "../sanitize-nul";
  * already present, every other key is preserved, and a NULL column starts from
  * `{}`. An unknown `id` matches no row and is a silent no-op — the same
  * observable behaviour as the `if (!conv) return` guard this replaces.
+ *
+ * ── WHY A RUNTIME TYPE CHECK ON AN ALREADY-TYPED PARAMETER ──────────────────
+ *
+ * `Record<string, unknown>` is erased at runtime, and jsonb `||` does NOT
+ * refuse a non-object right operand — it CONCATENATES. Measured on PGlite with
+ * the statement below, starting from `{"goal":"g","spawnDepth":3}`:
+ *
+ *   {x:1}   →  {"x":1,"goal":"g","spawnDepth":3}          (object, correct)
+ *   [1,2]   →  [{"goal":"g","spawnDepth":3},1,2]          (ARRAY)
+ *   "hi"    →  [{"goal":"g","spawnDepth":3},"hi"]         (ARRAY)
+ *   null    →  [{"goal":"g","spawnDepth":3},null]         (ARRAY)
+ *
+ * Nothing throws, and `metadata->>'goal'` reads NULL from every one of the
+ * bottom three — the SAME observable corruption the `::text::jsonb` cast above
+ * exists to prevent, reached through a different door. This bag has several
+ * independent owners and one shared write path, so the loss is not confined to
+ * the caller that made the mistake. Throwing keeps the bad write OUT of the
+ * database and names its author in the stack.
  */
 export async function mergeConversationMetadata(
   id: string,
   patch: Record<string, unknown>,
 ): Promise<void> {
+  if (!isPlainObject(patch)) {
+    throw new TypeError(
+      "mergeConversationMetadata: patch must be a plain object — jsonb `||` " +
+        "concatenates an array/scalar operand into an ARRAY instead of merging it",
+    );
+  }
   const clean = JSON.stringify(sanitizeNulDeep(patch));
   await getDb()
     .update(conversations)
