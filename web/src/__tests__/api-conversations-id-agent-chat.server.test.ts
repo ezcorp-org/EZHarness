@@ -466,5 +466,48 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(enqueue).toHaveBeenCalledWith("sub-1", expect.objectContaining({ content: "hi" }));
       expect(streamChat).not.toHaveBeenCalled();
     });
+
+    // ── Boundary 3: the sub-agent run inherits the key's confinement ────
+    //
+    // A sub-agent run started by a policied key is still that key's run. If
+    // this route dropped the confinement, a key denied `agents/[name]/run`
+    // over HTTP would get the same capability by talking to a sub-agent.
+    describe("per-API-key tool policy", () => {
+      const optsOf = () =>
+        (streamChat.mock.calls[0] as unknown as [string, string, Record<string, unknown>])[2];
+      const send = (locals: Record<string, unknown>) =>
+        POST(makeEvent({ locals, body: { content: "hi" } }));
+
+      beforeEach(() => {
+        installSubConvGraph({
+          agentConfig: { provider: "anthropic", model: "claude-opus-4-7", name: "Agent", prompt: "p" },
+        });
+      });
+
+      test("a policied key's run denies the spawn surface and caps caller tools", async () => {
+        const res = await send({
+          user,
+          apiKeyScopes: ["chat"],
+          apiKeyToolPolicy: { allowedCallerTools: ["open_app"] },
+        });
+        expect(res.status).toBe(200);
+        expect(optsOf().forceDenyOrchestration).toBe(true);
+        expect(optsOf().callerToolAllowlist).toEqual(["open_app"]);
+      });
+
+      test("an UNPOLICIED key passes neither option", async () => {
+        const res = await send({ user, apiKeyScopes: ["chat"] });
+        expect(res.status).toBe(200);
+        expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+        expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+      });
+
+      test("a COOKIE SESSION passes neither option", async () => {
+        const res = await send({ user });
+        expect(res.status).toBe(200);
+        expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+        expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+      });
+    });
   });
 });

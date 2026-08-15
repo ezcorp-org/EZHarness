@@ -462,6 +462,58 @@ export function runStartPolicyDenial(
   return null;
 }
 
+/**
+ * Boundary 3, as `streamChat` options — the two fields a run-start route must
+ * pass so the run inherits the confinement of the credential that asked for
+ * it.
+ *
+ * Shape-matched to `AgentExecutor.streamChat`'s options (`executor.ts`), and
+ * spread into the call rather than assigned field by field, so a route can
+ * neither wire half of the boundary nor drift from the other routes.
+ */
+export interface RunStartToolPolicyOptions {
+  /** Bare declaration names this run may wire/execute as caller tools.
+   *  Absent ⇒ no name cap. */
+  callerToolAllowlist?: string[];
+  /** Strip the LLM's spawn primitives from the run's tool surface. */
+  forceDenyOrchestration?: boolean;
+}
+
+/**
+ * Derive Boundary 3 from the requesting principal's policy.
+ *
+ * WHY IT IS A FUNCTION AND NOT TWO INLINE READS. Boundary 3 shipped INERT:
+ * `streamChat` declared both options, `setup-tools` threaded them, and a test
+ * injected them straight into `streamChat` — so the boundary tested green
+ * while no route in the product ever set either one. A policied key's
+ * spawn-deny did nothing mid-turn, which is the precise gap Boundary 3 exists
+ * to close. Deriving both from one function makes the wiring greppable and
+ * lets `policy-run-start-surface.test.ts` assert, from the ROUTE side, that
+ * every `streamChat` run-start route calls it.
+ *
+ * ANY policy ⇒ spawn-deny. Boundaries 1 and 3 are two halves of one
+ * confinement: the route allowlist denies HTTP-initiated execution
+ * (`agents/[name]/run`, `workflows/[name]/run`, every task route), and a
+ * mid-turn `invoke_agent` issues no HTTP request, so only Boundary 3 can see
+ * it. A key confined on any axis is a leaf credential; it does not get to
+ * spawn. An empty policy cannot reach here — {@link validateToolPolicy}
+ * refuses to mint one.
+ *
+ * No policy ⇒ `{}`, so a cookie session and an unpolicied key spread nothing
+ * and get the pre-policy surface byte for byte.
+ */
+export function runStartToolPolicyOptions(
+  policy: ToolPolicy | undefined | null,
+): RunStartToolPolicyOptions {
+  if (!policy) return {};
+  return {
+    ...(policy.allowedCallerTools !== undefined
+      ? { callerToolAllowlist: [...policy.allowedCallerTools] }
+      : {}),
+    forceDenyOrchestration: true,
+  };
+}
+
 /** Why a caller-tool declaration was refused. `field` names the constraint so
  *  the route can report it verbatim; `offender` names the tool when one entry
  *  is at fault (a count violation has no single offender). */

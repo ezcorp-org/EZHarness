@@ -262,4 +262,48 @@ describe("POST /api/conversations/[id]/messages/[mid]/retry", () => {
 		// let the fire-and-forget .catch settle without an unhandled rejection
 		await new Promise((r) => setTimeout(r, 0));
 	});
+
+	// ── Boundary 3: the retry inherits the credential's confinement ──────
+	//
+	// A retry re-runs the SAME turn. If it were the one run-start route that
+	// dropped the confinement, "retry" would be the way around Boundary 3 —
+	// one extra request for the same answer, unpoliced.
+	describe("per-API-key tool policy", () => {
+		const optsOf = () => streamChat.mock.calls[0]![2] as Record<string, unknown>;
+
+		test("a policied key's run denies the spawn surface and caps caller tools", async () => {
+			const res = await run(() =>
+				POST(
+					makeEvent(
+						{},
+						{
+							locals: {
+								apiKeyScopes: ["chat"],
+								apiKeyToolPolicy: { allowedCallerTools: ["open_app"] },
+							},
+						},
+					) as never,
+				),
+			);
+			expect(res.status).toBe(200);
+			expect(optsOf().forceDenyOrchestration).toBe(true);
+			expect(optsOf().callerToolAllowlist).toEqual(["open_app"]);
+		});
+
+		test("an UNPOLICIED key passes neither option", async () => {
+			const res = await run(() =>
+				POST(makeEvent({}, { locals: { apiKeyScopes: ["chat"] } }) as never),
+			);
+			expect(res.status).toBe(200);
+			expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+			expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+		});
+
+		test("a COOKIE SESSION passes neither option", async () => {
+			const res = await run(() => POST(makeEvent() as never));
+			expect(res.status).toBe(200);
+			expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+			expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+		});
+	});
 });

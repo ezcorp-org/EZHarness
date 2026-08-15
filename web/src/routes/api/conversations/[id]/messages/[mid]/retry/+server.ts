@@ -10,6 +10,7 @@ import { getActiveRun } from "$server/db/queries/active-runs";
 import { isSessionHistoryProducerEnabled } from "$server/db/session-sync";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { buildCommandResolver } from "$lib/server/command-resolver";
+import { runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { validationError } from "$lib/server/security/validation";
 import { retryMessageSchema } from "./schema";
 import type { RequestHandler } from "./$types";
@@ -113,6 +114,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     modeId: conv.modeId ?? undefined,
     thinkingLevel: parsed.data.thinkingLevel,
     commandResolver: buildCommandResolver(user.id, conv.projectId),
+    // Boundary 3 — see the messages route. A retry re-runs the same turn, so
+    // it must be confined exactly as the original was; anything less would
+    // make "retry" the way around the boundary.
+    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
   });
   streamPromise.catch((err) => {
     log.error("retry streamChat error", { error: err instanceof Error ? err.message : String(err) });

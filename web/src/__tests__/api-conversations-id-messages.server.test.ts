@@ -785,4 +785,63 @@ describe("POST … messages — per-API-key tool policy", () => {
       expect((await send(cookie, "/goal ship it")).status).toBe(200);
     });
   });
+
+  // ── Boundary 3: the run inherits the credential's confinement ─────────
+  //
+  // THIS IS THE ASSERTION THAT WAS MISSING, and its absence is why Boundary 3
+  // shipped inert. The boundary's own suite injected both options straight
+  // into `streamChat`, so it passed while no route ever set either one — a
+  // policied key's spawn-deny did nothing mid-turn, which is the exact gap
+  // Boundary 3 exists to close. Assert from the ROUTE.
+  describe("Boundary 3 — what reaches streamChat", () => {
+    /** The options bag the route handed the executor. `streamChat` is mocked
+     *  with a zero-arg factory, so its recorded call tuple needs naming. */
+    const optsOf = () =>
+      (streamChat.mock.calls[0] as unknown as [string, string, Record<string, unknown>])[2];
+
+    test("a policied key's run denies the LLM's spawn primitives", async () => {
+      conv();
+      expect((await send(policied({ lockedModeId: MODE }))).status).toBe(200);
+      expect(optsOf().forceDenyOrchestration).toBe(true);
+    });
+
+    test("allowedCallerTools becomes the run's caller-tool cap", async () => {
+      conv();
+      const res = await send(
+        policied({ lockedModeId: MODE, allowedCallerTools: ["open_app"] }),
+      );
+      expect(res.status).toBe(200);
+      expect(optsOf().callerToolAllowlist).toEqual(["open_app"]);
+    });
+
+    test("an EMPTY allowedCallerTools reaches the run as empty — the hardest lock", async () => {
+      // Nullish means "no constraint" downstream, so dropping the empty array
+      // anywhere on this path would invert the policy at exactly the value an
+      // operator uses to permit NO caller tools at all.
+      conv();
+      const res = await send(policied({ lockedModeId: MODE, allowedCallerTools: [] }));
+      expect(res.status).toBe(200);
+      expect(optsOf().callerToolAllowlist).toEqual([]);
+    });
+
+    test("a policy that names no caller tools leaves the cap absent", async () => {
+      conv();
+      expect((await send(policied({ lockedModeId: MODE }))).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+
+    test("an UNPOLICIED key gets the pre-policy surface — neither option", async () => {
+      conv();
+      expect((await send(unpolicied)).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+
+    test("a COOKIE SESSION gets the pre-policy surface — neither option", async () => {
+      conv();
+      expect((await send(cookie)).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+  });
 });

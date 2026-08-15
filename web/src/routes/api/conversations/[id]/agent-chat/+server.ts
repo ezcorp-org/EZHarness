@@ -11,6 +11,7 @@ import { getExecutor, getBus } from "$lib/server/context";
 import { logger } from "$server/logger";
 import { enqueue } from "$server/runtime/pending-messages";
 import { buildCommandResolver } from "$lib/server/command-resolver";
+import { runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { CURRENT_MODEL_SENTINEL } from "$server/types";
 
 const log = logger.child("api.agent-chat");
@@ -201,6 +202,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         : (config?.provider ?? parentConv.provider ?? undefined)),
     system: config?.prompt ?? subConv.systemPrompt ?? undefined,
     commandResolver: buildCommandResolver(user.id, projectId),
+    // Boundary 3 — see the messages route. A sub-agent run started by a
+    // policied key is still that key's run: it must not hold the spawn
+    // primitives the key's route allowlist denies over HTTP.
+    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
   });
 
   // Emit agent:spawn so the UI shows the agent as running again.

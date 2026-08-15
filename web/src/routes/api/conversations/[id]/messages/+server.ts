@@ -12,7 +12,7 @@ import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
 import { checkPermissionModeCeiling } from "$server/auth/permission-mode-ceiling";
-import { runStartPolicyDenial } from "$server/auth/tool-policy";
+import { runStartPolicyDenial, runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { getCapabilitiesWithExtensions, classifyMimeWithCaps } from "$server/providers/model-capabilities";
 import {
   getConversationExtensionMimes,
@@ -581,6 +581,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     thinkingLevel: body.thinkingLevel,
     attachments: stagedAttachments.length > 0 ? stagedAttachments : undefined,
     commandResolver: buildCommandResolver(user.id, conv.projectId),
+    // Boundary 3 — the run inherits the confinement of the credential that
+    // asked for it. Spread LAST so nothing above can widen it, and spread as
+    // a unit so this route cannot wire half the boundary. Empty for a cookie
+    // session and for an unpolicied key.
+    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
   });
 
   streamPromise.catch((err) => {

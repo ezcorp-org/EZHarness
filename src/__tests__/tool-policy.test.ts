@@ -34,6 +34,7 @@ import {
   routeBundleNames,
   routeIdToRegistryPath,
   runStartPolicyDenial,
+  runStartToolPolicyOptions,
   validateToolPolicy,
   type ToolPolicy,
 } from "../auth/tool-policy";
@@ -339,6 +340,68 @@ describe("validateToolPolicy", () => {
         ),
       ).toBeNull();
     });
+  });
+});
+
+// ── Boundary 3, as streamChat options ──────────────────────────────────
+//
+// Boundary 3 shipped INERT: both options existed, `setup-tools` threaded
+// them, and the only setter was a test injecting them into `streamChat`. This
+// derivation is the product's single populator, so its arms are the contract.
+describe("runStartToolPolicyOptions", () => {
+  test("no policy spreads NOTHING — a cookie session is unchanged", () => {
+    // Spread into the streamChat call, so `{}` must mean "every option keeps
+    // the value the route would otherwise have passed", not "undefined".
+    expect(runStartToolPolicyOptions(undefined)).toEqual({});
+    expect(runStartToolPolicyOptions(null)).toEqual({});
+    expect(Object.keys(runStartToolPolicyOptions(undefined))).toEqual([]);
+  });
+
+  test("ANY policy denies the spawn surface", () => {
+    // Boundaries 1 and 3 are two halves of one confinement: the route
+    // allowlist cannot see a mid-turn `invoke_agent`, because it issues no
+    // HTTP request. A key confined on ANY axis is a leaf credential.
+    for (const policy of [
+      { routeAllowlist: ["GET /api/tools"] },
+      { lockedModeId: "mode-1" },
+      { maxCallerTools: 1 },
+      { allowedCallerTools: ["open_app"] },
+    ] satisfies ToolPolicy[]) {
+      expect(runStartToolPolicyOptions(policy).forceDenyOrchestration).toBe(true);
+    }
+  });
+
+  test("allowedCallerTools becomes the run's caller-tool cap", () => {
+    expect(runStartToolPolicyOptions({ allowedCallerTools: ["open_app"] })).toEqual({
+      callerToolAllowlist: ["open_app"],
+      forceDenyOrchestration: true,
+    });
+  });
+
+  test("an EMPTY allowedCallerTools is carried through as empty, not dropped", () => {
+    // `applyCallerToolAllowlist` reads nullish as "no constraint" and empty as
+    // "no caller tools". Dropping the empty array would invert the policy at
+    // exactly the value an operator uses to lock a key down hardest.
+    expect(runStartToolPolicyOptions({ allowedCallerTools: [] })).toEqual({
+      callerToolAllowlist: [],
+      forceDenyOrchestration: true,
+    });
+  });
+
+  test("a policy with no allowedCallerTools OMITS the key entirely", () => {
+    // Not `undefined` — the object is SPREAD into streamChat's options, and
+    // `callerToolAllowlist: undefined` would still be an own property. It
+    // reads the same to `applyCallerToolAllowlist`, but the absent form is
+    // what makes "spreads nothing" checkable.
+    const opts = runStartToolPolicyOptions({ lockedModeId: "mode-1" });
+    expect(Object.keys(opts)).toEqual(["forceDenyOrchestration"]);
+  });
+
+  test("the returned allowlist is a COPY — a route cannot mutate the key's policy", () => {
+    const policy: ToolPolicy = { allowedCallerTools: ["open_app"] };
+    const opts = runStartToolPolicyOptions(policy);
+    opts.callerToolAllowlist?.push("smuggled");
+    expect(policy.allowedCallerTools).toEqual(["open_app"]);
   });
 });
 

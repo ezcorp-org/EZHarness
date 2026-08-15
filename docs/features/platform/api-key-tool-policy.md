@@ -21,13 +21,35 @@ less than it does now.
 |---|---|---|
 | **1 — Reach** | `routeAllowlist`: the key reaches only the routes it was minted for, including routes added to the app later | `web/src/hooks.server.ts` (pre-`resolve()`) |
 | **2 — Mode** | `lockedModeId`: run-start refused unless the conversation's PERSISTED `mode_id` matches; plus no arming autopilot and no sending to a goal-armed conversation | `POST /api/conversations/[id]/messages` |
-| **3 — Run tool surface** | `allowedCallerTools` at execution, and a namespace-stripping deny of the LLM's spawn primitives | `src/runtime/tools/filter.ts` + `executor.ts` |
+| **3 — Run tool surface** | `allowedCallerTools` at execution, and a namespace-stripping deny of the LLM's spawn primitives | `src/runtime/tools/filter.ts` + `executor.ts`, wired by every run-start route |
 
 Boundaries 1 and 3 are complementary, not alternatives: 1 covers
 HTTP-initiated execution, 3 covers LLM-initiated execution. `allowedCallerTools`
 and `maxCallerTools` are additionally enforced at **declaration** time on
 `PUT /api/conversations/[id]/caller-tools`, because the bag on a conversation
 may have been written by a different principal (the owner's own browser).
+
+**Boundary 3 is derived at the route, from one function.**
+`runStartToolPolicyOptions(locals.apiKeyToolPolicy)` returns the two
+`streamChat` options (`callerToolAllowlist`, `forceDenyOrchestration`), and
+every `streamChat` run-start route spreads it into the call — `messages`,
+`agent-chat`, and message `retry`. ANY policy ⇒ spawn-deny: a key confined on
+any axis is a leaf credential, and a mid-turn `invoke_agent` issues no HTTP
+request for Boundary 1 to see. No policy ⇒ `{}`, so a cookie session and an
+unpolicied key are unchanged.
+
+It is one function rather than two inline reads because Boundary 3 first
+shipped **inert**: the options existed, `setup-tools` threaded them, and the
+only setter was a test injecting them straight into `streamChat` — so the
+layer tested green while no route in the product set either one, and a
+policied key's spawn-deny did nothing mid-turn.
+`src/__tests__/policy-run-start-surface.test.ts` now asserts the wiring from
+the ROUTE side, which is the side that was blind.
+
+The other three run-start routes (`agents/[name]/run`,
+`workflows/[name]/run`, the two task routes) take no such option — `runAgent`,
+`runWorkflow` and `startAssignment` have no per-run policy parameter — so
+Boundary 1 is the whole control on them.
 
 ## Shape
 
@@ -117,7 +139,8 @@ is a footgun no code can catch — bundle review is the control.
 
 - `src/auth/tool-policy.ts` — the shape, `ROUTE_BUNDLES`, and every predicate
   (`policyOverCeiling`, `validateToolPolicy`, `mayUseMode`,
-  `mayDeclareCallerTools`, `runStartPolicyDenial`)
+  `mayDeclareCallerTools`, `runStartPolicyDenial`,
+  `runStartToolPolicyOptions`)
 - `web/src/lib/server/security/route-allowlist.ts` — the hook predicate + the
   403 shape
 - `web/src/hooks.server.ts` — Boundary 1, after the auth branch closes
