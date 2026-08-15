@@ -463,6 +463,7 @@ run_legs() {
       src/lib/extensions/extension-sort.unit.test.ts \
       src/lib/__tests__/rbac-grants-logic.unit.test.ts \
       src/__tests__/resume-path.unit.test.ts \
+      src/__tests__/pull-to-refresh-logic.unit.test.ts \
       src/__tests__/sw-runtime.unit.test.ts \
       src/__tests__/service-worker.shell.unit.test.ts \
       src/lib/components/__tests__/AuditLogSection.component.test.ts \
@@ -682,6 +683,7 @@ run_legs() {
       --coverage.include='src/lib/extensions/extension-sort.ts' \
       --coverage.include='src/lib/rbac-grants-logic.ts' \
       --coverage.include='src/lib/resume-path.ts' \
+      --coverage.include='src/lib/components/pull-to-refresh-logic.ts' \
       --coverage.include='src/lib/sw-runtime.ts' \
       --coverage.include='src/service-worker.ts' \
       --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \

@@ -275,6 +275,7 @@
   "src/runtime/stream-chat/finalize.ts": 75,
   "src/runtime/executor.ts": 65,
   "web/src/lib/components/goal-row-logic.ts": 100,
+  "web/src/lib/components/pull-to-refresh-logic.ts": 100,
   "web/src/lib/components/UpdateBanner.svelte": 100,
   "web/src/lib/components/settings/TierLadderSection.svelte": 100,
   "web/src/lib/components/settings/DefaultSelectionSection.svelte": 100,
