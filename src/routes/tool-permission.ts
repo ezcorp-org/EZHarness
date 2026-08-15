@@ -225,12 +225,19 @@ export async function handleGetPermissionMode(_req: Request, projectId: string):
 
 /**
  * PUT /api/projects/:id/tool-permission-mode
- * Body: { mode: PermissionMode }
+ * Body: { mode: PermissionMode, conversationId?: string }
+ *
+ * TWO authorization questions, and they are not the same one. The route asks
+ * the PROJECT half — `checkProjectRole(locals, id, "member")`, the ladder
+ * that also guards rename and delete, because the stored mode is
+ * project-wide state. This handler asks the CONVERSATION half, below.
+ * Membership of a project is NOT ownership of every conversation in it.
  */
 export async function handleSetPermissionMode(
   req: Request,
   projectId: string,
-  options?: { onModeChange?: (mode: string, conversationId?: string) => void },
+  user: AuthUser,
+  options?: { onModeChange?: (mode: string, conversationId: string) => void },
 ): Promise<Response> {
   let body: { mode?: string; conversationId?: string };
   try {
@@ -246,8 +253,46 @@ export async function handleSetPermissionMode(
   if (!body.mode || !VALID_MODES.has(body.mode as PermissionMode)) {
     return json({ error: `mode must be one of: ${[...VALID_MODES].join(", ")}` }, 400);
   }
+  if (body.conversationId !== undefined && typeof body.conversationId !== "string") {
+    return json({ error: "conversationId must be a string" }, 400);
+  }
+
+  // The live-switch event is addressed BY CONVERSATION ID, and its subscriber
+  // (`src/runtime/stream-chat/setup-tools.ts`) accepts it on id equality
+  // alone. It then assigns `busOverrideMode`, which every later tool call in
+  // that run reads in place of the stored project mode. So an unchecked
+  // `conversationId` is a remote control over ANOTHER user's in-flight turn:
+  // emit `yolo` into their conversation and their next `shell` call runs
+  // unprompted. The route's membership gate does not cover this — a project
+  // holds many members and each one's chats are their own.
+  //
+  // Fail closed on all four cases: no such row; a row in a DIFFERENT project
+  // (the event would carry this project's mode into another project's run);
+  // an ownerless row (`user_id` is SET NULL when the owner is deleted, so it
+  // matches nobody — the sec-H3 rule); and another user's row. Instance
+  // admins bypass the ownership half exactly as they do in
+  // `handleToolPermission` above; the project half binds them too.
+  //
+  // Refused BEFORE the write, so a denial leaves no mode change behind. A
+  // half-honoured request that persisted the mode and dropped only the event
+  // would still be the project-wide escalation this gate exists to close.
+  const conversationId = body.conversationId || undefined;
+  if (conversationId) {
+    const conv = await getConversation(conversationId);
+    if (
+      !conv ||
+      conv.projectId !== projectId ||
+      (conv.userId !== user.id && user.role !== "admin")
+    ) {
+      return json({ error: "Forbidden" }, 403);
+    }
+  }
 
   await upsertSetting(`project:${projectId}:tool_permission_mode`, body.mode);
-  options?.onModeChange?.(body.mode, body.conversationId);
+  // `conversationId` is a REQUIRED string in the callback type, so the emit
+  // cannot be reached without an authorized conversation. The compiler holds
+  // the invariant the route used to hold with an `if` — and a second guard
+  // there would now be an unreachable branch.
+  if (conversationId) options?.onModeChange?.(body.mode, conversationId);
   return json({ ok: true });
 }

@@ -651,7 +651,6 @@ describe("registry ⇄ filesystem parity", () => {
     "PUT /api/agent-configs/:id",
     "PUT /api/briefing/config",
     "PUT /api/extensions/:id/settings/user",
-    "PUT /api/projects/:id/tool-permission-mode",
     "PUT /api/teams/:id",
     "PUT /api/user/agent-picker",
   ]);

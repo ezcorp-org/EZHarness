@@ -17,13 +17,22 @@ mock.module("../db/queries/settings", () => ({
 // updated for sec-H2 — handleToolPermission now loads the conversation to
 // verify ownership before acting on a pending gate. Stub to a conversation
 // owned by OWNER_USER below.
+//
+// `handleSetPermissionMode` reads the same query for the live-switch event's
+// conversation, and compares `projectId` as well as the owner — hence the real
+// project id here and the `null` for anything else. The refusal paths are
+// probed in `src/__tests__/security/project-permission-mode-authz.test.ts`;
+// this file drives the happy paths.
 mock.module("../db/queries/conversations", () => ({
-  getConversation: async (_id: string) => ({
-    id: "conv-owner",
-    userId: "owner-user-1",
-    title: "Owner conversation",
-    projectId: null,
-  }),
+  getConversation: async (id: string) =>
+    id === "conv-owner"
+      ? {
+          id: "conv-owner",
+          userId: "owner-user-1",
+          title: "Owner conversation",
+          projectId: "proj-6",
+        }
+      : null,
 }));
 
 import {
@@ -179,7 +188,11 @@ describe("GET /api/projects/:id/tool-permission-mode", () => {
 
 describe("PUT /api/projects/:id/tool-permission-mode", () => {
   test("sets mode and persists", async () => {
-    const res = await handleSetPermissionMode(putMode("proj-3", { mode: "auto-edit" }), "proj-3");
+    const res = await handleSetPermissionMode(
+      putMode("proj-3", { mode: "auto-edit" }),
+      "proj-3",
+      OWNER_USER,
+    );
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -187,7 +200,11 @@ describe("PUT /api/projects/:id/tool-permission-mode", () => {
   });
 
   test("rejects invalid mode -> returns 400", async () => {
-    const res = await handleSetPermissionMode(putMode("proj-4", { mode: "invalid" }), "proj-4");
+    const res = await handleSetPermissionMode(
+      putMode("proj-4", { mode: "invalid" }),
+      "proj-4",
+      OWNER_USER,
+    );
 
     expect(res.status).toBe(400);
     const data = await res.json();
@@ -200,7 +217,7 @@ describe("PUT /api/projects/:id/tool-permission-mode", () => {
       headers: { "Content-Type": "application/json" },
       body: "not json",
     });
-    const res = await handleSetPermissionMode(req, "proj-5");
+    const res = await handleSetPermissionMode(req, "proj-5", OWNER_USER);
 
     expect(res.status).toBe(400);
     const data = await res.json();
@@ -211,25 +228,32 @@ describe("PUT /api/projects/:id/tool-permission-mode", () => {
     let callbackMode: string | undefined;
     let callbackConvId: string | undefined;
     const res = await handleSetPermissionMode(
-      putMode("proj-6", { mode: "yolo", conversationId: "conv-123" }),
+      putMode("proj-6", { mode: "yolo", conversationId: "conv-owner" }),
       "proj-6",
+      OWNER_USER,
       { onModeChange: (mode, convId) => { callbackMode = mode; callbackConvId = convId; } },
     );
 
     expect(res.status).toBe(200);
     expect(callbackMode).toBe("yolo");
-    expect(callbackConvId).toBe("conv-123");
+    expect(callbackConvId).toBe("conv-owner");
   });
 
-  test("onModeChange callback receives undefined conversationId when not provided", async () => {
-    let callbackConvId: string | undefined = "should-be-undefined";
-    await handleSetPermissionMode(
+  test("onModeChange is NOT called when no conversationId is provided", async () => {
+    // The callback's `conversationId` is a required string, so a project-wide
+    // change has nothing to address the live-switch event to and must not
+    // fire one. (It used to fire with `undefined` and the route filtered it.)
+    let called = false;
+    const res = await handleSetPermissionMode(
       putMode("proj-7", { mode: "ask" }),
       "proj-7",
-      { onModeChange: (_mode, convId) => { callbackConvId = convId; } },
+      OWNER_USER,
+      { onModeChange: () => { called = true; } },
     );
 
-    expect(callbackConvId).toBeUndefined();
+    expect(res.status).toBe(200);
+    expect(called).toBe(false);
+    expect(settingsStore["project:proj-7:tool_permission_mode"]).toBe("ask");
   });
 });
 

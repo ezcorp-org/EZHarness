@@ -261,7 +261,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/projects/:id/members", description: "List a project's members (project members and instance admins)", category: "projects", scope: "read", responseDescription: "[{ id, projectId, userId, role, createdAt, userName, userEmail }]" },
   { method: "POST", path: "/api/projects/:id/members", description: "Add a member to a project, or change an existing member's role (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ id, projectId, userId, role, createdAt }" },
   { method: "DELETE", path: "/api/projects/:id/members/:userId", description: "Remove a member from a project; the LAST member is refused with 409 (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ ok: true }" },
-  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
+  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set the project's built-in-tool permission mode (project members and instance admins); an optional conversationId — which must name a chat the caller owns inside this project — pushes the change live into that run", category: "projects", scope: "chat", responseDescription: "{ ok: true }" },
 
   // Settings
   { method: "GET", path: "/api/settings", description: "Get every non-deny-listed instance setting. Gate: requireAdmin(locals) for the ROLE plus requireScope(locals,\"admin\") for the KEY axis (F6) — until 2026-08 the scope half was missing, so an admin-role key minted `--scopes read` read the whole settings blob", category: "settings", scope: "admin" },
@@ -646,7 +646,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "DELETE", path: "/api/projects/:id/features/:featureId", description: "Delete one feature", category: "composer", scope: "chat" },
 
   // ── Permission mode (read half; the PUT is registered above) ──────────
-  { method: "GET", path: "/api/projects/:id/tool-permission-mode", description: "The project's stored built-in-tool permission mode (defaults to `yolo`)", category: "projects", scope: "read", responseDescription: '{ mode: "ask" | "auto-edit" | "yolo" }' },
+  { method: "GET", path: "/api/projects/:id/tool-permission-mode", description: "The project's stored built-in-tool permission mode (defaults to `yolo`); project members and instance admins", category: "projects", scope: "read", responseDescription: '{ mode: "ask" | "auto-edit" | "yolo" }' },
 
   // ── EZ concierge panel ────────────────────────────────────────────────
   // `read` on the find-or-create pair is deliberate and was re-affirmed by
