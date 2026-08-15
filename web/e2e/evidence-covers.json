@@ -253,9 +253,17 @@
     "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
+  "web/e2e/pull-to-refresh-no-spurious-reload.spec.ts": [
+    "web/src/lib/components/PullToRefresh.svelte"
+  ],
   "web/e2e/rbac-permissions.spec.ts": [
     "web/src/routes/(app)/settings/permissions/+page.svelte",
     "web/src/routes/(app)/settings/+layout.svelte"
+  ],
+  "web/e2e/resume-bounce-no-loop.spec.ts": [
+    "web/src/routes/+page.svelte",
+    "web/src/routes/(app)/admin/dashboard/+page.svelte",
+    "web/src/routes/(app)/admin/moderation/+page.svelte"
   ],
   "web/e2e/resume-last-path.spec.ts": [
     "web/src/routes/+page.svelte",
