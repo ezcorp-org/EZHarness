@@ -1,4 +1,6 @@
 import { test, expect, describe } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // ─── MobileTabBar active tab logic ───────────────────────────────────────────
 
@@ -90,84 +92,82 @@ describe("MobileTabBar active tab logic", () => {
   });
 });
 
-// ─── PullToRefresh touch logic ───────────────────────────────────────────────
+// ─── PullToRefresh: source-level guard on the reload trigger ─────────────────
+//
+// The BEHAVIOURAL suite moved to `pull-to-refresh-logic.unit.test.ts`, which
+// exercises the REAL `$lib/components/pull-to-refresh-logic` module. What lived
+// here re-implemented `computePullDistance`/`shouldTriggerRefresh` as local
+// copies, so it asserted nothing about shipped code: it stayed fully green
+// while the shipped guard read `document.scrollingElement.scrollTop` — pinned
+// at 0 forever under the app's 100dvh shell — and hard-reloaded the app on
+// every downward swipe.
+//
+// What stays here is the guard that suite could never provide: this file runs
+// on the BUN leg, and a bun:test that IMPORTS a `web/src/lib/**` module the
+// vitest leg measures corrupts that module's merged coverage (see the coverage
+// trap in CLAUDE.md). So the source is PARSED, not imported — the same
+// technique as `src/__tests__/author-draft-allowlist-parity.test.ts`.
+//
+// This pins the two properties that made the bug possible, at the only place
+// they can regress: the component's arming guard, and the constants it shares
+// with the logic module.
 
-const THRESHOLD = 80;
+const COMPONENT_SRC = readFileSync(
+  join(import.meta.dir, "..", "lib", "components", "PullToRefresh.svelte"),
+  "utf8",
+);
+const LOGIC_SRC = readFileSync(
+  join(import.meta.dir, "..", "lib", "components", "pull-to-refresh-logic.ts"),
+  "utf8",
+);
 
-function computePullDistance(dy: number): number {
-  if (dy < 0) return 0;
-  return Math.min(dy * 0.4, THRESHOLD * 1.5);
-}
-
-function shouldTriggerRefresh(pullDistance: number): boolean {
-  return pullDistance >= THRESHOLD;
-}
-
-describe("PullToRefresh touch logic", () => {
-  test("pull distance is dampened by 0.4 factor", () => {
-    expect(computePullDistance(100)).toBe(40);
-    expect(computePullDistance(50)).toBe(20);
-    expect(computePullDistance(10)).toBe(4);
+describe("PullToRefresh reload trigger (source guard)", () => {
+  test("the component still ends in a real reload — the risk this guards", () => {
+    // If this ever stops being true the rest of this block is pointless, so
+    // assert the premise rather than assuming it.
+    expect(COMPONENT_SRC).toContain("location.reload()");
   });
 
-  test("pull distance is capped at THRESHOLD * 1.5 = 120", () => {
-    expect(computePullDistance(500)).toBe(120);
-    expect(computePullDistance(1000)).toBe(120);
-    expect(computePullDistance(300)).toBe(120);
+  test("arming does NOT depend on the document scroller alone", () => {
+    // The exact defect: `document.scrollingElement.scrollTop` is permanently 0
+    // under a 100dvh shell, so guarding on it armed the gesture everywhere.
+    expect(COMPONENT_SRC).not.toMatch(/scrollEl\s*=\s*target\s*\?\?\s*document\.scrollingElement/);
+    expect(COMPONENT_SRC).not.toMatch(/if\s*\(\s*scrollEl\.scrollTop\s*>\s*0\s*\)\s*return/);
   });
 
-  test("exact cap boundary: dy=300 gives 120", () => {
-    // 300 * 0.4 = 120 which equals the cap
-    expect(computePullDistance(300)).toBe(120);
+  test("arming resolves the scroller under the finger", () => {
+    expect(COMPONENT_SRC).toContain("nearestScrollTop");
+    // The touch target is what makes the walk-up meaningful.
+    expect(COMPONENT_SRC).toMatch(/scrollTopUnder\(\s*e\.target\s*\)/);
   });
 
-  test("just below cap: dy=299 gives 119.6", () => {
-    expect(computePullDistance(299)).toBeCloseTo(119.6, 1);
+  test("the gesture is gated to the viewport where its indicator is visible", () => {
+    expect(COMPONENT_SRC).toContain("isPullEnabled(window.innerWidth)");
+    // The indicator is `md:hidden`; the gate must match Tailwind's `md`.
+    expect(LOGIC_SRC).toMatch(/PULL_MAX_VIEWPORT_PX\s*=\s*768/);
+    expect(COMPONENT_SRC).toContain("md:hidden");
   });
 
-  test("refresh triggers when pullDistance >= 80 (dy >= 200)", () => {
-    // dy=200 => 200 * 0.4 = 80 => exactly threshold
-    const pullAt200 = computePullDistance(200);
-    expect(pullAt200).toBe(80);
-    expect(shouldTriggerRefresh(pullAt200)).toBe(true);
+  test("touchcancel is handled, so an abandoned gesture cannot stay armed", () => {
+    expect(COMPONENT_SRC).toContain("ontouchcancel");
+    expect(COMPONENT_SRC).toContain("cancelPull");
   });
 
-  test("refresh triggers above threshold", () => {
-    const pull = computePullDistance(250);
-    expect(pull).toBe(100);
-    expect(shouldTriggerRefresh(pull)).toBe(true);
+  test("the reload is reached only through endPull's explicit refresh signal", () => {
+    // No other path in the component may call reload. Comments mention it too,
+    // so strip them before counting.
+    const code = COMPONENT_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const reloadCalls = code.match(/location\.reload\(\)/g) ?? [];
+    expect(reloadCalls).toHaveLength(1);
+    expect(code).toMatch(/if\s*\(resolved\.refresh\)\s*\{\s*refreshing\s*=\s*true;\s*location\.reload\(\)/);
   });
 
-  test("no refresh below threshold (dy=199)", () => {
-    const pull = computePullDistance(199);
-    expect(pull).toBeCloseTo(79.6, 1);
-    expect(shouldTriggerRefresh(pull)).toBe(false);
-  });
-
-  test("no refresh for small pull", () => {
-    const pull = computePullDistance(50);
-    expect(pull).toBe(20);
-    expect(shouldTriggerRefresh(pull)).toBe(false);
-  });
-
-  test("negative dy resets pull distance to 0", () => {
-    expect(computePullDistance(-10)).toBe(0);
-    expect(computePullDistance(-100)).toBe(0);
-    expect(computePullDistance(-1)).toBe(0);
-  });
-
-  test("zero dy gives zero pull distance", () => {
-    expect(computePullDistance(0)).toBe(0);
-  });
-
-  test("only activates when scrollTop is 0", () => {
-    // Simulates the guard: pull-to-refresh should not compute when scrolled
-    function shouldActivate(scrollTop: number): boolean {
-      return scrollTop === 0;
-    }
-    expect(shouldActivate(50)).toBe(false);
-    expect(shouldActivate(0)).toBe(true);
-    expect(shouldTriggerRefresh(computePullDistance(200))).toBe(true);
+  test("the tuning constants live in one place and keep their values", () => {
+    expect(LOGIC_SRC).toMatch(/PULL_THRESHOLD_PX\s*=\s*80/);
+    expect(LOGIC_SRC).toMatch(/PULL_DAMPING\s*=\s*0\.4/);
+    expect(LOGIC_SRC).toMatch(/PULL_MAX_PX\s*=\s*PULL_THRESHOLD_PX\s*\*\s*1\.5/);
+    // The component must not re-declare its own copy of the threshold.
+    expect(COMPONENT_SRC).not.toMatch(/const\s+THRESHOLD\s*=/);
   });
 });
 

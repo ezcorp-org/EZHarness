@@ -199,13 +199,11 @@ test.describe("Mobile navigation", () => {
     await mockApi({ projects: [proj] });
     await page.goto(`/project/${proj.id}`);
 
-    const refreshIndicator = page.locator("[data-testid='pull-to-refresh']");
-    // Either not in DOM or not visible
-    const count = await refreshIndicator.count();
-    if (count > 0) {
-      await expect(refreshIndicator).not.toBeVisible();
-    } else {
-      expect(count).toBe(0);
-    }
+    // `data-testid` now EXISTS on the indicator (PullToRefresh.svelte). It did
+    // not before, so this locator could never match and the old
+    // `count > 0 ? … : expect(count).toBe(0)` branch asserted nothing — it
+    // passed identically with the component deleted. Assert unconditionally:
+    // at rest the indicator must not be rendered, and this now fails if it is.
+    await expect(page.getByTestId("pull-to-refresh")).toHaveCount(0);
   });
 });
