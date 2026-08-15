@@ -3,8 +3,8 @@
 	import { goto } from "$app/navigation";
 	import {
 		resolveResumeTarget,
+		consumeResumePath,
 		ACTIVE_PROJECT_KEY,
-		LAST_PATH_KEY,
 		GLOBAL_PROJECT_ID,
 	} from "$lib/resume-path.js";
 
@@ -19,7 +19,12 @@
 		let cancelled = false;
 		void (async () => {
 			const ls = typeof localStorage !== "undefined" ? localStorage : null;
-			const lastPath = ls?.getItem(LAST_PATH_KEY) ?? null;
+			// CONSUMED, not read: a target that bounces back to `/` must not be
+			// re-resolved on the way back in, or `/` and that route ping-pong
+			// forever. See `consumeResumePath`. The `(app)` layout re-records the
+			// path as soon as the target actually renders, so a normal open is
+			// unchanged.
+			const lastPath = consumeResumePath(ls);
 			const savedProjectId = ls?.getItem(ACTIVE_PROJECT_KEY) ?? null;
 
 			// One fetch to learn which projects still exist — drives both the

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
+	import { forgetResumePath } from "$lib/resume-path.js";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import MobileCardStack from "$lib/components/MobileCardStack.svelte";
 	import { hoverTooltip } from "$lib/actions/hover-tooltip";
@@ -102,17 +103,31 @@
 	let systemError = $state(false);
 	let embedError = $state(false);
 
+	/** This route's own path — what the resume shell must forget on a bounce. */
+	const ADMIN_ROUTE = "/admin/dashboard";
+
+	/**
+	 * Leave this admin route without poisoning the resume path. The `(app)`
+	 * layout records every navigation, so by the time this guard runs the route
+	 * is already saved as "where the user was" — and `/` would send them
+	 * straight back here on the next hop, forever. See `forgetResumePath`.
+	 */
+	function bounceHome() {
+		forgetResumePath(typeof localStorage !== "undefined" ? localStorage : null, ADMIN_ROUTE);
+		goto("/");
+	}
+
 	async function checkAdmin() {
 		try {
 			const res = await fetch("/api/auth/me");
 			const data = await res.json();
 			if (data.user?.role !== "admin") {
-				goto("/");
+				bounceHome();
 				return;
 			}
 			isAdmin = true;
 		} catch {
-			goto("/");
+			bounceHome();
 		}
 	}
 

@@ -27,6 +27,7 @@
       "web/e2e/hub.spec.ts",
       "web/e2e/main-chat-parity.spec.ts",
       "web/e2e/project-form.spec.ts",
+      "web/e2e/resume-bounce-no-loop.spec.ts",
       "web/e2e/stuck-skeleton-self-heal.spec.ts",
       "web/e2e/task-panel-cold-start.spec.ts",
       "web/e2e/workflows-run-output.spec.ts"
