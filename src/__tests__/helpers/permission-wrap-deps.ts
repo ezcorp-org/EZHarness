@@ -40,6 +40,14 @@ export interface TestPermissionDeps {
 export interface TestPermissionDepsOptions {
   runId?: string;
   conversationId?: string;
+  /**
+   * Conversation owner stamped on the `tool:permission_request` emit.
+   *
+   * Defaults to `null` — the ownerless shape — so the ~30 wiring tests that
+   * only need SOME deps object keep emitting exactly the payload they always
+   * did. The tests that care about the delivery key pass one explicitly.
+   */
+  userId?: string | null;
   projectId?: string | undefined;
   requestedMode?: PermissionMode | undefined;
   /** Stored project mode, i.e. what `getPermissionMode(projectId)` resolves. */
@@ -74,6 +82,7 @@ export function makeTestPermissionDeps(
     host,
     runId: opts.runId ?? "run-test",
     conversationId: opts.conversationId ?? "conv-test",
+    userId: opts.userId ?? null,
     projectId: "projectId" in opts ? opts.projectId : "proj-test",
     requestedMode: opts.requestedMode,
     getBusOverrideMode: () => busOverrideMode,

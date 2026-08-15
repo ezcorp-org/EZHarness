@@ -166,6 +166,63 @@ describe("payload allowlist", () => {
     d.stop();
   });
 
+  test("tool:permission_request strips `input` by default", async () => {
+    // The gate card's `input` is the LLM's raw arguments for a call that has
+    // NOT RUN YET — the shell command, the file write, or (for a caller tool)
+    // the arguments for something about to execute on the user's own machine.
+    // `caller:tool-call` and `ez:client-tool` were moved out of the
+    // extension-subscribable set for exactly that payload; this event carries
+    // the same arguments a moment earlier and IS subscribable, so the strip is
+    // what stops the front door handing over what the side door denies.
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const d = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-pr", proc]])),
+      wireLookup({ "c1": ["ext-pr"] }),
+    );
+    d.registerExtension("ext-pr", ["tool:permission_request"]);
+    d.start();
+    bus.emit("tool:permission_request", {
+      conversationId: "c1",
+      toolCallId: "tc-1",
+      toolName: "_caller__open_app",
+      input: { app: "Keychain Access", path: "/Users/me/.ssh/id_ed25519" },
+      category: "caller",
+    } as unknown as AgentEvents["tool:permission_request"]);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(proc.calls.length).toBe(1);
+    expect(proc.calls[0]!.params.input).toBeUndefined();
+    // Everything an extension legitimately needs to render or correlate the
+    // card survives — only the arguments go.
+    expect(proc.calls[0]!.params.toolName).toBe("_caller__open_app");
+    expect(proc.calls[0]!.params.toolCallId).toBe("tc-1");
+    expect(proc.calls[0]!.params.category).toBe("caller");
+    d.stop();
+  });
+
+  test("tool:permission_request WITH includeFullPayload retains `input`", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const proc = mockProc();
+    const d = new EventSubscriptionDispatcher(
+      bus,
+      mockRegistry(new Map([["ext-pr2", proc]])),
+      wireLookup({ "c1": ["ext-pr2"] }),
+    );
+    d.registerExtension("ext-pr2", ["tool:permission_request"]);
+    d.setIncludeFullPayload("ext-pr2", true);
+    d.start();
+    bus.emit("tool:permission_request", {
+      conversationId: "c1",
+      toolCallId: "tc-2",
+      toolName: "shell",
+      input: { cmd: "ls" },
+    } as unknown as AgentEvents["tool:permission_request"]);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(proc.calls[0]!.params.input).toEqual({ cmd: "ls" });
+    d.stop();
+  });
+
   test("non-heavy events (run:complete) pass through unchanged", async () => {
     const bus = new EventBus<AgentEvents>();
     const proc = mockProc();
