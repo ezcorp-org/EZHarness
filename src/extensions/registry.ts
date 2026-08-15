@@ -302,6 +302,10 @@ export class ExtensionRegistry {
    *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
    *  loopback port (fallback) and gates outbound HTTPS via PDP. */
   private mcpProxies = new Map<string, McpProxyHandle>();
+  /** extension id -> tail of the serialized `tools/list_changed` refresh
+   *  chain for that extension. See `onMcpToolListChanged`; entries clear
+   *  themselves once the tail settles. */
+  private mcpToolRefreshes = new Map<string, Promise<void>>();
   /** extension id -> manifest */
   private manifests = new Map<string, ExtensionManifestV2>();
   /** extension id -> install path */
@@ -1046,6 +1050,18 @@ export class ExtensionRegistry {
     }
 
     const client = existing ?? new McpClient(sandboxedSpec);
+    // Server-driven lifecycle. Attached BEFORE `connect()` because a
+    // transport can die during the handshake.
+    //
+    // Defensive `typeof` guard: test fixtures stub McpClient with bare
+    // { connect, close, listTools, callTool } objects — same tolerance as
+    // the `getChildProcess` probe below.
+    if (typeof client.setLifecycleHooks === "function") {
+      client.setLifecycleHooks({
+        onClosed: () => this.onMcpTransportClosed(extensionId, client),
+        onToolListChanged: () => this.onMcpToolListChanged(extensionId),
+      });
+    }
     // Phase 58 / MCP-04 — capture spawnAt BEFORE the (potentially-slow)
     // connect() so the journalctl --since window in the soak reader
     // is anchored to actual spawn time, not post-handshake. connect()
@@ -1140,6 +1156,75 @@ export class ExtensionRegistry {
       }
     }
     return client;
+  }
+
+  /**
+   * The extension's MCP transport is gone — the server restarted, the stdio
+   * child exited, or the stream dropped.
+   *
+   * Dropping the cache entry is what makes the recovery COMPLETE. Clearing
+   * `connected` alone would let the next `getMcpClient` fall through to the
+   * rebuild path and hand the same instance back (`existing ?? new
+   * McpClient`), reconnecting against a spec built for the dead child — a
+   * forward proxy that has since been replaced, a veth slot that has been
+   * released. With the entry gone, the next call rebuilds the whole sandbox
+   * envelope and constructs a client from the fresh spec.
+   *
+   * The identity check is not paranoia: a reconnect can already have
+   * replaced the entry by the time a late close event lands, and an
+   * unconditional delete would evict the LIVE client.
+   */
+  private onMcpTransportClosed(extensionId: string, client: McpClient): void {
+    if (this.mcpClients.get(extensionId) !== client) return;
+    this.mcpClients.delete(extensionId);
+    log.info("MCP transport closed — cached client dropped, next call reconnects", {
+      extensionId,
+    });
+  }
+
+  /**
+   * `notifications/tools/list_changed` — the server says its catalog moved.
+   *
+   * Reuses {@link refreshMcpTools}, the SAME entry point
+   * `POST /api/mcp-servers/[id]/refresh` drives, so a server-initiated change
+   * invalidates exactly what an admin refresh invalidates (the manifest at
+   * rest plus `manifests` / `extensionTools` / `toolMap`) instead of a
+   * parallel subset that would drift from it.
+   *
+   * Refreshes are SERIALIZED per extension. A server is free to emit a burst
+   * of notifications, and two overlapping refreshes would interleave a
+   * `tools/list` with the other's row update — leaving the row describing
+   * neither catalog. Chaining also means the LAST notification is the last
+   * writer, which is the only ordering that can be correct.
+   */
+  private onMcpToolListChanged(extensionId: string): void {
+    const prior = this.mcpToolRefreshes.get(extensionId) ?? Promise.resolve();
+    // `prior` never rejects — the inner handlers below settle both arms — so
+    // the chain cannot be broken by one failing refresh.
+    const next = prior.then(() =>
+      this.refreshMcpTools(extensionId).then(
+        (tools) => {
+          log.info("MCP server changed its tool catalog", {
+            extensionId,
+            toolCount: tools.length,
+          });
+        },
+        (err) => {
+          log.warn("MCP tools/list_changed refresh failed", {
+            extensionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        },
+      ),
+    );
+    this.mcpToolRefreshes.set(extensionId, next);
+    void next.then(() => {
+      // Only the TAIL of the chain clears the slot; a link that settles
+      // while a later notification is still queued must leave it alone.
+      if (this.mcpToolRefreshes.get(extensionId) === next) {
+        this.mcpToolRefreshes.delete(extensionId);
+      }
+    });
   }
 
   /**
