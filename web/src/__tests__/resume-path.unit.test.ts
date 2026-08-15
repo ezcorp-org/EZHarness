@@ -3,6 +3,8 @@ import {
 	projectIdFromPath,
 	isResumablePath,
 	resolveResumeTarget,
+	consumeResumePath,
+	forgetResumePath,
 	clearResumeState,
 	LAST_PATH_KEY,
 	ACTIVE_PROJECT_KEY,
@@ -154,6 +156,130 @@ describe("resolveResumeTarget", () => {
 				validProjectIds: ["p1"],
 			}),
 		).toBe("/project/global/chat");
+	});
+});
+
+describe("consumeResumePath", () => {
+	test("returns the saved path AND clears it in one step", () => {
+		// One-shot by design: re-reading it is what let a bouncing route
+		// ping-pong with `/` forever.
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard");
+
+		expect(consumeResumePath(s)).toBe("/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBeNull();
+		expect(consumeResumePath(s)).toBeNull();
+	});
+
+	test("a second open after a bounce resolves to a fallback, not the bouncing route", () => {
+		// The loop, end to end: `/` consumes `/admin/dashboard`, the guard
+		// bounces home, and the return trip must NOT resolve back into it.
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard");
+		s.setItem(ACTIVE_PROJECT_KEY, "p1");
+
+		const first = resolveResumeTarget({
+			lastPath: consumeResumePath(s),
+			savedProjectId: s.getItem(ACTIVE_PROJECT_KEY),
+			validProjectIds: ["p1"],
+		});
+		expect(first).toBe("/admin/dashboard");
+
+		const second = resolveResumeTarget({
+			lastPath: consumeResumePath(s),
+			savedProjectId: s.getItem(ACTIVE_PROJECT_KEY),
+			validProjectIds: ["p1"],
+		});
+		expect(second).toBe("/project/p1/chat");
+		expect(second).not.toBe(first);
+	});
+
+	test("leaves the other resume keys alone", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/hub");
+		s.setItem(ACTIVE_PROJECT_KEY, "p1");
+		s.setItem(`${LAST_CHAT_PREFIX}p1`, "conv-1");
+
+		consumeResumePath(s);
+
+		expect(s.getItem(ACTIVE_PROJECT_KEY)).toBe("p1");
+		expect(s.getItem(`${LAST_CHAT_PREFIX}p1`)).toBe("conv-1");
+	});
+
+	test("returns null when there is nothing saved", () => {
+		expect(consumeResumePath(new FakeStorage())).toBeNull();
+	});
+
+	test("returns null when storage is unavailable (SSR)", () => {
+		expect(consumeResumePath(null)).toBeNull();
+	});
+});
+
+describe("forgetResumePath", () => {
+	test("clears the saved path when it is the route being bounced off", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard");
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBeNull();
+	});
+
+	test("clears a descendant of the bounced route", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard/usage");
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBeNull();
+	});
+
+	test("ignores the query string and hash when matching", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard?tab=usage#top");
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBeNull();
+	});
+
+	test("leaves an unrelated saved path alone", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/project/p1/chat");
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBe("/project/p1/chat");
+	});
+
+	test("does not clear a route that merely shares a name prefix", () => {
+		// `/admin/dashboard-archive` is a different route, not a descendant.
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard-archive");
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBe("/admin/dashboard-archive");
+	});
+
+	test("is a no-op when nothing is saved", () => {
+		const s = new FakeStorage();
+		forgetResumePath(s, "/admin/dashboard");
+		expect(s.getItem(LAST_PATH_KEY)).toBeNull();
+	});
+
+	test("tolerates unavailable storage (SSR)", () => {
+		expect(() => forgetResumePath(null, "/admin/dashboard")).not.toThrow();
+	});
+
+	test("breaks the loop: a bounced route is not resumed into again", () => {
+		const s = new FakeStorage();
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard");
+		s.setItem(ACTIVE_PROJECT_KEY, "p1");
+
+		// `/` resumes there, the route renders and the layout re-records it,
+		// then its guard bounces and forgets it.
+		expect(consumeResumePath(s)).toBe("/admin/dashboard");
+		s.setItem(LAST_PATH_KEY, "/admin/dashboard"); // afterNavigate re-records
+		forgetResumePath(s, "/admin/dashboard");
+
+		expect(
+			resolveResumeTarget({
+				lastPath: consumeResumePath(s),
+				savedProjectId: s.getItem(ACTIVE_PROJECT_KEY),
+				validProjectIds: ["p1"],
+			}),
+		).toBe("/project/p1/chat");
 	});
 });
 
