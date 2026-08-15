@@ -37,6 +37,13 @@ const { PUT, GET, DELETE } = await import(
 const { CALLER_TOOL_NAME_RE, MAX_CALLER_TOOLS, DECLARE_WRITES_PER_SECOND } = await import(
   "../routes/api/conversations/[id]/caller-tools/schema.ts"
 );
+// The REAL registry. What DELETE owes an in-flight call is a settled promise,
+// and only the real module can be observed settling one.
+const {
+  registerPendingRemoteTool,
+  getPendingRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} = await import("$server/runtime/remote-tool-registry");
 
 let userSeq = 0;
 function nextUser() {
@@ -93,6 +100,7 @@ beforeEach(() => {
   deleteCallerToolsMetadata.mockReset();
   getActiveRun.mockReset();
   getActiveRun.mockResolvedValue(null);
+  _resetPendingRemoteToolsForTests();
 });
 
 describe("the name regex is the namespace-stripping invariant", () => {
@@ -422,6 +430,122 @@ describe("DELETE /api/conversations/[id]/caller-tools", () => {
     )) as Response;
     expect(res.status).toBe(400);
     expect(deleteCallerToolsMetadata).not.toHaveBeenCalled();
+  });
+
+  test("in-flight calls are torn down, not left to time out", async () => {
+    // Revoking is the client saying it has stopped serving, so a call already
+    // out on the wire has nobody left to answer it. Before this it stood until
+    // its own 120 s gate expired: the run sat idle, the user watched a
+    // spinner, and the model was eventually told only that something timed
+    // out. `catch` captures the rejection rather than swallowing it — the
+    // MESSAGE is the assertion, because that sentence is the model's whole
+    // account of why the call failed.
+    const user = nextUser();
+    ownRoot(user, { callerTools: [openApp] });
+    let outcome = "still-pending";
+    registerPendingRemoteTool({
+      toolCallId: "tc-inflight",
+      conversationId: CONV,
+      userId: user.id,
+      toolName: "open_app",
+      input: { app: "Notes" },
+      runId: "run-1",
+      origin: "caller",
+      timeoutMs: 120_000,
+      timeoutMessage: "Timed out waiting for the caller tool result",
+    }).catch((err: Error) => {
+      outcome = err.message;
+    });
+
+    const res = (await DELETE(event({ user, method: "DELETE" }))) as Response;
+    expect(await res.json()).toEqual({ ok: true, cleared: 1 });
+
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(outcome).toContain("withdrew its caller-executed tools");
+    expect(getPendingRemoteTool("tc-inflight")).toBeUndefined();
+  });
+
+  test("the Ez panel's in-flight call survives — this DELETE says nothing about it", async () => {
+    // Different family, different answering client. A revocation of caller
+    // declarations must not collapse the browser's own pending DOM operation.
+    const user = nextUser();
+    ownRoot(user, { callerTools: [openApp] });
+    let ezSettled = false;
+    registerPendingRemoteTool({
+      toolCallId: "tc-ez",
+      conversationId: CONV,
+      userId: user.id,
+      toolName: "read_page",
+      input: {},
+      runId: null,
+      origin: "ez",
+      timeoutMs: 300_000,
+      timeoutMessage: "Timed out waiting for Ez client tool result",
+    }).catch(() => {
+      ezSettled = true;
+    });
+
+    expect(((await DELETE(event({ user, method: "DELETE" }))) as Response).status).toBe(200);
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(ezSettled).toBe(false);
+    expect(getPendingRemoteTool("tc-ez")).toBeDefined();
+  });
+
+  test("an idempotent second DELETE still tears down a call the first turn opened", async () => {
+    // `cleared: 0` and "there is a call in flight" are independent facts. The
+    // bag can already be empty while a call opened by the turn that read the
+    // FIRST declaration is still outstanding, and that one must not survive
+    // because the bookkeeping happened to run earlier.
+    const user = nextUser();
+    ownRoot(user, null);
+    let outcome = "still-pending";
+    registerPendingRemoteTool({
+      toolCallId: "tc-second-delete",
+      conversationId: CONV,
+      userId: user.id,
+      toolName: "open_app",
+      input: {},
+      runId: "run-1",
+      origin: "caller",
+      timeoutMs: 120_000,
+      timeoutMessage: "Timed out waiting for the caller tool result",
+    }).catch((err: Error) => {
+      outcome = err.message;
+    });
+
+    expect(await ((await DELETE(event({ user, method: "DELETE" }))) as Response).json()).toEqual({
+      ok: true,
+      cleared: 0,
+    });
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(outcome).toContain("withdrew its caller-executed tools");
+  });
+
+  test("a REFUSED DELETE tears down nothing", async () => {
+    // The abort runs after the write, inside the gate chain. A 404 on someone
+    // else's conversation must not be a remote kill switch for their run.
+    const victim = nextUser();
+    ownRoot(victim, { callerTools: [openApp] });
+    let settled = false;
+    registerPendingRemoteTool({
+      toolCallId: "tc-victim",
+      conversationId: CONV,
+      userId: victim.id,
+      toolName: "open_app",
+      input: {},
+      runId: "run-1",
+      origin: "caller",
+      timeoutMs: 120_000,
+      timeoutMessage: "Timed out waiting for the caller tool result",
+    }).catch(() => {
+      settled = true;
+    });
+
+    const res = (await DELETE(event({ user: nextUser(), method: "DELETE" }))) as Response;
+    expect(res.status).toBe(404);
+    await new Promise<void>((r) => setTimeout(r, 0));
+    expect(settled).toBe(false);
+    expect(getPendingRemoteTool("tc-victim")).toBeDefined();
   });
 
   test("DELETE shares PUT's budget — they write the same jsonb key", async () => {
