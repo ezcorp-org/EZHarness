@@ -26,7 +26,7 @@ import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dis
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
 import { isLoopbackTestBypass } from "$lib/server/test-surface";
 import { principalId } from "$server/auth/principal-id";
-import { runWithGateInitiator } from "$server/runtime/tools/permissions";
+import { runWithGateInitiator } from "$server/auth/gate-initiator";
 
 const log = logger.child("hooks.server");
 

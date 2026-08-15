@@ -65,8 +65,19 @@ import {
   validateCallerToolDeclarations,
 } from "$server/runtime/caller-tool-declarations";
 import { mayDeclareCallerTools } from "$server/auth/tool-policy";
+import { abortPendingRemoteToolsForConversation } from "$server/runtime/remote-tool-registry";
 import { getActiveRun } from "$server/db/queries/active-runs";
 import { DECLARE_WRITES_PER_SECOND, declareCallerToolsSchema } from "./schema";
+
+/**
+ * Rejection the LLM reads for a call that was still in flight when the
+ * declarations were revoked. Phrased as a fact about the TOOL rather than
+ * about the HTTP request that caused it: the model did not revoke anything,
+ * and "the client withdrew this" is the part it has to tell the user.
+ */
+const REVOKED_MID_CALL =
+  "The client withdrew its caller-executed tools while this call was " +
+  "outstanding, so no result will arrive.";
 
 /**
  * Declaration bodies are small by construction (16 tools × an 8 KiB schema
@@ -239,5 +250,24 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   // success with `cleared: 0`, not a 404: DELETE is idempotent.
   const cleared = readCallerToolsFromMetadata(target.metadata).length;
   await deleteCallerToolsMetadata(params.id);
+
+  // Tear down anything still suspended, AFTER the row is actually clear.
+  //
+  // Revoking is the client saying it has stopped serving. A call already out
+  // on the wire therefore has nobody left to answer it, and parking it for the
+  // rest of its 120 s gate reaches the same failure two minutes later with
+  // less information in it — the run sits idle, the user watches a spinner,
+  // and the model is eventually told only that something timed out. Rejecting
+  // now resumes the turn immediately with a sentence that names the cause.
+  //
+  // Narrowed to the `caller` family: the Ez panel's pending DOM operations are
+  // answered by the browser, which this DELETE says nothing about.
+  //
+  // Not conditional on `cleared`: the two facts are independent. DELETE is
+  // idempotent, so a second call finds an empty bag (`cleared: 0`) while a
+  // call opened by the turn that read the FIRST declaration may still be in
+  // flight, and that one must not survive because the bookkeeping already ran.
+  abortPendingRemoteToolsForConversation(params.id, REVOKED_MID_CALL, "caller");
+
   return json({ ok: true, cleared });
 };

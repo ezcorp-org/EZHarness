@@ -7,6 +7,7 @@ import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
 import { getPendingAskUserForConversation } from "$server/runtime/ask-user-registry";
+import { getPendingCallerToolCallsForUser } from "$server/runtime/remote-tool-registry";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 
 // Boundary validation: the only field the handler reads off the body is
@@ -38,6 +39,21 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const ownership = await resolveRootConversationForOwnership(params.id, user);
   if (!ownership) return errorJson(404, "Not found");
 
+  // Caller-executed tool calls this conversation is suspended on. THE
+  // authoritative recovery channel: a client that drops its stream mid-call
+  // cannot rely on `Last-Event-ID` replay, because the SSE resume ring holds
+  // 500 GLOBAL entries including every `run:token` — seconds of a busy chat
+  // turn it over, and a missed `caller:tool-call` is then simply gone.
+  //
+  // On EVERY branch below, deliberately. The registry is keyed by toolCallId,
+  // not by run, and a client draining on reconnect asks this one question
+  // without first knowing whether a run is live; a field present on three of
+  // four shapes would make recovery depend on which branch answered. The
+  // helper's two narrowings (caller origin, exact user) are what keeps the
+  // payload — the LLM's raw arguments for a call about to run on the owner's
+  // machine — from reaching an admin or the Ez panel's family.
+  const pendingCallerTools = getPendingCallerToolCallsForUser(params.id, user.id);
+
   // Check in-memory first, but cross-check with DB to catch orphaned runs
   // (e.g. in-memory run stuck in auto-spin-up while DB was marked interrupted by orphan cleanup)
   const executor = getExecutor();
@@ -54,6 +70,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
         partialResponse: dbRun.partialResponse,
         startedAt: dbRun.startedAt,
         stalenessMs: stalenessFor(dbRun),
+        pendingCallerTools,
       });
     }
     const pendingPermissions = executor.getPendingPermissions(params.id);
@@ -68,6 +85,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
       partialResponse: null,
       pendingPermissions,
       pendingAskUser,
+      pendingCallerTools,
       startedAt: new Date(memRun.startedAt).toISOString(),
       stalenessMs: stalenessFor(dbRun),
     });
@@ -82,10 +100,11 @@ export const GET: RequestHandler = async ({ params, locals }) => {
       startedAt: dbRun.startedAt,
       partialResponse: dbRun.partialResponse,
       stalenessMs: stalenessFor(dbRun),
+      pendingCallerTools,
     });
   }
 
-  return json({ runId: null });
+  return json({ runId: null, pendingCallerTools });
 };
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {

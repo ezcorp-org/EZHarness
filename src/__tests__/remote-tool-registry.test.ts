@@ -24,6 +24,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   abortPendingRemoteToolsForConversation,
   clearPendingRemoteTool,
+  getPendingCallerToolCallsForUser,
   getPendingRemoteTool,
   getPendingRemoteToolsForConversation,
   registerPendingRemoteTool,
@@ -32,6 +33,7 @@ import {
   _resetPendingRemoteToolsForTests,
   type RegisterPendingRemoteToolOptions,
 } from "../runtime/remote-tool-registry";
+import { runWithGateInitiator } from "../auth/gate-initiator";
 
 afterEach(() => {
   _resetPendingRemoteToolsForTests();
@@ -155,12 +157,108 @@ describe("per-run stamping", () => {
     expect(Object.keys(getPendingRemoteTool("opaque") ?? {}).sort()).toEqual([
       "conversationId",
       "createdAt",
+      "initiator",
       "input",
       "origin",
       "runId",
       "toolName",
       "userId",
     ]);
+  });
+});
+
+describe("initiator stamping", () => {
+  test("records the ambient principal of the request that opened the call", () => {
+    runWithGateInitiator("api-key:key-a", () => register({ toolCallId: "attributed" }));
+    expect(getPendingRemoteTool("attributed")?.initiator).toBe("api-key:key-a");
+  });
+
+  test("a call opened outside any request scope records undefined, not a guess", () => {
+    // A goal-autopilot re-entry, a briefing, a CLI run. The settlement route
+    // reads `undefined` as "cannot be shown to match".
+    register({ toolCallId: "unattributed" });
+    expect(getPendingRemoteTool("unattributed")?.initiator).toBeUndefined();
+  });
+
+  test("the initiator comes from the SCOPE, never from the registration options", () => {
+    // The whole point of an ambient store: a caller cannot name itself. Passing
+    // the field through `options` must not reach the entry — that would let the
+    // opener claim an identity the auth layer never granted it.
+    // `initiator` is not a field of the options type, so the cast is what lets
+    // the test send one at all — which is the point: an opener that smuggled
+    // the field in must not have it merged onto the entry.
+    const smuggled = {
+      toolCallId: "forged",
+      conversationId: "conv-1",
+      userId: "user-1",
+      toolName: "open_app",
+      input: {},
+      runId: "run-1",
+      origin: "caller",
+      timeoutMs: 60_000,
+      timeoutMessage: "timed out",
+      initiator: "api-key:attacker",
+    } as unknown as RegisterPendingRemoteToolOptions;
+
+    runWithGateInitiator("session:owner-1", () => registerPendingRemoteTool(smuggled));
+    expect(getPendingRemoteTool("forged")?.initiator).toBe("session:owner-1");
+  });
+
+  test("sibling calls of different requests keep their own initiators", () => {
+    runWithGateInitiator("api-key:key-a", () => register({ toolCallId: "from-a" }));
+    runWithGateInitiator("api-key:key-b", () => register({ toolCallId: "from-b" }));
+    expect(getPendingRemoteTool("from-a")?.initiator).toBe("api-key:key-a");
+    expect(getPendingRemoteTool("from-b")?.initiator).toBe("api-key:key-b");
+  });
+});
+
+describe("the caller-tool recovery projection", () => {
+  test("hands back exactly the re-dispatchable fields — and no principal ids", () => {
+    // `initiator` is the value the settlement check compares against and
+    // `userId`/`origin` are the server's own bookkeeping. A projection that
+    // spread the entry would ship all three the moment one was added, so the
+    // shape is asserted exactly rather than with toMatchObject.
+    runWithGateInitiator("api-key:device", () =>
+      register({ toolCallId: "drain-1", input: { app: "Calendar", window: 2 } }),
+    );
+    expect(getPendingCallerToolCallsForUser("conv-1", "user-1")).toEqual([
+      {
+        conversationId: "conv-1",
+        runId: "run-1",
+        toolCallId: "drain-1",
+        toolName: "open_app",
+        input: { app: "Calendar", window: 2 },
+      },
+    ]);
+  });
+
+  test("never returns the Ez family's pending DOM operations", () => {
+    register({ toolCallId: "caller-call", origin: "caller" });
+    register({ toolCallId: "ez-call", origin: "ez", runId: null, toolName: "read_page" });
+
+    expect(
+      getPendingCallerToolCallsForUser("conv-1", "user-1").map((c) => c.toolCallId),
+    ).toEqual(["caller-call"]);
+  });
+
+  test("narrows to the asking user, so an admin reading the row gets nothing", () => {
+    // The route's ownership walk admits an admin on somebody else's
+    // conversation; the payload here is the LLM's raw arguments for something
+    // about to run on the OWNER's machine, which is not an admin read.
+    register({ toolCallId: "owners-call", userId: "user-1" });
+    expect(getPendingCallerToolCallsForUser("conv-1", "user-1")).toHaveLength(1);
+    expect(getPendingCallerToolCallsForUser("conv-1", "admin-9")).toEqual([]);
+  });
+
+  test("scopes to the conversation and orders oldest-first", () => {
+    register({ toolCallId: "d-a", conversationId: "conv-1" });
+    register({ toolCallId: "d-other", conversationId: "conv-2" });
+    register({ toolCallId: "d-b", conversationId: "conv-1" });
+
+    expect(
+      getPendingCallerToolCallsForUser("conv-1", "user-1").map((c) => c.toolCallId),
+    ).toEqual(["d-a", "d-b"]);
+    expect(getPendingCallerToolCallsForUser("conv-nope", "user-1")).toEqual([]);
   });
 });
 
@@ -194,6 +292,7 @@ describe("per-conversation sweeps", () => {
         input: { app: "Calendar", window: 2 },
         runId: "run-1",
         origin: "caller",
+        initiator: undefined,
         createdAt: expect.any(Number),
       },
     ]);

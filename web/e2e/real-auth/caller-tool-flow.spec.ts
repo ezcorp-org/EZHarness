@@ -28,6 +28,60 @@ const OPEN_APP = {
   },
 };
 
+/**
+ * Poll `GET …/active-run` for `pending`, or fail with a sentence naming what
+ * never appeared.
+ *
+ * The attempt budget is a LIVENESS bound, not a measurement: the loop exits on
+ * the value being there and nothing here asserts how long that took. Polling
+ * the authoritative read (rather than waiting on SSE) is also the point of the
+ * two specs below — the client under test has no stream at all, so a
+ * stream-based wait would be testing a channel it does not use.
+ */
+async function pollActiveRun<T>(
+  ez: HarnessClient,
+  conversationId: string,
+  pick: (active: Awaited<ReturnType<HarnessClient["getActiveRun"]>>) => T | undefined,
+  what: string,
+): Promise<T> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const found = pick(await ez.getActiveRun(conversationId));
+    if (found !== undefined) return found;
+    await new Promise<void>((r) => setTimeout(r, 100));
+  }
+  throw new Error(`active-run never reported ${what}`);
+}
+
+/**
+ * Approve the caller tool's permission gate.
+ *
+ * A caller tool ALWAYS gates, in every mode, so nothing reaches the device
+ * until somebody says yes. `serveCallerTools` normally does this off the SSE
+ * stream; these specs answer it off the same authoritative read they are
+ * testing, which keeps them free of the stream entirely.
+ */
+async function approveCallerGate(ez: HarnessClient, conversationId: string): Promise<void> {
+  const gate = await pollActiveRun(
+    ez,
+    conversationId,
+    (active) =>
+      (active.pendingPermissions as Array<{ toolCallId: string; toolName: string }> | undefined)
+        ?.find((p) => p.toolName.startsWith("_caller__")),
+    "a caller-tool permission gate",
+  );
+  await ez.resolveToolPermission(gate.toolCallId, true);
+}
+
+/** The one call the drain reports, once the gate has let it out. */
+function drainOneCallerTool(ez: HarnessClient, conversationId: string) {
+  return pollActiveRun(
+    ez,
+    conversationId,
+    (active) => active.pendingCallerTools?.[0],
+    "a pending caller tool",
+  );
+}
+
 /** Mint a member key and seed a conversation for it. */
 async function companion(request: import("@playwright/test").APIRequestContext, baseURL: string) {
   const keyRes = await request.post("/api/settings/developer/api-keys", {
@@ -149,6 +203,99 @@ test.describe("caller-executed tools — the round trip", () => {
       device.abort();
       await serving;
     }
+  });
+
+  test("a client with NO stream recovers the call from the drain alone", async ({
+    request,
+    baseURL,
+  }) => {
+    // The disconnected client, reproduced exactly: this test never opens an
+    // SSE stream, so it cannot have seen `caller:tool-call`. Everything it
+    // learns comes from `GET …/active-run` — which is what that field is FOR,
+    // because `Last-Event-ID` replay cannot be relied on: the resume ring is
+    // 500 GLOBAL entries including every `run:token`, so a busy instance turns
+    // it over in seconds.
+    //
+    // Before the drain reported caller tools, a client in this position read
+    // `undefined` on every connect and the call was unrecoverable — it stood
+    // until its 120 s gate expired and the turn failed.
+    const { ez, conversationId } = await companion(request, baseURL!);
+    await ez.declareCallerTools(conversationId, [OPEN_APP]);
+
+    const run = ez.runScripted(
+      conversationId,
+      "open my notes",
+      [
+        { toolCalls: [{ name: "_caller__open_app", arguments: { app: "Notes" } }] },
+        { text: "Opened Notes on your device." },
+      ],
+      { timeoutMs: 60_000 },
+    );
+
+    await approveCallerGate(ez, conversationId);
+
+    const pending = await drainOneCallerTool(ez, conversationId);
+    // Enough to RE-DISPATCH, not merely to report that something is
+    // outstanding: a client that missed the event holds a toolCallId and
+    // nothing to run.
+    expect(pending).toMatchObject({
+      conversationId,
+      toolName: "open_app",
+      input: { app: "Notes" },
+    });
+    expect(typeof pending.runId).toBe("string");
+    // The owner id and the recorded principal are the server's own
+    // bookkeeping; the recovery payload is not where either belongs.
+    expect(pending).not.toHaveProperty("userId");
+    expect(pending).not.toHaveProperty("initiator");
+
+    const ack = await ez.submitToolResult(conversationId, pending.toolCallId, {
+      ok: true,
+      detail: { opened: true, app: (pending.input as { app: string }).app },
+    });
+    expect(ack).toMatchObject({ ok: true, resolved: true });
+
+    const result = await run;
+    expect(result.outcome).toBe("complete");
+    expect(result.run.status).toBe("success");
+  });
+
+  test("revoking the declarations tears down a call already in flight", async ({
+    request,
+    baseURL,
+  }) => {
+    // Revoking is the client saying it has stopped serving, so a call already
+    // on the wire has nobody left to answer it. Before this it stood for the
+    // rest of its 120 s gate: the run sat idle, the user watched a spinner,
+    // and the model was eventually told only that something had timed out.
+    const { ez, conversationId } = await companion(request, baseURL!);
+    await ez.declareCallerTools(conversationId, [OPEN_APP]);
+
+    const run = ez.runScripted(
+      conversationId,
+      "open my notes",
+      [
+        { toolCalls: [{ name: "_caller__open_app", arguments: { app: "Notes" } }] },
+        { text: "I could not reach your device." },
+      ],
+      { timeoutMs: 60_000 },
+    );
+
+    await approveCallerGate(ez, conversationId);
+    expect((await drainOneCallerTool(ez, conversationId)).toolName).toBe("open_app");
+
+    expect(await ez.clearCallerTools(conversationId)).toEqual({ ok: true, cleared: 1 });
+
+    // Asserted as the ABSENCE of the entry, not as "the run finished quickly":
+    // the teardown runs inside the DELETE, before its response is written, so
+    // this single read is deterministic — where a duration would be measuring
+    // the host rather than the code.
+    expect((await ez.getActiveRun(conversationId)).pendingCallerTools).toEqual([]);
+
+    // The turn then resumes and closes on the scripted text instead of parking
+    // for the remainder of the gate.
+    const result = await run;
+    expect(result.outcome).toBe("complete");
   });
 
   test("a tool the device cannot run fails the call, not the turn", async ({

@@ -1056,6 +1056,10 @@ export async function setupTools(
       });
       const permissionDeps: PermissionWrapDeps = {
         ctx, host, runId: run.id, conversationId,
+        // Same identity every other user-scoped emit on this turn uses
+        // (`toolExec.setCurrentUserId`, the Ez wire, the preview wiring). It
+        // is the gate card's SSE delivery key — see `PermissionWrapDeps`.
+        userId: convRecord?.userId ?? null,
         projectId: options.projectId,
         requestedMode: options.permissionMode,
         getBusOverrideMode: () => busOverrideMode,

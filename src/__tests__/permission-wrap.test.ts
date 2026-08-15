@@ -144,6 +144,9 @@ describe("withPermissionGate — the request payload and pending record", () => 
     const pending = tool.execute("call-77", { cmd: "ls" });
     await flush();
 
+    // No owner on this turn, so no `userId` key at all — the historical,
+    // conversation-scoped delivery shape. Asserted exactly (not with
+    // toMatchObject) because "the key is absent" is the whole claim.
     expect(requests[0]).toEqual({
       conversationId: "conv-77",
       toolCallId: "call-77",
@@ -165,6 +168,27 @@ describe("withPermissionGate — the request payload and pending record", () => 
     });
 
     resolvePermission("call-77", true);
+    await pending;
+  });
+
+  test("stamps the conversation owner so the card is narrowed to one subscriber", async () => {
+    // `shouldDeliverEvent` narrows a `tool:permission_request` that CARRIES a
+    // userId to exactly that subscriber; with the key absent it falls through
+    // to `isAuthorizedForConversation` at its default failMode "open", so a DB
+    // blip broadcasts the card. The card's `input` is the tool's raw arguments
+    // — for a caller tool, arguments for something about to run on this user's
+    // own machine — so the fail-open path is the wrong one for it.
+    const h = makeTestPermissionDeps({ storedMode: "ask", userId: "owner-9" });
+    const requests: Array<Record<string, unknown>> = [];
+    h.bus.on("tool:permission_request", (d) => requests.push(d as Record<string, unknown>));
+
+    const tool = withPermissionGate(makeDef({ category: "caller" }), h.deps);
+    const pending = tool.execute("call-owned", { app: "Mail" });
+    await flush();
+
+    expect(requests[0]?.userId).toBe("owner-9");
+
+    resolvePermission("call-owned", true);
     await pending;
   });
 

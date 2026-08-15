@@ -6,6 +6,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { getAmbientGateInitiator } from "../../auth/gate-initiator";
 import { getSetting } from "../../db/queries/settings";
 import { WORKFLOW_SCOPE_KEY_PREFIX } from "../workflow-scope-key";
 import type { ToolCategory } from "./types";
@@ -156,7 +157,7 @@ interface PendingApproval {
   /**
    * Opaque id of the PRINCIPAL whose request started the run that raised
    * this gate (see `principalId` in `src/auth/principal-id.ts`). Recorded
-   * at gate-creation time from {@link gateInitiatorAls}, never from
+   * at gate-creation time from {@link getAmbientGateInitiator}, never from
    * anything the answering request supplies.
    *
    * `undefined` means the gate was raised outside any HTTP request scope —
@@ -251,36 +252,16 @@ export function refuseIfNonInteractive(
 }
 
 /**
- * Ambient principal id for the request whose async subtree we are in.
+ * The ambient gate initiator now lives in `src/auth/gate-initiator.ts`, a leaf
+ * module — the remote-tool registry stamps the SAME store on its pending
+ * entries, and that registry is imported by an API route which must not pull
+ * this module (and through it pi-agent-core) into its graph. One store, two
+ * readers; a second AsyncLocalStorage would never see the writer's value.
  *
- * Every gate producer reads it, so the initiator is stamped on the gate
- * WITHOUT threading a parameter through `streamChat` → the executor loop →
- * each tool's `execute`. One writer establishes it — `hooks.server.ts`,
- * around the single post-auth `resolve(event)` — so a run started by ANY
- * route (chat send, agent-chat, retry, and anything added later) is
- * attributed without that route knowing this exists. A run detached from
- * the request (`streamPromise` is deliberately not awaited) keeps the store,
- * because the promise chain was created inside the scope.
- *
- * Same mechanism, and the same reasoning, as {@link nonInteractiveAls}
- * below: a subtree-wide fact belongs to the subtree, not to every signature
- * between the two ends of it.
+ * Same mechanism, and the same reasoning, as {@link nonInteractiveAls} below:
+ * a subtree-wide fact belongs to the subtree, not to every signature between
+ * the two ends of it.
  */
-const gateInitiatorAls = new AsyncLocalStorage<string>();
-
-/**
- * Run `fn` with `initiator` as the ambient gate initiator.
- *
- * An `undefined` initiator runs `fn` OUTSIDE any scope rather than storing
- * `undefined` — so an unauthenticated request cannot shadow an outer scope,
- * and the "no initiator" case has exactly one representation.
- */
-export function runWithGateInitiator<T>(
-  initiator: string | undefined,
-  fn: () => T,
-): T {
-  return initiator === undefined ? fn() : gateInitiatorAls.run(initiator, fn);
-}
 
 /**
  * Principal that raised a pending gate, or `undefined` for an unknown id or
@@ -325,7 +306,7 @@ export function createPermissionGate(
   // Read the ambient initiator ONCE, out here: inside the executor the
   // promise body runs in the same async subtree, but reading it at the
   // single entry point keeps the two `set` calls below identical.
-  const initiator = gateInitiatorAls.getStore();
+  const initiator = getAmbientGateInitiator();
   return new Promise<void>((resolve, reject) => {
     if (opts?.timeoutMs === undefined && opts?.signal === undefined) {
       pendingApprovals.set(toolCallId, { resolve, reject, conversationId, initiator });
@@ -674,7 +655,7 @@ export function createExtensionPermissionGate(
         if (req.signal) req.signal.removeEventListener("abort", onAbort);
       },
       conversationId: req.conversationId,
-      initiator: gateInitiatorAls.getStore(),
+      initiator: getAmbientGateInitiator(),
       extension: {
         extensionId: req.extensionId,
         userId: req.userId,

@@ -50,6 +50,27 @@ export interface PermissionWrapDeps {
    *  THIS run rather than every run in the conversation. */
   runId: string;
   conversationId: string;
+  /**
+   * The conversation's OWNER, or `null` for a run with nobody to name.
+   *
+   * Stamped on the `tool:permission_request` emit as its delivery key.
+   * `shouldDeliverEvent` narrows a request that CARRIES a `userId` to exactly
+   * that subscriber (the Phase-6 H7 branch); with the field absent it falls
+   * through to `isAuthorizedForConversation` at its default `failMode: "open"`,
+   * so a DB blip hands the card to every connected subscriber. The card's
+   * `input` is the tool's raw arguments — for a caller tool, the arguments for
+   * something about to run on this user's own machine — which is not a payload
+   * that belongs on a fail-open path.
+   *
+   * `null`, not `undefined`, so an ownerless run is a STATED fact rather than a
+   * forgotten field: the emit then omits the key and keeps the historical
+   * conversation-scoped behaviour, which is all that is available when there is
+   * no owner to narrow to. Required rather than optional for the reason
+   * {@link PermissionWrapDeps.getBusOverrideMode} spells out at length — a new
+   * host wire that omitted it would silently widen delivery, and nothing
+   * anywhere would fail.
+   */
+  userId: string | null;
   /** Absent for turns with no project (Ez, briefing, an ownerless run).
    *  There is nowhere to store a mode without a project, so such a turn
    *  falls back to {@link DEFAULT_PERMISSION_MODE} — the same value
@@ -156,6 +177,10 @@ export function withPermissionGate(
           host.bus.emit("tool:permission_request", {
             conversationId, toolCallId, toolName: def.name,
             input: params, cardType: def.cardType, category: def.category,
+            // Present ⇒ the SSE filter narrows the card to this subscriber
+            // alone; absent ⇒ it falls back to the fail-OPEN conversation
+            // check. See `PermissionWrapDeps.userId`.
+            ...(deps.userId !== null ? { userId: deps.userId } : {}),
           });
           try {
             await createPermissionGate(toolCallId, conversationId, deps.gateOptions);
