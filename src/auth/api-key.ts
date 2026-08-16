@@ -41,6 +41,32 @@ export function isApiKeyScope(value: string): value is ApiKeyScope {
 }
 
 /**
+ * The `scope` value that marks an API route SESSION-ONLY.
+ *
+ * Authorization on such a route is by INTERACTIVE BROWSER SESSION and by
+ * nothing else: `requireSessionAuth` (`src/auth/middleware.ts`) refuses EVERY
+ * API key with a 403, whatever scopes that key holds, so there is no scope an
+ * operator could mint to reach it. It is the answer to the question the
+ * registry could not previously express — a route with no `scope` at all was
+ * indistinguishable from a route whose author forgot one.
+ *
+ * DELIBERATELY NOT A MEMBER OF {@link API_KEY_SCOPES}, and so
+ * `isApiKeyScope("session")` is false: it can never be minted onto a key, it
+ * can never satisfy `hasRequiredScope`, and `requireScope` cannot be called
+ * with it (the parameter is typed `ApiKeyScope`). The one thing that must
+ * never happen to this value is being read as a key scope, and the type
+ * system refuses it in every place a key scope is accepted.
+ *
+ * It lives HERE, beside the vocabulary it is defined against, because the two
+ * modules that need the literal — `src/api-registry.ts`, which spells it into
+ * `ApiRouteScope`, and `src/auth/tool-policy.ts`, which refuses to mint an
+ * allowlist naming such a route — must not import each other: tool-policy is
+ * loaded by the SvelteKit hook on every request, and pulling the 300-entry
+ * registry array into that graph to reach one string is the wrong trade.
+ */
+export const SESSION_ROUTE_SCOPE = "session";
+
+/**
  * Does an API-key principal's scope set satisfy a required scope?
  *
  * `undefined` scopes mean the request is a COOKIE session (no API key), which

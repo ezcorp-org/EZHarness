@@ -24,6 +24,51 @@ There are five authorization layers, each with its own enforcement point.
   - **API-key principals are always minted with `role: "member"`** (`web/src/lib/server/security/bearer-auth.ts`), so a key can never be an admin *by role* even if it holds the `admin` *scope*.
   - `requireAdmin(locals)` checks `locals.user.role === "admin"` directly, and admin routes are expected to pair `requireScope("admin")` with `requireRole("admin")` — a route-contract meta-test enforces the pairing.
 
+#### `scope: "session"` — the routes NO key can call
+
+`src/api-registry.ts` records each route's gate in `ApiRouteScope`, which is
+`ApiKeyScope | "public" | "session"`. Only the first names a key scope:
+
+| value | meaning |
+|---|---|
+| `read` / `write` / `chat` / `extensions` / `admin` | call it with a key holding that scope (renders as `security: [{ bearerAuth: [scope] }]`) |
+| `public` | no authentication at all |
+| `session` | **session-only** — authorization is by interactive browser session; **no API key can call it regardless of the key's scopes** |
+
+`session` (`SESSION_ROUTE_SCOPE`, `src/auth/api-key.ts`) is deliberately **not**
+a member of `API_KEY_SCOPES`, so `isApiKeyScope("session")` is `false` and it
+can never be minted onto a key or satisfy `hasRequiredScope`. Three consumers
+handle it explicitly, and each would otherwise publish or grant a reach that
+does not exist:
+
+- **OpenAPI** (`src/openapi.ts`) secures those operations with a
+  `sessionCookie` scheme (`apiKey` in cookie `pi_session`), never `bearerAuth`
+  — `bearerAuth: ["session"]` would tell an integrator to mint a scope that
+  does not exist for a route that refuses every key.
+- **Mint validation** (`validateToolPolicy`, `src/auth/tool-policy.ts`) refuses
+  a `routeAllowlist` entry naming a session-only route, for the same reason it
+  refuses a typo: the entry grants nothing and denies silently forever.
+- **The route-contract ratchet** (`web/src/__tests__/route-contract.test.ts`)
+  counts them as scoped, which took `KNOWN_SCOPELESS` from 90 to 78.
+
+**The registry is documentation and tooling, not enforcement.** It feeds the
+OpenAPI builder, `/api/docs` and mint validation only; `requireSessionAuth`
+(or `requireAdminSession`, which composes it with the admin role check) in the
+handler is what actually refuses the key.
+`src/__tests__/session-scope-surface.test.ts` walks every route handler and
+asserts the two agree in **both** directions — an entry declaring `session`
+whose handler never gates on one fails, and a handler that gates on one whose
+entry does not declare it fails. `POST /api/hub/pages/[id]/actions/[action]` is
+the one carve-out and it is asserted as such: its session gate applies only to
+an action listed in `sessionOnlyActions`, so the route stays `chat`-scoped and
+key-callable for everything else.
+
+The thirteen session-only entries are the **consent** surfaces: answering a
+workflow approval, the four delegation verbs plus the preview and the
+delegated-runs read, the five service-account verbs, and
+`PUT /api/projects/[id]/tool-permission-mode`. The rule that decides membership
+is the capability-vs-consent tell at the foot of this document.
+
 ### 3. Team roles (`owner` / `editor` / `viewer`) — `team_members.role`
 
 - `requireTeamRole(locals, teamId, minRole)` (`src/auth/middleware.ts`) resolves the caller's membership via `getTeamMembership(user.id, teamId)` and compares against a numeric ladder `ROLE_LEVELS = { viewer: 0, editor: 1, owner: 2 }`.
@@ -114,7 +159,7 @@ if (gate instanceof Response) return gate;                        // admins bypa
 | `PUT /api/projects/[id]/tool-permission-mode` | **session-only** + `chat` + project `member` | Set mode (`{ mode, conversationId? }`); emits `tool:permission_mode_change` so an in-flight run picks it up live. A supplied `conversationId` must name a chat the CALLER OWNS inside THIS project — else `403`, and nothing is written. |
 | `POST /api/tool-calls/[id]/permission` | `chat` | Approve/deny a pending gate (`{ approved, scope?, ttlOverrideMs? }`); ownership-checked; `scope:"forever"` admin-gated. |
 
-- **The WRITE is session-only: no API key of any scope can move this dial.** `requireSessionAuth(locals)` runs on `PUT` (not on `GET`). The stored mode is not a capability, it is STANDING CONSENT — it pre-answers every future permission prompt in the project, for every member, until someone lowers it again. `POST /api/workflows/approvals/[id]` is session-only for the strictly weaker act of spending ONE approval ("a leaked key must not be able to spend one"), so the row that abolishes all of them cannot be looser. It also closes a self-escalation loop: a `chat`-scoped key runs the agent whose `shell` / `write` / `edit_file` calls this dial gates, so a key that could raise the mode could auto-approve its own tool calls — the gate asking the caller's permission to gate the caller. The `chat` scope check stays, and stays FIRST, so `scope: "chat"` in `src/api-registry.ts` keeps naming a gate the handler actually enforces; the session check then refuses every key regardless. **`GET` is deliberately NOT session-gated** — an agent must be able to read the posture it runs under, and disclosure to a project member escalates nothing. Nothing shipped regressed: the only writer is `PermissionModeIndicator.svelte` (a cookie session), and the route is not `harness: { controllable: true }`.
+- **The WRITE is session-only: no API key of any scope can move this dial.** `requireSessionAuth(locals)` runs on `PUT` (not on `GET`). The stored mode is not a capability, it is STANDING CONSENT — it pre-answers every future permission prompt in the project, for every member, until someone lowers it again. `POST /api/workflows/approvals/[id]` is session-only for the strictly weaker act of spending ONE approval ("a leaked key must not be able to spend one"), so the row that abolishes all of them cannot be looser. It also closes a self-escalation loop: a `chat`-scoped key runs the agent whose `shell` / `write` / `edit_file` calls this dial gates, so a key that could raise the mode could auto-approve its own tool calls — the gate asking the caller's permission to gate the caller. The `chat` scope check stays, and stays FIRST — a live gate, and defense in depth if the session check is ever edited out — but the registry entry declares `scope: "session"`, because `scope` renders as a bearer requirement and "call this with a chat key" is false for a route that refuses every key. No caller who could succeed can observe the `chat` check: every principal it refuses is refused one line later anyway. **`GET` is deliberately NOT session-gated** — an agent must be able to read the posture it runs under, and disclosure to a project member escalates nothing. Nothing shipped regressed: the only writer is `PermissionModeIndicator.svelte` (a cookie session), and the route is not `harness: { controllable: true }`.
 - **Both mode verbs are membership-gated, and that is a fix, not a decoration.** They carried `requireAuth` + `requireScope` alone until 2026-08, and `requireScope` is a no-op for cookie sessions — so any principal that could reach the route could PUT `yolo` onto ANY project id and re-arm every run in it, and could push a `tool:permission_mode_change` into ANY conversation id, disabling the gate on a stranger's in-flight turn. The project half is `checkProjectRole(locals, params.id, "member")` in the route; the conversation half is in `handleSetPermissionMode`, which compares BOTH `conv.projectId` and `conv.userId` (admins bypass the owner half only) and refuses BEFORE the write so a denial leaves no mode change behind. Pinned by `src/__tests__/security/project-permission-mode-authz.test.ts`.
 - **The READ is gated even though `GET /api/projects/:id` is not.** That asymmetry is deliberate on both sides: the project row stays instance-global because the LIST route is unfiltered, so hiding one project there would be theatre. The MODE is in no list, and it says whether a project's shell calls auto-run — reconnaissance for exactly the attack above. `GET /api/projects/:id/members` is the precedent: a project subresource gates where the project row does not. A denied read costs the UI nothing, since `PermissionModeIndicator` already falls back to `DEFAULT_PERMISSION_MODE` on any non-200.
 - **The denial is `403`, not the sec-H3 `404` — and that is not an existence oracle.** A 404 hides *that an id exists*. Project ids are not secret: `GET /api/projects` is deliberately instance-global and unfiltered, so any authenticated caller enumerates every project id one request later. Answering `404` here would therefore be theatre AND a lie about a row the same caller may read, which is `checkProjectRole`'s own documented reasoning (`src/auth/middleware.ts`) and is pinned by the "reads stay instance-global" block in `src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts`. Use the `404` shape where the id genuinely is a secret (the sec-H3 routes, workflow traces, delegations); use `403` for projects. If the list route is ever filtered, revisit both together.
@@ -184,7 +229,7 @@ if (gate instanceof Response) return gate;                        // admins bypa
 
 - **`yolo` default is intentional and permanent.** `DEFAULT_PERMISSION_MODE = "yolo"` means a fresh project auto-approves read **and** write **and** execute built-in tools. This is a locked product decision — do not file it as a security finding.
 - **A no-op scope check is not a gate — THREE routes learned this.** `/api/conversations/:id/extensions` and `/api/tool-invoke` both gated on the `extensions` scope alone; the latter also accepted `conversationId` as a label rather than as authorization input, so a member could dispatch any registered tool into an admin's conversation. `PUT /api/projects/:id/tool-permission-mode` was the third, and it repeated BOTH mistakes at once: `chat` scope as the only check, plus a `conversationId` read as a label. When a route's scope is its only non-ownership check, assume it is unguarded for browser users — and when it takes an id from the body, ask what authorizes THAT id, separately.
-- **Ask whether the act is a CAPABILITY or a CONSENT before picking a gate.** A capability ("start a run", "read the mode") may be key-reachable; scope + ownership is the right ladder. A consent — anything that pre-answers a question a human is supposed to be asked — belongs behind `requireSessionAuth`, because a leaked key must not be able to spend it. The tell is self-reference: if the principal being gated could use the route to relax the gate on itself, it is a consent. So far: answering a workflow approval, minting/adjusting/revoking a delegation, minting a service account, and **setting the project tool-permission mode**.
+- **Ask whether the act is a CAPABILITY or a CONSENT before picking a gate.** A capability ("start a run", "read the mode") may be key-reachable; scope + ownership is the right ladder. A consent — anything that pre-answers a question a human is supposed to be asked — belongs behind `requireSessionAuth`, because a leaked key must not be able to spend it. The tell is self-reference: if the principal being gated could use the route to relax the gate on itself, it is a consent. So far: answering a workflow approval, minting/adjusting/revoking a delegation, minting a service account, and **setting the project tool-permission mode**. Since 2026-08 the registry can SAY it: those routes declare `scope: "session"` rather than nothing at all, so a consent surface is no longer indistinguishable from an entry whose author forgot a scope — see [`scope: "session"`](#scope-session--the-routes-no-key-can-call).
 - **The old note, kept for the specific case:** Its `extensions` scope check passes for every cookie session, so before `extension-wire-authz.ts` the route's only real control was conversation ownership, and any member could wire an admin-installed MCP server (with the admin's stored credential) into their own chat. When a route's scope is its only non-ownership check, assume it is unguarded for browser users.
 - **`requireScope` is a no-op for cookie auth.** `requireScope(locals, "admin")` *alone* allows any cookie-authed member through (because `locals.apiKeyScopes` is undefined). Admin routes must also call `requireRole("admin")` / `requireAdmin`. The route-contract meta-test enforces the pairing.
 - **`requireRole` throws a raw `Response`.** SvelteKit doesn't auto-catch it, so an uncaught `requireRole` becomes a `500`. Routes wanting a clean `403` wrap it (`requireAdminOr403` pattern in `web/src/routes/api/extensions/[id]/+server.ts`).

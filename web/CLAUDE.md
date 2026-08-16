@@ -79,15 +79,20 @@ meta-test `src/__tests__/route-contract.test.ts`
 (full spec: [../docs/harness-contract.md](../docs/harness-contract.md)):
 
 - **New `/api/*` route** → register it in `src/api-registry.ts` (repo root)
-  with a `scope` (`read`/`write`/`chat`/`extensions`/`admin`/`public`), set to
-  what the handler actually ENFORCES — never what it ought to. It then
+  with a `scope` (`read`/`write`/`chat`/`extensions`/`admin`/`public`/`session`),
+  set to what the handler actually ENFORCES — never what it ought to. It then
   documents itself and appears in the generated OpenAPI spec (`src/openapi.ts`,
   repo root).
   The meta-test requires registration ABSOLUTELY (both directions — no route
   unregistered, no entry without a handler), ratchets the `scope` half against
-  a frozen list of the entries that predate it (93 at freeze, 91 today, and it
+  a frozen list of the entries that predate it (93 at freeze, 78 today, and it
   may only shrink), and enforces admin
   scope↔role pairing and controllable↔harness-client route parity.
+  `session` is the one value that is NOT a key scope: it means
+  `requireSessionAuth` gates the verb and **no API key of any scope can call
+  it**. Declaring it is a claim about the handler, derived and checked in both
+  directions by `src/__tests__/session-scope-surface.test.ts` (repo root) —
+  the scope without the guard fails, and the guard without the scope fails.
 - **New `/api/__test/**` route** (determinism tier) → gate it with
   `isTestSurfaceEnabled()` from `$lib/server/test-surface`. Fail-CLOSED: 404
   unless ALL of `EZCORP_ALLOW_TEST_SURFACE=1`, `PI_E2E_REAL=1`, and a

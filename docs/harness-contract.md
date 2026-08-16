@@ -38,6 +38,19 @@ axes**:
   a full **admin principal**, via `requireRole`/`checkRole`. An `admin`-role
   key is an explicit opt-in.
 
+**Some routes are reachable by no key at all.** A registry entry declaring
+`scope: "session"` is **session-only**: authorization is by interactive browser
+session, and `requireSessionAuth` answers **every** `ezk_*` key with a `403`
+whatever scopes it holds. There is no scope to mint, no role to add, and no
+route bundle that grants it — `validateToolPolicy` refuses to mint a
+`routeAllowlist` naming one, and the generated OpenAPI secures those operations
+with the `sessionCookie` scheme rather than `bearerAuth`. These are the
+**consent** surfaces (answering a workflow approval, minting/adjusting/revoking
+a delegation, minting a service account, setting a project's tool-permission
+mode): acts that pre-answer a question a human is meant to be asked, so a
+leaked key must not be able to spend them. A harness cannot drive them; drive
+the browser instead. See [rbac-and-permission-modes](features/platform/rbac-and-permission-modes.md).
+
 The two **compose**: an admin route needs a key that is an admin **principal**
 (role `admin`) **and** carries the `admin` **scope**. Role alone is not enough
 (a key minted `--scopes read --role admin` is refused for lack of scope), and
@@ -286,15 +299,21 @@ A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests_
 enforces these. When you add to the app:
 
 1. **New `/api/*` route** → add it to [`src/api-registry.ts`](../src/api-registry.ts)
-   with a `scope` (`read` / `write` / `chat` / `extensions` / `admin` / `public`),
-   set to what the handler actually ENFORCES — never what it ought to. The
+   with a `scope` (`read` / `write` / `chat` / `extensions` / `admin` / `public` /
+   `session`), set to what the handler actually ENFORCES — never what it ought
+   to. `session` means **no API key can call it** (`requireSessionAuth`); the
+   other five name a key scope, and `public` means no auth at all. The
    meta-test enforces both halves, but not equally: registration is **absolute**
    (an unregistered route fails, no allowance), while the `scope` half is a
    **ratchet** against a frozen list of the pre-existing entries that declare
-   none (93 at freeze, 91 today), because `scope` is still optional on
+   none (93 at freeze, 78 today), because `scope` is still optional on
    `ApiRouteEntry`. A new entry
-   without one fails by name. Registering documents the route and puts it in the
-   OpenAPI spec.
+   without one fails by name. `session` carries a second, stronger gate:
+   [`src/__tests__/session-scope-surface.test.ts`](../src/__tests__/session-scope-surface.test.ts)
+   walks every handler and asserts EQUALITY both ways — an entry declaring
+   `session` whose handler does not gate on a session fails, and a handler that
+   gates on one whose entry does not declare it fails. Registering documents the
+   route and puts it in the OpenAPI spec.
 2. **New `/api/__test/**` route** → gate it with `isTestSurfaceEnabled()` from
    `$lib/server/test-surface`. The meta-test fails any ungated test route.
 3. **New runtime event** that clients should see → add it to the single
@@ -311,8 +330,10 @@ control route on disk is registered, and every registered entry exists on disk.
 Neither carve-out remains for a new gap to hide in.
 
 One frozen baseline does remain, and only one: `KNOWN_SCOPELESS`, the entries
-that predate the `scope` requirement — 93 at freeze, 91 after the two
+that predate the `scope` requirement — 93 at freeze, then 91 after the two
 `POST /api/{agents,workflows}/:name/run` routes were backfilled to the `chat`
-scope their handlers enforce. It may only SHRINK. Retiring it means
-backfilling those entries, making `scope` **required** on `ApiRouteEntry` so the
-compiler enforces it, and deleting the ratchet as redundant.
+scope their handlers enforce, 90 after `PUT /api/projects/:id/tool-permission-mode`,
+and **78** once `ApiRouteScope` grew `session` and the twelve session-only
+entries could finally say what they enforce. It may only SHRINK. Retiring it
+means backfilling those entries, making `scope` **required** on `ApiRouteEntry`
+so the compiler enforces it, and deleting the ratchet as redundant.

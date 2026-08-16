@@ -5,20 +5,45 @@
  * The docs endpoint (web/src/routes/api/docs/+server.ts) maps schemas at serve time.
  */
 
-import type { ApiKeyScope } from "./auth/api-key";
+// Type-only, deliberately: `ApiRouteScope` derives the session literal with
+// `typeof SESSION_ROUTE_SCOPE`, which is a TYPE position, so nothing here
+// needs `api-key.ts` at runtime. One spelling of the value, zero runtime
+// coupling — this file is imported by the docs route, the CLI and the OpenAPI
+// builder, and none of them should load a crypto module to read a union.
+import type { SESSION_ROUTE_SCOPE, ApiKeyScope } from "./auth/api-key";
 
-/** The API-key scope a route requires (control tier), or "public" for
- *  unauthenticated routes. Optional today (not yet backfilled across all
- *  entries); NEW entries should declare it — the OpenAPI builder surfaces it
- *  and the route-contract meta-test will tighten the requirement over time. */
-export type ApiRouteScope = ApiKeyScope | "public";
+/**
+ * What authorizes a call to this route.
+ *
+ * Three kinds of value, and only the first is an API-KEY scope:
+ *
+ *  - an {@link ApiKeyScope} — "call this with a key holding that scope".
+ *    Renders as `security: [{ bearerAuth: [scope] }]` (`src/openapi.ts`).
+ *  - `"public"` — no authentication at all.
+ *  - `"session"` ({@link SESSION_ROUTE_SCOPE}) — SESSION-ONLY: authorization
+ *    is by INTERACTIVE BROWSER SESSION, and **no API key can call the route
+ *    regardless of the key's scopes** (`requireSessionAuth` answers every key
+ *    with a 403). It is NOT a scope anyone can hold: it cannot be minted onto
+ *    a key, it may not appear in a key's `routeAllowlist`
+ *    (`validateToolPolicy` refuses one), and it never renders as a bearer
+ *    requirement.
+ *
+ * A consumer that reads `scope` as "the key scope to mint" must therefore
+ * handle `"session"` (and `"public"`) FIRST — the union is not a key scope.
+ *
+ * Optional today (not yet backfilled across all entries); NEW entries should
+ * declare it — the OpenAPI builder surfaces it and the route-contract
+ * meta-test ratchets the remaining gap down.
+ */
+export type ApiRouteScope = ApiKeyScope | "public" | typeof SESSION_ROUTE_SCOPE;
 
 export interface ApiRouteEntry {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   description: string;
   category: string;
-  /** Scope required to call this route (control tier) or "public". */
+  /** What authorizes a call: an API-key scope, `"public"`, or `"session"`
+   *  (session-only — no key of any scope). See {@link ApiRouteScope}. */
   scope?: ApiRouteScope;
   /** Remote-control metadata. `controllable: true` marks a route an external
    *  harness is expected to be able to drive (and the harness client should
@@ -261,16 +286,22 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/projects/:id/members", description: "List a project's members (project members and instance admins)", category: "projects", scope: "read", responseDescription: "[{ id, projectId, userId, role, createdAt, userName, userEmail }]" },
   { method: "POST", path: "/api/projects/:id/members", description: "Add a member to a project, or change an existing member's role (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ id, projectId, userId, role, createdAt }" },
   { method: "DELETE", path: "/api/projects/:id/members/:userId", description: "Remove a member from a project; the LAST member is refused with 409 (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ ok: true }" },
-  // SESSION-ONLY on top of the declared scope, and the `scope` is still
-  // declared rather than dropped: `requireScope(locals,"chat")` runs FIRST and
-  // genuinely refuses a key without `chat`, so `scope: "chat"` names a gate
-  // this handler enforces (#97's rule) rather than one it merely ought to.
-  // What the scope does NOT capture — that `requireSessionAuth` then refuses
-  // every key, of every scope — is stated in the description, the same way
-  // `POST /api/workflows/approvals/:id` states it. Setting this row is
-  // standing consent to auto-run tools, not a capability: a key that could
-  // raise it would be raising the ceiling on its own tool calls.
-  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set the project's built-in-tool permission mode. SESSION-ONLY: refuses every API key (403) — this row pre-answers every future permission prompt in the project, so it is standing consent rather than a capability, and a `chat` key raising it would be raising the ceiling on its own tool calls. Project members and instance admins; an optional conversationId — which must name a chat the caller owns inside this project — pushes the change live into that run", category: "projects", scope: "chat", responseDescription: "{ ok: true }" },
+  // SESSION-ONLY, and now declared as such. It carried `scope: "chat"` for one
+  // commit — the truest value the type could then express, since the handler
+  // really does run `requireScope(locals,"chat")` FIRST — but the entry as a
+  // whole was a false statement about the boundary: `scope` renders as
+  // `security: [{ bearerAuth: ["chat"] }]`, "call this with a chat key", and a
+  // chat key is refused here every time. `"session"` is the true answer to the
+  // same question, so it is the one declared.
+  //
+  // The `chat` check STAYS in the handler and stays first — it is a live gate
+  // (defense in depth if the session check is ever edited out), it is simply
+  // not the gate that decides who may call. No caller who could ever succeed
+  // can observe it: every principal it refuses is refused by the session check
+  // one line later. Setting this row is standing consent to auto-run tools,
+  // not a capability — a key that could raise it would be raising the ceiling
+  // on its own tool calls.
+  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set the project's built-in-tool permission mode. SESSION-ONLY: refuses every API key (403) — this row pre-answers every future permission prompt in the project, so it is standing consent rather than a capability, and a `chat` key raising it would be raising the ceiling on its own tool calls. The handler also runs `requireScope(locals,\"chat\")` first, but no key reaches past the session check whatever it holds. Project members and instance admins; an optional conversationId — which must name a chat the caller owns inside this project — pushes the change live into that run", category: "projects", scope: "session", responseDescription: "{ ok: true }" },
 
   // Settings
   { method: "GET", path: "/api/settings", description: "Get every non-deny-listed instance setting. Gate: requireAdmin(locals) for the ROLE plus requireScope(locals,\"admin\") for the KEY axis (F6) — until 2026-08 the scope half was missing, so an admin-role key minted `--scopes read` read the whole settings blob", category: "settings", scope: "admin" },
@@ -365,13 +396,16 @@ export const apiRegistry: ApiRouteEntry[] = [
   // correctly fails without one. Claiming it while shipping no client
   // method would make the registry lie about the remote surface.
   { method: "GET", path: "/api/workflows/approvals", description: "List pending workflow approvals this caller may answer", category: "workflows", scope: "read", responseDescription: "{ approvals: PendingApproval[] }" },
-  // NO `scope`, deliberately — and this is the one entry where the absence
-  // is the point. `scope` renders as `security: [{ bearerAuth: [scope] }]`
-  // (src/openapi.ts:40), i.e. "call this with a key holding that scope".
-  // Answering an approval is the CONSENT boundary and is session-only
-  // (`requireSessionAuth`): NO key of any scope can reach it, so declaring
-  // one would publish a lie about a security boundary in the OpenAPI spec.
-  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run. SESSION-ONLY: refuses every API key (403) — a run parks on an approval so that a person decides, so a leaked key must not be able to spend one. Body { choice, form?, itemIds?, consentAll? }", category: "workflows", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
+  // `scope: "session"`, and this is the entry that argued the value into
+  // existence. A KEY scope renders as `security: [{ bearerAuth: [scope] }]`
+  // (src/openapi.ts), i.e. "call this with a key holding that scope" — and
+  // answering an approval is the CONSENT boundary, session-only
+  // (`requireSessionAuth`), so no key of any scope can reach it and any key
+  // scope here would publish a lie about a security boundary. The entry
+  // therefore declared NOTHING, which made it indistinguishable from the 90
+  // entries whose author simply never wrote one. `"session"` says the true
+  // thing out loud instead of saying nothing.
+  { method: "POST", path: "/api/workflows/approvals/:id", description: "Answer a parked workflow approval and resume its run. SESSION-ONLY: refuses every API key (403) — a run parks on an approval so that a person decides, so a leaked key must not be able to spend one. Body { choice, form?, itemIds?, consentAll? }", category: "workflows", scope: "session", responseDescription: "{ run: WorkflowRun, consentAllUsed: boolean }" },
   // Operator control over a durable run. NOT an approval-answering path:
   // resume takes no choice and cannot clear a pending consent gate — a run
   // parked on an unanswered approval comes back 409 and stays answerable.
@@ -387,31 +421,31 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // C3 delegated execution — the consent surface.
   //
-  // NO `scope` on any of the three, for the same reason
-  // POST /api/workflows/approvals/:id declares none: `scope` renders as
-  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:40), i.e. "call
-  // this with a key holding that scope". All three are session-only
+  // `scope: "session"` on all four, for the same reason
+  // POST /api/workflows/approvals/:id carries it: a KEY scope renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts), i.e. "call
+  // this with a key holding that scope". All four are session-only
   // (`requireSessionAuth`), so NO key of any scope reaches them and
-  // declaring one would publish a lie about a security boundary.
+  // declaring a key scope would publish a lie about a security boundary.
   //
   // Consent is a strictly stronger boundary than answering one approval:
   // an approval spends authority once, a delegation mints STANDING,
   // unattended authority over a workflow. The read and the revoke sit
   // behind the same gate deliberately — a revoke gated more strictly than
   // its consent would leave authority its owner cannot take back.
-  { method: "GET", path: "/api/workflows/delegations", description: "List the live delegations this human consented to. SESSION-ONLY: refuses every API key (403)", category: "workflows", responseDescription: "{ delegations: WorkflowDelegation[] }" },
-  { method: "POST", path: "/api/workflows/delegations", description: "Consent to a delegation: mint standing authority for an extension job to run one workflow as a chosen principal. SESSION-ONLY (403 for every API key). Authorizes AS THE PRINCIPAL THE DELEGATION WILL CARRY, so a service-account delegation for a non-system-visible workflow is refused here with the reason named, not silently at the first fire. Re-consenting supersedes your own live delegation for the same (extension, job); another user's is 409. Body { extensionId, jobRef, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind, triggerSpec?, maxTokensPerRun, maxRunsPerDay }", category: "workflows", responseDescription: "{ delegation, supersededId, material } (201)" },
-  { method: "DELETE", path: "/api/workflows/delegations/:id", description: "Revoke a delegation — a tombstone, not a delete, so the history survives and the (extension, job) can be consented to again. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise", category: "workflows", responseDescription: "{ revoked: boolean }" },
+  { method: "GET", path: "/api/workflows/delegations", description: "List the live delegations this human consented to. SESSION-ONLY: refuses every API key (403)", category: "workflows", scope: "session", responseDescription: "{ delegations: WorkflowDelegation[] }" },
+  { method: "POST", path: "/api/workflows/delegations", description: "Consent to a delegation: mint standing authority for an extension job to run one workflow as a chosen principal. SESSION-ONLY (403 for every API key). Authorizes AS THE PRINCIPAL THE DELEGATION WILL CARRY, so a service-account delegation for a non-system-visible workflow is refused here with the reason named, not silently at the first fire. Re-consenting supersedes your own live delegation for the same (extension, job); another user's is 409. Body { extensionId, jobRef, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind, triggerSpec?, maxTokensPerRun, maxRunsPerDay }", category: "workflows", scope: "session", responseDescription: "{ delegation, supersededId, material } (201)" },
+  { method: "DELETE", path: "/api/workflows/delegations/:id", description: "Revoke a delegation — a tombstone, not a delete, so the history survives and the (extension, job) can be consented to again. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise", category: "workflows", scope: "session", responseDescription: "{ revoked: boolean }" },
   // The FOURTH verb, and the one that makes a parked run resumable.
   // `RESUME_RULES["budget-exceeded"]` says "only raising that cap lets it
   // continue"; before this there was no way to raise it, because the only
   // writer of `max_tokens_per_run` was the consent route and a supersede
   // tombstones the row the parked run's own predicate re-reads. Same
-  // no-`scope` rule as its three siblings above — session-only, so any
-  // declared scope would publish a boundary no key can actually reach.
-  { method: "PATCH", path: "/api/workflows/delegations/:id", description: "Adjust a LIVE delegation's SPEND BOUNDS in place — no new row, no new consent hash, no `consented_at` write, so a run parked at `budget-exceeded` becomes resumable and a daily throttle becomes tunable without re-approving the capability set. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise. Body { maxTokensPerRun?, maxRunsPerDay? }, positive integers, AT LEAST ONE, and NOTHING else — the schema is strict, so naming the workflow, the owner kind, the consent hash or the enabled flag is a 400 rather than a silent no-op (those require re-consent, Ruling 2), and an empty body is a 400 rather than a 200 that changed nothing. Refuses a revoked or a platform-DISABLED delegation with 409 + the disabled reason: re-consent is the only re-enable path, because it re-asks the question that disabled the row", category: "workflows", responseDescription: "{ delegation: WorkflowDelegation }" },
-  { method: "POST", path: "/api/workflows/delegations/preview", description: "What consenting WOULD authorize, computed without writing a row — the capability closure the consent dialog shows before asking. Runs the same two calls the POST does, in the same order, so the preview cannot disagree with the grant; the consent-time refusal (a service-account delegation for a non-system-visible workflow) is previewed too, with its reason and remedy. SESSION-ONLY (403 for every API key). `consentHash` is the SEMANTIC digest only — the delegation facts, the flat capability closure and the walk's bounds. The workflow definition is fingerprinted separately and ADVISORY (`workflow_delegations.definition_hash`, not previewed), because a bundled extension ships its workflows in the app image and folding them in parked every delegation on every release; what re-asks at fire time is a genuine WIDENING of the capability closure. Body { extensionId, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind }", category: "workflows", responseDescription: "{ material, capabilitySet, consentHash, definitionVersionId, effortNoops, maxToolCallsPerRun, maxNestingDepth, reach }" },
-  { method: "GET", path: "/api/workflows/delegated-runs", description: "Jobs running as me: the runs an extension started unattended under a delegation this human consented to. Scoped by `consented_by_user_id` (not by `run_as`), so a service-account job appears for the human answerable for it; revoked delegations are included, because 'what did it do as me?' is the question asked right after revoking. SESSION-ONLY (403 for every API key)", category: "workflows", responseDescription: "{ runs: DelegatedRun[] }" },
+  // Same `scope: "session"` rule as its three siblings above — session-only,
+  // so any KEY scope would publish a boundary no key can actually reach.
+  { method: "PATCH", path: "/api/workflows/delegations/:id", description: "Adjust a LIVE delegation's SPEND BOUNDS in place — no new row, no new consent hash, no `consented_at` write, so a run parked at `budget-exceeded` becomes resumable and a daily throttle becomes tunable without re-approving the capability set. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise. Body { maxTokensPerRun?, maxRunsPerDay? }, positive integers, AT LEAST ONE, and NOTHING else — the schema is strict, so naming the workflow, the owner kind, the consent hash or the enabled flag is a 400 rather than a silent no-op (those require re-consent, Ruling 2), and an empty body is a 400 rather than a 200 that changed nothing. Refuses a revoked or a platform-DISABLED delegation with 409 + the disabled reason: re-consent is the only re-enable path, because it re-asks the question that disabled the row", category: "workflows", scope: "session", responseDescription: "{ delegation: WorkflowDelegation }" },
+  { method: "POST", path: "/api/workflows/delegations/preview", description: "What consenting WOULD authorize, computed without writing a row — the capability closure the consent dialog shows before asking. Runs the same two calls the POST does, in the same order, so the preview cannot disagree with the grant; the consent-time refusal (a service-account delegation for a non-system-visible workflow) is previewed too, with its reason and remedy. SESSION-ONLY (403 for every API key). `consentHash` is the SEMANTIC digest only — the delegation facts, the flat capability closure and the walk's bounds. The workflow definition is fingerprinted separately and ADVISORY (`workflow_delegations.definition_hash`, not previewed), because a bundled extension ships its workflows in the app image and folding them in parked every delegation on every release; what re-asks at fire time is a genuine WIDENING of the capability closure. Body { extensionId, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind }", category: "workflows", scope: "session", responseDescription: "{ material, capabilitySet, consentHash, definitionVersionId, effortNoops, maxToolCallsPerRun, maxNestingDepth, reach }" },
+  { method: "GET", path: "/api/workflows/delegated-runs", description: "Jobs running as me: the runs an extension started unattended under a delegation this human consented to. Scoped by `consented_by_user_id` (not by `run_as`), so a service-account job appears for the human answerable for it; revoked delegations are included, because 'what did it do as me?' is the question asked right after revoking. SESSION-ONLY (403 for every API key)", category: "workflows", scope: "session", responseDescription: "{ runs: DelegatedRun[] }" },
 
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
@@ -487,9 +521,9 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
 
   // ── C3 service accounts ───────────────────────────────────────────────
-  // NO `scope`, deliberately, on all five — the same reasoning as
-  // `POST /api/workflows/approvals/:id` above. `scope` renders as
-  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:39-41), i.e. "call
+  // `scope: "session"` on all five — the same reasoning as
+  // `POST /api/workflows/approvals/:id` above. A KEY scope renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts), i.e. "call
   // this with a key holding that scope". These routes gate on
   // `requireSessionAuth` FIRST, so NO key of any scope can reach them at all
   // and `scope: "admin"` would publish a lie about a security boundary. The
@@ -497,16 +531,20 @@ export const apiRegistry: ApiRouteEntry[] = [
   // rather than throwing it (a thrown Response is a 500, not a 403) — the two
   // together are `requireAdminSession` (src/auth/middleware.ts).
   //
+  // The ADMIN half is therefore in the description, not in `scope`: the field
+  // holds one value and the binding one is "no key, ever". `category: "admin"`
+  // still groups them where an operator looks for them.
+  //
   // GET is the one exception on the ROLE axis, and it is still session-only:
   // it answers every authenticated session, with a two-field
   // `{id,name}` projection for a non-admin. Ruling 1 makes both owner kinds
   // selectable PER DELEGATION, and a consenter who cannot read the list cannot
   // name a service account to consent to.
-  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY: refuses every API key (403). An ADMIN gets the full ServiceAccountView per row; any other authenticated session gets `{ id, name }` ONLY, filtered to enabled accounts — scopes, createdBy, maxTokensPerDay, projectId and disabledReason are withheld. The narrow read exists so a non-admin consenting to a delegation can populate the owner-kind picker (Ruling 1). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", responseDescription: "{ accounts: ServiceAccountView[] | { id, name }[], reach: { code, runnableVisibilities, message } }" },
-  { method: "POST", path: "/api/service-accounts", description: "Mint a service account. SESSION-ONLY + admin. Scopes are CLAMPED to the creating admin's effective set and what was dropped is reported; `maxTokensPerDay` is mandatory (tokens are the enforced bound — a cents cap is refused, since an unpriced model would spend without bound under one). The response carries the reach warning: a service account has no user identity, so it can only be delegated system-visible workflows", category: "admin", responseDescription: "{ account, droppedScopes: string[], reach: { code, runnableVisibilities, message } } (201)" },
-  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin. The body is strict and takes `enabled` only — the daily token cap has its own route, so an enable/disable can never be mistaken for a budget change in the audit log", category: "admin", responseDescription: "{ account }" },
-  { method: "PATCH", path: "/api/service-accounts/:id/daily-cap", description: "Set a service account's `max_tokens_per_day` — the remedy rung D10 names when a delegated fire is refused because the owning account spent its day, and which nothing exposed until now. SESSION-ONLY + admin. Body { maxTokensPerDay } (positive integer) and NOTHING else: strict, so a cents cap is a 400 rather than a silent no-op (Ruling 3 — tokens enforced, cost advisory). Lowers as readily as it raises. Does NOT re-enable a disabled account or clear its disabledReason; audited as `service-account:daily-cap-changed`", category: "admin", responseDescription: "{ account }" },
-  { method: "DELETE", path: "/api/service-accounts/:id", description: "Delete a service account. SESSION-ONLY + admin. REFUSED with 409 + { delegationCount } while live delegations name it — the owner FK is ON DELETE CASCADE, so the delete would otherwise destroy those authorities silently", category: "admin", responseDescription: "204 No Content" },
+  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY: refuses every API key (403). An ADMIN gets the full ServiceAccountView per row; any other authenticated session gets `{ id, name }` ONLY, filtered to enabled accounts — scopes, createdBy, maxTokensPerDay, projectId and disabledReason are withheld. The narrow read exists so a non-admin consenting to a delegation can populate the owner-kind picker (Ruling 1). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", scope: "session", responseDescription: "{ accounts: ServiceAccountView[] | { id, name }[], reach: { code, runnableVisibilities, message } }" },
+  { method: "POST", path: "/api/service-accounts", description: "Mint a service account. SESSION-ONLY + admin. Scopes are CLAMPED to the creating admin's effective set and what was dropped is reported; `maxTokensPerDay` is mandatory (tokens are the enforced bound — a cents cap is refused, since an unpriced model would spend without bound under one). The response carries the reach warning: a service account has no user identity, so it can only be delegated system-visible workflows", category: "admin", scope: "session", responseDescription: "{ account, droppedScopes: string[], reach: { code, runnableVisibilities, message } } (201)" },
+  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin. The body is strict and takes `enabled` only — the daily token cap has its own route, so an enable/disable can never be mistaken for a budget change in the audit log", category: "admin", scope: "session", responseDescription: "{ account }" },
+  { method: "PATCH", path: "/api/service-accounts/:id/daily-cap", description: "Set a service account's `max_tokens_per_day` — the remedy rung D10 names when a delegated fire is refused because the owning account spent its day, and which nothing exposed until now. SESSION-ONLY + admin. Body { maxTokensPerDay } (positive integer) and NOTHING else: strict, so a cents cap is a 400 rather than a silent no-op (Ruling 3 — tokens enforced, cost advisory). Lowers as readily as it raises. Does NOT re-enable a disabled account or clear its disabledReason; audited as `service-account:daily-cap-changed`", category: "admin", scope: "session", responseDescription: "{ account }" },
+  { method: "DELETE", path: "/api/service-accounts/:id", description: "Delete a service account. SESSION-ONLY + admin. REFUSED with 409 + { delegationCount } while live delegations name it — the owner FK is ON DELETE CASCADE, so the delete would otherwise destroy those authorities silently", category: "admin", scope: "session", responseDescription: "204 No Content" },
 
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
   // Gate is `requireScope(locals,"read")` + an INLINE `user.role !== "admin"`

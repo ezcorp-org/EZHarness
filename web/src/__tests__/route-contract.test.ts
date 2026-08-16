@@ -516,8 +516,11 @@ describe("registry ⇄ filesystem parity", () => {
   // its own docblock has promised since it was written that "the route-contract
   // meta-test will tighten the requirement over time". Nothing tightened. 93 of
   // 300 entries declared no scope, so the sentence in CLAUDE.md described a rule
-  // that a new route could ignore for free. 91 remain: the two `:name/run`
-  // routes were backfilled once their handlers were read.
+  // that a new route could ignore for free. 78 remain, in three shrinks: the two
+  // `:name/run` routes backfilled to `chat` once their handlers were read (93 →
+  // 91), `PUT /api/projects/:id/tool-permission-mode` (91 → 90), and then the
+  // twelve SESSION-ONLY entries that had nothing truthful to declare until
+  // `ApiRouteScope` grew `"session"` (90 → 78).
   //
   // WHY IT MATTERS: `src/openapi.ts` emits `security: [{ bearerAuth: [scope] }]`
   // only `if (e.scope && e.scope !== "public")`, so an entry with NO scope
@@ -542,9 +545,24 @@ describe("registry ⇄ filesystem parity", () => {
   // population and each needs a read of its handler: some enforce a scope the
   // entry simply omits (copy it across), some enforce none at all
   // (`POST /api/auth/logout`) and have nothing truthful to declare until the
-  // handler is gated or `ApiRouteScope` grows an explicit "no key-scope gate"
-  // value. That is a reviewed security change, not a registry edit, which is
-  // why this commit ratchets instead of backfilling.
+  // handler is gated or `ApiRouteScope` grows a value that fits. That is a
+  // reviewed security change, not a registry edit, which is why the commit
+  // that froze this list ratcheted instead of backfilling.
+  //
+  // ONE SUCH VALUE NOW EXISTS, and it took 12 entries off this list.
+  // `ApiRouteScope` gained `"session"`: authorization is by INTERACTIVE
+  // BROWSER SESSION and no API key can call the route whatever scopes it
+  // holds. Those 12 were not un-scoped through neglect — each one's comment in
+  // `src/api-registry.ts` said, in prose, that declaring a KEY scope would
+  // publish a lie about a security boundary, which was true and left them
+  // indistinguishable from the ones nobody had read. They now say it in the
+  // field, and `src/__tests__/session-scope-surface.test.ts` derives the claim
+  // from the handlers in BOTH directions.
+  //
+  // The remaining 78 are still the mixed population above. `"session"` is not a
+  // catch-all for them: it is a positive claim that `requireSessionAuth` (or
+  // `requireAdminSession`) gates the verb, and the derived suite fails any
+  // entry that declares it without one.
   //
   // INTENDED END STATE: every entry backfilled, `scope` made REQUIRED on
   // `ApiRouteEntry` so the COMPILER refuses an entry without one, and then this
@@ -561,14 +579,12 @@ describe("registry ⇄ filesystem parity", () => {
   // the count test fails if the baseline no longer matches the list (so the
   // ratchet cannot be loosened by deleting lines). Both failures name what to
   // do. This list may only SHRINK. Sorted; keep it sorted.
-  const BASELINE_SCOPELESS = 90;
+  const BASELINE_SCOPELESS = 78;
   const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
     "DELETE /api/agent-configs/:id",
     "DELETE /api/extensions/:id/settings/user",
     "DELETE /api/marketplace/:id/delete",
-    "DELETE /api/service-accounts/:id",
     "DELETE /api/teams/:id",
-    "DELETE /api/workflows/delegations/:id",
     "GET /api/account",
     "GET /api/agent-configs",
     "GET /api/agent-configs/:id",
@@ -600,7 +616,6 @@ describe("registry ⇄ filesystem parity", () => {
     "GET /api/providers",
     "GET /api/quickstart",
     "GET /api/search/messages",
-    "GET /api/service-accounts",
     "GET /api/settings/developer",
     "GET /api/teams",
     "GET /api/teams/:id",
@@ -613,11 +628,6 @@ describe("registry ⇄ filesystem parity", () => {
     "GET /api/workflows",
     "GET /api/workflows/:name",
     "GET /api/workflows/:name/versions",
-    "GET /api/workflows/delegated-runs",
-    "GET /api/workflows/delegations",
-    "PATCH /api/service-accounts/:id",
-    "PATCH /api/service-accounts/:id/daily-cap",
-    "PATCH /api/workflows/delegations/:id",
     "POST /api/agent-configs",
     "POST /api/agent-configs/generate",
     "POST /api/auth/invite/:token",
@@ -637,15 +647,11 @@ describe("registry ⇄ filesystem parity", () => {
     "POST /api/onboarding/complete",
     "POST /api/preview/:id/token",
     "POST /api/preview/consent",
-    "POST /api/service-accounts",
     "POST /api/settings/developer/api-keys",
     "POST /api/teams",
     "POST /api/teams/:id/members",
     "POST /api/workflows/:name/dry-run",
     "POST /api/workflows/:name/fork",
-    "POST /api/workflows/approvals/:id",
-    "POST /api/workflows/delegations",
-    "POST /api/workflows/delegations/preview",
     "PUT /api/account",
     "PUT /api/account/password",
     "PUT /api/agent-configs/:id",
@@ -694,8 +700,8 @@ describe("registry ⇄ filesystem parity", () => {
     // the population size is exactly what the swap preserves.
     //
     // What it DOES buy is cheap and worth one line: the number is stated in the
-    // source, so shrinking the debt shows up as a conspicuous `-93 +91` in the
-    // diff rather than as two lines lost in a 93-line list, and a defeat has to
+    // source, so shrinking the debt shows up as a conspicuous `-90 +78` in the
+    // diff rather than as twelve lines lost in a 90-line list, and a defeat has to
     // touch three places instead of one. Review bait, not a gate. The gate is
     // the exact diff above; the real fix is making `scope` required so the
     // compiler decides.
@@ -717,6 +723,42 @@ describe("registry ⇄ filesystem parity", () => {
     expect(scopeOf("POST /api/workflows/:name/run")).toBe("chat");
     expect(KNOWN_SCOPELESS.has("POST /api/agents/:name/run")).toBe(false);
     expect(KNOWN_SCOPELESS.has("POST /api/workflows/:name/run")).toBe(false);
+  });
+
+  test("the session-only entries left the frozen list and declare `session`", () => {
+    // The 90 → 78 shrink, asserted by NAME for the reason the `:name/run` test
+    // above states: the count survives any swap, this does not. It is the
+    // REGISTRY half only — that these thirteen entries declare `"session"` and
+    // no longer sit in the frozen list. Whether each one's HANDLER actually
+    // gates on a session is derived from the tree, in both directions, by
+    // `src/__tests__/session-scope-surface.test.ts`; asserting it twice from
+    // two hand-written lists is how the two lists drift.
+    //
+    // Thirteen, not twelve: `PUT /api/projects/:id/tool-permission-mode` was
+    // already out of the frozen list (it carried `scope: "chat"` for one
+    // commit, the truest value the type could then express) and is re-declared
+    // here, so the whole session-only surface reads one way.
+    const SESSION_ONLY = [
+      "DELETE /api/service-accounts/:id",
+      "DELETE /api/workflows/delegations/:id",
+      "GET /api/service-accounts",
+      "GET /api/workflows/delegated-runs",
+      "GET /api/workflows/delegations",
+      "PATCH /api/service-accounts/:id",
+      "PATCH /api/service-accounts/:id/daily-cap",
+      "PATCH /api/workflows/delegations/:id",
+      "POST /api/service-accounts",
+      "POST /api/workflows/approvals/:id",
+      "POST /api/workflows/delegations",
+      "POST /api/workflows/delegations/preview",
+      "PUT /api/projects/:id/tool-permission-mode",
+    ];
+    const declared = apiRegistry
+      .filter((e) => e.scope === "session")
+      .map((e) => `${e.method} ${e.path}`)
+      .sort();
+    expect(declared).toEqual(SESSION_ONLY);
+    expect(SESSION_ONLY.filter((k) => KNOWN_SCOPELESS.has(k))).toEqual([]);
   });
 
   test("the frozen list is sorted (a new line cannot hide mid-list)", () => {

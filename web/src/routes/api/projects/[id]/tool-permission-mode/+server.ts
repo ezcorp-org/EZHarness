@@ -66,11 +66,15 @@ import { checkProjectRole, requireSessionAuth } from "$server/auth/middleware";
  * `PermissionModeIndicator.svelte`, a cookie session, and the route is not
  * `harness: { controllable: true }`.
  *
- * The scope check stays, and stays FIRST, so `scope: "chat"` in
- * `src/api-registry.ts` keeps naming a gate this handler actually enforces
- * (#97's rule) instead of becoming dead code behind the session check — a
- * key lacking `chat` is still refused on the scope axis, and it is refused
- * before any membership row is read, so no denial leaks who belongs here.
+ * The scope check stays, and stays FIRST — a live gate, and defense in depth
+ * if the session check is ever edited out. A key lacking `chat` is refused on
+ * the scope axis before any membership row is read, so no denial leaks who
+ * belongs here. But it is NOT the gate that decides who may call: the registry
+ * entry declares `scope: "session"` (`src/api-registry.ts`), because `scope`
+ * renders as `security: [{ bearerAuth: [...] }]` and "call this with a chat
+ * key" is false for a route that refuses every key. No caller who could ever
+ * succeed can observe the `chat` check — every principal it refuses is refused
+ * one line later anyway.
  *
  * GET is deliberately NOT session-gated. Reading the mode is a capability an
  * agent legitimately needs, and disclosing it escalates nothing.

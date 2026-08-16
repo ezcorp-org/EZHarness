@@ -255,6 +255,61 @@ describe("validateToolPolicy", () => {
         'routeAllowlist entry "GET /api/conversations/[idd]" is not a registered route',
       ]);
     });
+
+    test("a SESSION-ONLY route is refused — it would grant nothing", async () => {
+      // `scope: "session"` means `requireSessionAuth` answers EVERY API key
+      // with a 403, whatever the key holds. An allowlist entry naming one is
+      // the unregistered-route failure wearing a correctly-spelled route: the
+      // operator reads "this key may answer approvals", the key never can, and
+      // nothing tells either of them until someone tries it in production.
+      const errs = await validateToolPolicy(
+        { routeAllowlist: ["POST /api/workflows/approvals/[id]"] },
+        ctxModeOk,
+      );
+      expect(errs).toEqual([
+        'routeAllowlist entry "POST /api/workflows/approvals/[id]" is a SESSION-ONLY route — no API key of any scope can call it, so naming it grants nothing',
+      ]);
+    });
+
+    test("the refusal reads the injected registry, not a hard-coded list", async () => {
+      // Discrimination for the cell above: the SAME route key validates when
+      // the injected registry does not mark it session-only, and a route the
+      // registry DOES so mark is refused whatever its path. Without this, the
+      // test above would pass equally against a check that pattern-matched on
+      // "approvals".
+      const permissive = {
+        ...ctxModeOk,
+        registry: [{ method: "POST", path: "/api/workflows/approvals/:id" }],
+      };
+      expect(
+        await validateToolPolicy(
+          { routeAllowlist: ["POST /api/workflows/approvals/[id]"] },
+          permissive,
+        ),
+      ).toBeNull();
+
+      const marked = {
+        ...ctxModeOk,
+        registry: [{ method: "GET", path: "/api/tools", scope: "session" }],
+      };
+      expect(
+        await validateToolPolicy({ routeAllowlist: ["GET /api/tools"] }, marked),
+      ).toEqual([
+        'routeAllowlist entry "GET /api/tools" is a SESSION-ONLY route — no API key of any scope can call it, so naming it grants nothing',
+      ]);
+    });
+
+    test("no shipped bundle names a session-only route", async () => {
+      // The mint refusal only fires when someone mints. A bundle is reviewed
+      // once and minted from many times, so assert the shipped ones are clean
+      // against the REAL registry — if one ever names a session-only route,
+      // `--route-bundle desktop-companion` becomes unmintable and this says so
+      // before an operator hits it.
+      for (const [name, routes] of Object.entries(ROUTE_BUNDLES)) {
+        const errs = await validateToolPolicy({ routeAllowlist: [...routes] }, ctxModeOk);
+        expect({ name, errs }).toEqual({ name, errs: null });
+      }
+    });
   });
 
   describe("allowedCallerTools", () => {
