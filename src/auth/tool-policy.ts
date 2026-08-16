@@ -26,6 +26,7 @@ import {
   MAX_CALLER_TOOLS,
   isValidCallerToolName,
 } from "../runtime/caller-tool-declarations";
+import { SESSION_ROUTE_SCOPE } from "./api-key";
 
 /**
  * The policy attached to one API key, stored as JSON on the key's settings
@@ -81,7 +82,9 @@ export const MAX_POLICY_ROUTES = 64;
  * allowlist from rotting: the bundle is reviewed once, here, and every entry
  * is validated against `src/api-registry.ts` at mint time (see
  * {@link validateToolPolicy}) so a typo is a 400 rather than a route that
- * silently denies forever.
+ * silently denies forever. A SESSION-ONLY entry (`scope: "session"`) is
+ * refused there for the same reason: it too would deny forever, it just
+ * spells the route correctly while doing it.
  *
  * `desktop-companion` is the reference bundle: a connected client device that
  * drives one conversation, declares its own caller-executed tools, answers
@@ -249,6 +252,11 @@ export function routeIdToRegistryPath(routeId: string): string {
 export interface ToolPolicyRegistryEntry {
   method: string;
   path: string;
+  /** `ApiRouteEntry["scope"]`, widened to `string` so this module stays free
+   *  of `src/api-registry.ts` (the SvelteKit hook loads it on every request,
+   *  and the registry is a 300-entry array). Only one value is READ here:
+   *  {@link SESSION_ROUTE_SCOPE}, which makes the route unmintable. */
+  scope?: string;
 }
 
 export interface ValidateToolPolicyContext {
@@ -372,7 +380,9 @@ function validateRouteAllowlist(
     return [`routeAllowlist may name at most ${MAX_POLICY_ROUTES} routes`];
   }
   const errors: string[] = [];
-  const known = new Set(registry.map((e) => `${e.method} ${e.path}`));
+  const known = new Map(
+    registry.map((e) => [`${e.method} ${e.path}`, e] as const),
+  );
   const seen = new Set<string>();
   for (const entry of routes) {
     if (typeof entry !== "string") {
@@ -393,11 +403,24 @@ function validateRouteAllowlist(
       );
       continue;
     }
-    if (!known.has(`${method} ${routeIdToRegistryPath(routeId)}`)) {
+    const registered = known.get(`${method} ${routeIdToRegistryPath(routeId)}`);
+    if (!registered) {
       // A typo here would otherwise mint a key that is denied on a route the
       // operator believes they granted — a silent deny, and the failure mode
       // that makes route allowlists rot.
       errors.push(`routeAllowlist entry "${entry}" is not a registered route`);
+      continue;
+    }
+    if (registered.scope === SESSION_ROUTE_SCOPE) {
+      // A SESSION-ONLY route is refused for exactly the reason a typo is: the
+      // entry grants nothing. `requireSessionAuth` answers every API key with
+      // a 403 whatever its scopes, so an allowlist naming one reports a reach
+      // the key does not have and never can — the same silent deny, wearing a
+      // correctly-spelled route. A key allowlist is a NARROWING of what a key
+      // could otherwise do, and a session-only route was never in that set.
+      errors.push(
+        `routeAllowlist entry "${entry}" is a SESSION-ONLY route — no API key of any scope can call it, so naming it grants nothing`,
+      );
     }
   }
   return errors;
