@@ -20,8 +20,11 @@
  */
 import { Type } from "@earendil-works/pi-ai";
 import type { BuiltinToolDef  } from "../types";
-import { runEzClientTool, type ClientToolContext } from "./client-tool";
-import { ezClientToolWatchdogBudgetMs } from "../../ez-client-tool-registry";
+import {
+  ezClientToolWatchdogBudgetMs,
+  runEzClientTool,
+  type ClientToolContext,
+} from "./client-tool";
 import type { ToolParams } from "../validate";
 
 export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
@@ -35,7 +38,7 @@ export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
     clientSide: true,
     // The call suspends until the panel POSTs back, so the watchdog must
     // defer its idle kill for the WHOLE gate wait — never the 90s default.
-    // Derived from the gate's own timeout; see ez-client-tool-registry.ts.
+    // Derived from the gate's own timeout; see client-tool.ts.
     callTimeoutMs: ezClientToolWatchdogBudgetMs(),
     parameters: Type.Unsafe({
       type: "object",

@@ -664,3 +664,184 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
   });
 });
+
+// ── Boundary 2: per-API-key mode lock + autopilot refusal ───────────────
+//
+// FOUR ARMS PER GUARD, and the last two are the whole back-compat contract:
+// a policied key refused with the right field, a policied key allowed in
+// policy, an UNPOLICIED key unchanged, and a COOKIE SESSION unchanged.
+// Policy binds the key, never the human.
+describe("POST … messages — per-API-key tool policy", () => {
+  const MODE = "mode-locked";
+  /** A policied bearer principal. `apiKeyScopes` is what makes it a key
+   *  rather than a cookie; `apiKeyToolPolicy` is what confines it. */
+  const policied = (policy: Record<string, unknown>) => ({
+    user,
+    apiKeyScopes: ["read", "write", "chat"],
+    apiKeyToolPolicy: policy,
+  });
+  /** Same key, no policy — the "nothing changed" arm. */
+  const unpolicied = { user, apiKeyScopes: ["read", "write", "chat"] };
+  /** A browser session: no scopes, no policy, never confined. */
+  const cookie = { user };
+
+  function conv(over: Record<string, unknown> = {}) {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: MODE, ...over });
+  }
+
+  beforeEach(() => {
+    getConversation.mockReset();
+    createMessage.mockReset();
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    getLatestLeaf.mockReset();
+    getLatestLeaf.mockResolvedValue(null);
+    getMessages.mockReset();
+    getMessages.mockResolvedValue([]);
+    vi.mocked(checkTokenBudget).mockReset();
+    vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
+    streamChat.mockReset();
+    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+  });
+
+  const send = (locals: Record<string, unknown>, content = "hi") =>
+    POST(makeEvent({ method: "POST", locals, body: { content } })) as Promise<Response>;
+
+  describe("locked mode", () => {
+    test("in-policy send is allowed and starts the run", async () => {
+      conv();
+      const res = await send(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(200);
+      expect(streamChat).toHaveBeenCalledTimes(1);
+    });
+
+    test("a conversation under a DIFFERENT mode is 403 lockedModeId", async () => {
+      conv({ modeId: "mode-other" });
+      const res = await send(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+      // Refused before the user row is persisted — a rejected turn leaves no
+      // trace in the thread.
+      expect(createMessage).not.toHaveBeenCalled();
+      expect(streamChat).not.toHaveBeenCalled();
+    });
+
+    test("a DELETED locked mode (modeId null) BRICKS the key — it does not free it", async () => {
+      // `conversations.mode_id` is ON DELETE SET NULL, so the one action the
+      // key cannot perform must not be the action that unconfines it.
+      conv({ modeId: null });
+      const res = await send(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+    });
+
+    test("an UNPOLICIED key is unchanged by a null mode", async () => {
+      conv({ modeId: null });
+      expect((await send(unpolicied)).status).toBe(200);
+    });
+
+    test("a COOKIE SESSION is unchanged by a null mode", async () => {
+      conv({ modeId: null });
+      expect((await send(cookie)).status).toBe(200);
+    });
+  });
+
+  describe("autopilot", () => {
+    test("a policied key may not ARM a goal", async () => {
+      conv();
+      const res = await send(policied({ lockedModeId: MODE }), "/goal ship it");
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "goal" });
+      expect(createMessage).not.toHaveBeenCalled();
+    });
+
+    test("`/goalpost` is not a goal command (the canonical predicate, not a prefix match)", async () => {
+      conv();
+      expect((await send(policied({ lockedModeId: MODE }), "/goalpost")).status).toBe(200);
+    });
+
+    test("a policied key may not send to an ARMED conversation (drive or resume)", async () => {
+      conv({ metadata: { goal: { condition: "ship it", lastReason: null, createdAt: "" } } });
+      const res = await send(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "goal" });
+    });
+
+    test("a policy with no lock still refuses autopilot — the refusal binds on POLICY, not on the mode", async () => {
+      conv({ modeId: null });
+      const res = await send(policied({ maxCallerTools: 1 }), "/goal ship it");
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "goal" });
+    });
+
+    test("an UNPOLICIED key may still arm and drive a goal", async () => {
+      conv({ metadata: { goal: { condition: "ship it", lastReason: null, createdAt: "" } } });
+      expect((await send(unpolicied)).status).toBe(200);
+      expect((await send(unpolicied, "/goal ship it")).status).toBe(200);
+    });
+
+    test("a COOKIE SESSION may still arm and drive a goal", async () => {
+      conv({ metadata: { goal: { condition: "ship it", lastReason: null, createdAt: "" } } });
+      expect((await send(cookie)).status).toBe(200);
+      expect((await send(cookie, "/goal ship it")).status).toBe(200);
+    });
+  });
+
+  // ── Boundary 3: the run inherits the credential's confinement ─────────
+  //
+  // THIS IS THE ASSERTION THAT WAS MISSING, and its absence is why Boundary 3
+  // shipped inert. The boundary's own suite injected both options straight
+  // into `streamChat`, so it passed while no route ever set either one — a
+  // policied key's spawn-deny did nothing mid-turn, which is the exact gap
+  // Boundary 3 exists to close. Assert from the ROUTE.
+  describe("Boundary 3 — what reaches streamChat", () => {
+    /** The options bag the route handed the executor. `streamChat` is mocked
+     *  with a zero-arg factory, so its recorded call tuple needs naming. */
+    const optsOf = () =>
+      (streamChat.mock.calls[0] as unknown as [string, string, Record<string, unknown>])[2];
+
+    test("a policied key's run denies the LLM's spawn primitives", async () => {
+      conv();
+      expect((await send(policied({ lockedModeId: MODE }))).status).toBe(200);
+      expect(optsOf().forceDenyOrchestration).toBe(true);
+    });
+
+    test("allowedCallerTools becomes the run's caller-tool cap", async () => {
+      conv();
+      const res = await send(
+        policied({ lockedModeId: MODE, allowedCallerTools: ["open_app"] }),
+      );
+      expect(res.status).toBe(200);
+      expect(optsOf().callerToolAllowlist).toEqual(["open_app"]);
+    });
+
+    test("an EMPTY allowedCallerTools reaches the run as empty — the hardest lock", async () => {
+      // Nullish means "no constraint" downstream, so dropping the empty array
+      // anywhere on this path would invert the policy at exactly the value an
+      // operator uses to permit NO caller tools at all.
+      conv();
+      const res = await send(policied({ lockedModeId: MODE, allowedCallerTools: [] }));
+      expect(res.status).toBe(200);
+      expect(optsOf().callerToolAllowlist).toEqual([]);
+    });
+
+    test("a policy that names no caller tools leaves the cap absent", async () => {
+      conv();
+      expect((await send(policied({ lockedModeId: MODE }))).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+
+    test("an UNPOLICIED key gets the pre-policy surface — neither option", async () => {
+      conv();
+      expect((await send(unpolicied)).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+
+    test("a COOKIE SESSION gets the pre-policy surface — neither option", async () => {
+      conv();
+      expect((await send(cookie)).status).toBe(200);
+      expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
+      expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+    });
+  });
+});

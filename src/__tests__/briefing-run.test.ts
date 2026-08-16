@@ -340,6 +340,47 @@ describe("runBriefingForUser", () => {
     expect(calls[0]!.options.provider).toBe("openai");
   });
 
+  // ── Boundary 3 arrives at the run, or the wiring is theatre ──────
+  //
+  // The route derives the bag; this is the hop where it either reaches
+  // `streamChat` or is silently dropped. Asserted on the CALL rather than on
+  // the option object, because "the route passed it" and "the run got it" are
+  // different claims and only the second one confines anything.
+  test("an HTTP-triggered run inherits the caller's tool policy — the options reach streamChat", async () => {
+    const { executor, calls } = makeExecutor({ assistantContent: "hi" });
+    const bus = new EventBus<AgentEvents>();
+    const result = await runBriefingForUser(
+      makeConfig(),
+      {
+        toolPolicyOptions: {
+          forceDenyOrchestration: true,
+          callerToolAllowlist: ["open_app"],
+        },
+      },
+      { executor, bus, now: () => NOW },
+    );
+    expect(result.status).toBe("ok");
+    expect(calls[0]!.options.forceDenyOrchestration).toBe(true);
+    expect(calls[0]!.options.callerToolAllowlist).toEqual(["open_app"]);
+    // The spawn-deny is the field that matters here: `toolRestriction:
+    // "read-only"` does NOT remove `invoke_agent`/`run_workflow` (filter.ts
+    // `keep()` preserves orchestration through that branch), so this option is
+    // the only thing between a policied key and an agent spawn on a route
+    // where no LLM tool call is ever inspected.
+    expect(calls[0]!.options.toolRestriction).toBe("read-only");
+  });
+
+  test("a SCHEDULED fire passes no policy options — the daemon's run is unchanged", async () => {
+    // Nobody asked for a scheduled briefing, so there is no credential to
+    // inherit. Absent, not `false`: `forceDenyOrchestration: false` would read
+    // as a deliberate grant.
+    const { executor, calls } = makeExecutor({ assistantContent: "hi" });
+    const bus = new EventBus<AgentEvents>();
+    await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
+    expect("forceDenyOrchestration" in calls[0]!.options).toBe(false);
+    expect("callerToolAllowlist" in calls[0]!.options).toBe(false);
+  });
+
   test("catch-up fires flag the synthetic prompt", async () => {
     const { executor, calls } = makeExecutor({ assistantContent: "hi" });
     const bus = new EventBus<AgentEvents>();

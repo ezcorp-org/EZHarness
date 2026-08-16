@@ -1,0 +1,273 @@
+/**
+ * Caller-executed tool declarations — `PUT`/`GET`/`DELETE`
+ * `/api/conversations/[id]/caller-tools`.
+ *
+ * An external application holding a member-role API key declares tool
+ * definitions on a conversation here. The runtime wires them into the next
+ * turn as `_caller__<name>`; when the LLM calls one the run pauses behind a
+ * permission gate, the call goes out over SSE as `caller:tool-call`, the app
+ * executes it on its own machine and POSTs the result back to
+ * `…/tool-results`.
+ *
+ * ── WHY THE DECLARATIONS LIVE IN `conversations.metadata` ────────────────
+ *
+ * They are per-conversation, caller-authored, and short-lived — a shape a
+ * table would model badly and a migration would freeze. `metadata` is a
+ * shared jsonb bag with several independent owners (`goal`, `spawnDepth`,
+ * `spawnParentAuditId`), so every write here goes through
+ * `mergeConversationMetadata` / `deleteCallerToolsMetadata`
+ * (`src/db/queries/conversation-metadata.ts`), which merge inside ONE
+ * statement. NEVER read-modify-write this column: `writePersistedGoal` ticks
+ * on every goal-evaluator cycle, and a JS-side RMW racing it silently
+ * destroys whichever side commits first.
+ *
+ * ── THE GATE CHAIN, AND WHY IT IS IN THAT ORDER ──────────────────────────
+ *
+ *   requireScope → requireAuth → ownership (404) → root-only (400)
+ *     → body cap (413) → shape (400) → semantics (400) → policy (403)
+ *     → rate limit (429) → write
+ *
+ * Ownership resolves BEFORE the root-only check so a sub-conversation
+ * belonging to somebody else reports 404 (nothing leaked) rather than the
+ * 400 that would confirm the id names a real sub-conversation. The rate
+ * limit sits AFTER ownership for the same reason — a limiter that answers
+ * before the ownership check turns into a conversation-existence oracle
+ * clocked by response timing.
+ *
+ * It sits LAST, immediately before the write, because it budgets WRITES.
+ * A request refused for shape, semantics or policy never touches the row, so
+ * spending its token only served to make this route's own 400s unreachable:
+ * a single typo burned the budget and the corrected retry came back 429,
+ * with nothing telling the client what it had got wrong. The body cap still
+ * runs early — that one bounds ALLOCATION, which an unparsed body can abuse.
+ *
+ * ── ROOT-ONLY IS A SEMANTIC RULE, NOT A CONVENIENCE ──────────────────────
+ *
+ * A sub-conversation (agent run, team member) carries `userId = null` and
+ * inherits nothing from its parent's declarations — the runtime wires caller
+ * tools from the conversation it is running, full stop. Accepting a
+ * declaration on a sub-conversation would therefore look like it worked and
+ * do nothing, so it is a 400 with a message that says which id to use.
+ */
+import { json } from "@sveltejs/kit";
+import type { RequestHandler } from "./$types";
+import { requireAuth } from "$server/auth/middleware";
+import { requireScope } from "$lib/server/security/api-keys";
+import { errorJson } from "$lib/server/http-errors";
+import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
+import { createRateLimiter } from "$server/extensions/rate-limit";
+import {
+  deleteCallerToolsMetadata,
+  mergeConversationMetadata,
+} from "$server/db/queries/conversation-metadata";
+import {
+  readCallerToolsFromMetadata,
+  validateCallerToolDeclarations,
+} from "$server/runtime/caller-tool-declarations";
+import { mayDeclareCallerTools } from "$server/auth/tool-policy";
+import { abortPendingRemoteToolsForConversation } from "$server/runtime/remote-tool-registry";
+import { getActiveRun } from "$server/db/queries/active-runs";
+import { DECLARE_WRITES_PER_SECOND, declareCallerToolsSchema } from "./schema";
+
+/**
+ * Rejection the LLM reads for a call that was still in flight when the
+ * declarations were revoked. Phrased as a fact about the TOOL rather than
+ * about the HTTP request that caused it: the model did not revoke anything,
+ * and "the client withdrew this" is the part it has to tell the user.
+ */
+const REVOKED_MID_CALL =
+  "The client withdrew its caller-executed tools while this call was " +
+  "outstanding, so no result will arrive.";
+
+/**
+ * Declaration bodies are small by construction (16 tools × an 8 KiB schema
+ * ceiling), so 64 KiB is generous. The cap exists so a hostile body is
+ * refused before `JSON.parse` allocates it, not to tune anything.
+ */
+const MAX_DECLARE_BODY_BYTES = 64 * 1024;
+
+/**
+ * Declaration WRITES per second per USER (not per key): the identity that
+ * matters is whose conversation is being rewritten, and a user with three
+ * keys must not get three times the budget.
+ *
+ * Five, not one. Declaring looks like a once-per-conversation setup step, but
+ * the ORDINARY sequences are multi-write: declare → clear when a session ends,
+ * and declare → re-declare when the app's tool set changes. Both mutating
+ * verbs share this budget (they write the same jsonb key), so a 1/s ceiling
+ * refused a client doing nothing wrong. The limit exists to bound write
+ * amplification on one row, and five single-row jsonb merges per second is
+ * still orders of magnitude below anything abusive.
+ */
+const declareLimiter = createRateLimiter(DECLARE_WRITES_PER_SECOND);
+
+/** Both mutating verbs share the budget — they write the same jsonb key. */
+function rateLimited(userId: string): Response | null {
+  if (declareLimiter(userId, 1)) return null;
+  return errorJson(429, "Too many requests", undefined, { "Retry-After": "1" });
+}
+
+/**
+ * Resolve the conversation and enforce the two authorization facts every
+ * verb here needs. `rootOnly` adds the declaration-target rule; the read
+ * verb skips it so an app can inspect what a sub-conversation resolved to.
+ */
+async function resolveTarget(
+  id: string,
+  locals: App.Locals,
+  opts: { rootOnly: boolean },
+): Promise<
+  | { ok: true; userId: string; metadata: unknown }
+  | { ok: false; response: Response }
+> {
+  const user = requireAuth(locals);
+  const owned = await resolveRootConversationForOwnership(id, user);
+  if (!owned) return { ok: false, response: errorJson(404, "Not found") };
+  if (opts.rootOnly && owned.conv.parentConversationId !== null) {
+    return {
+      ok: false,
+      response: errorJson(
+        400,
+        "Caller tools are declared on a root conversation, not a sub-conversation",
+        { rootConversationId: owned.root.id },
+      ),
+    };
+  }
+  return { ok: true, userId: user.id, metadata: owned.conv.metadata };
+}
+
+/**
+ * Read the body under the cap. Checked on the declared `Content-Length`
+ * AND on the actual bytes — a lying header must not buy a bigger
+ * allocation than an honest one.
+ */
+async function readCappedBody(
+  request: Request,
+): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_DECLARE_BODY_BYTES) {
+    return { ok: false, response: errorJson(413, "Payload too large") };
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAX_DECLARE_BODY_BYTES) {
+    return { ok: false, response: errorJson(413, "Payload too large") };
+  }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, response: errorJson(400, "Invalid body") };
+  }
+}
+
+export const PUT: RequestHandler = async ({ request, params, locals }) => {
+  const scopeErr = requireScope(locals, "chat");
+  if (scopeErr) return scopeErr;
+
+  const target = await resolveTarget(params.id, locals, { rootOnly: true });
+  if (!target.ok) return target.response;
+
+  const body = await readCappedBody(request);
+  if (!body.ok) return body.response;
+
+  const parsed = declareCallerToolsSchema.safeParse(body.value);
+  if (!parsed.success) {
+    return errorJson(400, "Invalid body", { field: parsed.error.issues[0]?.path.join(".") });
+  }
+
+  // Semantic validation (reserved names, built-in collisions, JSON-Schema
+  // structure, depth / property / byte budgets) is the runtime's, so the
+  // wire and the executor agree on what a declaration means.
+  const checked = validateCallerToolDeclarations(parsed.data.tools);
+  if (!checked.ok) {
+    return errorJson(400, checked.error, checked.field ? { field: checked.field } : undefined);
+  }
+
+  // Per-API-key declaration cap. Runs AFTER the semantic check so a
+  // malformed declaration still reports what is wrong with it rather than
+  // which policy field it happens to trip, and it is a 403 (not the 400 above)
+  // because the declaration is well-formed — this credential simply may not
+  // make it. A cookie session and an unpolicied key take the `ok: true` path
+  // unchanged. Boundary 3 caps EXECUTION separately, because the bag on the
+  // conversation may have been written by a different principal.
+  const declareVerdict = mayDeclareCallerTools(
+    locals.apiKeyToolPolicy,
+    checked.tools.map((t) => t.name),
+  );
+  if (!declareVerdict.ok) {
+    return errorJson(403, "Tool not permitted for this key", {
+      field: declareVerdict.field,
+      ...(declareVerdict.offender ? { tool: declareVerdict.offender } : {}),
+    });
+  }
+
+  // Charged LAST, immediately before the write, for the same reason the policy
+  // cap above runs after the semantic check: a REJECTED declaration performs no
+  // write, so it must not spend write budget. Charging it earlier made the
+  // route's own 400s unreachable — one typo burned the token and the corrected
+  // retry came back 429, so a client could never read what was wrong with its
+  // schema. Still after the ownership walk, so it cannot become a
+  // conversation-existence oracle clocked by response timing.
+  const limited = rateLimited(target.userId);
+  if (limited) return limited;
+
+  await mergeConversationMetadata(params.id, { callerTools: checked.tools });
+
+  // `appliedFrom` is a constant, and deliberately so: tool definitions are
+  // bound once when a turn is set up, so a declaration written mid-run
+  // cannot reach the run that is already streaming. `activeRunId` names the
+  // run it will NOT affect, which is the only thing a caller can act on.
+  const active = await getActiveRun(params.id);
+  return json({
+    tools: checked.tools,
+    appliedFrom: "next-turn",
+    activeRunId: active?.id ?? null,
+  });
+};
+
+export const GET: RequestHandler = async ({ params, locals }) => {
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+
+  const target = await resolveTarget(params.id, locals, { rootOnly: false });
+  if (!target.ok) return target.response;
+
+  return json({ tools: readCallerToolsFromMetadata(target.metadata) });
+};
+
+export const DELETE: RequestHandler = async ({ params, locals }) => {
+  const scopeErr = requireScope(locals, "chat");
+  if (scopeErr) return scopeErr;
+
+  const target = await resolveTarget(params.id, locals, { rootOnly: true });
+  if (!target.ok) return target.response;
+
+  const limited = rateLimited(target.userId);
+  if (limited) return limited;
+
+  // `cleared` is the count that WAS declared, read off the row the ownership
+  // walk already loaded — the delete itself is a jsonb key removal and
+  // reports no row count worth returning. Clearing an empty bag is a
+  // success with `cleared: 0`, not a 404: DELETE is idempotent.
+  const cleared = readCallerToolsFromMetadata(target.metadata).length;
+  await deleteCallerToolsMetadata(params.id);
+
+  // Tear down anything still suspended, AFTER the row is actually clear.
+  //
+  // Revoking is the client saying it has stopped serving. A call already out
+  // on the wire therefore has nobody left to answer it, and parking it for the
+  // rest of its 120 s gate reaches the same failure two minutes later with
+  // less information in it — the run sits idle, the user watches a spinner,
+  // and the model is eventually told only that something timed out. Rejecting
+  // now resumes the turn immediately with a sentence that names the cause.
+  //
+  // Narrowed to the `caller` family: the Ez panel's pending DOM operations are
+  // answered by the browser, which this DELETE says nothing about.
+  //
+  // Not conditional on `cleared`: the two facts are independent. DELETE is
+  // idempotent, so a second call finds an empty bag (`cleared: 0`) while a
+  // call opened by the turn that read the FIRST declaration may still be in
+  // flight, and that one must not survive because the bookkeeping already ran.
+  abortPendingRemoteToolsForConversation(params.id, REVOKED_MID_CALL, "caller");
+
+  return json({ ok: true, cleared });
+};

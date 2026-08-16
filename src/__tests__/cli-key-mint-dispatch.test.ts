@@ -36,6 +36,11 @@ mock.module("../db/queries/settings", () => ({
   getSetting: async () => undefined,
   getAllSettings: async () => ({}),
 }));
+// `--locked-mode` is validated against the modes the KEY OWNER can see, so the
+// dispatch reads the modes table. `mode-ok` is the one visible mode.
+mock.module("../db/queries/modes", () => ({
+  getVisibleMode: async (id: string) => (id === "mode-ok" ? { id } : null),
+}));
 
 const { cli } = await import("../cli");
 
@@ -190,6 +195,79 @@ describe("cli key:mint dispatch", () => {
     expect(code).toBe(1);
     expect(errs.join("\n")).toContain('invalid role "superuser"');
     expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  // ── tool policy ───────────────────────────────────────────────────────
+  test("--route-bundle mints a policied key and prints the policy", async () => {
+    await cli([
+      "key", "mint",
+      "--user", "admin@x.test",
+      "--route-bundle", "desktop-companion",
+      "--locked-mode", "mode-ok",
+      "--caller-tools", "open_app",
+      "--max-caller-tools", "1",
+    ]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect(row).toBeDefined();
+    const policy = (row![1] as { toolPolicy?: Record<string, unknown> }).toolPolicy!;
+    expect(policy.lockedModeId).toBe("mode-ok");
+    expect(policy.allowedCallerTools).toEqual(["open_app"]);
+    expect(policy.maxCallerTools).toBe(1);
+    expect((policy.routeAllowlist as string[]).length).toBe(14);
+    expect(logs.join("\n")).toContain("policy:");
+  });
+
+  test("an unpolicied mint stores NO toolPolicy field and prints no policy line", async () => {
+    await cli(["key", "mint", "--user", "admin@x.test"]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect(Object.keys(row![1] as object)).not.toContain("toolPolicy");
+    expect(logs.join("\n")).not.toContain("policy:");
+  });
+
+  test("a --locked-mode the owner cannot see exits(1) and mints nothing", async () => {
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-nope"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain("not a mode visible to the key owner");
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("--locked-mode WITHOUT --route-bundle exits(1) and mints nothing", async () => {
+    // THE VULNERABILITY, at the surface an operator actually types. This mint
+    // used to SUCCEED and print a key whose policy line read like confinement:
+    // `{"lockedModeId":"mode-ok"}`. With no routeAllowlist, Boundary 1 binds on
+    // positive presence and never engages, so the key reached every route —
+    // including the run-start routes that never call `mayUseMode`, where the
+    // holder got back the unfiltered tool surface the mode was chosen to deny.
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-ok"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain("lockedModeId requires a routeAllowlist");
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("the refusal tells the operator which flag fixes it", async () => {
+    // An operator hits this by writing a reasonable command, so the remedy is
+    // part of the contract, not decoration.
+    await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-ok"]),
+    );
+    const out = errs.join("\n");
+    expect(out).toContain("--route-bundle");
+    expect(out).toContain("desktop-companion");
+  });
+
+  test("--locked-mode WITH --route-bundle still mints (the refusal is about reach, not locks)", async () => {
+    await cli([
+      "key", "mint",
+      "--user", "admin@x.test",
+      "--route-bundle", "desktop-companion",
+      "--locked-mode", "mode-ok",
+    ]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect((row![1] as { toolPolicy: { lockedModeId: string } }).toolPolicy.lockedModeId).toBe("mode-ok");
   });
 
   // The datadir-in-use guard: minting against a LIVE server's PGlite dir

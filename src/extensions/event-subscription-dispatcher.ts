@@ -464,8 +464,8 @@ export class EventSubscriptionDispatcher {
 
 // ── sanitize() seam (Phase 51.4 hardened) ───────────────────────────
 //
-// For `tool:start` and `tool:complete` we strip the heavy `input` /
-// `output` blobs unless the extension's grant explicitly includes
+// For the events listed below we strip the heavy `input` / `output`
+// blobs unless the extension's grant explicitly includes
 // `includeFullPayload: true`. Other direct-carrier events are passed
 // through unchanged.
 //
@@ -474,7 +474,24 @@ export class EventSubscriptionDispatcher {
 // `{events: [...], includeFullPayload: true}`. When the host clamps
 // at install time, the flag flows through into `registerExtension`'s
 // `payloadAllowlist` map; lookup is per-extension at sanitize time.
-const HEAVY_PAYLOAD_EVENTS = new Set(["tool:start", "tool:complete"]);
+const HEAVY_PAYLOAD_EVENTS = new Set([
+  "tool:start",
+  "tool:complete",
+  // The permission card's payload. Its `input` is not merely heavy — it is
+  // the LLM's raw arguments for a call that HAS NOT RUN YET, i.e. the exact
+  // thing the human is about to allow or deny. For a `caller` tool those are
+  // the arguments for something that will execute on the user's own machine,
+  // and for a built-in they are the shell command or the file write.
+  //
+  // `caller:tool-call` and `ez:client-tool` were moved out of
+  // `DIRECT_CARRIER_EVENT_TYPES` precisely so no extension could subscribe to
+  // that data (`sse-conversation-filter.ts`). `tool:permission_request`
+  // carries the SAME arguments a moment EARLIER and is a direct carrier, so
+  // leaving it out of this set handed an extension by the front door what the
+  // other two were re-classified to deny. No first-party extension declares
+  // it; one that genuinely needs it opts in like any other.
+  "tool:permission_request",
+]);
 
 function sanitize(
   eventType: string,

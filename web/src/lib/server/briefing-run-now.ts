@@ -30,6 +30,7 @@ import {
   notifyBriefingAutoDisabled,
   type BriefingRunResult,
 } from "$server/runtime/briefing/run";
+import type { RunStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { logger } from "$server/logger";
 
 const log = logger.child("briefing.run-now");
@@ -51,8 +52,21 @@ export type TriggerBriefingRunNowResult =
   | { ok: false; reason: "unavailable" }
   | { ok: false; reason: "rate-limited"; retryAfter?: number };
 
+/**
+ * @param toolPolicyOptions Boundary 3 for this run, derived AT THE ENTRY
+ * POINT (`runStartToolPolicyOptions(locals.apiKeyToolPolicy)`) by each of the
+ * two callers — the run-now route and the Hub `run-now` action. Derived there
+ * rather than here because the entry point is the only place that knows the
+ * requesting principal, and because the route side is the side the surface
+ * test can read: Boundary 3 shipped inert once already, green from inside
+ * `streamChat` while no route set either option.
+ *
+ * Threaded straight into `runBriefingForUser` → `streamChat`. Admitting the
+ * run and dropping the bag here would be the same half-wiring in a new place.
+ */
 export async function triggerBriefingRunNow(
   userId: string,
+  toolPolicyOptions?: RunStartToolPolicyOptions,
 ): Promise<TriggerBriefingRunNowResult> {
   if (!getBriefingRuntime()) {
     return { ok: false, reason: "unavailable" };
@@ -86,7 +100,7 @@ export async function triggerBriefingRunNow(
     } as BriefingConfig);
 
   const runPromise = (async (): Promise<BriefingRunResult | undefined> => {
-    const result = await runBriefingForUser(config);
+    const result = await runBriefingForUser(config, { toolPolicyOptions });
     // recordBriefingFireResult returns null when no row exists (the
     // defaults path) — benign, nothing to bookkeep.
     const outcome = await recordBriefingFireResult(userId, result.status);

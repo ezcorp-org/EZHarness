@@ -1,6 +1,7 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
+import { getVisibleMode } from "$server/db/queries/modes";
 import { getProject } from "$server/db/queries/projects";
 import { requireAuth } from "$server/auth/middleware";
 import type { AuthUser } from "$server/auth/types";
@@ -46,11 +47,27 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   // mode. Sibling guard to the existing builtin-mode-mutation rejection in
   // src/db/queries/modes.ts:78. Surfaces as 403 with an actionable error so
   // a buggy client can't silently re-mode the user's Ez thread.
-  if (conv.kind === "ez" && Object.prototype.hasOwnProperty.call(result.data, "modeId")) {
+  if (conv.kind === "ez" && Object.hasOwn(result.data, "modeId")) {
     return errorJson(
       403,
       "Cannot change the mode of an Ez conversation. The Ez panel is locked to the builtin 'ez' mode.",
     );
+  }
+
+  // The mode being written must be one this caller can see. This route used to
+  // check NEITHER existence nor owner and leaned on the FK, so it was the
+  // looser half of a pair: POST /api/conversations resolves the same id
+  // through the same helper, and a create path stricter than the update path
+  // is not a boundary — you just do it in two calls. Both now answer one
+  // fail-closed 404 for "no such mode" and "not yours" alike.
+  //
+  // `null` is NOT a lookup: it clears the conversation's mode, which needs no
+  // authorization beyond the ownership check already passed above.
+  const nextModeId = result.data.modeId;
+  if (typeof nextModeId === "string" && nextModeId) {
+    if (!(await getVisibleMode(nextModeId, user.id))) {
+      return errorJson(404, "Mode not found");
+    }
   }
 
   const updated = await convQueries.updateConversation(params.id, result.data);

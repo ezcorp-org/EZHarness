@@ -23,6 +23,14 @@ export const RUNTIME_EVENT_NAMES = [
   "ask-user:answer",
   // Ez concierge client-side tool delivery (fill_form / navigate_to).
   "ez:client-tool",
+  // Caller-executed tool delivery: the LLM called a `_caller__*` tool the
+  // connected client device declared, and the run is parked behind a
+  // permission gate until that device POSTs the result back. Same family as
+  // `ez:client-tool` and listed next to it on purpose — both are
+  // SCOPED_RUNTIME_EVENT_TYPES members (fail-closed, NOT extension-
+  // subscribable), because the payload's `input` is the LLM's raw arguments
+  // for something that will execute on a user's own machine.
+  "caller:tool-call",
   "ext:state",
   // Extension Pages Hub: content-free page invalidation signal.
   "ext:page-state",

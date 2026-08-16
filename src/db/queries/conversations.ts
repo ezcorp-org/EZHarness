@@ -3,6 +3,7 @@ import { getDb } from "../connection";
 import type { DbTransaction } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
+import { mergeConversationMetadata } from "./conversation-metadata";
 import { getSetting, upsertSetting } from "./settings";
 import { isEmbedEligible } from "../../memory/message-chunker";
 import { enqueueEmbedJob, clearMessageEmbedState } from "./message-embed-outbox";
@@ -108,7 +109,7 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
+  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; modeId?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -120,6 +121,12 @@ export async function createConversation(
       provider: opts?.provider || null,
       systemPrompt: opts?.systemPrompt || null,
       agentConfigId: opts?.agentConfigId || null,
+      // The caller's mode, persisted at CREATE. `POST /api/conversations` has
+      // validated `modeId` since Phase 48 (404 unknown, 403 for the reserved
+      // 'ez' slug) but had nowhere to put it, so the create silently dropped a
+      // validated field and every caller had to follow up with a PUT. Callers
+      // that pass nothing keep the NULL the column already defaulted to.
+      modeId: opts?.modeId || null,
       parentConversationId: opts?.parentConversationId || null,
       parentMessageId: opts?.parentMessageId || null,
       forkedFromConversationId: opts?.forkedFromConversationId || null,
@@ -321,6 +328,12 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 // for the `ezcorp/spawn-assignment` depth-limit gate — the number of
 // extension-initiated spawns between this conversation and the root
 // (0 for top-level conversations, +1 per spawn hop).
+//
+// Every WRITE goes through `mergeConversationMetadata`, which merges the one
+// key inside a single UPDATE. The bag has several independent owners (this
+// module's two keys plus goal-host's `goal`), and the read-modify-write these
+// helpers used to do lost whichever concurrent write finished first — silently,
+// with the whole column overwritten. See ./conversation-metadata.ts.
 
 /** Read `spawnDepth` from the conversation's metadata bag; 0 when absent. */
 export async function getConversationSpawnDepth(conversationId: string): Promise<number> {
@@ -333,13 +346,7 @@ export async function getConversationSpawnDepth(conversationId: string): Promise
 /** Persist `spawnDepth` into the conversation's metadata bag, preserving
  *  any other keys already present. No-op on unknown conversation. */
 export async function setConversationSpawnDepth(conversationId: string, depth: number): Promise<void> {
-  const conv = await getConversation(conversationId);
-  if (!conv) return;
-  const meta = { ...((conv.metadata ?? {}) as Record<string, unknown>), spawnDepth: depth };
-  await getDb()
-    .update(conversations)
-    .set({ metadata: meta })
-    .where(eq(conversations.id, conversationId));
+  await mergeConversationMetadata(conversationId, { spawnDepth: depth });
 }
 
 /**
@@ -367,16 +374,7 @@ export async function setConversationSpawnParentAuditId(
   conversationId: string,
   auditId: string,
 ): Promise<void> {
-  const conv = await getConversation(conversationId);
-  if (!conv) return;
-  const meta = {
-    ...((conv.metadata ?? {}) as Record<string, unknown>),
-    spawnParentAuditId: auditId,
-  };
-  await getDb()
-    .update(conversations)
-    .set({ metadata: meta })
-    .where(eq(conversations.id, conversationId));
+  await mergeConversationMetadata(conversationId, { spawnParentAuditId: auditId });
 }
 
 export async function updateConversation(

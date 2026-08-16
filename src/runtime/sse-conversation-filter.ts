@@ -55,10 +55,10 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   "tool:permission_mode_change",
   "obs:turn",
   "ask-user:answer",
-  // Phase 48 Wave 3: Ez client-side tool delivery. The runtime emits
-  // `ez:client-tool` with a top-level conversationId so it's filtered
-  // per subscriber the same way ask-user:answer is.
-  "ez:client-tool",
+  // NOTE — "ez:client-tool" MOVED to SCOPED_RUNTIME_EVENT_TYPES. It used to
+  // sit here, which bought it two properties it should never have had: this
+  // set doubles as the allowlist of platform events EXTENSIONS may subscribe
+  // to, and its authorization path fails OPEN. See that set for the argument.
   "task:snapshot",
   "task:assignment_update",
   // agent-install-ux-polish Phase 2 (D3): user-scoped, NOT
@@ -110,11 +110,18 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
 ]);
 
 /**
- * Wave 0 (orchestration-upgrade): run-scoped streaming events. These
- * carry a `runId` (and sometimes `parentConversationId` / `userId`)
- * instead of a top-level `conversationId`, and previously broadcast to
- * EVERY authenticated SSE subscriber — `run:token` leaked one user's
- * raw streamed LLM text to all connected clients.
+ * Wave 0 (orchestration-upgrade): FAIL-CLOSED, non-extension-subscribable
+ * events. Most are run-scoped streaming events carrying a `runId` (and
+ * sometimes `parentConversationId` / `userId`) instead of a top-level
+ * `conversationId`, which previously broadcast to EVERY authenticated SSE
+ * subscriber — `run:token` leaked one user's raw streamed LLM text to all
+ * connected clients.
+ *
+ * Membership is NOT only about which key carries the scope, though —
+ * `ez:client-tool` carries a plain top-level `conversationId` and belongs
+ * here anyway, because the two properties this set confers (fail-closed
+ * authorization, and NOT being extension-subscribable) are what its payload
+ * needs. Read a candidate against both properties, not against its shape.
  *
  * Members are filtered FAIL-CLOSED by `shouldDeliverEvent`, resolving
  * scope in this order:
@@ -130,7 +137,8 @@ export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
  * that set doubles as the allowlist of platform events extensions may
  * subscribe to (`event-subscription-dispatcher.ts` branch 1), and
  * run-scoped streaming events (raw tokens!) must NOT become
- * extension-subscribable as a side effect of SSE scoping.
+ * extension-subscribable as a side effect of SSE scoping. The same
+ * argument moved `ez:client-tool` across (see its entry below).
  *
  * `run:complete` / `run:error` / `run:cancel` stay in the legacy set
  * above (optional-carrier semantics) for extension-subscription
@@ -160,6 +168,48 @@ export const SCOPED_RUNTIME_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Se
   // — nobody is notified, which is the correct reading of "this run has no
   // owner to ask".
   "workflow:approval_request",
+  // Ez concierge client-side tool delivery (read_page / fill_form /
+  // navigate_to). Moved here from DIRECT_CARRIER_EVENT_TYPES, where it was
+  // wrong on both of that set's properties:
+  //
+  //   1. EXTENSION-SUBSCRIBABLE. The legacy set doubles as the allowlist of
+  //      platform events an extension may name in
+  //      `permissions.eventSubscriptions` (`event-subscription-dispatcher.ts`
+  //      branch 1). The payload's `input` is the LLM's raw tool arguments —
+  //      the selectors and values it wants typed into the user's live page,
+  //      including whatever it read off that page a turn earlier. No
+  //      extension has any business receiving that, and none declares it.
+  //   2. FAIL-OPEN. The legacy conv-scope branch calls
+  //      `isAuthorizedForConversation` with the default `failMode: "open"`,
+  //      so a DB blip hands those arguments to every connected subscriber.
+  //      And an EMPTY `conversationId` skips the check entirely (the
+  //      "no convId -> pass" broadcast branch), which is the shape of a
+  //      forged or malformed emit.
+  //
+  // Here it takes branch 1 of `deliverScopedRuntimeEvent` — the same
+  // top-level `conversationId` it always carried, checked fail-CLOSED, with
+  // an unattributable event DROPPED. A dropped frame is the safe direction:
+  // the Ez panel is the only consumer, its tool call times out and reports
+  // an error, and nothing is silently mis-filled.
+  "ez:client-tool",
+  // Caller-executed tool delivery. Belongs here for BOTH of the reasons
+  // above, and more sharply: the payload's `input` is the LLM's raw
+  // arguments for a call that will run on the user's OWN MACHINE. Fail
+  // CLOSED and never extension-subscribable — an extension that received
+  // these could watch, and (through a forged result POST it is not
+  // authorized to make) at least infer, everything the companion device is
+  // asked to do.
+  //
+  // WHICH CHECK PROTECTS IT: branch 1 — the top-level `conversationId`,
+  // resolved against conversation OWNERSHIP, fail-closed. NOT the `userId`
+  // branch: the resolution order returns on the FIRST key present, and
+  // `caller:tool-call` always carries `conversationId` (`src/types.ts`), so
+  // branch 3 is unreachable for it and the `userId` the payload also carries
+  // narrows nothing. Anyone tempted to drop `conversationId` from the payload
+  // should read that as the load-bearing field: without it the event falls to
+  // branch 4 (runId → run-scope resolution through a cache and a DB row), a
+  // strictly weaker check for a strictly more sensitive payload.
+  "caller:tool-call",
 ]);
 
 // ── Extension-declared event registry ───────────────────────────────

@@ -39,6 +39,11 @@ mock.module("$lib/server/security/api-keys", () => ({
 import * as middlewareActual from "../../../../../../../src/auth/middleware";
 mock.module("$server/auth/middleware", () => middlewareActual);
 
+// Boundary 3 (`runStartToolPolicyOptions`, which the approve route calls) is
+// deliberately NOT mocked: `$server/*` resolves through the SvelteKit tsconfig
+// paths, so the route gets the real predicate. The derivation is the thing
+// under test — a stub would prove only that the route called something.
+
 // Extension RBAC (deny-by-default core). Default mock = "member with ALL
 // github scopes granted" so the pre-RBAC test cases stay valid; the deny
 // matrix narrows it per test via `grantedScopes`. Admins mirror the core's
@@ -111,7 +116,7 @@ const updateLinkCalls: Array<{ id: string; patch: any }> = [];
 const setEnabledCalls: Array<{ id: string; enabled: boolean }> = [];
 const deleteLinkCalls: string[] = [];
 const cancelActiveCalls: string[] = [];
-const approveCalls: Array<{ id: string; actor: any }> = [];
+const approveCalls: Array<{ id: string; actor: any; deps?: any }> = [];
 const dismissCalls: Array<{ id: string; userId: string }> = [];
 const rerunCalls: Array<{ id: string; actor: any }> = [];
 const emitCalls: Array<{ event: string; payload: any }> = [];
@@ -239,8 +244,8 @@ mock.module("$server/integrations/github-projects/spawn", () => ({
   GithubProposalNotPendingError,
   GithubProposalNotRerunnableError,
   GithubCardBusyError,
-  approveProposal: async (id: string, actor: any) => {
-    approveCalls.push({ id, actor });
+  approveProposal: async (id: string, actor: any, deps?: any) => {
+    approveCalls.push({ id, actor, deps });
     return approveImpl(id, actor);
   },
   dismissProposal: async (id: string, userId: string) => {
@@ -390,14 +395,19 @@ beforeEach(() => {
   });
 });
 
-function ev(opts: { method?: string; body?: unknown; url?: string; params?: Record<string, string>; user?: typeof MEMBER_USER | null } = {}) {
-  return createMockEvent({
+function ev(opts: { method?: string; body?: unknown; url?: string; params?: Record<string, string>; user?: typeof MEMBER_USER | null; toolPolicy?: Record<string, unknown> } = {}) {
+  const event = createMockEvent({
     method: opts.method ?? "GET",
     url: opts.url ?? "http://localhost/api/integrations/github-projects",
     body: opts.body,
     params: opts.params,
     user: opts.user === null ? undefined : opts.user ?? MEMBER_USER,
   });
+  // The per-key tool policy `hooks.server.ts` stamps on a policied Bearer key.
+  // Absent for a cookie session and for an unpolicied key — which is the
+  // default here, so every pre-existing case keeps its exact locals.
+  if (opts.toolPolicy) event.locals.apiKeyToolPolicy = opts.toolPolicy;
+  return event;
 }
 
 async function run(handler: any, event: any): Promise<Response> {
@@ -1211,10 +1221,53 @@ describe("POST proposals/:id/approve", () => {
   test("approves a pending proposal, passes user actor, emits", async () => {
     const res = await run(approve, ev({ method: "POST", params: { id: "p1" } }));
     expect(res.status).toBe(200);
-    expect(approveCalls).toEqual([{ id: "p1", actor: { kind: "user", userId: MEMBER_USER.id } }]);
+    expect(approveCalls).toEqual([
+      // An unpolicied principal derives an EMPTY bag — the pre-policy surface
+      // byte for byte. Asserted as an equality, not a `toMatchObject`, so a
+      // stray option can never appear here unnoticed.
+      { id: "p1", actor: { kind: "user", userId: MEMBER_USER.id }, deps: { toolPolicyOptions: {} } },
+    ]);
     const body = await res.json();
     expect(body.proposal.status).toBe("spawned");
     expect(emitCalls).toHaveLength(1);
+  });
+
+  test("Boundary 3: a policied key's confinement is handed to the spawn bridge", async () => {
+    // This route STARTS A RUN (`RUN_START_ROUTES`) — `approveProposal` creates
+    // the conversation and launches `streamChat` fire-and-forget — and it takes
+    // a Bearer key (`requireScope + requireAuth`, not a session). The spawned
+    // run is `permissionMode: 'yolo'` with no `toolRestriction`, so
+    // `forceDenyOrchestration` is the only layer between a policied key and
+    // `invoke_agent`. Asserted here at the route's derivation; that the bag
+    // reaches the EXECUTOR is asserted in `spawn.test.ts`, and that the hop
+    // exists at all in `policy-run-start-surface.test.ts`.
+    const res = await run(
+      approve,
+      ev({
+        method: "POST",
+        params: { id: "p1" },
+        toolPolicy: { allowedCallerTools: ["open_app"] },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(approveCalls[0]!.deps).toEqual({
+      toolPolicyOptions: { callerToolAllowlist: ["open_app"], forceDenyOrchestration: true },
+    });
+  });
+
+  test("Boundary 3: ANY policy denies orchestration, even one that names no tools", async () => {
+    // A key confined on any axis is a leaf credential. `lockedModeId` cannot be
+    // enforced on this route (it creates the conversation, so there is no
+    // persisted `mode_id`) — Boundary 1 refuses such a key here outright, and
+    // this is what a key confined on some OTHER axis still gets.
+    const res = await run(
+      approve,
+      ev({ method: "POST", params: { id: "p1" }, toolPolicy: { maxCallerTools: 2 } }),
+    );
+    expect(res.status).toBe(200);
+    expect(approveCalls[0]!.deps).toEqual({
+      toolPolicyOptions: { forceDenyOrchestration: true },
+    });
   });
 
   test("missing proposal → 404 (ownership oracle: opaque)", async () => {

@@ -21,6 +21,9 @@ import {
   unregisterExtensionEvents,
   type GetRunScope,
 } from "../runtime/sse-conversation-filter";
+// The canonical client-facing list. Pure data (no imports), which is what
+// makes it safe to pull into a backend suite — see "The fourth mirror" below.
+import { RUNTIME_EVENT_NAMES } from "../../web/src/lib/runtime-event-names";
 
 // ── Fake getConversation ──
 type FakeRow = { userId?: string | null; parentConversationId?: string | null } | null;
@@ -38,21 +41,24 @@ afterEach(() => {
 });
 
 describe("DIRECT_CARRIER_EVENT_TYPES", () => {
-  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + ez:client-tool + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration)", () => {
-    // 22 entries: 13 from the prereqs audit + ez:client-tool (Phase 48
-    // Wave 3) + extensions:installed (agent-install-ux-polish Phase 2)
+  test("enumerates the direct-carrier event types (13 from prereqs audit + ask-user:answer + extensions:installed + goal:update + the two briefing events + conversation:tree-changed + the three loops events; Phase 5's orchestrator:human_* removed by ask-user migration, ez:client-tool moved to the scoped set)", () => {
+    // 21 entries: 13 from the prereqs audit + extensions:installed
+    // (agent-install-ux-polish Phase 2)
     // + goal:update (/goal Phase 2, FR-20) + conversation:created +
     // briefing:delivered (Daily Briefing Phase 1) + conversation:tree-changed
     // (Sessions P4 rewind/checkpoint) + loops:approval_pending +
     // loops:approval_resolved + loops:auto_disabled (Loops EZ Mode Phase 2 —
     // optional carriers).
-    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(22);
+    //
+    // Was 22 with `ez:client-tool` (Phase 48 Wave 3), which moved to
+    // SCOPED_RUNTIME_EVENT_TYPES: membership here is extension-subscribable
+    // and fails OPEN, and the LLM's raw client-tool arguments are neither.
+    expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(21);
     for (const name of [
       "run:complete", "run:error", "run:cancel", "run:turn_saved",
       "tool:start", "tool:complete", "tool:error",
       "tool:permission_request", "tool:permission_mode_change",
       "obs:turn", "ask-user:answer",
-      "ez:client-tool",
       "task:snapshot", "task:assignment_update",
       "extensions:installed",
       "goal:update",
@@ -90,6 +96,122 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(false);
     }
+  });
+
+  test("does NOT include ez:client-tool — this set is the extension-subscription allowlist", () => {
+    // The regression that matters is a re-add here, not a removal there:
+    // putting it back would silently make the LLM's raw client-tool arguments
+    // (selectors + values destined for the user's live page) declarable in an
+    // extension manifest's `permissions.eventSubscriptions`, and would put
+    // their delivery back on the fail-OPEN authorization path.
+    expect(DIRECT_CARRIER_EVENT_TYPES.has("ez:client-tool")).toBe(false);
+    expect(SCOPED_RUNTIME_EVENT_TYPES.has("ez:client-tool")).toBe(true);
+    // Still authorization-filtered, so the move is a tightening and not a
+    // hole: the event did not fall out of the filter altogether.
+    expect(isDirectCarrierEvent("ez:client-tool")).toBe(true);
+  });
+});
+
+// ── The fourth mirror ───────────────────────────────────────────────────
+//
+// `web/src/lib/runtime-event-names.ts` is the canonical client-facing event
+// list, and THREE hand-maintained copies mirror it: `@ezcorp/ai-kit`,
+// `@ezcorp/harness-client`, and these two SSE filter sets. The first two are
+// pinned by equality tests (`ai-kit/test/unit/events.test.ts`,
+// `harness-client/src/index.test.ts`), so a name missing from either FAILS.
+//
+// The sets below were pinned only by their frozen SIZES, which says nothing
+// about WHICH names are in them. A new canonical name classified in NEITHER
+// set falls through `shouldDeliverEvent`'s "not a direct carrier → pass"
+// branch and BROADCASTS to every authenticated subscriber — the one mirror
+// where omission fails OPEN was the one with no parity guard.
+//
+// So: every canonical name is classified, or it is listed here with the
+// reason it is safe to broadcast. Adding a name to the canonical list and
+// nothing else now fails.
+const INTENTIONALLY_BROADCAST: ReadonlyMap<string, string> = new Map([
+  [
+    "ext:state",
+    "Extension bottom-panel state. Instance-scoped, not conversation- or " +
+      "user-scoped: the mediator gates the push on a DECLARED panel, strips " +
+      "HTML and caps the size, and every authenticated subscriber's panel is " +
+      "meant to show the same extension's state. Pinned by 'passes ext:state " +
+      "events' below.",
+  ],
+  [
+    "ext:page-state",
+    "Content-free invalidation nudge — {extensionId, extensionName, pageId}. " +
+      "The mediator strips the page tree BEFORE emitting, so the frame says " +
+      "only 'page X changed' and the Hub re-fetches through an authorized " +
+      "GET. Called out as intentionally absent on DIRECT_CARRIER_EVENT_TYPES.",
+  ],
+  [
+    "github-projects:proposal-update",
+    "Content-free Hub-refresh nudge — {projectId} and nothing else. Same " +
+      "shape as ext:page-state: the authorized GET is the source of truth, " +
+      "and the frame carries no proposal content.",
+  ],
+]);
+
+describe("canonical runtime event names ⇄ the SSE filter sets", () => {
+  const direct = DIRECT_CARRIER_EVENT_TYPES as ReadonlySet<string>;
+  const scoped = SCOPED_RUNTIME_EVENT_TYPES as ReadonlySet<string>;
+  const canonical: readonly string[] = RUNTIME_EVENT_NAMES;
+
+  test("both sides are non-empty (guards against a vacuous pass)", () => {
+    expect(canonical.length).toBeGreaterThan(0);
+    expect(direct.size + scoped.size).toBeGreaterThan(0);
+  });
+
+  test("every canonical name is classified, or explicitly justified as broadcast", () => {
+    const unclassified = canonical.filter(
+      (n) => !direct.has(n) && !scoped.has(n) && !INTENTIONALLY_BROADCAST.has(n),
+    );
+    // A name here reaches every authenticated SSE subscriber. Put it in
+    // SCOPED_RUNTIME_EVENT_TYPES (fail-closed, not extension-subscribable) or
+    // DIRECT_CARRIER_EVENT_TYPES — or add it to INTENTIONALLY_BROADCAST with
+    // the reason its payload is safe to hand to everyone.
+    expect(unclassified).toEqual([]);
+  });
+
+  test("no name is in BOTH sets — they confer different authorization paths", () => {
+    expect(canonical.filter((n) => direct.has(n) && scoped.has(n))).toEqual([]);
+  });
+
+  test("the broadcast escape hatch cannot hide a classified name", () => {
+    // Otherwise a later edit could move a scoped event here and read as
+    // 'still accounted for' while it started broadcasting.
+    const alsoClassified = [...INTENTIONALLY_BROADCAST.keys()].filter(
+      (n) => direct.has(n) || scoped.has(n),
+    );
+    expect(alsoClassified).toEqual([]);
+  });
+
+  test("the escape hatch carries no stale entry and no empty justification", () => {
+    for (const [name, why] of INTENTIONALLY_BROADCAST) {
+      expect(canonical).toContain(name);
+      // A reason, not a shrug: an author must state why the payload is safe.
+      expect(why.length).toBeGreaterThan(60);
+    }
+  });
+
+  test("caller:tool-call is canonical AND scoped — never broadcast", () => {
+    // The PR's new name, checked on both surfaces this file can reach. The
+    // other two mirrors (ai-kit, harness-client) are equality-pinned against
+    // the canonical list, so its presence there follows from the first
+    // assertion.
+    expect(canonical).toContain("caller:tool-call");
+    expect(scoped.has("caller:tool-call")).toBe(true);
+    expect(direct.has("caller:tool-call")).toBe(false);
+    expect(INTENTIONALLY_BROADCAST.has("caller:tool-call")).toBe(false);
+  });
+
+  test("a classified name that is NOT canonical is server-only, by name", () => {
+    // The canonical list is a curated SUBSET — server-only events are filtered
+    // but never shipped to a browser. Enumerated so a client-facing name
+    // cannot quietly join them.
+    const serverOnly = [...direct, ...scoped].filter((n) => !canonical.includes(n)).sort();
+    expect(serverOnly).toEqual(["briefing:delivered", "obs:turn", "tool:permission_mode_change"]);
   });
 });
 
@@ -814,10 +936,16 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     "agent:spawn", "agent:status", "agent:complete",
     "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
     "workflow:approval_request",
+    // Not run-scoped — plain conversation carriers that belong here for the
+    // set's OTHER two properties (fail-closed, not extension-subscribable).
+    "ez:client-tool",
+    // Caller-executed tools: the payload is the LLM's raw arguments for a
+    // call that will run on the user's own machine.
+    "caller:tool-call",
   ] as const;
 
-  test("enumerates the 14 scoped runtime events", () => {
-    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(14);
+  test("enumerates the 16 scoped runtime events", () => {
+    expect(SCOPED_RUNTIME_EVENT_TYPES.size).toBe(16);
     for (const name of MEMBERS) {
       expect(SCOPED_RUNTIME_EVENT_TYPES.has(name as never)).toBe(true);
     }
@@ -840,6 +968,67 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
     expect(registerExtensionEvent("agent", "spawn")).toBe(false);
     expect(registerExtensionEvent("workflow", "start")).toBe(false);
     __clearExtensionEventRegistryForTests();
+  });
+
+  test("an extension named 'ez' cannot shadow ez:client-tool either", () => {
+    // Moving the event across sets must not open a re-registration path: an
+    // extension whose manifest name is `ez` would otherwise be able to declare
+    // `ez:client-tool` as its OWN namespaced event and get it back.
+    expect(registerExtensionEvent("ez", "client-tool")).toBe(false);
+    __clearExtensionEventRegistryForTests();
+  });
+
+  test("an extension named 'caller' cannot shadow caller:tool-call", () => {
+    // Same closure, and it matters more here: re-registering the name would
+    // make the event extension-subscribable, handing every such extension the
+    // arguments of every call the user's connected device is asked to run.
+    expect(registerExtensionEvent("caller", "tool-call")).toBe(false);
+    __clearExtensionEventRegistryForTests();
+  });
+});
+
+describe("shouldDeliverEvent — ez:client-tool is conversation-scoped and fails CLOSED", () => {
+  // The payload's `input` is the LLM's raw client-tool arguments — the
+  // selectors and values it wants typed into the user's live page. It used to
+  // ride DIRECT_CARRIER_EVENT_TYPES, whose conv-scope branch fails OPEN.
+  const payload = (conversationId: string) => ({
+    conversationId,
+    toolCallId: "tc-1",
+    toolName: "fill_form",
+    input: { formId: "login", fields: { password_hint: "hunter2" } },
+  });
+
+  test("reaches the conversation owner", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "owner" }, get)).toBe(true);
+  });
+
+  test("is DROPPED for a subscriber who does not own the conversation", async () => {
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "intruder" }, get)).toBe(false);
+  });
+
+  test("is DROPPED on a DB error rather than broadcast (the fail-open regression)", async () => {
+    // Under the old membership this returned TRUE — a transient lookup failure
+    // handed the tool arguments to every connected subscriber. Contrasted
+    // against a legacy carrier in the same assertion so the difference is the
+    // point being pinned, not an accident of the stub.
+    const getThrowing = async (): Promise<FakeRow> => { throw new Error("db down"); };
+    expect(await shouldDeliverEvent("ez:client-tool", payload("conv-A"), { userId: "u" }, getThrowing)).toBe(false);
+    expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
+  });
+
+  test("is DROPPED when the conversation row is missing", async () => {
+    const get = makeGetConversation({});
+    expect(await shouldDeliverEvent("ez:client-tool", payload("ghost"), { userId: "u" }, get)).toBe(false);
+  });
+
+  test("an empty conversationId is DROPPED, not broadcast", async () => {
+    // The legacy path treated a falsy conversationId as "not scoped" and fell
+    // through to the broadcast branch — the exact shape a forged or malformed
+    // emit takes. Unattributable now means dropped.
+    const get = makeGetConversation({ "conv-A": { userId: "owner" } });
+    expect(await shouldDeliverEvent("ez:client-tool", payload(""), { userId: "owner" }, get)).toBe(false);
   });
 });
 

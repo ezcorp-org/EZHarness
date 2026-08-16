@@ -14,9 +14,27 @@
  * web layer, so registration happens where both sides are reachable.
  */
 import type { HubPageTree } from "../extensions/page-schema";
+import type { RunStartToolPolicyOptions } from "../auth/tool-policy";
 
 export interface HubPageContext {
   userId: string;
+  /**
+   * Boundary 3 for an action that STARTS A RUN, derived by the actions route
+   * from the requesting principal's tool policy and passed through unread by
+   * this registry.
+   *
+   * The route is generic infrastructure and must not learn what an action
+   * MEANS (the same reasoning `sessionOnlyActions` is declared by the provider
+   * for) — but it is the only layer that knows WHO asked, so it derives the
+   * bag and the provider decides whether its action needs it. Today exactly
+   * one does: `core:briefing` → `run-now`, which reaches
+   * `executor.streamChat` and would otherwise start an unconfined run for a
+   * policied key that never touched `POST /api/briefing/run-now`. Closing that
+   * route alone would just have relocated the hole here.
+   *
+   * Absent for `render` (no run) and for a cookie session (`{}`).
+   */
+  toolPolicyOptions?: RunStartToolPolicyOptions;
 }
 
 /**

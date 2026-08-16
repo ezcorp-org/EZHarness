@@ -224,6 +224,20 @@ export interface RegisteredTool extends ToolDefinition {
 }
 
 /**
+ * One extension's `tools/list_changed` refresh, and the AT MOST ONE re-run
+ * coalesced behind it. `queued` is a flag rather than a count on purpose: a
+ * catalog refresh is idempotent, so notifications 3..N of a burst ask for the
+ * same work notification 2 already asked for. See
+ * `ExtensionRegistry.onMcpToolListChanged`.
+ */
+interface McpToolRefresh {
+  /** Settles when the in-flight refresh AND its coalesced re-run are done. */
+  promise: Promise<void>;
+  /** A notification arrived while the refresh was in flight. */
+  queued: boolean;
+}
+
+/**
  * Build the 5 `RegisteredTool` entries for each declared entity. The
  * returned tools route to the SDK's auto-generated handler via the
  * `entityKind` + `entityType` discriminators — `tool-executor` reads
@@ -302,6 +316,12 @@ export class ExtensionRegistry {
    *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
    *  loopback port (fallback) and gates outbound HTTPS via PDP. */
   private mcpProxies = new Map<string, McpProxyHandle>();
+  /** extension id -> the extension's ONE in-flight `tools/list_changed`
+   *  refresh, plus its single coalesced re-run. See
+   *  {@link onMcpToolListChanged}; entries clear themselves when the drain
+   *  settles, and `killAll()` / a stale `reload()` drop them to abandon a
+   *  queued re-run. */
+  private mcpToolRefreshes = new Map<string, McpToolRefresh>();
   /** extension id -> manifest */
   private manifests = new Map<string, ExtensionManifestV2>();
   /** extension id -> install path */
@@ -965,6 +985,13 @@ export class ExtensionRegistry {
       void client.close().catch(() => {});
       this.mcpClients.delete(extId);
     }
+    // A queued `tools/list_changed` refresh for an extension whose client was
+    // just closed would reconnect it (`getMcpClient` rebuilds from scratch on
+    // a cache miss) and write a catalog for the PRE-reload transport. Dropping
+    // the entry is what cancels it — see `drainMcpToolRefreshes`.
+    for (const extId of [...this.mcpToolRefreshes.keys()]) {
+      if (isStale(extId)) this.mcpToolRefreshes.delete(extId);
+    }
   }
 
   /** Kill all managed processes and close MCP clients. */
@@ -977,6 +1004,11 @@ export class ExtensionRegistry {
       void client.close().catch(() => {});
     }
     this.mcpClients.clear();
+    // Cancel every queued catalog refresh. Without this a notification that
+    // arrived during shutdown outlives it: the drain calls `getMcpClient`,
+    // misses the cache we just cleared, and respawns the stdio child of a
+    // server we deliberately closed.
+    this.mcpToolRefreshes.clear();
     // Phase 7: tear down every per-MCP forward proxy. Stopping the
     // proxy unlinks its UDS (when applicable) so a subsequent boot or
     // re-load doesn't trip EADDRINUSE.
@@ -1046,6 +1078,18 @@ export class ExtensionRegistry {
     }
 
     const client = existing ?? new McpClient(sandboxedSpec);
+    // Server-driven lifecycle. Attached BEFORE `connect()` because a
+    // transport can die during the handshake.
+    //
+    // Defensive `typeof` guard: test fixtures stub McpClient with bare
+    // { connect, close, listTools, callTool } objects — same tolerance as
+    // the `getChildProcess` probe below.
+    if (typeof client.setLifecycleHooks === "function") {
+      client.setLifecycleHooks({
+        onClosed: () => this.onMcpTransportClosed(extensionId, client),
+        onToolListChanged: () => this.onMcpToolListChanged(extensionId),
+      });
+    }
     // Phase 58 / MCP-04 — capture spawnAt BEFORE the (potentially-slow)
     // connect() so the journalctl --since window in the soak reader
     // is anchored to actual spawn time, not post-handshake. connect()
@@ -1140,6 +1184,118 @@ export class ExtensionRegistry {
       }
     }
     return client;
+  }
+
+  /**
+   * The extension's MCP transport is gone — the server restarted, the stdio
+   * child exited, or the stream dropped.
+   *
+   * Dropping the cache entry is what makes the recovery COMPLETE. Clearing
+   * `connected` alone would let the next `getMcpClient` fall through to the
+   * rebuild path and hand the same instance back (`existing ?? new
+   * McpClient`), reconnecting against a spec built for the dead child — a
+   * forward proxy that has since been replaced, a veth slot that has been
+   * released. With the entry gone, the next call rebuilds the whole sandbox
+   * envelope and constructs a client from the fresh spec.
+   *
+   * The identity check is not paranoia: a reconnect can already have
+   * replaced the entry by the time a late close event lands, and an
+   * unconditional delete would evict the LIVE client.
+   */
+  private onMcpTransportClosed(extensionId: string, client: McpClient): void {
+    if (this.mcpClients.get(extensionId) !== client) return;
+    this.mcpClients.delete(extensionId);
+    log.info("MCP transport closed — cached client dropped, next call reconnects", {
+      extensionId,
+    });
+  }
+
+  /**
+   * `notifications/tools/list_changed` — the server says its catalog moved.
+   *
+   * Reuses {@link refreshMcpTools}, the SAME entry point
+   * `POST /api/mcp-servers/[id]/refresh` drives, so a server-initiated change
+   * invalidates exactly what an admin refresh invalidates (the manifest at
+   * rest plus `manifests` / `extensionTools` / `toolMap`) instead of a
+   * parallel subset that would drift from it.
+   *
+   * COALESCED, not just serialized. Serializing bounds INTERLEAVING; it does
+   * not bound WORK. One refresh is `getMcpClient` (which rebuilds the whole
+   * sandbox envelope when the transport has closed) + a `tools/list` round
+   * trip + `listExtensions(false)` (every extension row) + an `updateExtension`
+   * jsonb write, so a chatty or hostile server emitting N notifications used
+   * to buy N of those plus N retained closures — a chain the map does not even
+   * hold a reference to. At most ONE refresh is queued behind the in-flight
+   * one: the queue is a flag, so notification 3..N collapse onto notification
+   * 2 and the last one still wins, which is the only ordering that can be
+   * correct. Peak outstanding work is 2 refreshes per extension, whatever the
+   * server does.
+   */
+  private onMcpToolListChanged(extensionId: string): void {
+    const inFlight = this.mcpToolRefreshes.get(extensionId);
+    if (inFlight) {
+      // Last notification wins, and it costs one boolean rather than one
+      // more link. The in-flight refresh re-runs once when it lands.
+      inFlight.queued = true;
+      return;
+    }
+    // Published BEFORE the drain starts (the drain's own identity check reads
+    // it), so `promise` is placeheld for the one statement in between. No
+    // await separates the two, so nothing can observe the placeholder.
+    const entry: McpToolRefresh = { queued: false, promise: Promise.resolve() };
+    this.mcpToolRefreshes.set(extensionId, entry);
+    entry.promise = this.drainMcpToolRefreshes(extensionId, entry);
+  }
+
+  /**
+   * Run this extension's refresh, then its ONE coalesced re-run if a
+   * notification arrived while it was in flight.
+   *
+   * Never rejects — both arms of each refresh are handled — so a failing
+   * refresh cannot wedge the next notification.
+   *
+   * The identity check is the SHUTDOWN interlock. `killAll()` closes every
+   * MCP client and `reload()` drops the stale ones; a queued re-run that
+   * survived either would call `getMcpClient`, find no cached client, and
+   * REBUILD the sandbox envelope — respawning the stdio child of a server the
+   * host has deliberately just closed. Dropping the map entry is therefore how
+   * both of those cancel a queued refresh, and this loop asks whether it is
+   * still the registry's before it does any more work.
+   */
+  private async drainMcpToolRefreshes(
+    extensionId: string,
+    entry: McpToolRefresh,
+  ): Promise<void> {
+    try {
+      for (;;) {
+        entry.queued = false;
+        try {
+          const tools = await this.refreshMcpTools(extensionId);
+          log.info("MCP server changed its tool catalog", {
+            extensionId,
+            toolCount: tools.length,
+          });
+        } catch (err) {
+          log.warn("MCP tools/list_changed refresh failed", {
+            extensionId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        if (!entry.queued) return;
+        if (this.mcpToolRefreshes.get(extensionId) !== entry) {
+          log.info("MCP tools/list_changed refresh dropped — extension was shut down", {
+            extensionId,
+          });
+          return;
+        }
+      }
+    } finally {
+      // Only THIS drain's own slot, so a `killAll()` + fresh notification
+      // cannot have its entry deleted by the drain it replaced.
+      if (this.mcpToolRefreshes.get(extensionId) === entry) {
+        this.mcpToolRefreshes.delete(extensionId);
+      }
+    }
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   checkRole,
   requireAdminSession,
   requireSessionAuth,
+  isInteractiveSession,
   requireTeamRole,
 } from "../auth/middleware";
 import { hasRequiredScope } from "../auth/api-key";
@@ -190,6 +191,41 @@ describe("requireSessionAuth", () => {
       apiKeyScopes: ["read"],
     } as unknown as App.Locals;
     expect(requireSessionAuth(withScopes)).toEqual(memberUser);
+  });
+});
+
+// ── isInteractiveSession (the predicate half of the same allowlist) ──
+//
+// Two gates BRANCH on the answer rather than refusing outright — the
+// permission-mode ceiling on the chat send body, and the consent-gate
+// confinement on the tool-permission route. They must read the SAME
+// allowlist, or the fail-closed reasoning above stops applying to them.
+
+describe("isInteractiveSession", () => {
+  test("true only for `session`", () => {
+    expect(isInteractiveSession({ authMethod: "session" })).toBe(true);
+  });
+
+  test("false for every other stamped method, and for an unstamped request", () => {
+    expect(isInteractiveSession({ authMethod: "api-key" })).toBe(false);
+    expect(isInteractiveSession({ authMethod: "internal" })).toBe(false);
+    expect(isInteractiveSession({})).toBe(false);
+  });
+
+  test("a method nobody has invented yet lands on the DENY side", () => {
+    // The property that makes this an allowlist rather than a denylist: a
+    // new `AuthMethod` is refused until someone deliberately adds it.
+    const future = { authMethod: "oauth-device-code" } as unknown as { authMethod?: never };
+    expect(isInteractiveSession(future)).toBe(false);
+  });
+
+  test("agrees with requireSessionAuth on every input — one allowlist, not two", () => {
+    for (const authMethod of [undefined, "session", "api-key", "internal", "future"]) {
+      const locals = { user: memberUser, authMethod } as unknown as App.Locals;
+      const allowedByPredicate = isInteractiveSession(locals);
+      const allowedByGate = !(requireSessionAuth(locals) instanceof Response);
+      expect(allowedByPredicate).toBe(allowedByGate);
+    }
   });
 });
 

@@ -27,10 +27,29 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 // failures).
 let verifyApiKeyCalls: string[];
 let verifyApiKeyImpl: (raw: string) => Promise<
-  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin" } | null
+  {
+    userId: string;
+    name: string;
+    scopes: readonly string[];
+    role: "member" | "admin";
+    keyId?: string;
+    toolPolicy?: Record<string, unknown>;
+  } | null
 > = async (raw: string) => {
   verifyApiKeyCalls.push(raw);
-  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
+  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member", keyId: "key-1" };
+  // A CONFINED key: the row carries a tool policy, which this module must
+  // stamp onto locals for the route allowlist and the run-start guards.
+  if (raw === "ezk_policied") {
+    return {
+      userId: "user-1",
+      name: "Companion",
+      scopes: ["chat"],
+      role: "member",
+      keyId: "key-p",
+      toolPolicy: { routeAllowlist: ["GET /api/tools"], lockedModeId: "mode-1" },
+    };
+  }
   // A role-carrying admin key whose owner is a current admin.
   if (raw === "ezk_admin") return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
   // Admin-ROLE key whose owner has since been DEMOTED to member.
@@ -130,6 +149,11 @@ describe("attachBearerAuth — internal keys", () => {
     // can allowlist `"session"` instead of inferring one from the absence of
     // `apiKeyScopes`. A loopback subprocess is not a human at a browser.
     expect(evt.locals.authMethod).toBe("internal");
+    // Internal principals are named by their key id too, so a bundled
+    // subprocess is confined to its own consent gates on the same rule as a
+    // user key — no carve-out by auth method.
+    expect(typeof evt.locals.apiKeyId).toBe("string");
+    expect(evt.locals.apiKeyId).not.toBe("");
     // Critical: user-key verifier must NOT have been consulted.
     expect(verifyApiKeyCalls).toHaveLength(0);
   });
@@ -202,7 +226,17 @@ describe("attachBearerAuth — user keys", () => {
     // would silently re-open R-4 at every such gate, so it is pinned at the
     // producer, not only at the consumers.
     expect(evt.locals.authMethod).toBe("api-key");
+    // WHICH key, stamped alongside the method. `authMethod` alone cannot
+    // tell two keys of one user apart, and that is precisely the case the
+    // consent-gate confinement has to decide (`src/auth/principal-id.ts`).
+    expect(evt.locals.apiKeyId).toBe("key-1");
     expect(verifyApiKeyCalls).toEqual(["ezk_valid"]);
+  });
+
+  test("a cookie session is left with NO apiKeyId (there is no key to name)", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, null)).toBe(false);
+    expect(evt.locals.apiKeyId).toBeUndefined();
   });
 
   test("a member-role key yields a member principal", async () => {
@@ -495,5 +529,41 @@ describe("attachBearerAuth — cross-path isolation", () => {
     expect(evt.locals.user).toBeUndefined();
     // Does get probed (non-internal prefix → user-key path).
     expect(verifyApiKeyCalls).toEqual(["random-token"]);
+  });
+});
+
+// ── Per-key tool policy stamping ─────────────────────────────────────────
+//
+// The route allowlist, the locked-mode guard and the caller-tool declaration
+// cap all bind on the POSITIVE PRESENCE of `locals.apiKeyToolPolicy`, so this
+// module is the single place the field can appear — and the single place a
+// key that has no policy must leave it genuinely absent.
+
+describe("attachBearerAuth — tool policy", () => {
+  test("stamps the policy from the verified key row", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_policied")).toBe(true);
+    expect(evt.locals.apiKeyToolPolicy).toEqual({
+      routeAllowlist: ["GET /api/tools"],
+      lockedModeId: "mode-1",
+    });
+    // Stamped alongside the other key facts, never instead of them.
+    expect(evt.locals.authMethod).toBe("api-key");
+    expect(evt.locals.apiKeyId).toBe("key-p");
+  });
+
+  test("an UNPOLICIED key leaves the field absent, not undefined", async () => {
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, "Bearer ezk_valid")).toBe(true);
+    expect(Object.keys(evt.locals)).not.toContain("apiKeyToolPolicy");
+  });
+
+  test("an INTERNAL (`ezkint_`) principal is never policied", async () => {
+    // Subprocess identities are not user credentials; they carry no policy
+    // and must not gain one by falling through this branch.
+    const { raw } = provisionInternalKey("ai-kit", ["chat"], "sys-ai-kit");
+    const evt = makeEvent("127.0.0.1");
+    expect(await attachBearerAuth(evt, `Bearer ${raw}`)).toBe(true);
+    expect(Object.keys(evt.locals)).not.toContain("apiKeyToolPolicy");
   });
 });

@@ -10,6 +10,7 @@
  * `locals`.
  */
 import crypto from "node:crypto";
+import type { ToolPolicy } from "./tool-policy";
 
 /**
  * The surfaces an API key may touch.
@@ -91,6 +92,12 @@ export interface ApiKeyEntry {
    *  existed have no `role` field and are read back as `member` (see
    *  `verifyApiKey`). No DB migration is needed — the settings row is JSON. */
   role?: ApiKeyRole;
+  /** Per-key tool policy (route allowlist, locked mode, caller-tool caps).
+   *  Optional on-disk for exactly the reason `role` is: the settings row is
+   *  JSON, so a key minted before policies existed simply has no field and
+   *  reads back as an UNPOLICIED key — today's behaviour, no migration.
+   *  See `src/auth/tool-policy.ts` for the shape and its predicates. */
+  toolPolicy?: ToolPolicy;
   name: string;
   createdAt: number;
 }

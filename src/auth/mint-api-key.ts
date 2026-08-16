@@ -18,6 +18,7 @@ import {
   type ApiKeyRole,
   type ApiKeyScope,
 } from "./api-key";
+import type { ToolPolicy } from "./tool-policy";
 import { upsertSetting, deleteSetting } from "../db/queries/settings";
 
 export interface MintedApiKey {
@@ -30,9 +31,21 @@ export async function mintApiKeyForUser(
   scopes: ApiKeyScope[],
   name: string,
   role: ApiKeyRole = "member",
+  toolPolicy?: ToolPolicy,
 ): Promise<MintedApiKey> {
   const { raw, hash, keyId } = generateApiKey();
-  const entry: ApiKeyEntry = { hash, userId, scopes, role, name, createdAt: Date.now() };
+  // `toolPolicy` is spread in only when present so an unpolicied key's row is
+  // byte-identical to what this function produced before policies existed —
+  // no `toolPolicy: undefined` key to reason about on read.
+  const entry: ApiKeyEntry = {
+    hash,
+    userId,
+    scopes,
+    role,
+    name,
+    createdAt: Date.now(),
+    ...(toolPolicy ? { toolPolicy } : {}),
+  };
   // Canonical per-user row (source of truth for GET-list / DELETE-by-keyId)…
   await upsertSetting(apiKeySettingsKey(userId, keyId), entry);
   // …plus the hash index so verifyApiKey is O(1) instead of a full scan.

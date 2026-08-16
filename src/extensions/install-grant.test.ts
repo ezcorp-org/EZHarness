@@ -145,6 +145,60 @@ describe("buildFullGrantFromManifest", () => {
     );
     expect(g).toEqual({ grantedAt: {} });
   });
+
+  // ── The auto-approve path grants what the DISPATCHER would wire ──────
+  //
+  // This path re-attaches the manifest's declared events AFTER the clamp has
+  // run, so the clamp's own-namespace guard does not cover it. Unfiltered, an
+  // extension naming itself `caller` gets a persisted grant row for
+  // `caller:tool-call` (the LLM's raw arguments for calls that run on the
+  // user's own machine) and one named `run` gets `run:token` (raw streamed LLM
+  // text). The dispatcher refuses to WIRE either — `registerExtensionEvent`
+  // rejects a platform collision — so it is a dead row rather than a leak
+  // today. It is still a row that reads like access nobody granted, and it is
+  // one dispatcher edit away from being true.
+
+  test("a scoped runtime event is NOT granted, even to an extension that owns the namespace", () => {
+    const g = buildFullGrantFromManifest(
+      fullManifest({ name: "caller" }, {
+        eventSubscriptions: ["caller:tool-call", "caller:own-thing"],
+      }),
+      1000,
+    );
+    expect(g.eventSubscriptions).toEqual(["caller:own-thing"]);
+  });
+
+  test("another extension's namespace is not grantable either", () => {
+    const g = buildFullGrantFromManifest(
+      fullManifest({ name: "test-ext" }, {
+        eventSubscriptions: ["other-ext:secret", "test-ext:ping"],
+      }),
+      1000,
+    );
+    expect(g.eventSubscriptions).toEqual(["test-ext:ping"]);
+  });
+
+  test("a platform direct-carrier event is still granted — the filter is the dispatcher's rule, not a denylist", () => {
+    // The guard for the two tests above: they must assert a NARROWING, not a
+    // blanket drop. `run:complete` is exactly what the dispatcher's Branch 1
+    // accepts, so the grant keeps it.
+    const g = buildFullGrantFromManifest(
+      fullManifest({ name: "test-ext" }, {
+        eventSubscriptions: ["run:complete", "test-ext:ping"],
+      }),
+      1000,
+    );
+    expect(g.eventSubscriptions).toEqual(["run:complete", "test-ext:ping"]);
+  });
+
+  test("a declaration of nothing BUT ungrantable events yields no grant at all", () => {
+    const g = buildFullGrantFromManifest(
+      fullManifest({ name: "run" }, { eventSubscriptions: ["run:token"] }),
+      1000,
+    );
+    expect(g.eventSubscriptions).toBeUndefined();
+    expect(g.grantedAt.eventSubscriptions).toBeUndefined();
+  });
 });
 
 // ── manifestRequestedGrant ────────────────────────────────────────────

@@ -17,7 +17,10 @@
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { parseCron, type CronInstance } from "./cron";
 import { capabilityToolsDisabled } from "./capability-flags";
-import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
+import {
+  DIRECT_CARRIER_EVENT_TYPES,
+  SCOPED_RUNTIME_EVENT_TYPES,
+} from "../runtime/sse-conversation-filter";
 import { isValidWorkflowName } from "../runtime/workflow-name";
 import { WEBHOOK_PREFIX_RE } from "./manifest";
 
@@ -771,15 +774,49 @@ function normalizeManifestEventSubscriptions(
 }
 
 /** An extension's OWN custom event: `<ownName>:<event>` with non-empty
- *  halves. EXACT mirror of the dispatcher's Branch-2 acceptance parse
- *  (`event-subscription-dispatcher.ts:registerExtension`) — the clamp
- *  must never grant wider than the dispatcher will register, and after
- *  this fix it no longer grants NARROWER either. */
+ *  halves, and NOT a platform event name. EXACT mirror of the dispatcher's
+ *  Branch-2 acceptance parse (`event-subscription-dispatcher.ts:
+ *  registerExtension` → `registerExtensionEvent`) — the clamp must never
+ *  grant wider than the dispatcher will register, and after this fix it no
+ *  longer grants NARROWER either.
+ *
+ *  The platform-set exclusion is the shadowing guard `registerExtensionEvent`
+ *  already applies: an extension named `ez` or `run` would otherwise satisfy
+ *  the own-namespace parse for `ez:client-tool` / `run:token` and be granted a
+ *  subscription the dispatcher then refuses to wire — a grant row that reads
+ *  like access to another user's tool arguments or raw token stream. */
 function isOwnNamespaceEvent(eventType: string, ownName: string | undefined): boolean {
   if (!ownName) return false;
   const colon = eventType.indexOf(":");
   if (colon <= 0 || colon >= eventType.length - 1) return false;
-  return eventType.slice(0, colon) === ownName;
+  if (eventType.slice(0, colon) !== ownName) return false;
+  return (
+    !DIRECT_CARRIER_EVENT_TYPES.has(eventType as never)
+    && !SCOPED_RUNTIME_EVENT_TYPES.has(eventType as never)
+  );
+}
+
+/**
+ * May this event name appear in a GRANT at all?
+ *
+ * The dispatcher's acceptance rule, stated once: a platform direct-carrier
+ * event (its Branch 1), or the extension's own namespaced custom event (its
+ * Branch 2, which `registerExtensionEvent` refuses for any platform name).
+ * Anything else — another extension's namespace, a scoped runtime event like
+ * `run:token` or `caller:tool-call` — is refused at registration, so granting
+ * it writes a row that describes access the extension will never get.
+ *
+ * Exported because there are TWO grant writers and they must not disagree:
+ * this clamp, and `install-grant.ts`'s auto-approve path, which re-attaches
+ * the manifest's declared events after the clamp has run.
+ */
+export function isGrantableEventSubscription(
+  eventType: string,
+  ownName: string | undefined,
+): boolean {
+  return (
+    DIRECT_CARRIER_EVENT_TYPES.has(eventType as never) || isOwnNamespaceEvent(eventType, ownName)
+  );
 }
 
 /** Phase 51.4: detect whether a manifest's event-subscription grant
@@ -911,8 +948,7 @@ export function clampExtensionPermissions(
       const allowed = submittedEvents.filter(
         (e) => typeof e === "string"
           && manifestSet.has(e)
-          && (DIRECT_CARRIER_EVENT_TYPES.has(e as never)
-            || isOwnNamespaceEvent(e, manifestTopLevel?.name)),
+          && isGrantableEventSubscription(e, manifestTopLevel?.name),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }

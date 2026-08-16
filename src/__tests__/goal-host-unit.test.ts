@@ -139,6 +139,14 @@ function makeHost(opts: {
   getCredentialImpl?: (provider: string, conversationId?: string) => Promise<{ type: string; token: string }>;
   scanReturn?: Array<{ id: string; persisted: PersistedGoal }>;
   computeSpend?: number;
+  /** Conversation rows the continuation turn reads its `projectId` /
+   *  `agentConfigId` / `modeId` from. Absent id ⇒ `getConversation` → null. */
+  conversations?: Record<
+    string,
+    { projectId: string; agentConfigId: string | null; modeId: string | null } | null
+  >;
+  /** Make `getConversation` reject, to exercise the degraded path. */
+  getConversationThrows?: boolean;
 } = {}): HostHarness {
   const store = makeStore();
   if (opts.initialPersisted) {
@@ -185,6 +193,11 @@ function makeHost(opts: {
       getMessagesByConv.set(k, v);
     }
   }
+
+  const convRows = new Map<
+    string,
+    { projectId: string; agentConfigId: string | null; modeId: string | null } | null
+  >(Object.entries(opts.conversations ?? {}));
 
   const host = new GoalHost({
     bus,
@@ -247,6 +260,11 @@ function makeHost(opts: {
       } as unknown as Awaited<ReturnType<typeof import("../db/queries/conversations").createMessage>>;
     },
     dequeuePending: (conversationId: string) => pendingByConv.get(conversationId),
+    getConversation: async (id: string) => {
+      if (opts.getConversationThrows) throw new Error("conversation read exploded");
+      const row = convRows.get(id);
+      return row ? ({ id, ...row } as never) : null;
+    },
   });
 
   return {
@@ -1111,6 +1129,102 @@ describe("run:complete handler (loop core)", () => {
     const rec = h.host.getRecord("c1");
     expect(rec).not.toBeUndefined();
     expect(rec!.inFlightRunId).not.toBeNull();
+  });
+
+  // ── The continuation turn's TOOL SURFACE ──────────────────────────
+  //
+  // `setup-tools` gates the built-in project tools on `options.projectId` and
+  // the agent's extension tools on `options.agentConfigId`, and `modeId`
+  // selects the mode's tool confinement. Re-entering with `{ runId }` alone —
+  // which is what this did — ran the autopilot turn against a different, and
+  // less confined, toolset than the user's own turn, silently.
+
+  describe("autopilot continuation carries the arming turn's tool context", () => {
+    async function reenter(h: HostHarness, convId = "c1"): Promise<void> {
+      arm(h, convId);
+      await h.host.start();
+      h.bus.emit("run:complete", {
+        run: {
+          id: "init-run",
+          agentName: "chat",
+          status: "success",
+          startedAt: 0,
+          logs: [],
+          provider: "anthropic",
+        } as unknown as AgentRun,
+        conversationId: convId,
+      });
+      await new Promise((r) => setTimeout(r, 30));
+    }
+
+    const armingTurnOptions = {
+      initialMessages: { c1: [{ role: "assistant", content: "still working" }] },
+      conversations: {
+        c1: { projectId: "proj-1", agentConfigId: "agent-7", modeId: "mode-9" },
+      },
+    };
+
+    test("projectId, agentConfigId and modeId all reach streamChat", async () => {
+      const h = makeHost(armingTurnOptions);
+      await reenter(h);
+
+      expect(h.execCalls.length).toBe(1);
+      const options = h.execCalls[0]!.options;
+      expect(options.projectId).toBe("proj-1");
+      expect(options.agentConfigId).toBe("agent-7");
+      expect(options.modeId).toBe("mode-9");
+      // Still its own run — the fix adds context, it does not reuse the runId.
+      expect(options.runId).not.toBe("init-run");
+    });
+
+    test("they are exactly the conversation row's — the same source the user's turn reads", async () => {
+      const h = makeHost({
+        ...armingTurnOptions,
+        conversations: {
+          c1: { projectId: "proj-2", agentConfigId: "agent-2", modeId: "mode-2" },
+        },
+      });
+      await reenter(h);
+
+      expect(h.execCalls[0]!.options).toMatchObject({
+        projectId: "proj-2",
+        agentConfigId: "agent-2",
+        modeId: "mode-2",
+      });
+    });
+
+    test("a null agentConfigId/modeId is passed as undefined, not as null", async () => {
+      // `streamChat`'s options are optional-typed, and the messages route
+      // normalizes the same way (`conv.modeId ?? undefined`). A literal null
+      // would be truthy-checked differently downstream.
+      const h = makeHost({
+        ...armingTurnOptions,
+        conversations: { c1: { projectId: "proj-1", agentConfigId: null, modeId: null } },
+      });
+      await reenter(h);
+
+      const options = h.execCalls[0]!.options;
+      expect(options.projectId).toBe("proj-1");
+      expect(options.agentConfigId).toBeUndefined();
+      expect(options.modeId).toBeUndefined();
+    });
+
+    test("a conversation that has vanished still continues, with no context", async () => {
+      const h = makeHost({ ...armingTurnOptions, conversations: {} });
+      await reenter(h);
+
+      expect(h.execCalls.length).toBe(1);
+      expect(h.execCalls[0]!.options.projectId).toBeUndefined();
+    });
+
+    test("a failing conversation read is logged, not fatal — the turn still runs", async () => {
+      const h = makeHost({ ...armingTurnOptions, getConversationThrows: true });
+      await reenter(h);
+
+      expect(h.execCalls.length).toBe(1);
+      expect(h.execCalls[0]!.options.projectId).toBeUndefined();
+      expect(h.host.getRecord("c1")!.status).toBe("active");
+    });
   });
 
   test("pending user message supersedes goal continuation (FR-18)", async () => {

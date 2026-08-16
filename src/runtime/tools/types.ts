@@ -43,8 +43,19 @@ export function errorMessage(e: unknown): string {
  * dedicated category — rather than reusing read/write/execute — keeps the
  * Ez allowlist mode self-describing and lets the /api/tools listing group
  * them under their own section.
+ *
+ * "caller" is caller-executed tools: code declared by an external
+ * application and run on ITS machine. It appears in NO `AUTO_APPROVE` set
+ * (`./permissions.ts`), so `needsApproval` returns true under `ask`,
+ * `auto-edit` AND `yolo` — a caller tool always opens a permission gate.
+ * That is the point of the category, not a side effect of where it was
+ * added: `permissionMode` is client-supplied and its default is `yolo`, so
+ * any category that auto-approves anywhere would be self-approvable by the
+ * same key that declared the tool. `withPermissionGate` short-circuits on it
+ * without reading the mode at all, so the guarantee does not depend on the
+ * matrix staying correct.
  */
-export type ToolCategory = "read" | "write" | "execute" | "ez";
+export type ToolCategory = "read" | "write" | "execute" | "ez" | "caller";
 
 export type PermissionMode = "ask" | "auto-edit" | "yolo";
 

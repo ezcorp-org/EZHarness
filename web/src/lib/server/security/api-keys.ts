@@ -13,6 +13,7 @@ import {
   hasRequiredScope,
   hashApiKey,
 } from "$server/auth/api-key";
+import type { ToolPolicy } from "$server/auth/tool-policy";
 
 // Re-export the pure key primitives from the shared backend module so the
 // SvelteKit server and the CLI (`src/cli.ts key:mint`) share ONE definition.
@@ -38,6 +39,20 @@ interface VerifiedKey {
   scopes: ApiKeyScope[];
   role: ApiKeyRole;
   name: string;
+  /** Per-key identifier from the settings row key (`apikey:<userId>:<keyId>`).
+   *  Two keys owned by one user differ here and nowhere else, which is what
+   *  lets a consent gate be confined to the key that raised it. `name` is
+   *  user-chosen and NOT unique, so it can never stand in for this. */
+  keyId: string;
+  /** Per-key tool policy, straight off the settings row. Absent for every key
+   *  minted without one — which is every key that existed before policies did,
+   *  and the default today. Every consumer treats absence as "unconstrained",
+   *  so hydrating it here can only ever REMOVE authority.
+   *
+   *  Hydrated at BOTH return sites below. Missing one would be a silent hole:
+   *  a policied key that happened to verify on the legacy scan would come back
+   *  unconfined. */
+  toolPolicy?: ToolPolicy;
 }
 
 /** Constant-time hash comparison. Both inputs are fixed-width SHA-256 hex
@@ -74,6 +89,8 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
         scopes: entry.scopes,
         role: entry.role ?? "member",
         name: entry.name,
+        keyId: pointer.keyId,
+        ...(entry.toolPolicy ? { toolPolicy: entry.toolPolicy } : {}),
       };
     }
   }
@@ -100,6 +117,15 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
         scopes: entry.scopes,
         role: entry.role ?? "member",
         name: entry.name,
+        // Same derivation the index entry just used, so a key verified on the
+        // slow path and the same key verified on the fast path next request
+        // report an IDENTICAL id. They must, or a gate raised before the
+        // lazy index upgrade could not be answered after it.
+        keyId: indexEntry.keyId,
+        // Same hydration as the fast path above. A policied key that has not
+        // yet been upgraded to the hash index must be just as confined as one
+        // that has — the two paths read the SAME row.
+        ...(entry.toolPolicy ? { toolPolicy: entry.toolPolicy } : {}),
       };
     }
   }

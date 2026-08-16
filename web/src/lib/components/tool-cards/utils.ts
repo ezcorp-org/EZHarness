@@ -326,6 +326,32 @@ export function extractInputSummary(input: unknown, maxLen: number = 60): string
 }
 
 /**
+ * What a tool call is about to DO, for a surface that must never render
+ * nothing — the permission gate.
+ *
+ * {@link extractInputSummary} matches a fixed allowlist of argument names
+ * (`file_path`, `command`, `query`, …) chosen for the built-in dev tools, and
+ * returns `undefined` for anything else. In a compact card header that blank
+ * is correct: there was no summary worth the row.
+ *
+ * On a CONSENT prompt it is not. Caller-executed tools declare arbitrary
+ * parameter names — `{ app: "Notes" }`, `{ bundleId: "…" }` — so the
+ * allowlist misses essentially all of them, and the user was being asked to
+ * authorise something running on their own machine with the arguments
+ * invisible. Falling back to a compact JSON rendering means the prompt shows
+ * SOMETHING for every input shape; an empty object still yields `undefined`,
+ * because "{}" tells the reader nothing the tool name did not.
+ */
+export function describeToolInput(input: unknown, maxLen: number = 200): string | undefined {
+	const known = extractInputSummary(input);
+	if (known) return known;
+	if (!input || typeof input !== 'object') return undefined;
+	if (Object.keys(input as Record<string, unknown>).length === 0) return undefined;
+	const json = JSON.stringify(input);
+	return json.length > maxLen ? json.slice(0, maxLen - 3) + '...' : json;
+}
+
+/**
  * Pure helper: the FULL, untruncated primary argument of a tool call.
  *
  * Backs the always-visible command code block on dev-command cards

@@ -30,6 +30,8 @@ import {
   parseShadowThresholds,
 } from "../routing/shadow";
 import { getSetting } from "../../db/queries/settings";
+import { getPermissionMode, type PermissionMode } from "../tools/permissions";
+import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import { getCredential } from "../../providers/credentials";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
@@ -107,6 +109,9 @@ export interface SetupToolsOptions {
   /** WS3: explicit quality-tier hint. When set (and no model is pinned),
    *  the classifier honors it over the length/tools heuristic. */
   tier?: RoutingTier;
+  /** Per-API-key policy: the only caller tools this run may WIRE, by bare
+   *  declaration name. Absent ⇒ unpolicied ⇒ every declaration is wired. */
+  callerToolAllowlist?: string[];
 }
 
 /** Subset of the conversation row the setup-tools phase reads — the
@@ -130,6 +135,10 @@ export interface SetupToolsConvRecord {
    *  ID). Feeds the quality-tier classifier so an attached extension can
    *  declare a tier need via its manifest `routing.tier`. */
   extensionTools?: Record<string, string[]> | null;
+  /** The conversation's opaque runtime bag. Read here for `callerTools` —
+   *  the caller-executed tool declarations an external application put on
+   *  this conversation (see `runtime/caller-tool-declarations.ts`). */
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface SetupToolsResult {
@@ -176,6 +185,7 @@ export async function wireBriefingToolsIfBriefingConversation(args: {
   builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
   conversationId: string;
   convRecord: SetupToolsConvRecord | null;
+  permissionDeps: PermissionWrapDeps;
 }): Promise<void> {
   const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
   try {
@@ -190,6 +200,7 @@ export async function wireBriefingToolsIfBriefingConversation(args: {
           conversationId,
           userId: convRecord.userId,
           briefingAgentConfigId: briefingAgentId,
+          permissionDeps: args.permissionDeps,
         });
       }
     }
@@ -219,6 +230,7 @@ export async function wireBriefingChatToolsIfEligible(args: {
   builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
   conversationId: string;
   convRecord: SetupToolsConvRecord | null;
+  permissionDeps: PermissionWrapDeps;
 }): Promise<void> {
   const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
   try {
@@ -234,6 +246,7 @@ export async function wireBriefingChatToolsIfEligible(args: {
       builtinToolDefsMap,
       conversationId,
       userId: convRecord.userId,
+      permissionDeps: args.permissionDeps,
     });
   } catch (briefingChatWireErr) {
     log.warn("Briefing chat tools wire failed — subscribe tools unavailable this turn", {
@@ -274,6 +287,7 @@ export async function wireRunWorkflowIfEligible(args: {
   orchestrationDepth?: number;
   projectId?: string;
   pendingPermissions?: Map<string, PendingPermissionInfo>;
+  permissionDeps: PermissionWrapDeps;
 }): Promise<void> {
   const { agentTools, builtinToolDefsMap, conversationId, convRecord } = args;
   try {
@@ -291,12 +305,61 @@ export async function wireRunWorkflowIfEligible(args: {
       builtinToolDefsMap,
       conversationId,
       userId: convRecord.userId,
+      permissionDeps: args.permissionDeps,
       ...(args.projectId ? { projectId: args.projectId } : {}),
       ...(args.pendingPermissions ? { pendingPermissions: args.pendingPermissions } : {}),
     });
   } catch (workflowWireErr) {
     log.warn("run_workflow wire failed — workflows unavailable this turn", {
       error: String(workflowWireErr),
+    });
+  }
+}
+
+/**
+ * Wire the caller-executed tools this conversation declared.
+ *
+ * ORDERING IS LOAD-BEARING: the call site sits AFTER §2b's
+ * `ctx.agentTools = extTools.map(...)`, which is an ASSIGNMENT and discards
+ * anything pushed before it. Own try/catch for the same reason every other
+ * wire has one — a malformed declaration must cost this turn its caller tools
+ * and nothing else.
+ */
+export async function wireCallerToolsIfDeclared(args: {
+  agentTools: AgentTool[];
+  builtinToolDefsMap: Map<string, import("../tools/types").BuiltinToolDef>;
+  conversationId: string;
+  runId: string;
+  convRecord: SetupToolsConvRecord | null;
+  bus?: import("../events").EventBus<import("../../types").AgentEvents>;
+  permissionDeps: PermissionWrapDeps;
+  /** The run's own abort signal, so a cancelled turn tears its caller
+   *  permission gates down instead of leaving cards nobody can answer. */
+  runSignal?: AbortSignal;
+  /** Per-API-key execution cap, by bare declaration name. Nullish ⇒ no cap.
+   *  Forwarded through a conditional spread (the shape
+   *  `exactOptionalPropertyTypes` requires), and the condition tests the
+   *  ARRAY, never its length — so an EMPTY allowlist, which means "none",
+   *  still reaches the wire. */
+  callerToolAllowlist?: string[];
+}): Promise<void> {
+  try {
+    const { wireCallerToolsForTurn } = await import("../caller-tools-host");
+    wireCallerToolsForTurn({
+      agentTools: args.agentTools,
+      builtinToolDefsMap: args.builtinToolDefsMap,
+      conversationId: args.conversationId,
+      runId: args.runId,
+      userId: args.convRecord?.userId,
+      metadata: args.convRecord?.metadata,
+      permissionDeps: args.permissionDeps,
+      ...(args.bus ? { bus: args.bus } : {}),
+      ...(args.runSignal ? { runSignal: args.runSignal } : {}),
+      ...(args.callerToolAllowlist ? { callerToolAllowlist: args.callerToolAllowlist } : {}),
+    });
+  } catch (callerWireErr) {
+    log.warn("Caller tools wire failed — declared caller tools unavailable this turn", {
+      error: String(callerWireErr),
     });
   }
 }
@@ -968,13 +1031,48 @@ export async function setupTools(
 
     // 2. Tool loading (builtin + extensions + mentions — all non-fatal)
     (async () => {
+      // Bus-driven override — only set when the user explicitly switches
+      // mode mid-run. A `let` on purpose, and `permissionDeps` reads it
+      // through a GETTER: the subscription below reassigns it long after
+      // the tools are wrapped, and capturing the value at wrap time would
+      // silently disable mid-run switching with nothing to show for it.
+      //
+      // Hoisted out of the project-tools block (2a) because it is no longer
+      // only that block's concern: the host-wired families below are gated
+      // through the same wrapper and must honour the same switch. The
+      // pre-cache stays project-gated — there is nowhere to store a mode
+      // without a project.
+      let busOverrideMode: PermissionMode | undefined;
+      if (options.projectId) {
+        const precacheProjectId = options.projectId;
+        getPermissionMode(precacheProjectId).then(mode => {
+          if (!busOverrideMode) busOverrideMode = mode;
+        }).catch(() => {});
+      }
+      ctx.unsubModeChange = host.bus.on("tool:permission_mode_change", (data) => {
+        if (data.conversationId === conversationId) {
+          busOverrideMode = data.mode as PermissionMode;
+        }
+      });
+      const permissionDeps: PermissionWrapDeps = {
+        ctx, host, runId: run.id, conversationId,
+        // Same identity every other user-scoped emit on this turn uses
+        // (`toolExec.setCurrentUserId`, the Ez wire, the preview wiring). It
+        // is the gate card's SSE delivery key — see `PermissionWrapDeps`.
+        userId: convRecord?.userId ?? null,
+        projectId: options.projectId,
+        requestedMode: options.permissionMode,
+        getBusOverrideMode: () => busOverrideMode,
+        getPermissionMode,
+        watchdog: host.watchdog,
+      };
+
       // 2a. Built-in project file tools
       if (options.projectId) {
         try {
           const project = await getProject(options.projectId);
           if (project?.path) {
             const { getBuiltinToolDefs } = await import("../tools");
-            const { needsApproval, getPermissionMode, createPermissionGate } = await import("../tools/permissions");
 
             // Secure-preview spawn trigger (Phase 3b): thread the
             // conversation owner's id + the live port-watcher into the shell
@@ -1004,46 +1102,10 @@ export async function setupTools(
             const toolRoot = options.workingDir ?? project.path;
             const toolDefs = getBuiltinToolDefs(toolRoot, previewWiring);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
-            const projectId = options.projectId;
 
-            // Bus-driven override — only set when user explicitly switches mode mid-run
-            let busOverrideMode: import("../tools/permissions").PermissionMode | undefined;
-            // Pre-cache permission mode to avoid DB hit on every tool call
-            getPermissionMode(projectId).then(mode => {
-              if (!busOverrideMode) busOverrideMode = mode;
-            }).catch(() => {});
-            ctx.unsubModeChange = host.bus.on("tool:permission_mode_change", (data) => {
-              if (data.conversationId === conversationId) {
-                busOverrideMode = data.mode as import("../tools/permissions").PermissionMode;
-              }
-            });
-
-            const wrappedTools: AgentTool[] = toolDefs.map((def) => ({
-              name: def.name, label: def.label, description: def.description, parameters: def.parameters,
-              execute: async (toolCallId, params, signal, onUpdate) => {
-                const toolController = new AbortController();
-                ctx.toolAbortControllers.set(toolCallId, toolController);
-                const combinedSignal = signal ? AbortSignal.any([signal, toolController.signal]) : toolController.signal;
-                try {
-                  const permissionMode = options.permissionMode ?? busOverrideMode ?? await getPermissionMode(projectId);
-                  if (needsApproval(def.category, permissionMode)) {
-                    const permInfo: PendingPermissionInfo = {
-                      conversationId, toolCallId, toolName: def.name,
-                      input: params, cardType: def.cardType, category: def.category,
-                    };
-                    host.pendingPermissions.set(toolCallId, permInfo);
-                    host.bus.emit("tool:permission_request", {
-                      conversationId, toolCallId, toolName: def.name,
-                      input: params, cardType: def.cardType, category: def.category,
-                    });
-                    try { await createPermissionGate(toolCallId, conversationId); }
-                    catch { return { content: [{ type: "text" as const, text: "Permission denied by user" }], details: { isError: true } }; }
-                    finally { host.pendingPermissions.delete(toolCallId); }
-                  }
-                  return await def.execute(toolCallId, params, combinedSignal, onUpdate);
-                } finally { ctx.toolAbortControllers.delete(toolCallId); }
-              },
-            }));
+            const wrappedTools: AgentTool[] = toolDefs.map((def) =>
+              withPermissionGate(def, permissionDeps),
+            );
             ctx.agentTools.push(...wrappedTools);
           }
         } catch { /* Built-in tool loading failure is non-fatal */ }
@@ -1183,6 +1245,7 @@ export async function setupTools(
                 conversationId,
                 userId: convRecord.userId,
                 bus: host.bus,
+                permissionDeps,
                 // Thread the per-turn provider/model the user picked in
                 // the UI (options.*) — falling back to the conversation's
                 // stored default — so summarize_conversation uses the
@@ -1225,6 +1288,7 @@ export async function setupTools(
           builtinToolDefsMap: ctx.builtinToolDefsMap,
           conversationId,
           convRecord,
+          permissionDeps,
         });
         // Daily Briefing Phase 3: wire the conversational-subscribe
         // tools for normal (non-briefing) conversations (see
@@ -1234,6 +1298,7 @@ export async function setupTools(
           builtinToolDefsMap: ctx.builtinToolDefsMap,
           conversationId,
           convRecord,
+          permissionDeps,
         });
         // `run_workflow` — the execution half of the `!workflow:` mention
         // (the mention itself only adds a describing note). Gated on
@@ -1247,6 +1312,7 @@ export async function setupTools(
           orchestrationDepth: options.orchestrationDepth,
           projectId: options.projectId,
           pendingPermissions: host.pendingPermissions,
+          permissionDeps,
         });
         // The acting principal for the wire-authz gate is the conversation
         // OWNER — the send route has already proved the sender owns this
@@ -1463,6 +1529,24 @@ export async function setupTools(
           });
         }
       }
+
+      // 2c-caller. Caller-executed tools this conversation declared. Wired
+      // LAST of the per-turn families and deliberately AFTER §2b's
+      // `ctx.agentTools = extTools.map(...)` — that line is an ASSIGNMENT, so
+      // anything pushed before it is discarded.
+      await wireCallerToolsIfDeclared({
+        agentTools: ctx.agentTools,
+        builtinToolDefsMap: ctx.builtinToolDefsMap,
+        conversationId,
+        runId: run.id,
+        convRecord,
+        bus: host.bus,
+        permissionDeps,
+        runSignal: host.controllers.get(run.id)?.signal,
+        ...(options.callerToolAllowlist
+          ? { callerToolAllowlist: options.callerToolAllowlist }
+          : {}),
+      });
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools
       // NOTE: system prompt injection is deferred until after Promise.all to avoid race with memory injection

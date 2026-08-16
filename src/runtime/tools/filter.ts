@@ -46,6 +46,74 @@ export const ORCHESTRATION_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * NAMESPACE-STRIPPED tool names a per-API-key tool policy removes from the
+ * run's surface. Consumed as {@link ToolFilterOptions.policyForceDenyBare}.
+ *
+ * The boundary this defends is *"what can this credential cause to execute"*.
+ * A route allowlist governs HTTP-initiated execution, but an LLM emitting
+ * `invoke_agent` mid-turn issues no HTTP request, so it cannot see that at
+ * all. This set is the LLM-initiated half; the two are complementary.
+ *
+ * BARE, because the matcher strips first: the spawn primitives run
+ * NAMESPACED (task-tracking is a bundled extension auto-wired every turn, and
+ * the registry names extension tools `<ext>__<tool>` — registry.ts:459). Bare
+ * builtins self-match, since {@link stripToolNamespace} returns a `__`-free
+ * name unchanged.
+ *
+ * The membership rule is "reaches a spawn/run-start primitive", and it is
+ * ENFORCED, not maintained by hand:
+ * `src/__tests__/policy-spawn-deny-surface.test.ts` walks every tool handler
+ * under `docs/extensions/examples/**`, `extensions/**` and
+ * `src/runtime/tools/**`, propagates reachability to
+ * `spawnAssignment` / `attemptSpawn` / `runSpawnForAssignment` / `ctx.spawn` /
+ * `runAgent`, and fails if any reaching tool is absent here. Two entries below
+ * were found BY that test and by nothing else — read its header before
+ * editing this set.
+ *
+ * DELIBERATELY KEPT (a leaf key retains solo bookkeeping, ask-user and
+ * scratchpad): `task_start`, `task_complete`, `task_fail`, `task_list`.
+ * Note that `task_complete` and `task_fail` call `terminateRunningAssignments`
+ * (`task-tracking/index.ts:862`, `:909`), so they can cancel the OWNER's
+ * in-flight runs. That is an owner-DoS, not a spawn escalation — and the route
+ * allowlist, not this set, is what actually keeps a companion key off the task
+ * surface.
+ */
+export const POLICY_LEAF_SPAWN_DENY: ReadonlySet<string> = new Set([
+  // Orchestration builtins — wired BARE by wireOrchestrationToolsForTurn.
+  // `invoke_agent` and `send_to_agent` spawn; `collect_agent_result` does not,
+  // and is denied anyway because it is the only way to reach a background
+  // spawn's result, so leaving it would grant half a capability.
+  "invoke_agent",
+  "collect_agent_result",
+  "send_to_agent",
+  // Built-in, bare: run_workflow → WorkflowExecutor.runWorkflow →
+  // agentExecutor.runAgent (workflow-executor.ts:2145).
+  "run_workflow",
+  // task-tracking — namespaced at runtime as `task-tracking__*`.
+  "task_plan",
+  "task_add",
+  "task_assign",
+  "task_resume",
+  "task_unassign",
+  // ez-code — namespaced at runtime as `ez-code__*`. `dispatch_run` spawns;
+  // `steer_run` and `cancel_run` are run CONTROL over a child this key's
+  // conversation already owns, denied with it so a leaf key holds no half of
+  // the dispatch/steer/cancel triple.
+  "dispatch_run",
+  "steer_run",
+  "cancel_run",
+  // docs-updater — a loop MANUAL TRIGGER (`{ kind: "manual", tool:
+  // "run_docs_update" }`, index.ts:1035) is a real LLM-callable tool: the SDK
+  // registers a handler that runs the loop's `check` → `act`, and this loop's
+  // act calls `ctx.spawn` (index.ts:538). The spawn is nowhere near the tool
+  // name, which is exactly why a call-site grep misses it.
+  "run_docs_update",
+  // test-spawn-assignment — calls spawnAssignment directly (index.ts:38). Not
+  // bundled, but installable, and it lives in the surveyed tree.
+  "spawn_one",
+]);
+
+/**
  * Bare tool names the HOST's orchestration wiring makes legitimately
  * LONG-BLOCKING: they await async events (sub-agent completion / background
  * poll) the host does not observe as forward-call traffic, so the flat 30s
@@ -97,8 +165,13 @@ export const LONG_BLOCKING_WATCHDOG_BUDGET_MS = 3_600_000;
  *  under their runtime AgentTool name, which is `<ext>__<tool>` for every
  *  extension EXCEPT orchestration (wired bare), so a bare set entry never
  *  matches a namespaced tool name without this. Returns the input unchanged
- *  when there's no `__`. */
-function stripToolNamespace(name: string): string {
+ *  when there's no `__`.
+ *
+ *  Exported because the caller-tool declaration rules are stated in terms of
+ *  it: a declared name is refused when `_caller__<name>` strips into a
+ *  reserved set, and that check has to use the SAME strip this file's
+ *  preservation test uses or the two can disagree. */
+export function stripToolNamespace(name: string): string {
   const i = name.indexOf("__");
   return i === -1 ? name : name.slice(i + 2);
 }
@@ -158,6 +231,47 @@ export interface ToolFilterOptions {
    * HOST-CODE trust declaration — never populate it from user input.
    */
   readOnlyAllowedTools?: string[];
+  /**
+   * Tool names carried through the restriction / allow / deny layers exactly
+   * as {@link ORCHESTRATION_TOOLS} are — and, exactly as they are, still
+   * removable by `forceDeniedTools`.
+   *
+   * Exists for caller-executed tools. A mode names its tool surface with
+   * `extensionIds` / `allowedTools`, and a caller tool belongs to no
+   * extension and cannot be named by either, so ANY mode with `extensionIds`,
+   * `read-only`, `none`, or `allowlist` would silently strip every caller tool
+   * from a conversation that declared them. Preservation is what makes the
+   * declaration mean something under a mode.
+   *
+   * NOT preservation for the `forceDeniedTools` layer, and that asymmetry is
+   * the design: that layer carries the conversation's own Tools-dropdown
+   * toggles, so switching caller tools off has to be a real revocation rather
+   * than a suggestion.
+   *
+   * HOST-CODE trust declaration, like `readOnlyAllowedTools`: the executor is
+   * the sole populator, from the conversation's own stored declarations.
+   */
+  preservedTools?: string[];
+  /**
+   * NAMESPACE-STRIPPED names to remove — the per-API-key tool policy's layer,
+   * populated only from {@link POLICY_LEAF_SPAWN_DENY}.
+   *
+   * Three properties, each load-bearing:
+   *
+   *   1. **Stripping.** `forceDeniedTools` is exact-match, and the spawn
+   *      primitives run namespaced, so an exact list would silently miss every
+   *      one of them. `task-tracking__task_add` strips to `task_add`.
+   *   2. **Applied LAST, and not preservation-exempt.** A credential
+   *      confinement that a mode's orchestration carve-out could re-admit
+   *      would not be a confinement.
+   *   3. **Composes with `preservedTools`.** `_caller__open_app` strips to
+   *      `open_app`, which is not in the set, so a caller tool survives —
+   *      the policy denies spawning, not the key's own declared tools.
+   *
+   * Absent/empty ⇒ the layer does not run, so an unpolicied key and a cookie
+   * session get byte-for-byte the pre-policy surface.
+   */
+  policyForceDenyBare?: string[];
 }
 
 /**
@@ -181,17 +295,22 @@ export function applyToolFilters<T extends { name: string }>(
   opts: ToolFilterOptions,
 ): T[] {
   let out = tools;
+  // Orchestration tools plus the caller's declared tools: one predicate, used
+  // by every layer EXCEPT `forceDeniedTools` (see `preservedTools`).
+  const hostPreserved = new Set(opts.preservedTools ?? []);
+  const keep = (name: string): boolean =>
+    isPreservedOrchestrationTool(name) || hostPreserved.has(name);
 
   if (opts.toolRestriction === "read-only") {
     const readOnlyVouched = new Set(opts.readOnlyAllowedTools ?? []);
     out = out.filter((t) => {
-      if (isPreservedOrchestrationTool(t.name)) return true;
+      if (keep(t.name)) return true;
       if (readOnlyVouched.has(t.name)) return true;
       const def = builtinDefs.get(t.name);
       return def ? def.category === "read" : false;
     });
   } else if (opts.toolRestriction === "none") {
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name));
+    out = out.filter((t) => keep(t.name));
   } else if (opts.toolRestriction === "allowlist") {
     // Fail-closed: 'allowlist' restriction without an allowedTools list is a
     // misconfiguration. Strip everything except orchestration tools so a stray
@@ -199,23 +318,29 @@ export function applyToolFilters<T extends { name: string }>(
     // The intended path supplies allowedTools below; this branch only fires
     // if allowedTools is missing/empty alongside restriction='allowlist'.
     if (!opts.allowedTools || opts.allowedTools.length === 0) {
-      out = out.filter((t) => isPreservedOrchestrationTool(t.name));
+      out = out.filter((t) => keep(t.name));
     }
   }
 
   if (opts.allowedTools && opts.allowedTools.length > 0) {
     const allow = new Set(opts.allowedTools);
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || allow.has(t.name));
+    out = out.filter((t) => keep(t.name) || allow.has(t.name));
   }
 
   if (opts.deniedTools && opts.deniedTools.length > 0) {
     const deny = new Set(opts.deniedTools);
-    out = out.filter((t) => isPreservedOrchestrationTool(t.name) || !deny.has(t.name));
+    out = out.filter((t) => keep(t.name) || !deny.has(t.name));
   }
 
   if (opts.forceDeniedTools && opts.forceDeniedTools.length > 0) {
     const deny = new Set(opts.forceDeniedTools);
     out = out.filter((t) => !deny.has(t.name));
+  }
+
+  // Per-API-key policy. LAST and unconditional — see `policyForceDenyBare`.
+  if (opts.policyForceDenyBare && opts.policyForceDenyBare.length > 0) {
+    const deny = new Set(opts.policyForceDenyBare);
+    out = out.filter((t) => !deny.has(stripToolNamespace(t.name)));
   }
 
   return out;

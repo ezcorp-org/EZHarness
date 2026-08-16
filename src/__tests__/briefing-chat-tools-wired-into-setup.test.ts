@@ -45,6 +45,13 @@ import {
   type SetupToolsConvRecord,
 } from "../runtime/stream-chat/setup-tools";
 import type { BuiltinToolDef } from "../runtime/tools/types";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 afterAll(() => {
   mock.module("../runtime/briefing/agent-config", () => realAgentConfig);
@@ -78,6 +85,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("normal conversation (no agent config) → all briefing chat tools registered; writes 'write', status 'read'", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-normal",
@@ -94,6 +102,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("conversation on a NON-briefing agent config still gets the tools", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-other-agent",
@@ -105,6 +114,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("NEGATIVE: a briefing conversation gets NONE of the 3 (unattended run must not write config)", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-briefing",
@@ -119,6 +129,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("NEGATIVE: missing userId skips the wire (writes could not be attributed)", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-no-user",
@@ -130,6 +141,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("NEGATIVE: a null convRecord is a no-op", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-null-record",
@@ -142,6 +154,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
     stubBriefingAgentId = null;
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-unbootstrapped",
@@ -156,6 +169,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
     const turn = freshTurn();
     for (let i = 0; i < 2; i++) {
       await wireBriefingChatToolsIfEligible({
+        permissionDeps,
         agentTools: turn.agentTools,
         builtinToolDefsMap: turn.builtinToolDefsMap,
         conversationId: "conv-normal",
@@ -176,6 +190,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
       const turn = freshTurn();
       await expect(
         wireBriefingChatToolsIfEligible({
+          permissionDeps,
           agentTools: turn.agentTools,
           builtinToolDefsMap: turn.builtinToolDefsMap,
           conversationId: "conv-normal",
@@ -193,6 +208,7 @@ describe("wireBriefingChatToolsIfEligible — gate", () => {
   test("INTEGRATION: a read-only-restricted turn strips the write tools even when wired; briefing_status (category 'read') survives", async () => {
     const turn = freshTurn();
     await wireBriefingChatToolsIfEligible({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "conv-normal",

@@ -11,6 +11,8 @@ import { createMessageSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
+import { checkPermissionModeCeiling } from "$server/auth/permission-mode-ceiling";
+import { runStartPolicyDenial, runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { getCapabilitiesWithExtensions, classifyMimeWithCaps } from "$server/providers/model-capabilities";
 import {
   getConversationExtensionMimes,
@@ -160,6 +162,26 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     body = { ...result.data, files: [] };
   }
 
+  // `permissionMode` is a per-turn override that outranks the project's
+  // stored mode inside setup-tools, so it is an authorization input, not a
+  // preference. Checked HERE — after both intake paths have converged on
+  // `body` — because the JSON schema and the multipart parser each accept
+  // the field independently, and a check on one of them is not a check.
+  // Refused BEFORE the user row is persisted so a rejected turn leaves no
+  // trace in the thread.
+  const modeDenial = await checkPermissionModeCeiling(
+    locals,
+    conv.projectId,
+    body.permissionMode,
+  );
+  if (modeDenial) {
+    return errorJson(403, modeDenial.error, {
+      field: modeDenial.field,
+      requested: modeDenial.requested,
+      ceiling: modeDenial.ceiling,
+    });
+  }
+
   // ── /goal: FR-13b lazy GoalRecord rehydrate ───────────────────────
   // Unconditionally run BEFORE the slash-prefix interceptor AND BEFORE
   // `streamChat`. Rebuilds the in-memory `GoalRecord` from
@@ -168,6 +190,25 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // the paused→active flip when the POST is itself a `/goal …` command
   // (I5d) — the parsed subcommand owns resume/clear/replace.
   const goalIsCmd = isGoalCommand(body.content);
+
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
+  // This is the only conversation-scoped run-start route the
+  // `desktop-companion` bundle permits, and `tool-policy.ts` refuses to MINT
+  // a `lockedModeId` policy whose allowlist reaches a run-start route that
+  // does not run this guard — so the set enforced here and the set reachable
+  // by a policied key cannot drift apart.
+  //
+  // Checked against the PERSISTED `conv.modeId`, not a per-turn hint: the
+  // executor's own fail-open-on-missing-mode never comes into play because
+  // the run is refused here, before anything is written. Refused BEFORE the
+  // user row is persisted so a rejected turn leaves no trace in the thread.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, conv, {
+    isGoalCommand: goalIsCmd,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
+
   const goalHost = getGoalHost();
   if (goalHost) {
     try {
@@ -540,6 +581,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     thinkingLevel: body.thinkingLevel,
     attachments: stagedAttachments.length > 0 ? stagedAttachments : undefined,
     commandResolver: buildCommandResolver(user.id, conv.projectId),
+    // Boundary 3 — the run inherits the confinement of the credential that
+    // asked for it. Spread LAST so nothing above can widen it, and spread as
+    // a unit so this route cannot wire half the boundary. Empty for a cookie
+    // session and for an unpolicied key.
+    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
   });
 
   streamPromise.catch((err) => {

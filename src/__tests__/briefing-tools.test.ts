@@ -34,6 +34,13 @@ import {
 } from "../runtime/briefing/tools";
 import { users, projects, conversations, messages, agentConfigs } from "../db/schema";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 let userId: string;
 let otherUserId: string;
@@ -319,6 +326,7 @@ describe("wireBriefingToolsForTurn", () => {
     const agentTools: AgentTool[] = [];
     const defsMap = new Map();
     const params = {
+      permissionDeps,
       agentTools,
       builtinToolDefsMap: defsMap,
       conversationId: "c1",
@@ -336,6 +344,7 @@ describe("wireBriefingToolsForTurn", () => {
   test("works without a builtinToolDefsMap", () => {
     const agentTools: AgentTool[] = [];
     wireBriefingToolsForTurn({
+      permissionDeps,
       agentTools,
       conversationId: "c1",
       userId,

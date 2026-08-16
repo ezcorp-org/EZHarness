@@ -1,29 +1,28 @@
 /**
- * Shared scaffolding for the Ez concierge's CLIENT-SIDE tools
- * (`fill_form`, `navigate_to`, `read_page`).
+ * The Ez concierge's CLIENT-SIDE tools (`fill_form`, `navigate_to`,
+ * `read_page`) as an adapter over the generic remote-tool engine.
  *
- * A client-side tool is not executed server-side: when the LLM calls it
- * the runtime emits an `ez:client-tool` SSE event, the Ez panel performs
- * the real UI operation (reading the page, filling a form, navigating),
- * and POSTs the resolution back to `/api/conversations/[id]/tool-results`.
- * The POST handler wakes the suspended promise via
- * `ez-client-tool-registry`.
+ * A client-side tool is not executed server-side: when the LLM calls it the
+ * runtime emits an `ez:client-tool` SSE event, the Ez panel performs the real
+ * UI operation (reading the page, filling a form, navigating), and POSTs the
+ * resolution back to `/api/conversations/[id]/tool-results`. The POST handler
+ * wakes the suspended promise via `runtime/remote-tool-registry`.
  *
- * All three tools share the SAME suspend/abort/emit machinery — this
- * module owns it so the individual factories only contribute their
- * per-tool argument validation + the event payload. That keeps the
- * client-tool contract (register-before-emit ordering, abort listener,
- * finally-clear) in one place instead of copy-pasted three ways.
+ * Everything structural — register-before-emit, the abort listener, the
+ * `finally`-clear, result normalization — lives in `../remote-tool.ts`, which
+ * the caller-executed-tools family shares. THIS file contributes only what is
+ * Ez-specific: the panel's five-minute budget, the failure sentences the model
+ * reads, and the `clientSide: true` details marker the Ez tool cards key on.
  */
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { EventBus } from "../../events";
 import type { AgentEvents } from "../../../types";
-import { errorMessage, toolError } from "../types";
 import {
-  registerPendingEzClientTool,
-  rejectEzClientTool,
-  clearPendingEzClientTool,
-} from "../../ez-client-tool-registry";
+  remoteResultToToolResult,
+  remoteToolWatchdogBudgetMs,
+  runRemoteTool,
+  REMOTE_TOOL_WATCHDOG_MARGIN_MS,
+} from "../remote-tool";
 
 export interface ClientToolContext {
   conversationId: string;
@@ -35,85 +34,77 @@ export interface ClientToolContext {
 
 export const EZ_CLIENT_TOOL_DEFERRED_MARKER = "[ez-client-tool:deferred]";
 
-type ToolResultShape = {
-  content: { type: "text"; text: string }[];
-  details: Record<string, unknown>;
-};
+/** `details{}` fields every Ez client-tool result carries, so the panel's
+ *  card renderer can tell an Ez round-trip from a server-side computation. */
+const EZ_RESULT_MARKER = { clientSide: true } as const;
 
 /**
- * Normalize whatever the panel POSTs back into a stable `AgentToolResult`.
- * We intentionally accept a permissive `unknown` from the registry — the
- * panel may send either a structured `DispatchResult`
- * (`{ ok, error?, code?, detail? }`) or a bare error string.
+ * How long a client-side Ez tool may legitimately suspend: the panel gets
+ * five minutes to POST its resolution before the gate rejects with a concrete
+ * timeout error.
  *
- * On an OK result carrying a `detail` object, the detail is ALSO rendered
- * as a compact fenced JSON block appended to the content text. `content[]`
- * is the only channel the LLM reads — `details{}` alone is card metadata
- * it never sees — so for `read_page` (whose whole point is returning page
- * context) and for `fill_form` / `navigate_to` (fill outcome / navigation
- * destination) the detail must ride the text channel to reach the model.
+ * THE single source of truth for that wait. The three client-side tool defs
+ * derive their watchdog `callTimeoutMs` from it via
+ * {@link ezClientToolWatchdogBudgetMs} rather than restating the number — a
+ * duplicated literal is exactly how the two halves drifted into the
+ * 90s-vs-300s inversion that killed runs mid-wait.
+ */
+export const EZ_CLIENT_TOOL_TIMEOUT_MS = 5 * 60_000;
+let ezClientToolTimeoutMs = EZ_CLIENT_TOOL_TIMEOUT_MS;
+
+/** The live gate timeout — {@link EZ_CLIENT_TOOL_TIMEOUT_MS} in production, or
+ *  whatever a test installed via {@link _setEzClientToolTimeoutForTests}. Read
+ *  this (never the constant) when deriving anything that must track the real
+ *  gate. */
+export function getEzClientToolTimeoutMs(): number {
+  return ezClientToolTimeoutMs;
+}
+
+/** Grace between the Ez gate's own rejection and the watchdog's run kill.
+ *  Shared with the caller-tools family — see the reasoning on
+ *  {@link REMOTE_TOOL_WATCHDOG_MARGIN_MS}. */
+export const EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS = REMOTE_TOOL_WATCHDOG_MARGIN_MS;
+
+/**
+ * Watchdog `callTimeoutMs` for a client-side Ez tool def: the live gate
+ * timeout plus {@link EZ_CLIENT_TOOL_WATCHDOG_MARGIN_MS}. Called by each
+ * client-tool factory at def-construction time (once per turn), so a test that
+ * shrinks the gate gets a proportionally shrunk watchdog budget with no second
+ * knob to set.
+ */
+export function ezClientToolWatchdogBudgetMs(): number {
+  return remoteToolWatchdogBudgetMs(getEzClientToolTimeoutMs());
+}
+
+/** Test-only: shorten the 5-minute timeout so the timeout branch can be
+ *  exercised without a real wait. */
+export function _setEzClientToolTimeoutForTests(ms: number): void {
+  ezClientToolTimeoutMs = ms;
+}
+
+/** Test-only: reset to the production default. */
+export function _resetEzClientToolTimeoutForTests(): void {
+  ezClientToolTimeoutMs = EZ_CLIENT_TOOL_TIMEOUT_MS;
+}
+
+/**
+ * Normalize whatever the Ez panel POSTs back into a stable `AgentToolResult`.
+ * Uncapped: the payload is shaped by this app's own UI, and `read_page`'s
+ * server-side excerpting already bounds it.
  */
 export function panelResultToToolResult(
   result: unknown,
   toolName: string,
-): ToolResultShape {
-  if (
-    result &&
-    typeof result === "object" &&
-    "ok" in result &&
-    typeof (result as { ok: unknown }).ok === "boolean"
-  ) {
-    const r = result as {
-      ok: boolean;
-      error?: string;
-      code?: string;
-      detail?: Record<string, unknown>;
-    };
-    if (r.ok) {
-      const detail = r.detail ?? {};
-      let text = `${toolName} completed.`;
-      if (Object.keys(detail).length > 0) {
-        text += `\n\n\`\`\`json\n${JSON.stringify(detail, null, 2)}\n\`\`\``;
-      }
-      return {
-        content: [{ type: "text", text }],
-        details: { clientSide: true, toolName, ...detail },
-      };
-    }
-    return {
-      content: [{ type: "text", text: r.error ?? `${toolName} failed` }],
-      details: {
-        isError: true,
-        clientSide: true,
-        toolName,
-        code: r.code,
-        ...(r.detail ?? {}),
-      },
-    };
-  }
-
-  // Unknown shape — surface as text so the LLM still gets some signal.
-  let text: string;
-  try {
-    text = typeof result === "string" ? result : JSON.stringify(result);
-  } catch {
-    text = String(result);
-  }
-  return {
-    content: [{ type: "text", text }],
-    details: { clientSide: true, toolName },
-  };
+): ReturnType<typeof remoteResultToToolResult> {
+  return remoteResultToToolResult(result, toolName, { marker: EZ_RESULT_MARKER });
 }
 
 /**
- * Emit the `ez:client-tool` event and suspend until the panel POSTs the
- * resolution (or the call aborts / times out). The pending entry is
- * registered BEFORE the emit so a same-tick panel POST can resolve us; the
- * abort listener is wired for the runtime's `tool:kill` path; and the
- * registry entry is cleared in `finally` regardless of how it settled.
+ * Emit `ez:client-tool` and suspend until the panel POSTs the resolution (or
+ * the call aborts / times out).
  *
  * When no bus is wired (tests, non-streaming callers) the tool returns a
- * concrete error immediately rather than hanging for the 5-minute timeout.
+ * concrete error immediately rather than hanging for the five-minute timeout.
  */
 export async function runEzClientTool(args: {
   ctx: ClientToolContext;
@@ -122,40 +113,31 @@ export async function runEzClientTool(args: {
   input: Record<string, unknown>;
   signal?: AbortSignal;
   /** Extra fields merged into the error result if the suspend rejects
-   *  (abort / timeout) — the per-tool identifying args (formId, path)
-   *  the pre-refactor inline bodies carried. */
+   *  (abort / timeout) — the per-tool identifying args (formId, path). */
   errorDetails?: Record<string, unknown>;
 }): Promise<AgentToolResult<unknown>> {
   const { ctx, toolCallId, toolName, input, signal, errorDetails } = args;
-  if (!ctx.bus) {
-    return toolError("client-tool bus not wired", { clientSide: true, toolName });
-  }
-
-  const pending = registerPendingEzClientTool({
+  return runRemoteTool({
+    eventName: "ez:client-tool",
+    event: { conversationId: ctx.conversationId, toolCallId, toolName, input },
+    bus: ctx.bus,
+    origin: "ez",
     toolCallId,
+    toolName,
+    input,
     conversationId: ctx.conversationId,
     userId: ctx.userId ?? null,
+    // The Ez panel drops its pending list wholesale on disconnect rather than
+    // per-run, so an Ez entry has no run to attribute and records none.
+    runId: null,
+    timeoutMs: getEzClientToolTimeoutMs(),
+    messages: {
+      timeout: "Timed out waiting for Ez client tool result",
+      aborted: `Aborted while waiting for ${toolName} client result`,
+      noBus: "client-tool bus not wired",
+    },
+    signal,
+    result: { marker: EZ_RESULT_MARKER },
+    errorDetails,
   });
-  const onAbort = () => {
-    rejectEzClientTool(toolCallId, `Aborted while waiting for ${toolName} client result`);
-  };
-  signal?.addEventListener("abort", onAbort, { once: true });
-
-  try {
-    ctx.bus.emit("ez:client-tool", {
-      conversationId: ctx.conversationId,
-      toolCallId,
-      toolName,
-      input,
-    });
-    const panelResult = await pending;
-    return panelResultToToolResult(panelResult, toolName);
-  } catch (err) {
-    return toolError(errorMessage(err), { clientSide: true, toolName, deferred: true, ...(errorDetails ?? {}) });
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-    // Defensive: if the Promise settled via timeout/abort the entry is
-    // already gone, but call clear anyway so the map is tidy.
-    clearPendingEzClientTool(toolCallId);
-  }
 }

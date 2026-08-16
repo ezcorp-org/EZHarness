@@ -11,8 +11,8 @@
  *     in 2026-08, so neither carve-out remains for a new gap to hide in.
  *  3. Every registry entry declares the `scope` it enforces. Enforced as a
  *     ratchet against a frozen set (`KNOWN_SCOPELESS`), because `scope` is
- *     still optional on `ApiRouteEntry` and 93 entries predate the rule — see
- *     the block at the end of "registry ⇄ filesystem parity".
+ *     still optional on `ApiRouteEntry` and 93 entries predated the rule (91
+ *     remain) — see the block at the end of "registry ⇄ filesystem parity".
  *
  * See docs/harness-contract.md.
  */
@@ -515,8 +515,9 @@ describe("registry ⇄ filesystem parity", () => {
   // `scope?: ApiRouteScope` is still OPTIONAL (`src/api-registry.ts:22`) and
   // its own docblock has promised since it was written that "the route-contract
   // meta-test will tighten the requirement over time". Nothing tightened. 93 of
-  // 300 entries declare no scope, so the sentence in CLAUDE.md describes a rule
-  // that a new route can ignore for free.
+  // 300 entries declared no scope, so the sentence in CLAUDE.md described a rule
+  // that a new route could ignore for free. 91 remain: the two `:name/run`
+  // routes were backfilled once their handlers were read.
   //
   // WHY IT MATTERS: `src/openapi.ts` emits `security: [{ bearerAuth: [scope] }]`
   // only `if (e.scope && e.scope !== "public")`, so an entry with NO scope
@@ -560,7 +561,7 @@ describe("registry ⇄ filesystem parity", () => {
   // the count test fails if the baseline no longer matches the list (so the
   // ratchet cannot be loosened by deleting lines). Both failures name what to
   // do. This list may only SHRINK. Sorted; keep it sorted.
-  const BASELINE_SCOPELESS = 93;
+  const BASELINE_SCOPELESS = 91;
   const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
     "DELETE /api/agent-configs/:id",
     "DELETE /api/extensions/:id/settings/user",
@@ -619,7 +620,6 @@ describe("registry ⇄ filesystem parity", () => {
     "PATCH /api/workflows/delegations/:id",
     "POST /api/agent-configs",
     "POST /api/agent-configs/generate",
-    "POST /api/agents/:name/run",
     "POST /api/auth/invite/:token",
     "POST /api/auth/logout",
     "POST /api/auth/reset-password",
@@ -643,7 +643,6 @@ describe("registry ⇄ filesystem parity", () => {
     "POST /api/teams/:id/members",
     "POST /api/workflows/:name/dry-run",
     "POST /api/workflows/:name/fork",
-    "POST /api/workflows/:name/run",
     "POST /api/workflows/approvals/:id",
     "POST /api/workflows/delegations",
     "POST /api/workflows/delegations/preview",
@@ -691,18 +690,34 @@ describe("registry ⇄ filesystem parity", () => {
     // list is already caught by the first test, which names the route — this
     // adds nothing there. And the defeat that matters goes green anyway:
     // backfill one route's scope, land one NEW scope-less route, swap the two
-    // lines here, leave the baseline at 93. Measured — 25 pass / 0 fail. No
+    // lines here, leave the baseline unmoved. Measured — 25 pass / 0 fail. No
     // assertion in this block catches that, and a count never could, because
     // the population size is exactly what the swap preserves.
     //
     // What it DOES buy is cheap and worth one line: the number is stated in the
-    // source, so shrinking the debt shows up as a conspicuous `-93 +94` in the
-    // diff rather than as one line lost in a 93-line list, and a defeat has to
+    // source, so shrinking the debt shows up as a conspicuous `-93 +91` in the
+    // diff rather than as two lines lost in a 93-line list, and a defeat has to
     // touch three places instead of one. Review bait, not a gate. The gate is
     // the exact diff above; the real fix is making `scope` required so the
     // compiler decides.
     expect(KNOWN_SCOPELESS.size).toBe(BASELINE_SCOPELESS);
     expect(currentlyScopeless().size).toBe(BASELINE_SCOPELESS);
+  });
+
+  test("the two `:name/run` routes declare the `chat` scope their handlers enforce", () => {
+    // Backfilled out of KNOWN_SCOPELESS. Both handlers open with
+    // `requireScope(locals, "chat")` (`agents/[name]/run/+server.ts:12`,
+    // `workflows/[name]/run/+server.ts:37`), so the registry now states the
+    // boundary the code actually enforces and the generated OpenAPI stops
+    // describing two run endpoints as needing no auth. Asserted by NAME rather
+    // than left to the count above: the count is preserved by any swap, this
+    // is not.
+    const scopeOf = (key: string): string | undefined =>
+      apiRegistry.find((e) => `${e.method} ${e.path}` === key)?.scope;
+    expect(scopeOf("POST /api/agents/:name/run")).toBe("chat");
+    expect(scopeOf("POST /api/workflows/:name/run")).toBe("chat");
+    expect(KNOWN_SCOPELESS.has("POST /api/agents/:name/run")).toBe(false);
+    expect(KNOWN_SCOPELESS.has("POST /api/workflows/:name/run")).toBe(false);
   });
 
   test("the frozen list is sorted (a new line cannot hide mid-list)", () => {

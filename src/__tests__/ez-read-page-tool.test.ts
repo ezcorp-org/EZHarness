@@ -24,10 +24,10 @@ import {
   type ClientToolContext,
 } from "../runtime/tools/ez/client-tool";
 import {
-  resolveEzClientTool,
-  rejectEzClientTool,
-  _resetPendingEzClientToolsForTests,
-} from "../runtime/ez-client-tool-registry";
+  resolveRemoteTool,
+  rejectRemoteTool,
+  _resetPendingRemoteToolsForTests,
+} from "../runtime/remote-tool-registry";
 import { expectDetails, expectText } from "./helpers/expect-tool-result";
 
 interface ReadPageDetails {
@@ -58,10 +58,10 @@ async function tick(): Promise<void> {
 }
 
 beforeEach(() => {
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 afterEach(() => {
-  _resetPendingEzClientToolsForTests();
+  _resetPendingRemoteToolsForTests();
 });
 
 describe("read_page (client-side tool)", () => {
@@ -98,7 +98,7 @@ describe("read_page (client-side tool)", () => {
     });
 
     expect(
-      resolveEzClientTool("rp-1", {
+      resolveRemoteTool("rp-1", {
         ok: true,
         toolName: "read_page",
         toolCallId: "rp-1",
@@ -125,14 +125,14 @@ describe("read_page (client-side tool)", () => {
       ["garbage", "summary"],
       [undefined, "summary"],
     ] as const) {
-      _resetPendingEzClientToolsForTests();
+      _resetPendingRemoteToolsForTests();
       const b = bus();
       const events = captureClientTool(b);
       const tool = createReadPageTool({ conversationId: "conv-x", bus: b });
       const pending = tool.execute("rp-detail", input === undefined ? {} : { detail: input });
       await tick();
       expect(events[0]!.input).toEqual({ detail: expected });
-      resolveEzClientTool("rp-detail", { ok: true, detail: {} });
+      resolveRemoteTool("rp-detail", { ok: true, detail: {} });
       await pending;
     }
   });
@@ -247,7 +247,7 @@ describe("runEzClientTool (shared suspend/emit machinery)", () => {
       toolName: "read_page",
       input: { detail: "summary" },
     });
-    resolveEzClientTool("run-ok", { ok: true, detail: { path: "/p" } });
+    resolveRemoteTool("run-ok", { ok: true, detail: { path: "/p" } });
     const r = await pending;
     expect(expectDetails<{ path?: string }>(r).path).toBe("/p");
   });
@@ -262,7 +262,7 @@ describe("runEzClientTool (shared suspend/emit machinery)", () => {
       errorDetails: { detail: "full" },
     });
     await tick();
-    rejectEzClientTool("run-reject", "panel closed the browser");
+    rejectRemoteTool("run-reject", "panel closed the browser");
     const r = await pending;
     const d = expectDetails<{ isError?: boolean; deferred?: boolean; detail?: string }>(r);
     expect(d.isError).toBe(true);

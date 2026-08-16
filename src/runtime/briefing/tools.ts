@@ -30,7 +30,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { BuiltinToolDef } from "../tools/types";
-import { builtinToAgentTool } from "../tools/agent-tool";
+import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import {
   getConversation,
   getMessages,
@@ -274,6 +274,11 @@ export interface WireBriefingToolsParams {
   conversationId: string;
   userId: string;
   briefingAgentConfigId: string | null;
+  /** Per-turn permission-gate context. Required: these three tools are
+   *  `category: "read"`, which auto-approves under all three modes, so the
+   *  gate is a no-op for today's set — it is here so a future briefing tool
+   *  in a gated category is gated by default rather than by remembering. */
+  permissionDeps: PermissionWrapDeps;
 }
 
 /**
@@ -295,7 +300,7 @@ export function wireBriefingToolsForTurn(params: WireBriefingToolsParams): void 
   for (const def of defs) {
     if (existingNames.has(def.name)) continue;
     builtinToolDefsMap?.set(def.name, def);
-    agentTools.push(builtinToAgentTool(def));
+    agentTools.push(withPermissionGate(def, params.permissionDeps));
     registered++;
   }
 

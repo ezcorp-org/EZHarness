@@ -32,6 +32,7 @@ import {
   type HubPageProvider,
 } from "../hub-pages";
 import type { HubPageTree, PageNode } from "../../extensions/page-schema";
+import type { RunStartToolPolicyOptions } from "../../auth/tool-policy";
 import { addWatchlistTopic, removeWatchlistTopic } from "./watchlist";
 
 export const BRIEFING_HUB_PAGE_ID = "briefing";
@@ -43,8 +44,13 @@ const RECENT_BRIEFINGS_LIMIT = 10;
 const WATCHLIST_TOPIC_MAX_LENGTH = 120;
 
 export interface BriefingHubPageDeps {
-  /** Shared run-now trigger (web layer owns the rate bucket). */
-  triggerRunNow: (userId: string) => Promise<
+  /** Shared run-now trigger (web layer owns the rate bucket). The second
+   *  argument is Boundary 3 for the run it starts — see the `run-now` action
+   *  below and `HubPageContext.toolPolicyOptions`. */
+  triggerRunNow: (
+    userId: string,
+    toolPolicyOptions?: RunStartToolPolicyOptions,
+  ) => Promise<
     | { ok: true }
     | { ok: false; reason: "unavailable" }
     | { ok: false; reason: "rate-limited"; retryAfter?: number }
@@ -223,7 +229,11 @@ export function createBriefingHubPageProvider(
     render: (ctx) => renderBriefingPage(ctx.userId),
     actions: {
       [BRIEFING_RUN_NOW_ACTION]: async (ctx) => {
-        const result = await deps.triggerRunNow(ctx.userId);
+        // The ONE core hub action that starts a run. `ctx.toolPolicyOptions`
+        // is the requesting credential's Boundary 3, derived by the actions
+        // route; forwarding it is what stops this tab from being a second,
+        // unconfined door to the run-now pipeline.
+        const result = await deps.triggerRunNow(ctx.userId, ctx.toolPolicyOptions);
         if (!result.ok) {
           if (result.reason === "unavailable") {
             throw new HubPageActionError(

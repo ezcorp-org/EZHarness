@@ -7,6 +7,7 @@ import { devPageTransform } from "$server/dev-git-info";
 import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
+import { toolPolicyRouteDenial } from "$lib/server/security/route-allowlist";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
 import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
@@ -24,6 +25,8 @@ import {
 import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dispatch";
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
 import { isLoopbackTestBypass } from "$lib/server/test-surface";
+import { principalId } from "$server/auth/principal-id";
+import { runWithGateInitiator } from "$server/auth/gate-initiator";
 
 const log = logger.child("hooks.server");
 
@@ -800,6 +803,32 @@ const handleApp: Handle = async ({ event, resolve }) => {
     }
   }
 
+  // ── Boundary 1: per-API-key route allowlist ──────────────────────
+  // The auth branch above has closed, so the principal (cookie, `ezk_`,
+  // `ezkint_` or anonymous-on-a-public-path) is final. A key minted with a
+  // `toolPolicy.routeAllowlist` may reach ONLY the routes it names —
+  // everything else is denied by default, including routes added to the app
+  // after the key was minted.
+  //
+  // `event.route.id` is SvelteKit's own match (set at respond.js:340, before
+  // this hook runs at :457) and is `null` for an unmatched path, which
+  // `routeAllowlistKey` turns into a key no validated allowlist can contain.
+  // Read only when a policy is present, so an unpolicied request touches
+  // nothing new — the same positive-presence rule app.d.ts states for
+  // `authMethod`.
+  //
+  // The WHOLE policy goes to the predicate, not just its `routeAllowlist`.
+  // Branching on that one field here is what confined the boundary to it: a
+  // key minted `{lockedModeId}` with no allowlist took the `if` and was
+  // enforced on nothing, so a lock-only key already in the wild kept reaching
+  // every run-start route. `toolPolicyRouteDenial` owns both rules.
+  const policyDenial = toolPolicyRouteDenial(
+    event.locals.apiKeyToolPolicy,
+    request.method,
+    event.route.id,
+  );
+  if (policyDenial) return policyDenial;
+
   // ── First-time onboarding gate ───────────────────────────────────
   // Pages-only: API routes (cookie OR Bearer) and asset paths bypass
   // entirely so programmatic clients aren't redirected. For real page
@@ -835,14 +864,29 @@ const handleApp: Handle = async ({ event, resolve }) => {
     }
   }
 
-  const response = await resolve(event, {
-    // Dev-indicator transform (undefined in production) — stamps
-    // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
-    // title prefix and dev favicons. Built once per request (not per streamed
-    // chunk, and not module-level — so switching branches shows up on the
-    // next reload). See src/dev-git-info.ts.
-    transformPageChunk: devPageTransform(),
-  });
+  // The ONE writer of the ambient gate initiator. Every permission gate a
+  // route raises — directly, or from a `streamChat` promise the route
+  // deliberately does not await — is created inside this async subtree and
+  // so records WHICH principal's request started it. `POST
+  // /api/tool-calls/:id/permission` then refuses a non-session principal
+  // that did not raise the gate it is answering.
+  //
+  // Here rather than at each `executor.streamChat(...)` call site because
+  // there are three today (chat send, agent-chat, message retry) and a
+  // fourth would silently ship unattributed. This is the narrowest point
+  // that is downstream of ALL auth (cookie, bearer, internal) and upstream
+  // of every handler. The three early `return resolve(event)` paths above
+  // are pre-auth bail-outs with no principal to record.
+  const response = await runWithGateInitiator(principalId(event.locals), () =>
+    resolve(event, {
+      // Dev-indicator transform (undefined in production) — stamps
+      // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
+      // title prefix and dev favicons. Built once per request (not per streamed
+      // chunk, and not module-level — so switching branches shows up on the
+      // next reload). See src/dev-git-info.ts.
+      transformPageChunk: devPageTransform(),
+    }),
+  );
 
   // ── Security headers on ALL responses ───────────────────────────
   // SSE replaces the old WebSocket transport — no ws: or wss: scheme needed

@@ -61,6 +61,7 @@ import { createProject, getProjectByPath } from "../db/queries/projects";
 import { upsertSetting, deleteSetting, getSetting } from "../db/queries/settings";
 import * as settingsQueries from "../db/queries/settings";
 import { createUser } from "../db/queries/users";
+import { createMode } from "../db/queries/modes";
 
 let projectId: string;
 
@@ -96,6 +97,28 @@ describe("conversations", () => {
     expect(conv.title).toBe("My Chat");
     expect(conv.model).toBe("gpt-4o");
     expect(conv.provider).toBe("openai");
+  });
+
+  test("createConversation persists modeId at CREATE (no follow-up PUT needed)", async () => {
+    // `POST /api/conversations` had validated modeId since Phase 48 and then
+    // dropped it on the floor, because these opts had no `modeId` — a silent
+    // no-op that forced every caller into create-then-PUT. Asserted against a
+    // REAL mode row so the FK is exercised too, not just the field mapping.
+    const mode = await createMode({
+      name: "Plan",
+      slug: `plan-${crypto.randomUUID()}`,
+      systemPromptInstruction: "Plan first.",
+    });
+    const conv = await createConversation(projectId, { modeId: mode.id });
+    expect(conv.modeId).toBe(mode.id);
+    // Durable, not just in the RETURNING row.
+    const reread = await getConversation(conv.id);
+    expect(reread?.modeId).toBe(mode.id);
+  });
+
+  test("createConversation without a modeId still creates a mode-less row", async () => {
+    const conv = await createConversation(projectId, { title: "No mode" });
+    expect(conv.modeId).toBeNull();
   });
 
   test("listConversations returns conversations sorted by updatedAt desc", async () => {

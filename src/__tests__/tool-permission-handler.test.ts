@@ -72,6 +72,13 @@ mock.module("../runtime/tools/permissions", () => ({
   },
   getPendingApprovalConversation: (toolCallId: string) =>
     getPendingApprovalConversationMock(toolCallId),
+  // Consent-confinement reads. Stated explicitly rather than left to fall
+  // through to the real module: every case here answers from a session, so
+  // the confinement short-circuits before touching these — but a partial
+  // module mock that silently resolves half its names is how a security
+  // check gets tested against a stub of itself.
+  getPendingApproval: (_toolCallId: string) => true,
+  getPendingApprovalInitiator: (_toolCallId: string): string | undefined => undefined,
 }));
 
 mock.module("../db/queries/conversations", () => ({
@@ -104,6 +111,13 @@ const user: AuthUser = {
   role: "member",
 };
 
+/** Cookie-session principal — the TTL plumbing under test is orthogonal to
+ *  the key-confinement gate, so every case here answers as the human. */
+const SESSION_PRINCIPAL = {
+  authMethod: "session" as const,
+  user: { id: user.id },
+};
+
 function makeRequest(body: unknown): Request {
   return new Request(`http://localhost/api/tool-calls/${HELLO_TC}/permission`, {
     method: "POST",
@@ -127,6 +141,7 @@ describe("handleToolPermission — ttlOverrideMs plumbing", () => {
       }),
       HELLO_TC,
       user,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -155,6 +170,7 @@ describe("handleToolPermission — ttlOverrideMs plumbing", () => {
       }),
       HELLO_TC,
       user,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -175,6 +191,7 @@ describe("handleToolPermission — ttlOverrideMs plumbing", () => {
       makeRequest({ approved: true, scope: "conversation" }),
       HELLO_TC,
       user,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(200);
@@ -203,6 +220,7 @@ describe("handleToolPermission — ttlOverrideMs plumbing", () => {
       }),
       HELLO_TC,
       user,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(400);
@@ -224,6 +242,7 @@ describe("handleToolPermission — ttlOverrideMs plumbing", () => {
       }),
       HELLO_TC,
       user,
+      SESSION_PRINCIPAL,
     );
 
     expect(res.status).toBe(400);

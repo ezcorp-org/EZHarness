@@ -126,6 +126,168 @@ export interface HubActionResult {
   renderedAt?: number;
 }
 
+// ── Caller-executed tools ────────────────────────────────────────────────
+
+/** One tool this client device can execute, as declared on a conversation.
+ *  `parameters` is a JSON Schema object (`{ type: "object", properties }`);
+ *  the server validates its structure and refuses `$ref`/`$defs`. */
+export interface CallerToolDeclaration {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  timeoutMs?: number;
+}
+
+/**
+ * A per-key TOOL POLICY as the mint route accepts it.
+ *
+ * Mirrors `ToolPolicy` in `src/auth/tool-policy.ts` by hand — this package
+ * ships standalone and cannot import the server tree — plus the `routeBundle`
+ * input alias, which the route expands and never stores. State the bundle by
+ * NAME: it is a reviewed set, and every entry is validated against the API
+ * registry at mint time so a typo is a 400 rather than a route that silently
+ * denies forever.
+ *
+ * Give `routeBundle` OR `routeAllowlist`, never both.
+ */
+export interface ToolPolicyInput {
+  routeBundle?: string;
+  routeAllowlist?: string[];
+  allowedCallerTools?: string[];
+  maxCallerTools?: number;
+  lockedModeId?: string;
+}
+
+/** `POST /api/settings/developer/api-keys`. `key` is the raw secret and is
+ *  returned EXACTLY once — only its hash is persisted. */
+export interface MintedApiKey {
+  key: string;
+  keyId: string;
+  name: string;
+  scopes: string[];
+  role: string;
+  toolPolicy?: ToolPolicyInput;
+}
+
+/** `PUT …/caller-tools`. `appliedFrom` is always `"next-turn"` — tool
+ *  definitions bind once at turn setup, so `activeRunId` names the run this
+ *  declaration will NOT affect. */
+export interface DeclareCallerToolsResult {
+  tools: CallerToolDeclaration[];
+  appliedFrom: "next-turn";
+  activeRunId: string | null;
+}
+
+/**
+ * One inbound `caller:tool-call`.
+ *
+ * `toolName` is the BARE declared name (`open_app`) — the app registered its
+ * handler under what it declared, and the `_caller__` prefix is the server's
+ * wire concern. The two events are deliberately asymmetric on this point:
+ * `tool:permission_request` carries the WIRE name, because that gate is the
+ * generic one every tool passes through and it reports the tool as the
+ * runtime knows it. {@link HarnessClient.serveCallerTools} strips the prefix
+ * before looking a handler up anyway, so it is correct against either form.
+ */
+export interface CallerToolCall {
+  conversationId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+}
+
+/** Return value becomes the tool result's `detail`, rendered as fenced JSON
+ *  into the LLM-visible content. Throwing reports a tool-level failure —
+ *  it does not abort `serveCallerTools`. */
+export type CallerToolHandler = (
+  input: unknown,
+  call: CallerToolCall,
+) => unknown | Promise<unknown>;
+
+/** `POST …/tool-results`. `ok` means the request was accepted; `resolved`
+ *  means THIS result reached the waiting tool. A second device that lost the
+ *  race gets `{ ok: true, resolved: false, reason: "already-resolved" }`. */
+export interface ToolResultAck {
+  ok: boolean;
+  resolved: boolean;
+  reason?: string;
+}
+
+/** `GET …/active-run`. `pendingCallerTools` is the authoritative recovery
+ *  source after a disconnect (see {@link HarnessClient.serveCallerTools}). */
+export interface ActiveRunInfo {
+  runId: string | null;
+  pendingCallerTools?: CallerToolCall[];
+  [k: string]: unknown;
+}
+
+export interface ServeCallerToolsOptions {
+  /** Stops the serve loop. Without one this never returns. */
+  signal?: AbortSignal;
+  /**
+   * Answer this conversation's `_caller__*` permission gates automatically.
+   * Defaults TRUE, and that default is a considered position rather than a
+   * convenience: a caller tool ALWAYS opens a gate (the category is in no
+   * auto-approve set, under `yolo` too), so a client that did not answer its
+   * own gates would park every call until it timed out. The key holder wrote
+   * the code the tool runs, so self-approval grants nothing new — what the
+   * gate buys is a recorded, per-call, deniable decision the human owner can
+   * see and veto live. Set false when a human approves out of band.
+   *
+   * Strictly THIS conversation's: a gate the shared user-scoped stream
+   * carries for any other conversation is left for whoever owns it, so a
+   * second loop's `autoApprove: false` keeps its veto.
+   */
+  autoApprove?: boolean;
+  /** Delay before reconnecting after the stream ends or errors. */
+  reconnectDelayMs?: number;
+  /** Called on a stream/transport error instead of throwing, so a dropped
+   *  connection does not end the serve loop. */
+  onError?: (err: unknown) => void;
+}
+
+/** Runtime prefix for a declared caller tool. */
+const CALLER_TOOL_NAMESPACE = "_caller__";
+
+/**
+ * Cap on the dedupe set so a long-lived server does not grow without bound.
+ * Entries are dropped oldest-first (Set preserves insertion order).
+ *
+ * 512 is not a round number picked for comfort: the server's SSE resume ring
+ * is 500 GLOBAL entries, so a replay can never deliver more than 500 events
+ * of any kind, and remembering 512 tool calls therefore covers every call
+ * replay could possibly repeat. Below that the cap would start forgetting
+ * calls that are still replayable — which is the one case dedupe exists for.
+ *
+ * The set is NOT pruned per-run on a run's terminal event, deliberately: a
+ * reconnect can replay a `caller:tool-call` from a run that has since ended,
+ * and re-running it would repeat a side effect on the user's own machine to
+ * produce a result the server would then discard as `already-resolved`.
+ */
+const DEDUPE_CEILING = 512;
+
+/**
+ * Handlers are keyed by the BARE declared name. `caller:tool-call` already
+ * carries that form, so this is normally a no-op — kept because it makes the
+ * lookup correct against the wire form too, and the two events on this
+ * feature disagree about which they send (see {@link CallerToolCall}).
+ */
+function stripCallerNamespace(name: string): string {
+  return name.startsWith(CALLER_TOOL_NAMESPACE)
+    ? name.slice(CALLER_TOOL_NAMESPACE.length)
+    : name;
+}
+
+/** A `caller:tool-call` payload, defensively narrowed — the event crosses a
+ *  network boundary, and a malformed one must be ignored, not thrown on. */
+function asCallerToolCall(data: Record<string, unknown>): CallerToolCall | null {
+  const { conversationId, runId, toolCallId, toolName } = data;
+  if (typeof conversationId !== "string" || typeof runId !== "string") return null;
+  if (typeof toolCallId !== "string" || typeof toolName !== "string") return null;
+  return { conversationId, runId, toolCallId, toolName, input: data.input };
+}
+
 export class HarnessApiError extends Error {
   constructor(
     public readonly status: number,
@@ -190,6 +352,44 @@ export class HarnessClient {
     return this.route("setSetting", { key }, { value });
   }
 
+  // ── Provisioning ───────────────────────────────────────────────────
+  /**
+   * Mint a NEW API key for the calling principal's own user
+   * (`POST /api/settings/developer/api-keys`). Needs the `admin` scope.
+   *
+   * The point of the `toolPolicy` argument is provisioning a CONFINED
+   * credential — a companion app asks its operator's admin key for a key that
+   * reaches only the `desktop-companion` route bundle, runs only under one
+   * mode, and may declare only the tools it actually implements:
+   *
+   * ```ts
+   * const child = await admin.mintApiKey("my-app", ["read", "write", "chat"], {
+   *   toolPolicy: {
+   *     routeBundle: "desktop-companion",
+   *     allowedCallerTools: ["open_app"],
+   *     maxCallerTools: 1,
+   *     lockedModeId: modeId,
+   *   },
+   * });
+   * ```
+   *
+   * A POLICIED key calling this can only mint an equal-or-narrower key, and
+   * can never mint an unpolicied one — a widening request is a 403 naming the
+   * fields it widened.
+   */
+  mintApiKey(
+    name: string,
+    scopes: string[],
+    opts: { role?: "member" | "admin"; toolPolicy?: ToolPolicyInput } = {},
+  ): Promise<MintedApiKey> {
+    return this.route("mintApiKey", undefined, {
+      name,
+      scopes,
+      ...(opts.role !== undefined ? { role: opts.role } : {}),
+      ...(opts.toolPolicy !== undefined ? { toolPolicy: opts.toolPolicy } : {}),
+    });
+  }
+
   // ── Conversations + drive ──────────────────────────────────────────
   /** `projectId` is REQUIRED by the server (`createConversationSchema`);
    *  default it to the `"global"` project so the zero-config call works —
@@ -199,6 +399,27 @@ export class HarnessClient {
   }
   sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
     return this.route("sendMessage", { id: conversationId }, { content, ...opts });
+  }
+
+  /** Update a conversation's title / model / provider / system prompt / mode
+   *  (`PUT /api/conversations/:id`). Needs the `chat` scope.
+   *
+   *  `modeId` is the field a confined key cares about: a key minted with
+   *  `toolPolicy.lockedModeId` is refused on every send whose conversation is
+   *  not under that mode, and this is how a client puts it there. Passing
+   *  `modeId: null` clears the mode — which, for a locked key, BRICKS that
+   *  conversation for it (the lock is fail-closed on `null` by design). */
+  updateConversation(
+    conversationId: string,
+    patch: {
+      title?: string;
+      model?: string;
+      provider?: string;
+      systemPrompt?: string;
+      modeId?: string | null;
+    },
+  ): Promise<{ id: string; [k: string]: unknown }> {
+    return this.route("updateConversation", { id: conversationId }, patch);
   }
 
   /** Fetch a conversation's session-backed message tree + durable leaf pointer
@@ -244,6 +465,49 @@ export class HarnessClient {
       ...(opts.model !== undefined ? { model: opts.model } : {}),
       ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
     });
+  }
+
+  // ── Caller-executed tools ──────────────────────────────────────────
+  /** Declare the tools this client device can execute for a conversation
+   *  (`PUT …/caller-tools`). Needs the `chat` scope. ROOT conversations only —
+   *  a sub-conversation is a 400, because it would inherit nothing. Replaces
+   *  the whole set; declare `[]` to leave the key present but empty. */
+  declareCallerTools(
+    conversationId: string,
+    tools: CallerToolDeclaration[],
+  ): Promise<DeclareCallerToolsResult> {
+    return this.route("declareCallerTools", { id: conversationId }, { tools });
+  }
+
+  /** Read back what is declared (`GET …/caller-tools`). Needs `read`. */
+  async getCallerTools(conversationId: string): Promise<CallerToolDeclaration[]> {
+    const res = await this.route<{ tools: CallerToolDeclaration[] }>("getCallerTools", {
+      id: conversationId,
+    });
+    return res.tools;
+  }
+
+  /** Drop every declaration (`DELETE …/caller-tools`). Needs `chat`.
+   *  Idempotent — clearing an empty set is `{ ok: true, cleared: 0 }`. */
+  clearCallerTools(conversationId: string): Promise<{ ok: true; cleared: number }> {
+    return this.route("clearCallerTools", { id: conversationId });
+  }
+
+  /** Return a client-side tool's result to the waiting host invocation
+   *  (`POST …/tool-results`). Needs `chat`. See {@link ToolResultAck} for why
+   *  `ok` and `resolved` are different questions. */
+  submitToolResult(
+    conversationId: string,
+    toolCallId: string,
+    result: unknown,
+  ): Promise<ToolResultAck> {
+    return this.route("submitToolResult", { id: conversationId }, { toolCallId, result });
+  }
+
+  /** The conversation's in-flight run plus anything awaiting a client-side
+   *  result (`GET …/active-run`). Needs `read`. */
+  getActiveRun(conversationId: string): Promise<ActiveRunInfo> {
+    return this.route("getActiveRun", { id: conversationId });
   }
 
   // ── Extensions ─────────────────────────────────────────────────────
@@ -522,16 +786,32 @@ export class HarnessClient {
   /**
    * Async iterator over the runtime SSE stream. Pass an AbortSignal to stop.
    * Optional `conversationId` scopes the server-side subscription hint.
+   *
+   * `lastEventId` asks the server to replay from its resume ring;
+   * `onEventId` reports each id as it arrives so a reconnecting caller can
+   * feed the next attempt. Both are best-effort — the ring is 500 GLOBAL
+   * entries including every `run:token`, so anything that must not be missed
+   * is re-read from an authoritative endpoint on reconnect (see
+   * {@link HarnessClient.serveCallerTools}).
    */
-  async *streamEvents(opts: { conversationId?: string; signal?: AbortSignal } = {}): AsyncGenerator<RuntimeEvent> {
+  async *streamEvents(
+    opts: {
+      conversationId?: string;
+      signal?: AbortSignal;
+      lastEventId?: string;
+      onEventId?: (id: string) => void;
+    } = {},
+  ): AsyncGenerator<RuntimeEvent> {
     // Path comes from the shared table; the SSE-specific fetch (streaming body,
     // text/event-stream Accept) stays here.
     const { httpMethod, pathTemplate } = HARNESS_ROUTES.streamEvents;
     const path = buildPath(pathTemplate);
     const qs = opts.conversationId ? `?conversationId=${encodeURIComponent(opts.conversationId)}` : "";
+    const sseHeaders: Record<string, string> = { Accept: "text/event-stream" };
+    if (opts.lastEventId) sseHeaders["Last-Event-ID"] = opts.lastEventId;
     const res = await this.fetchImpl(`${this.baseUrl}${path}${qs}`, {
       method: httpMethod,
-      headers: this.headers({ Accept: "text/event-stream" }),
+      headers: this.headers(sseHeaders),
       signal: opts.signal,
       // Mirror request(): never follow a 3xx. fetch forwards `Authorization`
       // on a same-origin redirect (only strips it cross-origin), so the real
@@ -549,6 +829,7 @@ export class HarnessClient {
         const { done, value } = await reader.read();
         if (done) break;
         for (const payload of buf.push(decoder.decode(value, { stream: true }))) {
+          if (buf.lastEventId) opts.onEventId?.(buf.lastEventId);
           const evt = safeJson(payload);
           if (evt && typeof evt === "object") yield evt as RuntimeEvent;
         }
@@ -557,6 +838,187 @@ export class HarnessClient {
       reader.releaseLock();
     }
   }
+
+  // ── Serve caller-executed tools ────────────────────────────────────
+  /**
+   * Run this device as the executor for a conversation's caller tools until
+   * `opts.signal` aborts: approve each of THIS conversation's `_caller__*`
+   * permission gates, execute the call with the matching handler, POST the
+   * result back.
+   *
+   * `handlers` is keyed by the BARE declared name (`open_app`), not the
+   * namespaced runtime name.
+   *
+   * ── RECOVERY IS A DRAIN, NOT A REPLAY ────────────────────────────────
+   *
+   * `GET …/active-run` is re-read on EVERY connect and reconnect, BEFORE the
+   * event loop starts, and anything it reports as pending is dispatched.
+   * That is the authoritative half. `Last-Event-ID` replay is the
+   * best-effort half and cannot be relied on: the server's resume ring holds
+   * 500 GLOBAL entries including every `run:token`, so a busy instance turns
+   * it over in seconds and a `caller:tool-call` from before a five-second
+   * blip is simply gone. Dropping the drain would leave a run parked until
+   * its gate expired, with no error anywhere.
+   *
+   * Both halves feed one `toolCallId` dedupe set, so a call delivered by
+   * replay AND by drain executes exactly once.
+   *
+   * ── AN UNKNOWN TOOL IS ANSWERED, NOT IGNORED ─────────────────────────
+   *
+   * A `caller:tool-call` naming a tool with no handler POSTs a failure
+   * result immediately. Ignoring it would park the gate for its whole
+   * timeout — minutes of a silently stalled run — to reach the same outcome
+   * with less information in it.
+   */
+  async serveCallerTools(
+    conversationId: string,
+    handlers: Record<string, CallerToolHandler>,
+    opts: ServeCallerToolsOptions = {},
+  ): Promise<void> {
+    const { signal, onError } = opts;
+    const autoApprove = opts.autoApprove ?? true;
+    const reconnectDelayMs = opts.reconnectDelayMs ?? 1000;
+    /** toolCallIds already dispatched — the drain/replay dedupe. */
+    const handled = new Set<string>();
+    /** runId → toolCallIds still awaiting a result, dropped on that run's
+     *  terminal event so an abandoned call stops being tracked. */
+    const openByRun = new Map<string, Set<string>>();
+
+    const post = async (call: CallerToolCall, result: unknown): Promise<void> => {
+      await this.submitToolResult(conversationId, call.toolCallId, result);
+      openByRun.get(call.runId)?.delete(call.toolCallId);
+    };
+
+    const dispatch = async (call: CallerToolCall): Promise<void> => {
+      if (call.conversationId !== conversationId) return;
+      if (handled.has(call.toolCallId)) return;
+      handled.add(call.toolCallId);
+      if (handled.size > DEDUPE_CEILING) handled.delete(handled.values().next().value as string);
+      let open = openByRun.get(call.runId);
+      if (!open) {
+        open = new Set();
+        openByRun.set(call.runId, open);
+      }
+      open.add(call.toolCallId);
+
+      const bare = stripCallerNamespace(call.toolName);
+      const handler = handlers[bare];
+      if (!handler) {
+        await post(call, {
+          ok: false,
+          toolName: call.toolName,
+          toolCallId: call.toolCallId,
+          error: `No handler registered for caller tool '${bare}'`,
+          code: "unknown-tool",
+        });
+        return;
+      }
+      try {
+        const detail = await handler(call.input, call);
+        await post(call, {
+          ok: true,
+          toolName: call.toolName,
+          toolCallId: call.toolCallId,
+          detail,
+        });
+      } catch (err) {
+        await post(call, {
+          ok: false,
+          toolName: call.toolName,
+          toolCallId: call.toolCallId,
+          error: err instanceof Error ? err.message : String(err),
+          code: "rejected",
+        });
+      }
+    };
+
+    const drain = async (): Promise<void> => {
+      const active = await this.getActiveRun(conversationId);
+      for (const pending of active.pendingCallerTools ?? []) {
+        await dispatch(pending);
+      }
+    };
+
+    let lastEventId: string | undefined;
+    while (!signal?.aborted) {
+      try {
+        // Authoritative recovery FIRST — before a single event is consumed.
+        await drain();
+        for await (const evt of this.streamEvents({
+          conversationId,
+          signal,
+          lastEventId,
+          onEventId: (id) => {
+            lastEventId = id;
+          },
+        })) {
+          if (evt.type === "caller:tool-call") {
+            const call = asCallerToolCall(evt.data);
+            if (call) await dispatch(call);
+          } else if (evt.type === "tool:permission_request") {
+            const toolName = evt.data.toolName;
+            const toolCallId = evt.data.toolCallId;
+            if (
+              autoApprove &&
+              // Same scope check `dispatch` opens with, and for the same
+              // reason: the SSE stream is USER-scoped, not conversation-scoped
+              // (the `conversationId` query param is a cache-key hint), so this
+              // connection carries the gates of every conversation the key's
+              // user owns. Without this, one serve loop with `autoApprove` on
+              // would answer the gates of a second loop that deliberately left
+              // it off for a human to decide. The comparison is against a
+              // `string` parameter, so a missing or non-string id fails it —
+              // an unattributable gate is never ours to approve.
+              evt.data.conversationId === conversationId &&
+              typeof toolName === "string" &&
+              toolName.startsWith(CALLER_TOOL_NAMESPACE) &&
+              typeof toolCallId === "string"
+            ) {
+              try {
+                await this.resolveToolPermission(toolCallId, true);
+              } catch (err) {
+                // A refused approval is this gate's problem, not the stream's:
+                // throwing here would unwind the `for await` and drop the
+                // connection, so report it the way a transport error is
+                // reported and keep serving.
+                onError?.(err);
+              }
+            }
+          } else if (TERMINAL_RUN_EVENTS.has(evt.type)) {
+            // Per-runId drop: this run's gates are gone, so anything of its
+            // that is still open can never be answered.
+            if (typeof evt.data.runId === "string") openByRun.delete(evt.data.runId);
+          }
+        }
+      } catch (err) {
+        if (signal?.aborted) break;
+        onError?.(err);
+      }
+      if (signal?.aborted) break;
+      await sleep(reconnectDelayMs, signal);
+    }
+  }
+}
+
+/** Run-terminal events, after which a run's pending caller tools are dead. */
+const TERMINAL_RUN_EVENTS: ReadonlySet<string> = new Set([
+  "run:complete",
+  "run:error",
+  "run:cancel",
+]);
+
+/** Abortable delay — resolves early (not rejects) when the signal fires, so
+ *  the serve loop's own `aborted` check decides what happens next. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
 }
 
 function safeJson(text: string): unknown {

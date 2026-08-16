@@ -27,9 +27,16 @@
  * ORCHESTRATION_TOOLS through every layer EXCEPT `forceDeniedTools` —
  * the conv map's exclusions ride that layer precisely so an explicit
  * per-conversation toggle can switch off even ask-user/scratchpad.
+ *
+ * Caller-executed tools join that map under the literal key `"caller"` (see
+ * {@link CALLER_TOOL_SCOPE_KEY}) as a pseudo-extension the registry knows
+ * nothing about, so the owner's Tools dropdown revokes them exactly as it
+ * revokes a real extension's — and, because the revocation lands on
+ * `forceDeniedTools`, it outranks the preservation the executor grants them.
  */
 
-import type { ToolFilterOptions } from "./filter";
+import { CALLER_TOOL_SCOPE_KEY, callerToolWireName } from "../caller-tool-declarations";
+import { stripToolNamespace, type ToolFilterOptions } from "./filter";
 
 /** The mode fields the scope decision reads (subset of DbMode). */
 export interface ModeToolScopeSource {
@@ -53,6 +60,15 @@ export function computeModeToolScope(
   mode: ModeToolScopeSource | null | undefined,
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
+  /**
+   * The caller-executed tools this conversation declared, in EITHER the wire
+   * form (`_caller__open_app`) or the bare declared form (`open_app`) — the
+   * two callers legitimately hold different ones, and `callerDenials`
+   * normalises to both. Defaults to none, which is both the honest answer for
+   * every conversation that never declared any and what lets a caller be
+   * wired independently of the executor.
+   */
+  callerToolNames: readonly string[] = [],
 ): ToolFilterOptions | null {
   const extensionIds = mode?.extensionIds ?? [];
   if (mode && extensionIds.length > 0) {
@@ -113,7 +129,11 @@ export function computeModeToolScope(
     // allowlist layer, so deleting from `allowed` can't touch them). The
     // force-denials carry every conv exclusion; overlap with the allowlist
     // removal above is harmless.
-    const forceDeniedTools = computeConvDenials(convExtensionTools, registry);
+    const forceDeniedTools = computeConvDenials(
+      convExtensionTools,
+      registry,
+      callerToolNames,
+    );
     return {
       toolRestriction: "allowlist",
       allowedTools: [...allowed],
@@ -125,7 +145,11 @@ export function computeModeToolScope(
   // The conv map's exclusions become FORCE-denials: they are explicit
   // per-conversation user toggles, the one layer allowed to remove even
   // ORCHESTRATION_TOOLS (e.g. switching ask-user off for this chat).
-  const forceDeniedTools = computeConvDenials(convExtensionTools, registry);
+  const forceDeniedTools = computeConvDenials(
+    convExtensionTools,
+    registry,
+    callerToolNames,
+  );
 
   if (mode?.toolRestriction) {
     return {
@@ -150,11 +174,22 @@ export function computeModeToolScope(
 function computeConvDenials(
   convExtensionTools: Record<string, string[]> | null | undefined,
   registry: ModeScopeRegistry,
+  callerToolNames: readonly string[],
 ): string[] {
   const denied: string[] = [];
   if (!convExtensionTools) return denied;
   for (const [extId, subset] of Object.entries(convExtensionTools)) {
     if (!subset) continue; // absent = all
+    // Caller tools are a PSEUDO-extension: they belong to no registry row, so
+    // `getToolsForExtension("caller")` is `[]` by construction and the loop
+    // below could only ever produce zero denials for that key — including for
+    // the empty-subset "toggled off" case, which is precisely the one that
+    // must deny everything. Hence a separate branch, not a special case
+    // inside the loop.
+    if (extId === CALLER_TOOL_SCOPE_KEY) {
+      denied.push(...callerDenials(subset, callerToolNames));
+      continue;
+    }
     for (const t of registry.getToolsForExtension(extId)) {
       if (
         subset.length === 0 || // extension toggled off
@@ -163,6 +198,47 @@ function computeConvDenials(
         denied.push(t.name);
       }
     }
+  }
+  return denied;
+}
+
+/**
+ * Which of this conversation's caller tools the toggle map revokes.
+ *
+ * Same three-state contract the real extensions get — absent key = all pass
+ * (handled by the caller: this function is only reached for a present key),
+ * EMPTY subset = every caller tool off, non-empty = keep exactly the listed
+ * ones. The subset may name a tool either way round (`open_app` or
+ * `_caller__open_app`) because the composer persists whatever the UI held;
+ * matching both is what makes the toggle work without teaching the UI about
+ * the namespace.
+ *
+ * A denial is EMITTED IN BOTH FORMS for the same reason, one layer down:
+ * `forceDeniedTools` is exact-match, and the two surfaces it feeds carry
+ * different names for one tool — the executor filters `AgentTool`s named
+ * `_caller__open_app`, while `/api/tools` filters synthetic metadata rows
+ * named `open_app`. Emitting one form alone revokes in one surface and leaves
+ * the other showing a tool the runtime will not honour (or vice versa). The
+ * extra name matches nothing else: a caller name cannot collide with a
+ * built-in, an orchestration tool or a namespaced extension tool, because the
+ * declaration validator refuses all three.
+ */
+function callerDenials(subset: string[], callerToolNames: readonly string[]): string[] {
+  const denied: string[] = [];
+  for (const declaredName of callerToolNames) {
+    // The two callers name caller tools in DIFFERENT domains, and both are
+    // legitimate: the executor filters `ctx.agentTools`, whose members carry
+    // the wire name (`_caller__open_app`), while `/api/tools` lists synthetic
+    // rows carrying the bare declared name. Normalising to both forms here —
+    // rather than demanding one at the boundary — is what keeps the two
+    // call sites from silently disagreeing, which is the exact failure mode
+    // where the UI toggle keeps passing while the tool stays listed.
+    const bare = stripToolNamespace(declaredName);
+    const wire = callerToolWireName(bare);
+    if (subset.length > 0 && (subset.includes(wire) || subset.includes(bare))) continue;
+    // Order is not semantic — the list is consumed as a membership test — but
+    // it is asserted, so keep wire-then-bare stable.
+    denied.push(wire, bare);
   }
   return denied;
 }

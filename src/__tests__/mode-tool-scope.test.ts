@@ -312,3 +312,116 @@ describe("orchestration tools — explicit conversation toggle wins", () => {
     expect(out).toEqual(["alpha__scan"]);
   });
 });
+
+/**
+ * Caller-executed tools ride the same conversation toggle map under the
+ * literal pseudo-extension key `"caller"`.
+ *
+ * The reason this needs its own branch — and its own tests — is that
+ * `computeConvDenials` compiles denials by asking the REGISTRY what tools a
+ * key owns, and there is no registry entry for `caller`: the declarations
+ * live in `conversations.metadata`. Routed through the generic loop the key
+ * would produce zero denials for every subset shape, so the UI toggle would
+ * keep passing while the tool kept being wired. That failure is silent in
+ * both directions, which is why each shape is pinned separately.
+ */
+describe("computeModeToolScope — the `caller` pseudo-extension", () => {
+  const declared = ["open_app", "capture_screen"];
+  const loadedCaller = [
+    { name: "_caller__open_app" },
+    { name: "_caller__capture_screen" },
+    { name: "alpha__scan" },
+  ];
+
+  test("no `caller` key → no denials, whatever is declared", () => {
+    expect(computeModeToolScope(null, { "ext-a": [] }, registry, declared)!.forceDeniedTools)
+      .toEqual(["alpha__scan", "alpha__lint"]);
+    expect(computeModeToolScope(null, null, registry, declared)).toBeNull();
+  });
+
+  test("omitting the 4th argument reproduces the pre-caller-tools behaviour", () => {
+    // Additive parameter: every existing caller passes three arguments, and
+    // must keep computing exactly what it did before.
+    expect(computeModeToolScope(null, { caller: [] }, registry)).toBeNull();
+  });
+
+  test("an EMPTY subset (master toggle OFF) denies every declared tool, both forms", () => {
+    const scope = computeModeToolScope(null, { caller: [] }, registry, declared)!;
+    expect(scope.forceDeniedTools).toEqual([
+      "_caller__open_app",
+      "open_app",
+      "_caller__capture_screen",
+      "capture_screen",
+    ]);
+    // Both forms are emitted because the two consumers see different ones:
+    // the executor filters `_caller__*` AgentTools, /api/tools filters bare
+    // metadata rows, and `forceDeniedTools` is exact-match.
+    expect(applyToolFilters(loadedCaller, new Map(), scope).map((t) => t.name)).toEqual([
+      "alpha__scan",
+    ]);
+    expect(
+      applyToolFilters([{ name: "open_app" }, { name: "capture_screen" }], new Map(), scope),
+    ).toEqual([]);
+  });
+
+  test("a non-empty subset denies only what it omits", () => {
+    const scope = computeModeToolScope(null, { caller: ["open_app"] }, registry, declared)!;
+    expect(applyToolFilters(loadedCaller, new Map(), scope).map((t) => t.name)).toEqual([
+      "_caller__open_app",
+      "alpha__scan",
+    ]);
+  });
+
+  test("the subset may name the NAMESPACED form and mean the same thing", () => {
+    const scope = computeModeToolScope(
+      null,
+      { caller: ["_caller__capture_screen"] },
+      registry,
+      declared,
+    )!;
+    expect(applyToolFilters(loadedCaller, new Map(), scope).map((t) => t.name)).toEqual([
+      "_caller__capture_screen",
+      "alpha__scan",
+    ]);
+  });
+
+  test("a `caller` key with nothing declared denies nothing (no phantom entries)", () => {
+    expect(computeModeToolScope(null, { caller: [] }, registry, [])).toBeNull();
+  });
+
+  test("the toggle is a real revocation under a mode allowlist too", () => {
+    const scope = computeModeToolScope(
+      { extensionIds: ["ext-a"] },
+      { caller: [] },
+      registry,
+      declared,
+    )!;
+    expect(scope.toolRestriction).toBe("allowlist");
+    expect(scope.forceDeniedTools).toContain("_caller__open_app");
+  });
+
+  test("a mode's toolRestriction and the caller denials compose", () => {
+    const scope = computeModeToolScope(
+      { toolRestriction: "read-only" },
+      { caller: ["open_app"] },
+      registry,
+      declared,
+    )!;
+    expect(scope.toolRestriction).toBe("read-only");
+    expect(scope.forceDeniedTools).toEqual(["_caller__capture_screen", "capture_screen"]);
+  });
+
+  test("a real extension keyed beside `caller` is still compiled by the registry loop", () => {
+    const scope = computeModeToolScope(
+      null,
+      { caller: [], "ext-b": [] },
+      registry,
+      ["open_app"],
+    )!;
+    expect(scope.forceDeniedTools).toEqual([
+      "_caller__open_app",
+      "open_app",
+      "bravo__summarize",
+    ]);
+  });
+});

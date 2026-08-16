@@ -1092,6 +1092,7 @@
 								selectedMode={selectedMode}
 								value={conversationExtensionTools}
 								{orchestrationTools}
+								{conversationId}
 								onchange={(map) => onextensiontoolschange?.(map)}
 								onreset={() => onextensiontoolsreset?.()}
 							/>

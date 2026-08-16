@@ -164,6 +164,12 @@ beforeEach(() => {
   ]);
 });
 
+// Every case below stamps `authMethod: "session"`, exactly as
+// `hooks.server.ts` does for a cookie request. sec-H2 is the OWNERSHIP axis;
+// stamping keeps the orthogonal consent-confinement gate (which refuses a
+// NON-session principal answering a gate its own request did not raise) out
+// of these results. Its own arms live in
+// `src/__tests__/tool-permission-key-confinement.test.ts`.
 describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
   test("non-owner (user-b) approves user-a's pending gate → 403, gate NOT resolved", async () => {
     const gate = createPermissionGate("tc-h2-1", "conv-a");
@@ -177,6 +183,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: true },
         params: { id: "tc-h2-1" },
         user: USER_B,
+        authMethod: "session",
       }),
     );
 
@@ -201,6 +208,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: false },
         params: { id: "tc-h2-2" },
         user: USER_B,
+        authMethod: "session",
       }),
     );
 
@@ -224,6 +232,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: true },
         params: { id: "tc-h2-3" },
         user: USER_A,
+        authMethod: "session",
       }),
     );
 
@@ -244,6 +253,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: true },
         params: { id: "tc-h2-4" },
         user: ADMIN_USER,
+        authMethod: "session",
       }),
     );
 
@@ -289,6 +299,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: true },
         params: { id: "tc-h2-nonexistent" },
         user: USER_B,
+        authMethod: "session",
       }),
     );
     expect(res.status).toBe(200);
@@ -310,6 +321,7 @@ describe("sec-H2: POST /api/tool-calls/:id/permission ownership check", () => {
         body: { approved: true },
         params: { id: "tc-h2-6" },
         user: USER_A,
+        authMethod: "session",
       }),
     );
 

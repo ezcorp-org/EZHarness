@@ -247,7 +247,17 @@ describe("executor → applyToolFilters plumbing for mode.allowedTools", () => {
     expect(executorSrc).toContain("applyToolFilters");
     expect(executorSrc).toContain("getMode");
     expect(/computeModeToolScope\(\s*mode/.test(executorSrc)).toBe(true);
-    expect(/applyToolFilters\(ctx\.agentTools,\s*ctx\.builtinToolDefsMap,\s*scope\)/.test(executorSrc)).toBe(true);
+    // The apply site moved into a `pushScope` helper when caller-executed
+    // tools made `preservedTools` something EVERY pushed scope must carry —
+    // one choke point so a future third scope cannot be added without it.
+    // The chain being pinned is unchanged, so it is pinned as two links: the
+    // mode scope goes into `pushScope`, and `pushScope` applies it against
+    // the live ctx maps.
+    expect(/if \(scope\) pushScope\(scope\)/.test(executorSrc)).toBe(true);
+    expect(
+      /runToolScopes\.push\(\w+\);\s*ctx\.agentTools = applyToolFilters\(ctx\.agentTools,\s*ctx\.builtinToolDefsMap,\s*\w+\)/
+        .test(executorSrc),
+    ).toBe(true);
 
     const scopeSrc = readFileSync(
       join(import.meta.dir, "..", "runtime", "tools", "mode-tool-scope.ts"),

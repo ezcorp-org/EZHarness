@@ -318,7 +318,7 @@ run_legs() {
   # file already documents from PR #97, reached the other way round.
   #
   # Measured instance (2026-08-05): `src/hooks.server.ts` was on NEITHER list,
-  # so all nine `src/__tests__/hooks-server-*.server.test.ts` suites were
+  # so EVERY `src/__tests__/hooks-server-*.server.test.ts` suite was
   # unmeasured. A change to hooks.server.ts read as uncovered against the
   # `web/src/**` catch-all no matter how many tests covered it, and the last
   # author to hit this worked around the gate by porting a green vitest suite
@@ -382,10 +382,12 @@ run_legs() {
       src/__tests__/session-cookie.server.test.ts \
       src/__tests__/hooks-server-dev-indicator.server.test.ts \
       src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts \
+      src/__tests__/hooks-server-gate-initiator.server.test.ts \
       src/__tests__/hooks-server-get-client-ip.server.test.ts \
       src/__tests__/hooks-server-invite-public-path.server.test.ts \
       src/__tests__/hooks-server-onboarding-redirect.server.test.ts \
       src/__tests__/hooks-server-return-to.server.test.ts \
+      src/__tests__/hooks-server-route-allowlist.server.test.ts \
       src/__tests__/hooks-server-session-refresh.server.test.ts \
       src/__tests__/hooks-server-session-refresh-e2e.server.test.ts \
       src/__tests__/hooks-server-setup-redirect.server.test.ts \
@@ -583,6 +585,14 @@ run_legs() {
       src/__tests__/api-agent-configs-id.server.test.ts \
       src/__tests__/api-agent-configs-generate.server.test.ts \
       src/__tests__/api-projects-id-tool-permission-mode.server.test.ts \
+      src/__tests__/api-caller-tools.server.test.ts \
+      src/__tests__/tools-api-caller-parity.server.test.ts \
+      src/__tests__/api-conversations-tool-results.server.test.ts \
+      src/__tests__/api-conversations-id-messages.server.test.ts \
+      src/__tests__/api-conversations-id-messages-coverage.server.test.ts \
+      src/__tests__/api-conversations-id-messages-goal.server.test.ts \
+      src/__tests__/api-conversations-id-agent-chat.server.test.ts \
+      src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -728,6 +738,14 @@ run_legs() {
       --coverage.include='src/routes/api/composer/suggest/schema.ts' \
       --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' \
       --coverage.include='src/lib/server/sse-resume-buffer.ts' \
+      --coverage.include='src/lib/runtime-event-names.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/tool-results/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/caller-tools/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/caller-tools/schema.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/messages/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/agent-chat/+server.ts' \
+      --coverage.include='src/routes/api/settings/developer/api-keys/+server.ts' \
+      --coverage.include='src/routes/api/settings/developer/schema.ts' \
       --coverage.include='src/lib/utils/fetch-policy.ts' \
       --coverage.include='src/lib/chat/page-handlers/stream-resume.svelte.ts' \
       --coverage.include='src/lib/chat/page-handlers/task-hydrate.svelte.ts' \

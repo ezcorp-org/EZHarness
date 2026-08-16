@@ -928,6 +928,29 @@ export interface AgentEvents {
     toolName: string;
     input: unknown;
   };
+  // ── Caller-executed tools.
+  //    Emitted when the LLM calls a tool an external application declared on
+  //    this conversation: the app receives it over SSE, runs the call on ITS
+  //    machine, and POSTs the result back to the same `tool-results` endpoint
+  //    the Ez panel uses. `toolName` is the BARE declared name the app
+  //    dispatches on, never the `_caller__` wire form.
+  //
+  //    `conversationId` IS THE FIELD THAT SCOPES DELIVERY. The event is a
+  //    `SCOPED_RUNTIME_EVENT_TYPES` member, and that filter returns on the
+  //    first scope key present — so this one takes the fail-closed
+  //    conversation-OWNERSHIP branch and never reaches the exact-user branch.
+  //    `userId` (the conversation owner) rides along for attribution, and the
+  //    same owner is what the pending-call registry checks a result POST
+  //    against; it narrows nothing on the delivery side, so removing
+  //    `conversationId` here would weaken the check, not shift it.
+  "caller:tool-call": {
+    conversationId: string;
+    runId: string;
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+    userId: string;
+  };
   // ── Task Tracking Panel ──
   "task:snapshot": {
     conversationId: string;

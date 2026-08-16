@@ -20,6 +20,9 @@
  * one: a leaked `chat` key would answer approvals through the Hub instead.
  * (This docblock used to claim the whole route was "session-authed". It was
  * not, and that mismatch is exactly how the bypass survived review.)
+ *
+ * AND it is a RUN-START route, by dispatch: `core:briefing` → `run-now` reaches
+ * `executor.streamChat`. See the Boundary-3 derivation at the handler call.
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
@@ -30,6 +33,7 @@ import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getHubPageProvider, HubPageActionError } from "$server/runtime/hub-pages";
 import { validatePageTree, MAX_ACTION_PAYLOAD_BYTES } from "$server/extensions/page-schema";
 import { parseHubPageId } from "$lib/hub";
+import { runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { logger } from "$server/logger";
 
 const log = logger.child("api.hub.actions");
@@ -109,7 +113,27 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   }
 
   try {
-    const result = await handler({ userId: user.id }, payload);
+    // ── Boundary 3: the requesting key's confinement, handed to the action ──
+    // This route DISPATCHES DYNAMICALLY into a provider action, and one core
+    // action starts a run: `core:briefing` → `run-now` reaches
+    // `triggerBriefingRunNow` → `runBriefingForUser` → `executor.streamChat`.
+    // That makes this a run-start route (`RUN_START_ROUTES`), even though no
+    // run primitive is nameable in this file — which is exactly why it was
+    // invisible to the surface walker and shipped with the boundary unwired.
+    //
+    // Derived here, once, for every action: the route must not learn which
+    // actions start runs (it must not learn what an action MEANS at all), and
+    // an action that starts no run simply ignores the bag. `{}` for a cookie
+    // session and for an unpolicied key.
+    //
+    // Boundary 2 is not wired for the same reason as the run-now route: the
+    // briefing pipeline creates the conversation it runs on, so there is no
+    // persisted `mode_id` to check. A locked key is refused at mint and, for
+    // keys minted earlier, at Boundary 1.
+    const result = await handler(
+      { userId: user.id, toolPolicyOptions: runStartToolPolicyOptions(locals.apiKeyToolPolicy) },
+      payload,
+    );
     if (result === undefined) return json({ ok: true });
 
     const page = validatePageTree(result, {

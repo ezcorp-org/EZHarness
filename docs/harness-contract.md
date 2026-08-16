@@ -290,8 +290,9 @@ enforces these. When you add to the app:
    set to what the handler actually ENFORCES — never what it ought to. The
    meta-test enforces both halves, but not equally: registration is **absolute**
    (an unregistered route fails, no allowance), while the `scope` half is a
-   **ratchet** against a frozen list of the 93 pre-existing entries that declare
-   none, because `scope` is still optional on `ApiRouteEntry`. A new entry
+   **ratchet** against a frozen list of the pre-existing entries that declare
+   none (93 at freeze, 91 today), because `scope` is still optional on
+   `ApiRouteEntry`. A new entry
    without one fails by name. Registering documents the route and puts it in the
    OpenAPI spec.
 2. **New `/api/__test/**` route** → gate it with `isTestSurfaceEnabled()` from
@@ -309,7 +310,9 @@ carry the gap — 75 unregistered routes and 4 stale entries — were paid off i
 control route on disk is registered, and every registered entry exists on disk.
 Neither carve-out remains for a new gap to hide in.
 
-One frozen baseline does remain, and only one: `KNOWN_SCOPELESS`, the 93 entries
-that predate the `scope` requirement. It may only SHRINK. Retiring it means
+One frozen baseline does remain, and only one: `KNOWN_SCOPELESS`, the entries
+that predate the `scope` requirement — 93 at freeze, 91 after the two
+`POST /api/{agents,workflows}/:name/run` routes were backfilled to the `chat`
+scope their handlers enforce. It may only SHRINK. Retiring it means
 backfilling those entries, making `scope` **required** on `ApiRouteEntry` so the
 compiler enforces it, and deleting the ratchet as redundant.

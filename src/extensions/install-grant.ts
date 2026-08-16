@@ -15,10 +15,12 @@
  * EVERY manifest-declared capability, matching the bundled path. It leans on
  * the canonical `clampExtensionPermissions` for the classic + Phase-51 surfaces
  * (so the numeric clamps / kill-switch stay in one place) and then re-attaches
- * `eventSubscriptions` from the manifest verbatim — see the note on
- * `applyDeclaredEventSubscriptions` for why the clamp alone is insufficient.
+ * the manifest's `eventSubscriptions` — filtered to what the event dispatcher
+ * will actually wire. See the note on `applyDeclaredEventSubscriptions` for
+ * why the clamp alone is insufficient, and why the re-attachment is not
+ * verbatim.
  */
-import { clampExtensionPermissions } from "./clamp-permissions";
+import { clampExtensionPermissions, isGrantableEventSubscription } from "./clamp-permissions";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { getRequiredPermissions } from "./permissions";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
@@ -82,8 +84,21 @@ function normalizeDeclaredEvents(
  * names are validated by `validateManifestV2` at install time AND
  * re-validated per-namespace by the event dispatcher at `registerExtension`
  * (an event whose namespace ≠ the extension's own name is refused there), so
- * granting them verbatim is safe and matches the bundled install path, which
- * uses `intersectPermissions` (no direct-carrier filter).
+ * re-attaching them matches the bundled install path, which uses
+ * `intersectPermissions` (no direct-carrier filter).
+ *
+ * It re-attaches them FILTERED, not verbatim. `isGrantableEventSubscription`
+ * is the dispatcher's own acceptance rule, shared with the clamp: platform
+ * direct-carrier event, or own-namespace custom event. Without it this path
+ * writes whatever the manifest asks for — including a scoped runtime event
+ * (`run:token`, `caller:tool-call`) from an extension that named itself `run`
+ * or `caller`. The dispatcher refuses to wire such a name, so today that is a
+ * dead grant row rather than a leak; it is still a row that READS like access
+ * to another user's raw token stream or to the arguments of every call the
+ * user's own machine is asked to run, and it is one dispatcher edit away from
+ * being true. The clamp closed exactly this door on the admin/activate path,
+ * so leaving the auto-approve install path open would re-introduce the
+ * asymmetry between them.
  *
  * Fail-closed on the capability kill-switch: when capability tools are
  * disabled, no event subscription is granted.
@@ -98,7 +113,8 @@ function applyDeclaredEventSubscriptions(
     delete grant.grantedAt.eventSubscriptions;
     return;
   }
-  const events = normalizeDeclaredEvents(manifest.permissions?.eventSubscriptions);
+  const declared = normalizeDeclaredEvents(manifest.permissions?.eventSubscriptions);
+  const events = declared?.filter((e) => isGrantableEventSubscription(e, manifest.name));
   if (events && events.length > 0) {
     grant.eventSubscriptions = [...events];
     grant.grantedAt.eventSubscriptions = now;

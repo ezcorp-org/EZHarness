@@ -21,6 +21,19 @@ export interface PendingPermissionInfo {
   cardType?: string;
   cardLayout?: string;
   category?: string;
+  /**
+   * Run that opened this gate, when the opener knows it. Populated by the
+   * built-in permission wrapper (`tools/permission-wrap.ts`), which holds
+   * the run id; left UNSET by the extension tool-executor and the workflow
+   * host, neither of which has a run to attribute.
+   *
+   * The watchdog's deferral scopes on this field when present: a
+   * conversation can host two concurrent runs, and matching on
+   * `conversationId` alone let one run's open permission card suppress the
+   * OTHER run's idle kill for as long as the card stood. An unset value
+   * keeps the historical conversation-wide match.
+   */
+  runId?: string;
 }
 
 /**

@@ -10,6 +10,7 @@ import { getActiveRun } from "$server/db/queries/active-runs";
 import { isSessionHistoryProducerEnabled } from "$server/db/session-sync";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { buildCommandResolver } from "$lib/server/command-resolver";
+import { runStartPolicyDenial, runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { validationError } from "$lib/server/security/validation";
 import { retryMessageSchema } from "./schema";
 import type { RequestHandler } from "./$types";
@@ -51,6 +52,20 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const ownership = await resolveRootConversationForOwnership(conversationId, user);
   if (!ownership) return errorJson(404, "Not found");
   const conv = ownership.conv;
+
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
+  // A retry re-runs a turn, so it is a run-start route and was a way AROUND the
+  // lock: the messages route refused the send, and this route re-ran the very
+  // same turn without asking. Checked against the same PERSISTED `conv.modeId`
+  // the run below is threaded with, and placed first so a refused key does no
+  // work at all. `isGoalCommand: false` — a retry replays an existing user row
+  // and can never arm autopilot; the armed-conversation arm still applies.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, conv, {
+    isGoalCommand: false,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
 
   if (!(await isSessionHistoryProducerEnabled())) {
     return errorJson(409, "Session history producer is disabled", { code: "session_producer_disabled" });
@@ -113,6 +128,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     modeId: conv.modeId ?? undefined,
     thinkingLevel: parsed.data.thinkingLevel,
     commandResolver: buildCommandResolver(user.id, conv.projectId),
+    // Boundary 3 — see the messages route. A retry re-runs the same turn, so
+    // it must be confined exactly as the original was; anything less would
+    // make "retry" the way around the boundary.
+    ...runStartToolPolicyOptions(locals.apiKeyToolPolicy),
   });
   streamPromise.catch((err) => {
     log.error("retry streamChat error", { error: err instanceof Error ? err.message : String(err) });

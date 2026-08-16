@@ -33,6 +33,13 @@ import type { AgentEvents } from "../types";
 import { applyToolFilters } from "../runtime/tools/filter";
 import { wireEzToolsForTurn } from "../runtime/ez-tools-host";
 import { EZ_TOOL_NAMES } from "../runtime/tools/ez";
+import { makeTestPermissionDeps } from "./helpers/permission-wrap-deps";
+
+/** Every host wire now takes the per-turn permission-gate context; these
+ *  tests exercise registration, not the gate itself, so one shared stub
+ *  serves them all (the gate's own behaviour is pinned by
+ *  `permission-wrap.test.ts`). */
+const permissionDeps = makeTestPermissionDeps().deps;
 
 function freshTurn(): {
   agentTools: AgentTool[];
@@ -50,6 +57,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
   test("registers all nine Ez tool names into ctx.agentTools", () => {
     const turn = freshTurn();
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
@@ -71,6 +79,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
   test("dedupes — calling twice in the same turn doesn't double-register", () => {
     const turn = freshTurn();
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
@@ -78,6 +87,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
       bus: turn.bus,
     });
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
@@ -93,6 +103,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     // a misconfigured extension). The Ez wire MUST NOT push a duplicate.
     turn.agentTools.push({ name: "fill_form" } as unknown as AgentTool);
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
@@ -118,6 +129,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     turn.builtinToolDefsMap.set("writeFile", { name: "writeFile", category: "write" } as BuiltinToolDef);
 
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
@@ -172,6 +184,7 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     // `conversationId` so the LLM is forced to supply it explicitly.
     const turn = freshTurn();
     wireEzToolsForTurn({
+      permissionDeps,
       agentTools: turn.agentTools,
       builtinToolDefsMap: turn.builtinToolDefsMap,
       conversationId: "ez-conv-1",
