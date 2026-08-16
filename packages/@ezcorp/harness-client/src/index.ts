@@ -234,6 +234,10 @@ export interface ServeCallerToolsOptions {
    * the code the tool runs, so self-approval grants nothing new — what the
    * gate buys is a recorded, per-call, deniable decision the human owner can
    * see and veto live. Set false when a human approves out of band.
+   *
+   * Strictly THIS conversation's: a gate the shared user-scoped stream
+   * carries for any other conversation is left for whoever owns it, so a
+   * second loop's `autoApprove: false` keeps its veto.
    */
   autoApprove?: boolean;
   /** Delay before reconnecting after the stream ends or errors. */
@@ -838,8 +842,9 @@ export class HarnessClient {
   // ── Serve caller-executed tools ────────────────────────────────────
   /**
    * Run this device as the executor for a conversation's caller tools until
-   * `opts.signal` aborts: approve each `_caller__*` permission gate, execute
-   * the call with the matching handler, POST the result back.
+   * `opts.signal` aborts: approve each of THIS conversation's `_caller__*`
+   * permission gates, execute the call with the matching handler, POST the
+   * result back.
    *
    * `handlers` is keyed by the BARE declared name (`open_app`), not the
    * namespaced runtime name.
@@ -955,11 +960,29 @@ export class HarnessClient {
             const toolCallId = evt.data.toolCallId;
             if (
               autoApprove &&
+              // Same scope check `dispatch` opens with, and for the same
+              // reason: the SSE stream is USER-scoped, not conversation-scoped
+              // (the `conversationId` query param is a cache-key hint), so this
+              // connection carries the gates of every conversation the key's
+              // user owns. Without this, one serve loop with `autoApprove` on
+              // would answer the gates of a second loop that deliberately left
+              // it off for a human to decide. The comparison is against a
+              // `string` parameter, so a missing or non-string id fails it —
+              // an unattributable gate is never ours to approve.
+              evt.data.conversationId === conversationId &&
               typeof toolName === "string" &&
               toolName.startsWith(CALLER_TOOL_NAMESPACE) &&
               typeof toolCallId === "string"
             ) {
-              await this.resolveToolPermission(toolCallId, true);
+              try {
+                await this.resolveToolPermission(toolCallId, true);
+              } catch (err) {
+                // A refused approval is this gate's problem, not the stream's:
+                // throwing here would unwind the `for await` and drop the
+                // connection, so report it the way a transport error is
+                // reported and keep serving.
+                onError?.(err);
+              }
             }
           } else if (TERMINAL_RUN_EVENTS.has(evt.type)) {
             // Per-runId drop: this run's gates are gone, so anything of its

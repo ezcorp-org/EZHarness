@@ -845,6 +845,10 @@ function callerToolsFake(opts: {
   pendings?: CallerToolCall[][];
   connections?: Array<string[] | "throw">;
   resolvedAck?: boolean;
+  /** Status the gate-resolve route answers with — set it to refuse the
+   *  approval (an expired gate, a revoked scope) and see what that does to
+   *  the serve loop. Defaults to accepting. */
+  permissionStatus?: number;
 }): { stub: typeof fetch; calls: FakeCall[] } {
   const calls: FakeCall[] = [];
   let activeRunCalls = 0;
@@ -874,7 +878,14 @@ function callerToolsFake(opts: {
         Response.json(resolved ? { ok: true, resolved } : { ok: true, resolved, reason: "already-resolved" }),
       );
     }
-    if (url.pathname.endsWith("/permission")) return Promise.resolve(Response.json({ ok: true }));
+    if (url.pathname.endsWith("/permission")) {
+      const status = opts.permissionStatus ?? 200;
+      return Promise.resolve(
+        status === 200
+          ? Response.json({ ok: true })
+          : Response.json({ error: "gate is gone" }, { status }),
+      );
+    }
     if (url.pathname === "/api/runtime-events") {
       const script = opts.connections?.[connections];
       connections += 1;
@@ -904,7 +915,25 @@ function callerEvent(over: Partial<CallerToolCall> = {}): string {
   return `data: ${JSON.stringify({ type: "caller:tool-call", data })}\n\n`;
 }
 
+/**
+ * One `tool:permission_request` frame. Every field is overridable — including
+ * to a wrong TYPE or (via `undefined`, which `JSON.stringify` drops) to absent,
+ * because the payload crosses a network boundary and the client narrows all
+ * three fields itself.
+ */
+function gateEvent(over: Record<string, unknown> = {}): string {
+  const data: Record<string, unknown> = {
+    conversationId: "c1",
+    toolCallId: "tc-gate",
+    toolName: "_caller__open_app",
+    ...over,
+  };
+  return `data: ${JSON.stringify({ type: "tool:permission_request", data })}\n\n`;
+}
+
 const resultPosts = (calls: FakeCall[]) => calls.filter((c) => c.path.endsWith("/tool-results"));
+const approvalPaths = (calls: FakeCall[]) =>
+  calls.filter((c) => c.path.endsWith("/permission")).map((c) => c.path);
 
 describe("HarnessClient — caller-tool route table + methods", () => {
   test("every caller-tools route is in the shared table at the registered path", () => {
@@ -1161,17 +1190,15 @@ describe("HarnessClient — serveCallerTools", () => {
 
   test("auto-approves a _caller__* gate and leaves every other gate alone", async () => {
     const controller = new AbortController();
-    const gate = (toolName: string, toolCallId: string) =>
-      `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName, toolCallId, conversationId: "c1" } })}\n\n`;
     const { stub, calls } = callerToolsFake({
       controller,
       abortAfterActiveRunCalls: 2,
       connections: [
         [
-          gate("_caller__open_app", "tc-gate"),
-          gate("shell", "tc-shell"),
+          gateEvent(),
+          gateEvent({ toolName: "shell", toolCallId: "tc-shell" }),
           // A gate with a non-string toolCallId must not be answered either.
-          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: 7 } })}\n\n`,
+          gateEvent({ toolCallId: 7 }),
         ],
       ],
     });
@@ -1185,23 +1212,100 @@ describe("HarnessClient — serveCallerTools", () => {
     expect(approvals[0]!.body).toEqual({ approved: true });
   });
 
-  test("autoApprove:false answers no gate at all", async () => {
+  // ── The gate stream is USER-scoped ──────────────────────────────────
+  //
+  // `/api/runtime-events` narrows on the payload's userId and on conversation
+  // OWNERSHIP; the `conversationId` query param is a cache-key hint the filter
+  // does not enforce. So one connection carries every gate this key's user
+  // owns, and the approval branch — like `dispatch` before it — has to do its
+  // own scoping. The loop that gets this wrong silently answers the gates of a
+  // sibling loop running `autoApprove: false` for a human to decide.
+  test("a _caller__* gate from ANOTHER conversation is not auto-approved", async () => {
     const controller = new AbortController();
     const { stub, calls } = callerToolsFake({
       controller,
       abortAfterActiveRunCalls: 2,
       connections: [
         [
-          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: "tc-gate" } })}\n\n`,
+          gateEvent({ conversationId: "OTHER", toolCallId: "tc-foreign" }),
+          // Same tool, same shape, THIS conversation — the only difference is
+          // the id, so the conversation is provably what discriminates.
+          gateEvent({ toolCallId: "tc-mine" }),
         ],
       ],
     });
     await fakeClient(stub).serveCallerTools(
       "c1",
       { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    expect(approvalPaths(calls)).toEqual(["/api/tool-calls/tc-mine/permission"]);
+  });
+
+  test("a gate with a missing or non-string conversationId fails CLOSED", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [
+        [
+          // `undefined` drops the key from the JSON entirely.
+          gateEvent({ conversationId: undefined, toolCallId: "tc-absent" }),
+          gateEvent({ conversationId: 7, toolCallId: "tc-nonstring" }),
+          gateEvent({ conversationId: null, toolCallId: "tc-null" }),
+          gateEvent({ toolCallId: "tc-mine" }),
+        ],
+      ],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
+      { signal: controller.signal, reconnectDelayMs: 0 },
+    );
+    // An unattributable gate is not this loop's to answer: skipped, never
+    // approved "just in case".
+    expect(approvalPaths(calls)).toEqual(["/api/tool-calls/tc-mine/permission"]);
+  });
+
+  test("a REFUSED approval is reported and the stream keeps running", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      permissionStatus: 403,
+      connections: [[gateEvent(), callerEvent({ toolCallId: "tc-after" })]],
+    });
+    const errors: unknown[] = [];
+    let ran = 0;
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => { ran += 1; return {}; } },
+      { signal: controller.signal, reconnectDelayMs: 0, onError: (e) => errors.push(e) },
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(HarnessApiError);
+    expect((errors[0] as HarnessApiError).status).toBe(403);
+    // …and the event AFTER the failed gate was still served, on the SAME
+    // connection: a throw out of the `for await` would have unwound the
+    // stream and opened a second one.
+    expect(ran).toBe(1);
+    expect(resultPosts(calls)[0]!.body).toMatchObject({ toolCallId: "tc-after" });
+    expect(calls.filter((c) => c.path === "/api/runtime-events")).toHaveLength(1);
+  });
+
+  test("autoApprove:false answers no gate at all", async () => {
+    const controller = new AbortController();
+    const { stub, calls } = callerToolsFake({
+      controller,
+      abortAfterActiveRunCalls: 2,
+      connections: [[gateEvent()]],
+    });
+    await fakeClient(stub).serveCallerTools(
+      "c1",
+      { open_app: () => ({}) },
       { signal: controller.signal, reconnectDelayMs: 0, autoApprove: false },
     );
-    expect(calls.filter((c) => c.path.endsWith("/permission"))).toHaveLength(0);
+    expect(approvalPaths(calls)).toHaveLength(0);
   });
 
   test("a run's terminal event drops that run's open calls (and a runId-less one is ignored)", async () => {
@@ -1330,10 +1434,7 @@ describe("serveCallerTools — the two events disagree about the tool-name form"
       controller,
       abortAfterActiveRunCalls: 2,
       connections: [
-        [
-          `data: ${JSON.stringify({ type: "tool:permission_request", data: { toolName: "_caller__open_app", toolCallId: "tc-gate" } })}\n\n`,
-          callerEvent({ toolCallId: "tc-bare", toolName: "open_app" }),
-        ],
+        [gateEvent(), callerEvent({ toolCallId: "tc-bare", toolName: "open_app" })],
       ],
     });
     let ran = 0;
@@ -1343,9 +1444,7 @@ describe("serveCallerTools — the two events disagree about the tool-name form"
       { signal: controller.signal, reconnectDelayMs: 0 },
     );
     // The WIRE-form gate was approved…
-    expect(calls.filter((c) => c.path.endsWith("/permission")).map((c) => c.path)).toEqual([
-      "/api/tool-calls/tc-gate/permission",
-    ]);
+    expect(approvalPaths(calls)).toEqual(["/api/tool-calls/tc-gate/permission"]);
     // …and the BARE-form call found its handler.
     expect(ran).toBe(1);
     expect(resultPosts(calls)[0]!.body).toMatchObject({
