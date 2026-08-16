@@ -182,4 +182,82 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/retry", () => {
     expect(body.resetAssignmentIds.sort()).toEqual(["as-1", "as-2"]);
     expect(body.spawned).toBeNull();
   });
+
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────────
+  //
+  // This route auto-spawns the assignment, so it STARTS A RUN and had no mode
+  // check anywhere on the path. A key minted `--locked-mode` reached it — the
+  // mint guard read the key's reach off a `routeAllowlist` it did not have and
+  // passed vacuously — and spawned an agent the lock was supposed to prevent.
+  //
+  // What the lock buys HERE, stated so nobody reads more into it: it gates
+  // WHICH conversations the key may spawn from. The spawned agent still runs
+  // under its own agent config, because `startAssignment` takes neither a mode
+  // nor a Boundary-3 option bag. That residual is identical for an unlocked
+  // policied key, so the lock remains a strict narrowing.
+  describe("Boundary 2 — per-API-key mode lock", () => {
+    const MODE = "mode-locked";
+    /** A FRESH snapshot per test: the handler resets the task in place
+     *  (`task.status = "pending"`), so a shared literal would leave every
+     *  arm after the first one hitting the 409 "not failed" guard. */
+    const failedTask = () => ({
+      conversationId: "c1",
+      tasks: [{ id: "t1", status: "failed", assignments: [], subtasks: [] }],
+    });
+    const policied = (policy: Record<string, unknown>) => ({
+      user,
+      apiKeyScopes: ["chat"],
+      apiKeyToolPolicy: policy,
+    });
+    const post = (locals: Record<string, unknown>) =>
+      POST(makeEvent({ locals, body: {} }));
+
+    beforeEach(() => {
+      getTaskSnapshotForConversation.mockImplementation(async () => failedTask());
+    });
+
+    test("a conversation under a DIFFERENT mode is 403 lockedModeId", async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: "mode-other" });
+      const res = await post(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+      // Refused before the snapshot is read, so a rejected key never mutates
+      // task state and learns nothing about it.
+      expect(getTaskSnapshotForConversation).not.toHaveBeenCalled();
+    });
+
+    test("a conversation with NO mode BRICKS a locked key (fail-closed)", async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: null });
+      const res = await post(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+    });
+
+    test("a policied key may not retry a task on a goal-armed conversation", async () => {
+      getConversation.mockResolvedValue({
+        id: "c1",
+        userId: "u1",
+        modeId: MODE,
+        metadata: { goal: { condition: "ship it" } },
+      });
+      const res = await post(policied({ lockedModeId: MODE }));
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ field: "goal" });
+    });
+
+    test("an in-policy retry is allowed", async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: MODE });
+      expect((await post(policied({ lockedModeId: MODE }))).status).toBe(200);
+    });
+
+    test("an UNPOLICIED key is unchanged by a null mode", async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: null });
+      expect((await post({ user, apiKeyScopes: ["chat"] })).status).toBe(200);
+    });
+
+    test("a COOKIE SESSION is unchanged by a null mode", async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", modeId: null });
+      expect((await post({ user })).status).toBe(200);
+    });
+  });
 });

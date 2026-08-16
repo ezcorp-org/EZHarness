@@ -20,7 +20,7 @@ less than it does now.
 | | Enforces | Where |
 |---|---|---|
 | **1 — Reach** | `routeAllowlist`: the key reaches only the routes it was minted for, including routes added to the app later | `web/src/hooks.server.ts` (pre-`resolve()`) |
-| **2 — Mode** | `lockedModeId`: run-start refused unless the conversation's PERSISTED `mode_id` matches; plus no arming autopilot and no sending to a goal-armed conversation | `POST /api/conversations/[id]/messages` |
+| **2 — Mode** | `lockedModeId`: run-start refused unless the conversation's PERSISTED `mode_id` matches; plus no arming autopilot and no sending to a goal-armed conversation | every conversation-scoped run-start route (5 — see below) |
 | **3 — Run tool surface** | `allowedCallerTools` at execution, and a namespace-stripping deny of the LLM's spawn primitives | `src/runtime/tools/filter.ts` + `executor.ts`, wired by every run-start route |
 
 Boundaries 1 and 3 are complementary, not alternatives: 1 covers
@@ -46,10 +46,23 @@ policied key's spawn-deny did nothing mid-turn.
 `src/__tests__/policy-run-start-surface.test.ts` now asserts the wiring from
 the ROUTE side, which is the side that was blind.
 
-The other three run-start routes (`agents/[name]/run`,
-`workflows/[name]/run`, the two task routes) take no such option — `runAgent`,
-`runWorkflow` and `startAssignment` have no per-run policy parameter — so
+The other four run-start routes (`agents/[name]/run`, `workflows/[name]/run`
+and the two task routes) take no such option — `runAgent`, `runWorkflow` and
+`startAssignment` have no per-run policy parameter. The two task routes still
+run **Boundary 2**; the two `run` routes have no conversation at all, so
 Boundary 1 is the whole control on them.
+
+**Boundary 2 runs on all five conversation-scoped run-start routes**:
+`messages`, `messages/[mid]/retry`, `agent-chat`, `tasks/[taskId]/retry` and
+`tasks/[taskId]/assignments/[assignmentId]/start`. The first three run
+`streamChat` against the very conversation whose `mode_id` was just checked and
+thread that same `modeId` into the call, so the lock gates the reach **and**
+applies the mode's tool scope to the run. The two task routes spawn an
+assignment: `startAssignment` creates a fresh sub-conversation and runs it under
+the assignment's agent config, so the lock gates *which conversations the key
+may spawn from* and does not narrow the spawned agent's surface. That residual
+is identical for an unlocked policied key, so the lock is still a strict
+narrowing — but do not read more into it.
 
 ## Shape
 
@@ -98,23 +111,42 @@ actor is unconstrained, which is the common case (the mint route is
 **`validateToolPolicy` resolves every route against `src/api-registry.ts`.** A
 typo would otherwise mint a key denied on a route its operator believes they
 granted — a silent deny, and the failure mode that makes route allowlists rot.
-It also refuses a `lockedModeId` whose allowlist reaches ANY run-start route
-that does not run the mode guard, so the guarded set and the reachable set
-cannot drift apart.
+It also refuses a `lockedModeId` that REACHES any run-start route which does not
+run the mode guard, so the guarded set and the reachable set cannot drift apart.
+
+**A `lockedModeId` REQUIRES a `routeAllowlist`.** "Reaches" means the allowlist
+when there is one and **every** run-start route when there is not, because
+Boundary 1 engages only on positive presence (`if (routeAllow)` in
+`hooks.server.ts`) — an absent allowlist confines nothing. So
+`ezcorp key mint --locked-mode <id>` with no `--route-bundle` is a refusal, and
+the message names the routes and a bundle to use instead.
+
+This check was **non-monotonic** and that was a vulnerability. It derived reach
+from `policy.routeAllowlist ?? []`, so the absent case iterated nothing and
+passed vacuously: the guard REFUSED
+`{lockedModeId, routeAllowlist:["POST /api/agents/[name]/run"]}` while ACCEPTING
+the strictly wider `{lockedModeId}`. A key minted `--locked-mode` with no bundle
+reported as confined and was not — the holder detoured to a run-start route that
+never called `mayUseMode` and had the mode's denied tools back, `shell`
+included. The invariant now asserted in `tool-policy.test.ts`: **nothing wider
+than a refused policy may be accepted.** Note this fixes the MINT; keys already
+minted that way are confined only by the route-side guard, so re-mint them.
 
 **`RUN_START_ROUTES` is derived from the tree, not trusted as a list.** The
 hand-written predecessor named three routes and had omitted four — including
 `…/tasks/[taskId]/assignments/[…]/start` and `…/tasks/[taskId]/retry`, which
-reach `startAssignment` and so start a run with no mode check at all. Its only
+reach `startAssignment` and so started a run with no mode check at all. Its only
 test asserted `MODE_GUARDED ⊆ RUN_START`, the subset direction that cannot
-detect an omission, so a `lockedModeId` policy naming either task route
-validated cleanly and never consulted the lock.
+detect an omission.
 `src/__tests__/policy-run-start-surface.test.ts` walks every handler under
 `web/src/routes/api/**` per exported HTTP verb and fails when the list and the
-tree disagree in either direction. Two of the seven routes
+tree disagree in either direction — for `RUN_START_ROUTES` **and** for
+`MODE_GUARDED_RUN_START_ROUTES`, whose members it derives by finding the routes
+that actually call `runStartPolicyDenial`. Two of the seven routes
 (`agents/[name]/run`, `workflows/[name]/run`) have no conversation to read a
 `mode_id` from, so a lock is not enforceable on them even in principle — which
-is exactly why a locked key must not be able to name them.
+is exactly why a locked key must not be able to name them, and why a lock with
+no allowlist (reaching both) can never be minted.
 
 ## Route bundles
 

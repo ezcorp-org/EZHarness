@@ -117,9 +117,10 @@ export const ROUTE_BUNDLES: Record<string, readonly string[]> = {
  *
  * {@link MODE_GUARDED_RUN_START_ROUTES} is the subset that actually CALLS
  * {@link mayUseMode} today. The difference between the two sets is a hole, so
- * {@link validateToolPolicy} refuses to mint a `lockedModeId` policy whose
- * allowlist reaches an unguarded one — a route can join a bundle only after
- * its guard exists.
+ * {@link validateToolPolicy} refuses to mint a `lockedModeId` policy that
+ * REACHES an unguarded one — a route can join a bundle only after its guard
+ * exists. "Reaches" means the allowlist when there is one and ALL of these
+ * routes when there is not, because an absent allowlist confines nothing.
  *
  * THIS LIST IS HAND-WRITTEN AND THEREFORE UNTRUSTWORTHY ON ITS OWN. Its only
  * test used to be `MODE_GUARDED ⊆ CONVERSATION_RUN_START`, which is the
@@ -147,11 +148,38 @@ export const RUN_START_ROUTES: readonly string[] = [
   "POST /api/workflows/[name]/run",
 ];
 
-/** The run-start routes that enforce {@link mayUseMode}. Grows only alongside
- *  a real guard in the handler — `tool-policy-mode-guard.test.ts` asserts each
- *  named route file calls the guard. */
+/**
+ * The run-start routes that enforce {@link mayUseMode}. Grows only alongside a
+ * real guard in the handler — `policy-run-start-surface.test.ts` asserts each
+ * named route file actually calls {@link runStartPolicyDenial}.
+ *
+ * This is EVERY conversation-scoped run-start route. The two absentees,
+ * `POST /api/agents/[name]/run` and `POST /api/workflows/[name]/run`, start a
+ * run with no conversation to read a `mode_id` from, so a locked mode is not
+ * enforceable on them even in principle — which is exactly why a locked key
+ * must not be able to name them, and why a lock with NO allowlist (reaching
+ * both) is refused at mint.
+ *
+ * Scope of the guarantee, stated because the two shapes differ:
+ *
+ *  - `messages`, `messages/[mid]/retry` and `agent-chat` run `streamChat`
+ *    against the very conversation whose `mode_id` was just checked, and each
+ *    threads that same `modeId` into the call — so the lock both gates the
+ *    reach AND applies the mode's tool scope to the run.
+ *  - The two `tasks/…` routes spawn an ASSIGNMENT: `startAssignment` creates a
+ *    fresh sub-conversation and runs it under the assignment's agent config.
+ *    The lock gates WHICH conversations the key may spawn from; it does not
+ *    narrow the spawned agent's tool surface (`startAssignment` takes neither a
+ *    mode nor a {@link RunStartToolPolicyOptions} bag). That residual is
+ *    identical for an unlocked policied key, so the lock is still a strict
+ *    narrowing — but do not read more into it than that.
+ */
 export const MODE_GUARDED_RUN_START_ROUTES: readonly string[] = [
+  "POST /api/conversations/[id]/agent-chat",
   "POST /api/conversations/[id]/messages",
+  "POST /api/conversations/[id]/messages/[mid]/retry",
+  "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+  "POST /api/conversations/[id]/tasks/[taskId]/retry",
 ];
 
 /** Resolve a bundle name to its route list. Unknown name ⇒ `null`, so the
@@ -260,17 +288,40 @@ export async function validateToolPolicy(
       }
     }
     // A locked mode that the key can route AROUND is not a lock. Every
-    // run-start route in the allowlist must be one that actually calls
+    // run-start route the key REACHES must be one that actually calls
     // mayUseMode; otherwise the mint is refused so the hole cannot ship as a
     // bundle entry.
+    //
+    // THE REACHABLE SET IS NOT THE ALLOWLIST WHEN THERE IS NO ALLOWLIST. This
+    // check read absent as `?? []` — iterate nothing, pass vacuously — while
+    // Boundary 1 binds on POSITIVE PRESENCE (`if (routeAllow)` in
+    // `hooks.server.ts`), so an absent allowlist reaches EVERY route. That made
+    // the guard NON-MONOTONIC: it refused
+    // `{lockedModeId, routeAllowlist:["POST /api/agents/[name]/run"]}` and
+    // accepted the strictly WIDER `{lockedModeId}` — and the wider key was the
+    // one that could detour to an unguarded run-start route, skip `mayUseMode`
+    // entirely, and get back the unfiltered tool surface (`shell` included). A
+    // key minted `--locked-mode` with no bundle reported as confined and was
+    // not. Nothing wider than a refused policy may be accepted.
     const guarded = new Set(MODE_GUARDED_RUN_START_ROUTES);
-    const unguarded = (policy.routeAllowlist ?? []).filter(
-      (r) => RUN_START_ROUTES.includes(r) && !guarded.has(r),
-    );
-    for (const r of unguarded) {
+    if (policy.routeAllowlist === undefined) {
+      const unguardable = RUN_START_ROUTES.filter((r) => !guarded.has(r));
       errors.push(
-        `lockedModeId cannot be enforced on "${r}" — remove it from routeAllowlist`,
+        `lockedModeId requires a routeAllowlist: with none the key reaches EVERY route, ` +
+          `including ${unguardable.length} run-start route(s) where the lock cannot be enforced ` +
+          `(${unguardable.join(", ")}). Mint with a route bundle (${routeBundleNames().join(", ")}) ` +
+          `or name a routeAllowlist that excludes them.`,
       );
+    } else if (Array.isArray(policy.routeAllowlist)) {
+      // A present-but-malformed allowlist (not an array) is already refused by
+      // validateRouteAllowlist, so there is no reachable set to reason about.
+      for (const r of policy.routeAllowlist) {
+        if (RUN_START_ROUTES.includes(r) && !guarded.has(r)) {
+          errors.push(
+            `lockedModeId cannot be enforced on "${r}" — remove it from routeAllowlist`,
+          );
+        }
+      }
     }
   }
 

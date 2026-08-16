@@ -183,6 +183,10 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     function installSubConvGraph(opts: {
       agentConfig?: { provider?: string; model?: string; name?: string; prompt?: string };
       parentConvModel?: { provider?: string; model?: string };
+      /** The SUB-conversation's own persisted mode — the row Boundary 2 reads
+       *  and the row whose `modeId` the run is threaded with. Spawned
+       *  sub-conversations carry none, which is the default here. */
+      subConv?: { modeId?: string | null; metadata?: Record<string, unknown> };
     } = {}) {
       getConversation.mockImplementation(async (id: string) => {
         if (id === "sub-1") {
@@ -195,6 +199,8 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
             systemPrompt: null,
             model: null,
             provider: null,
+            modeId: opts.subConv?.modeId ?? null,
+            metadata: opts.subConv?.metadata ?? null,
           } as any;
         }
         if (id === "parent-1") {
@@ -507,6 +513,88 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         expect(res.status).toBe(200);
         expect(Object.keys(optsOf())).not.toContain("forceDenyOrchestration");
         expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
+      });
+    });
+
+    // ── Boundary 2: the mode lock, on the route that used to ignore it ───
+    //
+    // THIS ROUTE WAS THE DETOUR. It starts a run and never consulted
+    // `mayUseMode`, so a key minted `--locked-mode` — which `validateToolPolicy`
+    // accepted with no allowlist, and which therefore reached EVERY route —
+    // could send here and get back the tool surface the locked mode denies,
+    // `shell` included. Four arms, and the last two are the back-compat
+    // contract: policy binds the key, never the human.
+    describe("Boundary 2 — per-API-key mode lock", () => {
+      const MODE = "mode-locked";
+      const policied = (policy: Record<string, unknown>) => ({
+        user,
+        apiKeyScopes: ["chat"],
+        apiKeyToolPolicy: policy,
+      });
+      const send = (locals: Record<string, unknown>) =>
+        POST(makeEvent({ locals, body: { content: "hi" } }));
+      /** The options bag the route handed the executor. */
+      const optsOf = () =>
+        (streamChat.mock.calls[0] as unknown as [string, string, Record<string, unknown>])[2];
+      const agentConfig = {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        name: "Agent",
+        prompt: "p",
+      };
+
+      test("a sub-conversation under a DIFFERENT mode is 403 lockedModeId", async () => {
+        installSubConvGraph({ agentConfig, subConv: { modeId: "mode-other" } });
+        const res = await send(policied({ lockedModeId: MODE }));
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+        // Refused before the user row is persisted, so a rejected turn leaves
+        // no trace in the sub-conversation's feed.
+        expect(createMessage).not.toHaveBeenCalled();
+        expect(streamChat).not.toHaveBeenCalled();
+      });
+
+      test("a spawned sub-conversation carries NO mode, and that BRICKS a locked key", async () => {
+        // `createSubConversation` never sets `mode_id`, so this is the shape a
+        // locked key actually meets here. Fail-closed: no mode is not "no
+        // constraint".
+        installSubConvGraph({ agentConfig });
+        const res = await send(policied({ lockedModeId: MODE }));
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+        expect(streamChat).not.toHaveBeenCalled();
+      });
+
+      test("an in-policy send runs, and the run is THREADED with the locked mode", async () => {
+        // The half that makes the lock real rather than decorative. Admitting
+        // the request and then running the turn with no `modeId` would hand
+        // back the unfiltered tool surface the mode exists to narrow.
+        installSubConvGraph({ agentConfig, subConv: { modeId: MODE } });
+        const res = await send(policied({ lockedModeId: MODE }));
+        expect(res.status).toBe(200);
+        expect(optsOf().modeId).toBe(MODE);
+      });
+
+      test("a policied key may not send to a goal-armed sub-conversation", async () => {
+        installSubConvGraph({
+          agentConfig,
+          subConv: { modeId: MODE, metadata: { goal: { condition: "ship it" } } },
+        });
+        const res = await send(policied({ lockedModeId: MODE }));
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ field: "goal" });
+      });
+
+      test("an UNPOLICIED key is unchanged by a null mode", async () => {
+        installSubConvGraph({ agentConfig });
+        expect((await send({ user, apiKeyScopes: ["chat"] })).status).toBe(200);
+        // …and threads no mode, exactly as before this guard existed.
+        expect(optsOf().modeId).toBeUndefined();
+      });
+
+      test("a COOKIE SESSION is unchanged by a null mode", async () => {
+        installSubConvGraph({ agentConfig });
+        expect((await send({ user })).status).toBe(200);
       });
     });
   });

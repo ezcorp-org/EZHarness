@@ -55,6 +55,20 @@ const ctxModeMissing = {
 
 const BUNDLE = ROUTE_BUNDLES["desktop-companion"]!;
 
+/**
+ * The run-start routes NO allowlist can make safe for a lock: they start a run
+ * with no conversation to read a `mode_id` from. Derived, so this file cannot
+ * disagree with the module about which routes those are.
+ */
+const UNGUARDABLE = RUN_START_ROUTES.filter(
+  (r) => !new Set(MODE_GUARDED_RUN_START_ROUTES).has(r),
+);
+
+/** The stable prefix of the refusal a lock with NO allowlist earns. The rest of
+ *  that message is a derived remedy (bundle names, route names) pinned by its
+ *  own test below, so matching on the prefix keeps the other arms readable. */
+const NEEDS_ALLOWLIST = "lockedModeId requires a routeAllowlist";
+
 describe("route bundles", () => {
   test("every bundle entry resolves to a registered route", () => {
     const known = new Set(apiRegistry.map((e) => `${e.method} ${e.path}`));
@@ -291,18 +305,21 @@ describe("validateToolPolicy", () => {
 
   describe("lockedModeId", () => {
     test("must be a non-empty string", async () => {
-      expect(await validateToolPolicy({ lockedModeId: "" }, ctxModeOk)).toEqual([
-        "lockedModeId must be a non-empty string",
-      ]);
+      // These policies name no allowlist, so they ALSO earn the reach refusal
+      // below — the shape error is asserted as the FIRST problem rather than
+      // the only one.
       expect(
-        await validateToolPolicy({ lockedModeId: 5 as unknown as string }, ctxModeOk),
-      ).toEqual(["lockedModeId must be a non-empty string"]);
+        (await validateToolPolicy({ lockedModeId: "" }, ctxModeOk))?.[0],
+      ).toBe("lockedModeId must be a non-empty string");
+      expect(
+        (await validateToolPolicy({ lockedModeId: 5 as unknown as string }, ctxModeOk))?.[0],
+      ).toBe("lockedModeId must be a non-empty string");
     });
 
     test("must resolve to a mode the KEY OWNER can see", async () => {
-      expect(await validateToolPolicy({ lockedModeId: "mode-x" }, ctxModeMissing)).toEqual([
-        'lockedModeId "mode-x" is not a mode visible to the key owner',
-      ]);
+      expect(
+        (await validateToolPolicy({ lockedModeId: "mode-x" }, ctxModeMissing))?.[0],
+      ).toBe('lockedModeId "mode-x" is not a mode visible to the key owner');
     });
 
     test("the owner id is the one handed to getMode", async () => {
@@ -323,70 +340,89 @@ describe("validateToolPolicy", () => {
 
     test("an undefined mode result is treated as missing (fail-closed)", async () => {
       expect(
-        await validateToolPolicy(
-          { lockedModeId: "mode-x" },
-          { getMode: async () => undefined, ownerId: "o", registry: apiRegistry },
-        ),
-      ).toEqual(['lockedModeId "mode-x" is not a mode visible to the key owner']);
+        (
+          await validateToolPolicy(
+            { lockedModeId: "mode-x" },
+            { getMode: async () => undefined, ownerId: "o", registry: apiRegistry },
+          )
+        )?.[0],
+      ).toBe('lockedModeId "mode-x" is not a mode visible to the key owner');
     });
 
     test("refuses a lock the allowlist can route around", async () => {
-      // agent-chat starts a run against the same conversation but does NOT
-      // call mayUseMode, so granting it while claiming a mode lock would be a
-      // lock with a documented hole. Refused at MINT, not left to the route.
+      // `agents/[name]/run` starts a run and cannot call mayUseMode — there is
+      // no conversation to read a `mode_id` from — so granting it while
+      // claiming a mode lock would be a lock with a documented hole. Refused at
+      // MINT, not left to the route.
       const errs = await validateToolPolicy(
         {
           lockedModeId: "mode-1",
-          routeAllowlist: ["POST /api/conversations/[id]/agent-chat"],
+          routeAllowlist: ["POST /api/agents/[name]/run"],
         },
         ctxModeOk,
       );
       expect(errs).toEqual([
-        'lockedModeId cannot be enforced on "POST /api/conversations/[id]/agent-chat" — remove it from routeAllowlist',
+        'lockedModeId cannot be enforced on "POST /api/agents/[name]/run" — remove it from routeAllowlist',
       ]);
     });
 
-    test("the guarded run-start route is allowed alongside a lock", async () => {
+    test("EVERY mode-guarded run-start route is allowed alongside a lock", async () => {
+      // The set moved from one route to five when the four unguarded
+      // conversation-scoped routes got their Boundary-2 guard. Iterating the
+      // exported list (rather than naming `messages`) means a route added to
+      // the guarded set without a working guard fails in
+      // `policy-run-start-surface.test.ts` instead of passing quietly here.
+      for (const route of MODE_GUARDED_RUN_START_ROUTES) {
+        expect({
+          route,
+          errs: await validateToolPolicy(
+            { lockedModeId: "mode-1", routeAllowlist: [route] },
+            ctxModeOk,
+          ),
+        }).toEqual({ route, errs: null });
+      }
+    });
+
+    test("the whole guarded set at once still mints under a lock", async () => {
+      expect(
+        await validateToolPolicy(
+          { lockedModeId: "mode-1", routeAllowlist: [...MODE_GUARDED_RUN_START_ROUTES] },
+          ctxModeOk,
+        ),
+      ).toBeNull();
+    });
+
+    test("an unguardable run-start route is fine WITHOUT a lock", async () => {
+      expect(
+        await validateToolPolicy(
+          { routeAllowlist: ["POST /api/agents/[name]/run"] },
+          ctxModeOk,
+        ),
+      ).toBeNull();
+    });
+
+    test("the task run-start routes now mint under a lock — they call the guard", async () => {
+      // CORRECTED EXPECTATION, not a weakened one. Both reach
+      // `startAssignment`, and both used to start a run with no mode check
+      // anywhere on the path — so the mint was refused. They now run
+      // `runStartPolicyDenial` before touching the snapshot
+      // (`policy-run-start-surface.test.ts` asserts that from the ROUTE side),
+      // which is exactly the condition on which a route may join the guarded
+      // set. Refusing them now would be the non-monotonic shape this fix
+      // removes: `{lock, routeAllowlist:[T]}` is strictly narrower than the
+      // already-accepted `{routeAllowlist:[T]}`.
       expect(
         await validateToolPolicy(
           {
             lockedModeId: "mode-1",
-            routeAllowlist: ["POST /api/conversations/[id]/messages"],
+            routeAllowlist: [
+              "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+              "POST /api/conversations/[id]/tasks/[taskId]/retry",
+            ],
           },
           ctxModeOk,
         ),
       ).toBeNull();
-    });
-
-    test("an unguarded run-start route is fine WITHOUT a lock", async () => {
-      expect(
-        await validateToolPolicy(
-          { routeAllowlist: ["POST /api/conversations/[id]/agent-chat"] },
-          ctxModeOk,
-        ),
-      ).toBeNull();
-    });
-
-    test("refuses a lock on the task run-start routes the old list omitted", async () => {
-      // Both reach `startAssignment`, which starts a run against the
-      // conversation with no mode check anywhere on the path. They were
-      // absent from the hand-written run-start list, so a `lockedModeId`
-      // policy naming either one validated CLEANLY and then never consulted
-      // the lock — the lock was decorative on exactly the routes that spawn.
-      const errs = await validateToolPolicy(
-        {
-          lockedModeId: "mode-1",
-          routeAllowlist: [
-            "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
-            "POST /api/conversations/[id]/tasks/[taskId]/retry",
-          ],
-        },
-        ctxModeOk,
-      );
-      expect(errs).toEqual([
-        'lockedModeId cannot be enforced on "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start" — remove it from routeAllowlist',
-        'lockedModeId cannot be enforced on "POST /api/conversations/[id]/tasks/[taskId]/retry" — remove it from routeAllowlist',
-      ]);
     });
 
     test("refuses a lock on the two run-start routes that have no conversation", async () => {
@@ -418,6 +454,66 @@ describe("validateToolPolicy", () => {
           ctxModeOk,
         ),
       ).toBeNull();
+    });
+
+    // ── The vulnerability this guard shipped with ──────────────────────
+    //
+    // `(policy.routeAllowlist ?? [])` iterated NOTHING when no allowlist was
+    // given, so the reach check passed vacuously — while Boundary 1 binds on
+    // POSITIVE PRESENCE (`if (routeAllow)` in `hooks.server.ts`), making the
+    // key's real reach EVERY route. A key minted `ezcorp key mint
+    // --locked-mode <id>` reported as confined, then detoured to a run-start
+    // route that never calls `mayUseMode` and got the unfiltered tool surface
+    // back, `shell` included.
+    test("a lock with NO allowlist is REFUSED — absent means it reaches everything", async () => {
+      const errs = await validateToolPolicy({ lockedModeId: "mode-1" }, ctxModeOk);
+      expect(errs?.some((e) => e.startsWith(NEEDS_ALLOWLIST))).toBe(true);
+    });
+
+    test("the refusal names every unguardable route and a bundle to use instead", async () => {
+      // The operator hit this by writing a reasonable command, so the message
+      // has to carry the remedy rather than just the verdict.
+      const errs = await validateToolPolicy({ lockedModeId: "mode-1" }, ctxModeOk);
+      const msg = errs!.find((e) => e.startsWith(NEEDS_ALLOWLIST))!;
+      for (const route of UNGUARDABLE) expect(msg).toContain(route);
+      for (const bundle of routeBundleNames()) expect(msg).toContain(bundle);
+      // Non-vacuous: there IS at least one route no lock can cover, which is
+      // why the absent-allowlist case can never be accepted.
+      expect(UNGUARDABLE.length).toBeGreaterThan(0);
+    });
+
+    test("THE INVARIANT: nothing wider than a refused policy is accepted", async () => {
+      // The bug in one sentence — the guard was NON-MONOTONIC. Every policy
+      // below is strictly WIDER than `{lockedModeId, routeAllowlist:[r]}` for
+      // an unguardable `r`, because dropping the allowlist removes the only
+      // field confining reach. If the narrow one is refused, so must the wide
+      // one be. This is the assertion that fails on the shipped code.
+      for (const route of UNGUARDABLE) {
+        const narrow = await validateToolPolicy(
+          { lockedModeId: "mode-1", routeAllowlist: [route] },
+          ctxModeOk,
+        );
+        const wider = await validateToolPolicy({ lockedModeId: "mode-1" }, ctxModeOk);
+        expect({ route, narrowRefused: narrow !== null, widerRefused: wider !== null }).toEqual({
+          route,
+          narrowRefused: true,
+          widerRefused: true,
+        });
+      }
+    });
+
+    test("a malformed allowlist is refused on its shape, and never crashes the reach check", async () => {
+      // `policy.routeAllowlist` is UNTRUSTED JSON off the mint request. A
+      // non-array reaches the reach check as a present-but-unusable value; it
+      // must fall through to the shape error rather than throwing on `.filter`.
+      const errs = await validateToolPolicy(
+        {
+          lockedModeId: "mode-1",
+          routeAllowlist: "POST /api/agents/[name]/run" as unknown as string[],
+        },
+        ctxModeOk,
+      );
+      expect(errs).toEqual(["routeAllowlist must be a non-empty array"]);
     });
   });
 });

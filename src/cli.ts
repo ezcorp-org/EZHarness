@@ -254,6 +254,9 @@ function printUsage(): void {
       "                  [--route-bundle <name>] [--locked-mode <modeId>] [--caller-tools a,b] [--max-caller-tools <n>]  Confine the key (tool policy)",
       "      Scope and role are INDEPENDENT axes and admin routes require BOTH:",
       "      use --scopes admin --role admin for a key that can administer the instance.",
+      "      --locked-mode REQUIRES --route-bundle: with no route confinement a key",
+      "      reaches EVERY route, including the run-start routes where a mode lock",
+      "      cannot be enforced, so the lock would confine nothing.",
       "  ezcorp help                                          Show this help",
     ].join("\n"),
   );
@@ -917,6 +920,15 @@ export async function cli(args: string[]): Promise<void> {
       if (policyErrors) {
         console.error("Error: invalid tool policy:");
         for (const e of policyErrors) console.error(`  - ${e}`);
+        // The one refusal an operator hits by writing a REASONABLE-looking
+        // command, so it gets the remedy spelled out: `--locked-mode` alone
+        // used to mint a key that reported as confined and was not.
+        if (toolPolicy?.lockedModeId !== undefined && toolPolicy.routeAllowlist === undefined) {
+          console.error(
+            `\nHint: --locked-mode does not confine a key on its own. Re-run with ` +
+              `--route-bundle <name> (known: ${routeBundleNames().join(", ")}).`,
+          );
+        }
         process.exit(1);
       }
 

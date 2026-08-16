@@ -15,6 +15,7 @@ import {
 } from "$lib/server/task-helpers";
 import { isBlocked, unsatisfiedDeps, type ReadonlyTask } from "$server/runtime/task-dependencies";
 import { withTaskSnapshotLock } from "$server/runtime/task-snapshot-lock";
+import { runStartPolicyDenial } from "$server/auth/tool-policy";
 
 // Boundary validation. Body is fully optional — the frontend may send
 // `{ model, provider }` to override the parent-turn defaults, but
@@ -73,6 +74,19 @@ const postHandler: RequestHandler = async ({ params, request, locals }) => {
   if (!conv) return errorJson(404, "Not found");
   // sec-H3b: fail-closed — unowned rows (null userId) are admin-only
   if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
+
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
+  // `startAssignment` starts a run, so this route must consult the lock. It
+  // gates WHICH conversations a locked key may spawn from; the spawned agent
+  // runs under its own agent config, because `startAssignment` takes neither a
+  // mode nor a policy option bag (see MODE_GUARDED_RUN_START_ROUTES). Placed
+  // before the snapshot is touched so a refused key never mutates task state.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, conv, {
+    isGoalCommand: false,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
 
   const { snapshot, task } = await loadSnapshotAndFindTask(params.id, params.taskId);
   if (!task) {

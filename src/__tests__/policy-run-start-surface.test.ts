@@ -14,6 +14,16 @@
  *     `routeAllowlist`, so a `lockedModeId` policy naming one of those
  *     validated cleanly and then never consulted the lock.
  *
+ *   • `MODE_GUARDED_RUN_START_ROUTES` was asserted only in the SUBSET
+ *     direction here too ("every listed route calls the guard"), which cannot
+ *     see a route that starts a run and calls NOTHING. Four did. The mint-time
+ *     refusal was supposed to compensate — but it derived the key's reach from
+ *     `policy.routeAllowlist ?? []`, so a `{lockedModeId}` policy with NO
+ *     allowlist iterated nothing and validated, while Boundary 1 binds on
+ *     positive presence and let that key reach EVERY route. The guard REFUSED
+ *     `{lock, routeAllowlist:[agent-chat]}` and ACCEPTED the strictly wider
+ *     `{lock}`. Both directions are now derived from the tree.
+ *
  *   • Boundary 3 shipped INERT. `streamChat` declared `callerToolAllowlist`
  *     and `forceDenyOrchestration`, `setup-tools` threaded them, and a test
  *     injected them directly into `streamChat` — so the boundary was green
@@ -187,6 +197,36 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
         guarded: true,
       });
     }
+  });
+
+  test("MODE_GUARDED_RUN_START_ROUTES names EXACTLY the run-start routes that call the guard", () => {
+    // BOTH directions, derived — the subset check above is the direction that
+    // cannot detect the failure that matters. A route that WIRES the guard but
+    // is missing from the list keeps refusing locked mints it could now serve
+    // (the non-monotonic shape this fix removes); a route ON the list that
+    // stopped calling the guard is a lock that silently does nothing.
+    //
+    // The set was ONE route while four conversation-scoped run-start routes
+    // ran no guard at all. A `lockedModeId` key could not name them — but a key
+    // with NO allowlist reached every one of them, because `validateToolPolicy`
+    // derived reach from the allowlist it did not have.
+    const derivedGuarded = routes
+      .filter((r) => r.reachedText.includes(B2_GUARD))
+      .map((r) => r.key);
+    expect(derivedGuarded).toEqual([...MODE_GUARDED_RUN_START_ROUTES].sort());
+  });
+
+  test("the two unguardable routes are the ones with no conversation", () => {
+    // Pinned as the COMPLEMENT, so shrinking the guarded set has to be a
+    // deliberate edit here. `runAgent` / `runWorkflow` start a run with no
+    // conversation to read a `mode_id` from, so a lock is not enforceable on
+    // them even in principle — which is why an absent routeAllowlist (reaching
+    // both) can never carry a lock.
+    const guarded = new Set(MODE_GUARDED_RUN_START_ROUTES);
+    expect(RUN_START_ROUTES.filter((r) => !guarded.has(r))).toEqual([
+      "POST /api/agents/[name]/run",
+      "POST /api/workflows/[name]/run",
+    ]);
   });
 
   test("EVERY streamChat run-start route wires Boundary 3", () => {

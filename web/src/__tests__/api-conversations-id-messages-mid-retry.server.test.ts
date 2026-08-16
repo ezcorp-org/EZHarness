@@ -46,11 +46,17 @@ vi.mock("$lib/server/security/validation", () => ({
 	validationError: () => new Response(JSON.stringify({ error: "invalid" }), { status: 400 }),
 }));
 
+// The conversation's PERSISTED mode + metadata — what Boundary 2 reads. Kept
+// mutable (and reset per test) so the lock arms can vary the row the guard sees
+// without restating the whole ownership mock.
+let convModeId: string | null = "mode-1";
+let convMetadata: Record<string, unknown> | null = null;
+
 // Ownership: authorize convId "conv-owned" for user-1, deny everything else.
 const resolveRootConversationForOwnership = vi.fn(
 	async (id: string, user: { id: string }) =>
 		id === "conv-owned" && user.id === "user-1"
-			? { conv: { id, projectId: "proj-1", provider: "anthropic", model: "claude", agentConfigId: "ac-1", modeId: "mode-1" }, root: { id } }
+			? { conv: { id, projectId: "proj-1", provider: "anthropic", model: "claude", agentConfigId: "ac-1", modeId: convModeId, metadata: convMetadata }, root: { id } }
 			: null,
 );
 vi.mock("$lib/server/conversation-ownership", () => ({
@@ -134,6 +140,8 @@ beforeEach(() => {
 	memRun = null;
 	dbRun = null;
 	budgetAllowed = true;
+	convModeId = "mode-1";
+	convMetadata = null;
 	messages = OK_MESSAGES.map((m) => ({ ...m }));
 	streamChat.mockClear();
 	streamChat.mockResolvedValue({ id: "run" });
@@ -306,4 +314,79 @@ describe("POST /api/conversations/[id]/messages/[mid]/retry", () => {
 			expect(Object.keys(optsOf())).not.toContain("callerToolAllowlist");
 		});
 	});
+
+	// ── Boundary 2: the mode lock, on the route that re-runs the turn ────
+	//
+	// The messages route refused the send; this route re-ran the SAME turn and
+	// never asked. So "retry" was a documented way around the lock — and a key
+	// minted `--locked-mode` with no allowlist reached it, because the mint
+	// guard derived the key's reach from an allowlist it did not have.
+	describe("Boundary 2 — per-API-key mode lock", () => {
+		const MODE = "mode-1";
+		const locked = (policy: Record<string, unknown> = { lockedModeId: MODE }) => ({
+			apiKeyScopes: ["chat"],
+			apiKeyToolPolicy: policy,
+		});
+		const post = (locals: Record<string, unknown>) =>
+			run(() => POST(makeEvent({}, { locals }) as never));
+
+		test("a conversation under a DIFFERENT mode is 403 lockedModeId", async () => {
+			convModeId = "mode-other";
+			const res = await post(locked());
+			expect(res.status).toBe(403);
+			expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+			expect(streamChat).not.toHaveBeenCalled();
+		});
+
+		test("a DELETED locked mode (modeId null) BRICKS the key", async () => {
+			convModeId = null;
+			const res = await post(locked());
+			expect(res.status).toBe(403);
+			expect(await res.json()).toMatchObject({ field: "lockedModeId" });
+		});
+
+		test("the refusal lands BEFORE the producer-flag and active-run guards", async () => {
+			// Order is the contract: a refused key must do no work and learn
+			// nothing about the conversation's state from the status code.
+			flagEnabled = false;
+			memRun = { id: "live" };
+			convModeId = "mode-other";
+			const res = await post(locked());
+			expect(res.status).toBe(403);
+			expect(getMessages).not.toHaveBeenCalled();
+		});
+
+		test("a policied key may not retry into a goal-armed conversation", async () => {
+			convMetadata = { goal: { condition: "ship it" } };
+			const res = await post(locked());
+			expect(res.status).toBe(403);
+			expect(await res.json()).toMatchObject({ field: "goal" });
+		});
+
+		test("an in-policy retry runs, threaded with the conversation's mode", async () => {
+			const res = await post(locked());
+			expect(res.status).toBe(200);
+			expect(optsOfCall().modeId).toBe(MODE);
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		test("an UNPOLICIED key is unchanged by a null mode", async () => {
+			convModeId = null;
+			const res = await post({ apiKeyScopes: ["chat"] });
+			expect(res.status).toBe(200);
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		test("a COOKIE SESSION is unchanged by a null mode", async () => {
+			convModeId = null;
+			const res = await run(() => POST(makeEvent() as never));
+			expect(res.status).toBe(200);
+			await new Promise((r) => setTimeout(r, 0));
+		});
+	});
 });
+
+/** The options bag the route handed the executor, for the lock arms above. */
+function optsOfCall(): Record<string, unknown> {
+	return streamChat.mock.calls[0]![2] as Record<string, unknown>;
+}

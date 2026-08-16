@@ -11,7 +11,7 @@ import { getExecutor, getBus } from "$lib/server/context";
 import { logger } from "$server/logger";
 import { enqueue } from "$server/runtime/pending-messages";
 import { buildCommandResolver } from "$lib/server/command-resolver";
-import { runStartToolPolicyOptions } from "$server/auth/tool-policy";
+import { runStartPolicyDenial, runStartToolPolicyOptions } from "$server/auth/tool-policy";
 import { CURRENT_MODEL_SENTINEL } from "$server/types";
 
 const log = logger.child("api.agent-chat");
@@ -120,6 +120,28 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // but rootConv.id for agent:complete so the main chat page can refresh.
   const parentConv = directParent;
 
+  // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────
+  // This route was a HOLE: it starts a run and never consulted the lock, so a
+  // key minted `--locked-mode` reached it and got back the tool surface the
+  // mode denies. Checked against `subConv` — the PERSISTED row of the very
+  // conversation this run executes on — and the SAME row's `modeId` is threaded
+  // into streamChat below, because admitting the run without applying the mode
+  // would confine nothing.
+  //
+  // `isGoalCommand: false` is load-bearing, not a stub: `/goal` is armed only
+  // by the messages route's interceptor, so here the text is just text and
+  // refusing it would deny a harmless send. The armed-conversation arm of the
+  // predicate still fires off `subConv.metadata.goal`.
+  //
+  // Refused BEFORE the user row is persisted, so a rejected turn leaves no
+  // trace in the sub-conversation's feed.
+  const policyDenial = runStartPolicyDenial(locals.apiKeyToolPolicy, subConv, {
+    isGoalCommand: false,
+  });
+  if (policyDenial) {
+    return errorJson(403, policyDenial.message, { field: policyDenial.field });
+  }
+
   // Save user message to the sub-conversation (appears in feed immediately)
   const leaf = await convQueries.getLatestLeaf(params.id);
   const userMessage = await convQueries.createMessage(params.id, {
@@ -201,6 +223,14 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         ? (parentConv.provider ?? undefined)
         : (config?.provider ?? parentConv.provider ?? undefined)),
     system: config?.prompt ?? subConv.systemPrompt ?? undefined,
+    // The sub-conversation's OWN persisted mode governs its run, exactly as
+    // `conv.modeId` governs the messages route's. Without this the Boundary-2
+    // check above would gate the reach and then run the turn unfiltered — a
+    // lock that admits the request and drops the mode is not a lock. Spawned
+    // sub-conversations carry no mode (`createSubConversation` never sets one),
+    // so this is `undefined` — today's behaviour — unless the row was pinned to
+    // a mode explicitly.
+    modeId: subConv.modeId ?? undefined,
     commandResolver: buildCommandResolver(user.id, projectId),
     // Boundary 3 — see the messages route. A sub-agent run started by a
     // policied key is still that key's run: it must not hold the spawn

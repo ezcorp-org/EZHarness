@@ -232,10 +232,12 @@ test.describe("per-API-key tool policy", () => {
     // a run-start route that does not run the mode guard and the mint is a
     // 400, rather than a key whose "lock" is decorative on that route.
     //
-    // Both routes below reach `startAssignment` — they start a run against
-    // the conversation with no mode check anywhere on the path — and BOTH were
-    // missing from the hand-written run-start list, so this exact mint used
-    // to succeed.
+    // The two routes below are the ONLY run-start routes a lock can never
+    // cover: they start a run with no conversation to read a `mode_id` from, so
+    // `mayUseMode` has nothing to ask. Every conversation-scoped run-start
+    // route now runs the guard and mints fine under a lock — asserted as the
+    // control at the end, because refusing THOSE would be the same
+    // non-monotonic shape this suite exists to pin.
     const slug = `e2e-policy-lock-${Date.now().toString(36)}`;
     const modeRes = await request.post("/api/modes", {
       data: { name: "E2E lock mode", slug, systemPromptInstruction: "Brief." },
@@ -244,9 +246,8 @@ test.describe("per-API-key tool policy", () => {
     const modeId = ((await modeRes.json()) as { id: string }).id;
 
     for (const route of [
-      "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
-      "POST /api/conversations/[id]/tasks/[taskId]/retry",
       "POST /api/agents/[name]/run",
+      "POST /api/workflows/[name]/run",
     ]) {
       const res = await request.post("/api/settings/developer/api-keys", {
         data: {
@@ -268,18 +269,66 @@ test.describe("per-API-key tool policy", () => {
       );
     }
 
-    // The control: the SAME policy minus the unguarded route mints cleanly, so
-    // the refusal is about the route and not about locks in general.
+    // The control: the SAME policy minus the unguardable route mints cleanly,
+    // so the refusal is about the route and not about locks in general. Every
+    // conversation-scoped run-start route belongs here — each one now runs
+    // `runStartPolicyDenial` before it starts anything.
     const ok = await request.post("/api/settings/developer/api-keys", {
       data: {
         name: "e2e-lock-ok",
         scopes: ["read", "chat"],
         toolPolicy: {
-          routeAllowlist: ["POST /api/conversations/[id]/messages"],
+          routeAllowlist: [
+            "POST /api/conversations/[id]/messages",
+            "POST /api/conversations/[id]/messages/[mid]/retry",
+            "POST /api/conversations/[id]/agent-chat",
+            "POST /api/conversations/[id]/tasks/[taskId]/retry",
+            "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
+          ],
           lockedModeId: modeId,
         },
       },
     });
     expect(ok.status(), await ok.text()).toBe(201);
+  });
+
+  test("a lock with NO routeAllowlist is refused at MINT", async ({ request }) => {
+    // THE VULNERABILITY, at the operator-facing surface. `validateToolPolicy`
+    // derived the key's reach from `policy.routeAllowlist ?? []` — so with no
+    // allowlist it iterated nothing and the reach check passed vacuously. But
+    // Boundary 1 engages only when an allowlist is PRESENT
+    // (`if (routeAllow)` in `hooks.server.ts`), so the absent case reaches
+    // EVERY route. This mint returned 201 and a key whose stored policy read
+    // like confinement; the holder then posted to a run-start route that never
+    // calls `mayUseMode` and had the mode's denied tools back, `shell`
+    // included.
+    //
+    // The guard was NON-MONOTONIC: it refused
+    // `{lock, routeAllowlist:["POST /api/agents/[name]/run"]}` while accepting
+    // the strictly WIDER `{lock}`.
+    const slug = `e2e-policy-bare-${Date.now().toString(36)}`;
+    const modeRes = await request.post("/api/modes", {
+      data: { name: "E2E bare lock mode", slug, systemPromptInstruction: "Brief." },
+    });
+    expect(modeRes.status(), await modeRes.text()).toBe(201);
+    const modeId = ((await modeRes.json()) as { id: string }).id;
+
+    const res = await request.post("/api/settings/developer/api-keys", {
+      data: {
+        name: "e2e-bare-lock",
+        scopes: ["read", "chat"],
+        toolPolicy: { lockedModeId: modeId },
+      },
+    });
+    const text = await res.text();
+    expect(res.status(), text).toBe(400);
+    const { details } = JSON.parse(text) as { details?: string[] };
+    // Names the remedy, not just the verdict: an operator reaches this by
+    // typing something reasonable.
+    expect(
+      (details ?? []).some((d) => d.startsWith("lockedModeId requires a routeAllowlist")),
+      text,
+    ).toBe(true);
+    expect((details ?? []).join("\n"), text).toContain("desktop-companion");
   });
 });

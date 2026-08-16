@@ -233,6 +233,43 @@ describe("cli key:mint dispatch", () => {
     expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
   });
 
+  test("--locked-mode WITHOUT --route-bundle exits(1) and mints nothing", async () => {
+    // THE VULNERABILITY, at the surface an operator actually types. This mint
+    // used to SUCCEED and print a key whose policy line read like confinement:
+    // `{"lockedModeId":"mode-ok"}`. With no routeAllowlist, Boundary 1 binds on
+    // positive presence and never engages, so the key reached every route —
+    // including the run-start routes that never call `mayUseMode`, where the
+    // holder got back the unfiltered tool surface the mode was chosen to deny.
+    const code = await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-ok"]),
+    );
+    expect(code).toBe(1);
+    expect(errs.join("\n")).toContain("lockedModeId requires a routeAllowlist");
+    expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
+  });
+
+  test("the refusal tells the operator which flag fixes it", async () => {
+    // An operator hits this by writing a reasonable command, so the remedy is
+    // part of the contract, not decoration.
+    await captureExit(() =>
+      cli(["key", "mint", "--user", "admin@x.test", "--locked-mode", "mode-ok"]),
+    );
+    const out = errs.join("\n");
+    expect(out).toContain("--route-bundle");
+    expect(out).toContain("desktop-companion");
+  });
+
+  test("--locked-mode WITH --route-bundle still mints (the refusal is about reach, not locks)", async () => {
+    await cli([
+      "key", "mint",
+      "--user", "admin@x.test",
+      "--route-bundle", "desktop-companion",
+      "--locked-mode", "mode-ok",
+    ]);
+    const row = settings.find(([k]) => k.startsWith("apikey:"));
+    expect((row![1] as { toolPolicy: { lockedModeId: string } }).toolPolicy.lockedModeId).toBe("mode-ok");
+  });
+
   // The datadir-in-use guard: minting against a LIVE server's PGlite dir
   // must exit 1 with the remediation message, not a stack trace — and must
   // not mint anything.
