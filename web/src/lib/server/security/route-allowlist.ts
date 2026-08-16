@@ -25,7 +25,11 @@
  * forbids inferring the auth method from the ABSENCE of `apiKeyScopes`, and
  * this module holds to the same rule.
  */
-import { RUN_START_ROUTES, type ToolPolicy } from "$server/auth/tool-policy";
+import {
+  MODE_GUARDED_RUN_START_ROUTES,
+  RUN_START_ROUTES,
+  type ToolPolicy,
+} from "$server/auth/tool-policy";
 
 /**
  * Route ids that a policied key may reach regardless of its allowlist.
@@ -85,26 +89,44 @@ export function routeAllowlistDenial(
  *  at module load — the hook runs this on every request. */
 const RUN_START_KEYS: ReadonlySet<string> = new Set(RUN_START_ROUTES);
 
+/** The run-start routes where a locked mode is not enforceable even in
+ *  principle — `RUN_START_ROUTES ∖ MODE_GUARDED_RUN_START_ROUTES`. These start a
+ *  run with no PRE-EXISTING conversation whose `mode_id` a guard could read, so
+ *  a key that advertises a lock and reaches one of them advertises a
+ *  confinement that cannot apply. Derived, never listed: a route joining either
+ *  set moves here on the same commit. */
+const UNGUARDABLE_RUN_START_KEYS: ReadonlySet<string> = new Set(
+  RUN_START_ROUTES.filter((r) => !MODE_GUARDED_RUN_START_ROUTES.includes(r)),
+);
+
 /**
- * The SECOND Boundary-1 rule: a `lockedModeId` policy with NO `routeAllowlist`
- * may not start a run.
+ * The SECOND Boundary-1 rule: a `lockedModeId` policy may not start a run the
+ * lock cannot reach.
  *
- * `validateToolPolicy` now REFUSES to mint that policy, because an absent
- * allowlist reaches every route and four run-start routes cannot enforce a
- * mode at all. But the mint is only half the story — keys minted before that
- * rule existed are still in the wild, still carry `{lockedModeId}` and no
- * allowlist, and {@link routeAllowlistDenial} above returns `null` for them on
- * the very first line. Without this rule those keys stay unconfined until
- * somebody re-mints them, which is a remediation step no attacker waits for.
+ * `validateToolPolicy` now REFUSES to mint such a policy in either of its two
+ * shapes — no `routeAllowlist` at all (an absent allowlist reaches EVERY route,
+ * including every unguardable run-start one), or an allowlist that NAMES an
+ * unguardable run-start route. But the mint is only half the story: keys minted
+ * before those rules existed are still in the wild, and {@link
+ * routeAllowlistDenial} above serves them. For a lock-only key it returns
+ * `null` on the very first line; for a lock+allowlist key it returns `null` for
+ * every route the allowlist names — including a briefing entry, which has no
+ * Boundary 2 to catch it. Without this rule both stay unconfined until somebody
+ * re-mints them, which is a remediation step no attacker waits for.
  *
- * Refused on EVERY run-start route, not just the four unguardable ones, so the
- * runtime verdict is exactly the mint verdict: a policy the mint would reject
- * starts no runs. A narrower rule would be a third semantics for the same
- * policy shape, and the reach it left (`agents/[name]/run`,
- * `workflows/[name]/run`, both briefing entries) is precisely the reach that
- * skips `mayUseMode` and hands back the unfiltered tool surface.
+ * So the denied set is the reach the MINT refuses, and it differs by shape:
  *
- * Non-run-start routes are untouched: this is a run-start rule, not a
+ *  - **No allowlist** ⇒ every {@link RUN_START_ROUTES} entry, so the runtime
+ *    verdict is exactly the mint verdict: a policy the mint would reject starts
+ *    no runs. A narrower rule would be a third semantics for the same policy
+ *    shape.
+ *  - **An allowlist** ⇒ the UNGUARDABLE entries only. The guarded ones are the
+ *    shape `--route-bundle` exists to produce and Boundary 2 really does check
+ *    them, so denying there would refuse a valid key.
+ *
+ * Neither arm can refuse a policy that is mintable today — which is the whole
+ * point: this rule is retroactive enforcement of the mint's verdict, not a new
+ * constraint. Non-run-start routes are untouched: a run-start rule, not a
  * quarantine. The remedy is in the message, because the operator who hits it
  * did nothing wrong at the time they minted.
  */
@@ -114,13 +136,23 @@ export function lockedModeRunStartDenial(
   routeId: string | null,
 ): Response | null {
   if (!policy?.lockedModeId) return null;
-  if (policy.routeAllowlist !== undefined) return null;
   const key = routeAllowlistKey(method, routeId);
-  if (!RUN_START_KEYS.has(key)) return null;
+  if (policy.routeAllowlist === undefined) {
+    if (!RUN_START_KEYS.has(key)) return null;
+    return Response.json(
+      {
+        error:
+          "This key is locked to a mode but names no routeAllowlist, so it may not start a run — re-mint it with a route bundle",
+        route: key,
+      },
+      { status: 403 },
+    );
+  }
+  if (!UNGUARDABLE_RUN_START_KEYS.has(key)) return null;
   return Response.json(
     {
       error:
-        "This key is locked to a mode but names no routeAllowlist, so it may not start a run — re-mint it with a route bundle",
+        "This key is locked to a mode that cannot be enforced on this run-start route — re-mint it without that route",
       route: key,
     },
     { status: 403 },

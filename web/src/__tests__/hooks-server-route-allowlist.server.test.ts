@@ -23,6 +23,14 @@
  * now refuses, but which existing keys still carry — was enforced on nothing.
  * The hook passes the WHOLE policy to `toolPolicyRouteDenial` for that reason;
  * this file is where "the hook wires it" is proved.
+ *
+ * And the SIXTH: a lock WITH an allowlist that names an unguardable run-start
+ * route (`ezk_lock_bundled` below). That shape was mintable before this PR and
+ * is not now, and it is served by every other layer — the allowlist arm
+ * permits, and the route has no Boundary 2 — so the lock was advertised and
+ * enforced nowhere. It must be refused on the unguardable route and STILL
+ * served on the guarded one it also names, or the rule has broken the very key
+ * `--route-bundle` exists to produce.
  */
 
 // CRITICAL: set BEFORE the dynamic import of hooks.server — that module's
@@ -67,7 +75,12 @@ vi.mock("$lib/server/security/bearer-auth", () => ({
       },
       authHeader: string | null | undefined,
     ) => {
-      const KNOWN = ["Bearer ezk_policied", "Bearer ezk_plain", "Bearer ezk_locked"];
+      const KNOWN = [
+        "Bearer ezk_policied",
+        "Bearer ezk_plain",
+        "Bearer ezk_locked",
+        "Bearer ezk_lock_bundled",
+      ];
       if (!authHeader || !KNOWN.includes(authHeader)) return false;
       evt.locals.user = { id: "key-user", email: "", name: "Key", role: "member" };
       evt.locals.apiKeyScopes = ["read", "write", "chat"];
@@ -80,6 +93,15 @@ vi.mock("$lib/server/security/bearer-auth", () => ({
       // before it does not re-validate itself, so the hook has to.
       if (authHeader === "Bearer ezk_locked") {
         evt.locals.apiKeyToolPolicy = { lockedModeId: "mode-1" };
+      }
+      // The SECOND key in the wild: a lock plus a hand-written allowlist that
+      // names a run-start route no mode can gate. Also mintable before this PR,
+      // also served by every other layer.
+      if (authHeader === "Bearer ezk_lock_bundled") {
+        evt.locals.apiKeyToolPolicy = {
+          lockedModeId: "mode-1",
+          routeAllowlist: ["POST /api/briefing/run-now", "POST /api/conversations/[id]/messages"],
+        };
       }
       return true;
     },
@@ -153,8 +175,69 @@ async function run(event: unknown): Promise<{ status: number; resolved: boolean 
 const POLICIED = "Bearer ezk_policied";
 const PLAIN = "Bearer ezk_plain";
 const LOCKED = "Bearer ezk_locked";
+const LOCK_BUNDLED = "Bearer ezk_lock_bundled";
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("a LOCK + ALLOWLIST key that names an unguardable run start", () => {
+  test("is 403 on that route, and never reaches the handler", async () => {
+    // The residual the FIRST version of this rule left: it returned null the
+    // moment a `routeAllowlist` was present, so this key — allowlist says yes,
+    // no Boundary 2 on the route — was served with its lock enforced nowhere.
+    const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
+    const res = (await handle({
+      event: makeEvent({
+        routeId: "/api/briefing/run-now",
+        method: "POST",
+        authHeader: LOCK_BUNDLED,
+      }),
+      resolve,
+    } as any)) as Response;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error:
+        "This key is locked to a mode that cannot be enforced on this run-start route — re-mint it without that route",
+      route: "POST /api/briefing/run-now",
+    });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("is STILL SERVED on the mode-guarded run-start route it also names", async () => {
+    // The half that keeps the rule honest. `POST …/messages` reads the
+    // conversation's persisted `mode_id` and runs `runStartPolicyDenial`, so
+    // the lock applies there for real — refusing it would break the only lock
+    // shape the mint accepts and make `--locked-mode` unusable.
+    expect(
+      await run(
+        makeEvent({
+          routeId: "/api/conversations/[id]/messages",
+          path: "/api/conversations/abc/messages",
+          method: "POST",
+          authHeader: LOCK_BUNDLED,
+        }),
+      ),
+    ).toEqual({ status: 200, resolved: true });
+  });
+
+  test("is 403 on a run-start route it does NOT name — the allowlist arm, unchanged", async () => {
+    // Ordering is observable through the message: the allowlist refusal is the
+    // actionable one ("widen the bundle"), so it must still win when both arms
+    // would fire.
+    const res = (await handle({
+      event: makeEvent({
+        routeId: "/api/agents/[name]/run",
+        method: "POST",
+        authHeader: LOCK_BUNDLED,
+      }),
+      resolve: vi.fn(async () => new Response("ok", { status: 200 })),
+    } as any)) as Response;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "Route not permitted for this key",
+      route: "POST /api/agents/[name]/run",
+    });
+  });
+});
 
 describe("a LOCK-ONLY key (minted before the mint refused the shape)", () => {
   test("is 403 on a run-start route it used to reach, and never reaches the handler", async () => {
@@ -203,6 +286,7 @@ describe("a LOCK-ONLY key (minted before the mint refused the shape)", () => {
       "/api/conversations/[id]/messages",
       "/api/agents/[name]/run",
       "/api/workflows/[name]/run",
+      "/api/integrations/github-projects/proposals/[id]/approve",
     ]) {
       expect(
         (await run(makeEvent({ routeId, method: "POST", authHeader: LOCKED }))).status,

@@ -33,21 +33,26 @@ may have been written by a different principal (the owner's own browser).
 `runStartToolPolicyOptions(locals.apiKeyToolPolicy)` returns the two
 `streamChat` options (`callerToolAllowlist`, `forceDenyOrchestration`), and
 every run-start route that can carry them spreads it into the call — `messages`,
-`agent-chat`, message `retry`, and (through the shared briefing trigger)
-`briefing/run-now` plus `hub/pages/[id]/actions/[action]`. ANY policy ⇒
+`agent-chat`, message `retry`, (through the shared briefing trigger)
+`briefing/run-now` plus `hub/pages/[id]/actions/[action]`, and (through the
+spawn bridge) `integrations/github-projects/proposals/[id]/approve`. ANY policy ⇒
 spawn-deny: a key confined on any axis is a leaf credential, and a mid-turn
 `invoke_agent` issues no HTTP request for Boundary 1 to see. No policy ⇒ `{}`,
 so a cookie session and an unpolicied key are unchanged.
 
-The two briefing entry points derive the bag AT THE ROUTE and thread it down:
+The three INDIRECT entry points derive the bag AT THE ROUTE and thread it down:
 `triggerBriefingRunNow(userId, bag)` → `runBriefingForUser(config, {
-toolPolicyOptions })` → `streamChat`. Derived at the route because that is the
-only layer that knows the principal, and the only side the surface test can
-read; threaded rather than re-derived because the run is fire-and-forget and
+toolPolicyOptions })` → `streamChat` for the briefing pair, and
+`approveProposal(id, actor, { toolPolicyOptions })` → `streamChat` for the
+github-projects approve route. Derived at the route because that is the only
+layer that knows the principal, and the only side the surface test can read;
+threaded rather than re-derived because the run is fire-and-forget and one or
 two hops away. `toolRestriction: "read-only"` does **not** substitute for it —
 `tools/filter.ts` `keep()` preserves `invoke_agent`/`run_workflow` through the
 read-only branch, so `forceDenyOrchestration` is the only layer that removes
-them.
+them. On the approve route there is not even a restriction to lean on: the
+spawned run's permission mode defaults to `yolo` (every tool call
+auto-approved), so Boundary 3 is the *whole* mid-turn control there.
 
 It is one function rather than two inline reads because Boundary 3 first
 shipped **inert**: the options existed, `setup-tools` threaded them, and the
@@ -75,8 +80,9 @@ may spawn from* and does not narrow the spawned agent's surface. That residual
 is identical for an unlocked policied key, so the lock is still a strict
 narrowing — but do not read more into it.
 
-**Boundary 2 is NOT wired on the two briefing entry points, deliberately.**
-`runBriefingForUser` CREATES the conversation its run executes on, so there is
+**Boundary 2 is NOT wired on the two briefing entry points or on the
+github-projects approve route, deliberately.** `runBriefingForUser` and
+`approveProposal` both CREATE the conversation their run executes on, so there is
 no persisted `mode_id` when a guard would run: `mayUseMode` would read `null`
 and refuse every locked key unconditionally — a constant dressed up as a mode
 check, and a mint that then reports those routes as guarded. Locked keys are
@@ -156,17 +162,31 @@ refusal exists to stop a key that ADVERTISES a lock it cannot enforce, and a
 key claiming no lock makes no such promise. That counterexample is pinned as
 its own test so the claim cannot be quietly widened back.
 
-**A lock-only key is also refused at REQUEST time, not only at mint.** The mint
-fix does nothing for keys already issued in that shape — Boundary 1 read
+**A locked key is also refused at REQUEST time, not only at mint.** The mint
+fix does nothing for keys already issued — Boundary 1 read
 `policy?.routeAllowlist` and branched on it, so `{lockedModeId}` with no
 allowlist was enforced on nothing until somebody re-minted it.
 `lockedModeRunStartDenial` (`route-allowlist.ts`, called from
-`toolPolicyRouteDenial` which the hook now uses) denies such a policy on **every**
-`RUN_START_ROUTES` entry, so the runtime verdict equals the mint verdict: a
-policy the mint would reject starts no runs. Non-run-start routes are untouched
-— it is a run-start rule, not a quarantine — and a policy with no
-`lockedModeId`, including none at all, never reaches the rule. Re-mint with a
-bundle to restore run-start reach.
+`toolPolicyRouteDenial` which the hook now uses) closes both shapes the mint
+rejects, and the denied set differs by shape:
+
+- **no `routeAllowlist`** ⇒ **every** `RUN_START_ROUTES` entry, so the runtime
+  verdict equals the mint verdict: a policy the mint would reject starts no runs;
+- **an allowlist** ⇒ the UNGUARDABLE entries only
+  (`RUN_START_ROUTES ∖ MODE_GUARDED_RUN_START_ROUTES`). A key minted before this
+  rule as `{lockedModeId, routeAllowlist:["POST /api/briefing/run-now"]}` was
+  otherwise served by every layer — the allowlist arm permits (the route IS
+  allowlisted) and the route has no Boundary 2 — leaving the lock advertised and
+  enforced nowhere. The mode-guarded routes are *not* denied here: they are the
+  shape `--route-bundle` exists to produce, and Boundary 2 really does check
+  them.
+
+Neither arm can refuse a policy that is mintable today, so this is retroactive
+enforcement of the mint's verdict rather than a new constraint. When both arms
+would fire, the allowlist refusal wins — its message ("widen the bundle") is the
+actionable one. Non-run-start routes are untouched — it is a run-start rule, not
+a quarantine — and a policy with no `lockedModeId`, including none at all, never
+reaches the rule. Re-mint with a bundle to restore run-start reach.
 
 **`RUN_START_ROUTES` is derived from the tree, not trusted as a list.** The
 hand-written predecessor named three routes and had omitted four — including
@@ -180,20 +200,32 @@ tree disagree in either direction — for `RUN_START_ROUTES` **and** for
 `MODE_GUARDED_RUN_START_ROUTES`, whose members it derives by finding the routes
 that actually call `runStartPolicyDenial`.
 
-The walk is intra-file plus PINNED cross-file hops, and that limit hid two more
+The walk is intra-file plus PINNED cross-file hops, and that limit hid three more
 run-start routes: `briefing/run-now` reaches `streamChat` through
 `triggerBriefingRunNow` → `runBriefingForUser` (no primitive in the route file
-at all), and `hub/pages/[id]/actions/[action]` reaches the same trigger by
-DYNAMIC DISPATCH through the hub-page provider registry. Both were absent from
-`RUN_START_ROUTES`, so a lock could name either; both now seed the walk from
-the entry-point token, and the hops themselves are asserted so a bag dropped
-halfway down fails the suite.
+at all), `hub/pages/[id]/actions/[action]` reaches the same trigger by
+DYNAMIC DISPATCH through the hub-page provider registry, and
+`integrations/github-projects/proposals/[id]/approve` reaches it through
+`approveProposal`, which creates the conversation and launches the run
+fire-and-forget. All three were absent from `RUN_START_ROUTES`, so a lock could
+name any of them; all three now seed the walk from the entry-point token, and
+the hops themselves are asserted so a bag dropped halfway down fails the suite.
 
-Four of the nine routes (`agents/[name]/run`, `workflows/[name]/run`,
-`briefing/run-now`, `hub/pages/[id]/actions/[action]`) have no conversation to
+The suite's docblock also records what is deliberately OUT and why: routes that
+ADVANCE a run somebody else started (`workflows/runs/[id]/resume`, the workflow
+analogue of `tool-calls/[id]/permission` — which `desktop-companion` grants on
+purpose), routes that only SIMULATE (`workflows/[name]/dry-run`), and the
+extension-dispatch doors (`extensions/[name]/events/[event]`,
+`ez-actions/[name]`, `hooks/[extensionId]/[slug]`), whose reach is decided per
+extension by its approved permission grant rather than by a route allowlist.
+
+Five of the ten routes (`agents/[name]/run`, `workflows/[name]/run`,
+`briefing/run-now`, `hub/pages/[id]/actions/[action]`,
+`integrations/github-projects/proposals/[id]/approve`) have no conversation to
 read a `mode_id` from, so a lock is not enforceable on them even in principle —
-which is exactly why a locked key must not be able to name them, and why a lock
-with no allowlist (reaching all four) can never be minted.
+which is exactly why a locked key must not be able to REACH one: not with an
+absent allowlist (which reaches all five), and not by naming one in an
+allowlist. Both are refused at mint, and both at Boundary 1.
 
 ## Route bundles
 
@@ -244,6 +276,9 @@ is a footgun no code can catch — bundle review is the control.
   the shared briefing trigger and the pipeline it hands `toolPolicyOptions` to
 - `src/runtime/hub-pages.ts` — `HubPageContext.toolPolicyOptions`, the bag the
   actions route derives for every core Hub action
+- `src/integrations/github-projects/spawn.ts` — `ApproveDeps.toolPolicyOptions`,
+  the bag the approve route derives and the spawn bridge spreads into its
+  `streamChat`
 - `web/src/lib/server/security/api-keys.ts` — hydration at both verify sites
 - `web/src/lib/server/security/bearer-auth.ts` — stamps `locals.apiKeyToolPolicy`
 - `web/src/routes/api/settings/developer/{schema.ts,api-keys/+server.ts}` — HTTP mint

@@ -165,6 +165,13 @@ test.describe("per-API-key tool policy", () => {
       await post(minted.key, "/api/briefing/run-now", {}),
       "POST /api/briefing/run-now",
     );
+    // The tenth run-start route. Denied at the HOOK, so no proposal has to
+    // exist for this arm to be meaningful — which is the point: the refusal
+    // lands before the handler resolves anything.
+    await expectRouteDenied(
+      await post(minted.key, "/api/integrations/github-projects/proposals/p-nope/approve", {}),
+      "POST /api/integrations/github-projects/proposals/[id]/approve",
+    );
 
     // ── 5. …and it cannot widen the mode it is confined to ─────────────────
     await expectRouteDenied(
@@ -245,15 +252,18 @@ test.describe("per-API-key tool policy", () => {
     expect(modeRes.status(), await modeRes.text()).toBe(201);
     const modeId = ((await modeRes.json()) as { id: string }).id;
 
-    // All FOUR unguardable run-start routes. The briefing pair was missing
-    // from `RUN_START_ROUTES` entirely, so this mint used to return 201: the
-    // key reported as locked and could trigger a briefing run — which reaches
-    // `streamChat` two hops away, through a route the mode never sees.
+    // All FIVE unguardable run-start routes. The briefing pair and the
+    // github-projects approve route were missing from `RUN_START_ROUTES`
+    // entirely, so this mint used to return 201: the key reported as locked and
+    // could trigger a briefing run — or approve a proposal, spawning a `yolo`
+    // run — through a route the mode never sees, one or two hops from
+    // `streamChat`.
     for (const [i, route] of [
       "POST /api/agents/[name]/run",
       "POST /api/workflows/[name]/run",
       "POST /api/briefing/run-now",
       "POST /api/hub/pages/[id]/actions/[action]",
+      "POST /api/integrations/github-projects/proposals/[id]/approve",
     ].entries()) {
       const res = await request.post("/api/settings/developer/api-keys", {
         data: {

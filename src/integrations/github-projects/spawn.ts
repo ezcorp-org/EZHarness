@@ -58,6 +58,7 @@ import { addConversationExtensions } from "../../db/queries/conversation-extensi
 import { getExtensionByName } from "../../db/queries/extensions";
 import { getAgentConfigByName } from "../../db/queries/agent-configs";
 import { getBriefingRuntime } from "../../runtime/briefing/runtime-registry";
+import type { RunStartToolPolicyOptions } from "../../auth/tool-policy";
 import type { PermissionMode } from "../../runtime/tools/types";
 import type { GithubProjectsProposal } from "../../db/schema";
 import type { AgentRun } from "../../types";
@@ -143,7 +144,7 @@ export interface SpawnRuntime {
       runId?: string;
       system?: string;
       parentMessageId?: string;
-    },
+    } & RunStartToolPolicyOptions,
   ) => Promise<AgentRun>;
   /** Subscribe to a run lifecycle event. Returns an unsubscribe fn. */
   on: (
@@ -157,6 +158,21 @@ export interface ApproveDeps {
   runtime?: SpawnRuntime;
   /** Per-project concurrency cap override (tests pass small). */
   concurrencyCap?: number;
+  /**
+   * Boundary 3 for the run this approval starts — the confinement of the
+   * CREDENTIAL that asked for it. Derived at the HTTP door
+   * (`runStartToolPolicyOptions(locals.apiKeyToolPolicy)` in the approve
+   * route), because the route is the only layer that knows the principal, and
+   * spread into `streamChat` below.
+   *
+   * Absent for every non-HTTP caller — the daemon's auto-spawn, the extension
+   * RPC handler, a test — which is the permissive answer and today's behaviour
+   * byte for byte. It is NOT a substitute for the route-level controls: this
+   * spawn runs `permissionMode: 'yolo'` by default with no `toolRestriction`,
+   * so `forceDenyOrchestration` is the only layer between a policied key and
+   * `invoke_agent`.
+   */
+  toolPolicyOptions?: RunStartToolPolicyOptions;
 }
 
 /**
@@ -285,6 +301,11 @@ function resolveRuntime(): SpawnRuntime {
  * is already reached (the proposal is left pending — the Hub can retry later),
  * and `GithubProposalNotPendingError` when the proposal is no longer pending
  * (the atomic claim lost to a concurrent approve/dismiss).
+ *
+ * THIS IS A RUN START, so the HTTP door that reaches it
+ * (`POST /api/integrations/github-projects/proposals/[id]/approve`, in
+ * `RUN_START_ROUTES`) hands its principal's Boundary 3 down through
+ * `deps.toolPolicyOptions`. See that field.
  */
 export async function approveProposal(
   proposalId: string,
@@ -401,6 +422,10 @@ export async function approveProposal(
       parentMessageId: seedMessage.id,
       ...(agentConfigId ? { agentConfigId } : {}),
       ...(defaultModel ? { provider: defaultModel.provider, model: defaultModel.model } : {}),
+      // Boundary 3, spread LAST so the credential's confinement can never be
+      // overwritten by a board setting. `{}` for every caller that passes no
+      // bag (the daemon, the RPC handler), which is today's behaviour exactly.
+      ...(deps.toolPolicyOptions ?? {}),
     })
     .catch((err: unknown) => {
       log.warn("github-projects spawn launch failed", { runId, error: String(err) });

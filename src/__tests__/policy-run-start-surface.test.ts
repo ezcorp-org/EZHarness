@@ -52,7 +52,7 @@
  * KNOWN to reach, so a walker that stops matching fails loudly instead of
  * reporting an empty, vacuously-passing set.
  *
- * That limit is not theoretical. TWO run-start routes hid behind it:
+ * That limit is not theoretical. THREE run-start routes hid behind it:
  *
  *   • `POST /api/briefing/run-now` — two cross-file hops
  *     (`triggerBriefingRunNow` → `runBriefingForUser` → `.streamChat(`), no
@@ -60,13 +60,51 @@
  *   • `POST /api/hub/pages/[id]/actions/[action]` — DYNAMIC DISPATCH into the
  *     hub-page provider registry, reaching the same trigger with no helper
  *     name in the file at all.
+ *   • `POST /api/integrations/github-projects/proposals/[id]/approve` — one hop
+ *     (`approveProposal` → `.streamChat(`) into the spawn bridge, which creates
+ *     the conversation and launches the run fire-and-forget. Found only after
+ *     the first two were closed, which is the argument for pinning hops rather
+ *     than trusting a sweep.
  *
- * Both were absent from `RUN_START_ROUTES`, so "names EXACTLY the routes that
- * start a run" was passing against a list that was not exact, a `lockedModeId`
- * key could name either one, and neither wired Boundary 3. The fix is to pin
- * the ENTRY POINT as a primitive (a name the route file does contain) and to
- * assert the hops themselves, which is the only form that survives a helper
- * being renamed or a bag being dropped halfway down.
+ * All three were absent from `RUN_START_ROUTES`, so "names EXACTLY the routes
+ * that start a run" was passing against a list that was not exact, a
+ * `lockedModeId` key could name any of them, and none wired Boundary 3. The fix
+ * is to pin the ENTRY POINT as a primitive (a name the route file does contain)
+ * and to assert the hops themselves, which is the only form that survives a
+ * helper being renamed or a bag being dropped halfway down.
+ *
+ * ── What is deliberately OUT, and why ─────────────────────────────────
+ * The set is "routes that START a run", not "routes that can cause an LLM to
+ * execute". Three families sit just outside it, recorded here so the next
+ * reader does not have to re-derive the line — or mistake a decision for an
+ * omission:
+ *
+ *   • **Routes that ADVANCE a run somebody else started.**
+ *     `POST /api/workflows/runs/[id]/resume` reaches `runAgent`
+ *     (`resumeParkedRun` → `resumeClaimedRun` → `executor.resumeWorkflow`), but
+ *     it starts nothing: the run must already exist and be `suspended`, and
+ *     `mayControl` limits the caller to their own runs (or admin). That is the
+ *     same shape as `POST /api/tool-calls/[id]/permission`, which answers a
+ *     pending gate and so causes a `shell` call to execute — and which the
+ *     `desktop-companion` bundle GRANTS on purpose. A confined key is expected
+ *     to answer for the work it is driving; it is not expected to originate
+ *     work. Move resume in only by moving the permission route in with it.
+ *     Residual, stated: a lock-only key that owns a suspended run can advance
+ *     it, and the resumed run's tool surface is not narrowed by the lock.
+ *   • **Routes that simulate.** `POST /api/workflows/[name]/dry-run` calls
+ *     `dryRunWorkflow`, not `.runWorkflow(` — `transform`/`gate` steps are
+ *     evaluated in-process and every other step is stubbed. No LLM, no run row,
+ *     so no primitive to match and nothing for a policy to confine.
+ *   • **Extension-dispatch doors.** `POST /api/extensions/[name]/events/[event]`,
+ *     `POST /api/ez-actions/[name]` and `POST /api/hooks/[extensionId]/[slug]`
+ *     hand control to extension code, which — like the `.actions?.[` dispatch
+ *     that IS pinned above — could in principle reach a run. The difference is
+ *     the gate, not the mechanism: what an extension may do is decided per
+ *     extension by its own approved permission grant (PDP), a per-install
+ *     decision a route allowlist cannot re-derive, whereas the hub-page registry
+ *     dispatches into FIRST-PARTY core providers with no such grant behind them.
+ *     Naming these three here would confine the door and leave the grant
+ *     unexamined, which is the weaker of the two controls.
  */
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
@@ -113,6 +151,16 @@ const RUN_START_PRIMITIVES = [
   // dispatch into it a run start. Closing run-now alone would have left this
   // door open — one bypass is all a boundary needs.
   ".actions?.[",
+  // The github-projects approve route: one cross-file hop to the spawn bridge,
+  // which creates the conversation and launches `executor.streamChat`
+  // fire-and-forget. Same shape as the briefing trigger, so the same treatment
+  // — pin the ENTRY POINT, which is the only name this route file contains.
+  // It is the run this walk could least afford to miss: the spawn's permission
+  // mode defaults to `yolo` and it sets no `toolRestriction`, and the route is
+  // `requireScope + requireAuth` (a Bearer key reaches it), so Boundary 3 was
+  // the only layer that could have applied and it was unwired. Hops pinned in
+  // "the cross-file hops are real".
+  "approveProposal(",
 ] as const;
 
 /**
@@ -124,12 +172,15 @@ const RUN_START_PRIMITIVES = [
  * The two briefing entries DO reach one — `runBriefingForUser` threads the bag
  * into `streamChat` — so they owe the wiring exactly as the three direct
  * `streamChat` routes do, and are asserted here rather than exempted for being
- * indirect.
+ * indirect. `approveProposal` likewise: its `ApproveDeps` argument is already an
+ * injection seam, so the bag rides down it into the spawn bridge's own
+ * `streamChat`.
  */
 const B3_CAPABLE_PRIMITIVES = [
   ".streamChat(",
   "triggerBriefingRunNow(",
   ".actions?.[",
+  "approveProposal(",
 ] as const;
 
 /** The Boundary-3 derivation every {@link B3_CAPABLE_PRIMITIVES} route must
@@ -151,6 +202,7 @@ const MUST_DETECT = [
   "POST /api/conversations/[id]/tasks/[taskId]/retry", // startAssignment(
   "POST /api/briefing/run-now", // triggerBriefingRunNow(
   "POST /api/hub/pages/[id]/actions/[action]", // .actions?.[
+  "POST /api/integrations/github-projects/proposals/[id]/approve", // approveProposal(
 ] as const;
 
 interface RouteAnalysis {
@@ -263,17 +315,21 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
   test("the unguardable routes are exactly the ones with no conversation to read", () => {
     // Pinned as the COMPLEMENT, so shrinking the guarded set has to be a
     // deliberate edit here. `runAgent` / `runWorkflow` start a run with no
-    // conversation to read a `mode_id` from; the two briefing entries CREATE
-    // the conversation their run executes on, so its persisted mode is a row
-    // that does not exist when a guard would run and `mayUseMode` would read a
-    // constant `null`. A lock is not enforceable on any of the four even in
-    // principle — which is why an absent routeAllowlist (reaching all of them)
-    // can never carry a lock, at mint OR at Boundary 1.
+    // conversation to read a `mode_id` from; the two briefing entries and the
+    // github-projects approve route CREATE the conversation their run executes
+    // on, so its persisted mode is a row that does not exist when a guard would
+    // run and `mayUseMode` would read a constant `null`. A lock is not
+    // enforceable on any of the five even in principle — which is why a lock
+    // may never REACH one: not with an absent routeAllowlist (which reaches all
+    // of them), and not by naming one in an allowlist. Both at mint, and both
+    // at Boundary 1, where `lockedModeRunStartDenial` denies exactly this
+    // complement for a lock that carries an allowlist.
     const guarded = new Set(MODE_GUARDED_RUN_START_ROUTES);
     expect(RUN_START_ROUTES.filter((r) => !guarded.has(r))).toEqual([
       "POST /api/agents/[name]/run",
       "POST /api/briefing/run-now",
       "POST /api/hub/pages/[id]/actions/[action]",
+      "POST /api/integrations/github-projects/proposals/[id]/approve",
       "POST /api/workflows/[name]/run",
     ]);
   });
@@ -291,7 +347,7 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
     expect(unwired).toEqual([]);
   });
 
-  test("the Boundary-3-capable routes are the five we think they are", () => {
+  test("the Boundary-3-capable routes are the six we think they are", () => {
     // Pinned separately so that a route DROPPING its run call (and with it,
     // silently, the Boundary-3 assertion above) fails here rather than
     // shrinking the set the previous test iterates. An empty filter passes
@@ -305,6 +361,7 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
       "POST /api/conversations/[id]/messages",
       "POST /api/conversations/[id]/messages/[mid]/retry",
       "POST /api/hub/pages/[id]/actions/[action]",
+      "POST /api/integrations/github-projects/proposals/[id]/approve",
     ]);
   });
 
@@ -347,6 +404,16 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
       join(REPO_ROOT, "src/runtime/briefing/hub-page.ts"),
     ).text();
     expect(briefingHubPage).toContain("deps.triggerRunNow(ctx.userId, ctx.toolPolicyOptions)");
+
+    // `approveProposal` is ONE hop from the run, and the hop is where the
+    // route's bag either arrives at the executor or is silently dropped. The
+    // route side can only show that a bag was BUILT; this shows it is spread
+    // into the very `streamChat` call that starts the spawned run.
+    const ghSpawn = await Bun.file(
+      join(REPO_ROOT, "src/integrations/github-projects/spawn.ts"),
+    ).text();
+    expect(ghSpawn).toContain(".streamChat(");
+    expect(ghSpawn).toContain("...(deps.toolPolicyOptions ?? {})");
   });
 
   test("a run-start route is never confused with a plain read on the same file", () => {

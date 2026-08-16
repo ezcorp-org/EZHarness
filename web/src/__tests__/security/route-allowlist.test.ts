@@ -18,9 +18,12 @@
  *   - the allowlist is an exact match on SvelteKit ROUTE IDS, so a concrete
  *     path cannot be mistaken for the pattern that produced it;
  *   - the liveness probes stay reachable;
- *   - and a `lockedModeId` policy with NO allowlist starts no run — the arm
+ *   - and a `lockedModeId` policy starts no run the lock cannot reach — the arm
  *     that closes the residual for keys minted before the mint refused that
- *     shape, since the allowlist arm answers `null` for them on its first line.
+ *     shape. Both halves of it: with NO allowlist the allowlist arm answers
+ *     `null` on its first line, and WITH one it answers `null` for every route
+ *     the allowlist names, including the unguardable run-start routes the old
+ *     mint accepted and the new one rejects.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -31,13 +34,24 @@ import {
   routeAllowlistKey,
   toolPolicyRouteDenial,
 } from "$lib/server/security/route-allowlist";
-import { RUN_START_ROUTES, type ToolPolicy } from "$server/auth/tool-policy";
+import {
+  MODE_GUARDED_RUN_START_ROUTES,
+  RUN_START_ROUTES,
+  type ToolPolicy,
+} from "$server/auth/tool-policy";
 
 const ALLOW = [
   "POST /api/conversations",
   "POST /api/conversations/[id]/messages",
   "GET /api/runtime-events",
 ];
+
+/** `RUN_START_ROUTES ∖ MODE_GUARDED_RUN_START_ROUTES` — the run-start routes
+ *  where no `mode_id` exists to check, derived exactly as the predicate derives
+ *  it so a route joining either set is covered the day it lands. */
+const UNGUARDABLE = RUN_START_ROUTES.filter(
+  (r) => !MODE_GUARDED_RUN_START_ROUTES.includes(r),
+);
 
 /** Split a `"METHOD /route/[id]"` key back into the two arguments the
  *  predicates take, so the run-start list can drive the tests directly. */
@@ -137,11 +151,15 @@ describe("lockedModeRunStartDenial", () => {
     }
   });
 
-  test("names the two routes the mint could never guard", () => {
+  test("names the routes the mint could never guard", () => {
     // Non-vacuous: the reach this closes is not hypothetical. Both briefing
-    // entry points start a run that no mode can gate.
+    // entry points and the github-projects approve route start a run that no
+    // mode can gate.
     expect(RUN_START_ROUTES).toContain("POST /api/briefing/run-now");
     expect(RUN_START_ROUTES).toContain("POST /api/hub/pages/[id]/actions/[action]");
+    expect(RUN_START_ROUTES).toContain(
+      "POST /api/integrations/github-projects/proposals/[id]/approve",
+    );
   });
 
   test("leaves every NON-run-start route alone — this is a run-start rule, not a quarantine", () => {
@@ -155,17 +173,68 @@ describe("lockedModeRunStartDenial", () => {
     }
   });
 
-  test("does not fire once the key HAS an allowlist — that is the other rule's job", () => {
-    // A lock WITH an allowlist is the shape the mint accepts, and Boundary 1's
-    // allowlist arm already decides it. Firing here too would refuse the very
-    // policy `--route-bundle` is meant to produce.
-    const bundled: ToolPolicy = {
+  test("a lock WITH an allowlist still passes on every MODE-GUARDED run-start route", () => {
+    // The shape `--route-bundle` exists to produce. Boundary 2 really does read
+    // the conversation's `mode_id` on these, so denying here would refuse the
+    // only lock the mint accepts — and make the flag useless.
+    expect(MODE_GUARDED_RUN_START_ROUTES.length).toBeGreaterThan(0);
+    for (const key of MODE_GUARDED_RUN_START_ROUTES) {
+      const [method, routeId] = parts(key);
+      const bundled: ToolPolicy = { lockedModeId: "mode-1", routeAllowlist: [key] };
+      expect({ key, res: lockedModeRunStartDenial(bundled, method, routeId) }).toEqual({
+        key,
+        res: null,
+      });
+    }
+  });
+
+  test("a lock WITH an allowlist is DENIED on an UNGUARDABLE run-start route", async () => {
+    // THE RESIDUAL THIS ARM CLOSES. The old mint accepted
+    // `{lockedModeId, routeAllowlist:["POST /api/briefing/run-now"]}`; the new
+    // one rejects it. Keys in that shape are in the wild, and both other arms
+    // wave them through — the allowlist arm because the route IS allowlisted,
+    // Boundary 2 because these routes have none. The lock was advertised and
+    // unenforced, which is the exact condition this whole fix exists to remove.
+    //
+    // Derived from the complement, not listed: a route joining the unguardable
+    // set is covered the day it lands.
+    expect(UNGUARDABLE.length).toBeGreaterThan(0);
+    for (const key of UNGUARDABLE) {
+      const [method, routeId] = parts(key);
+      const policy: ToolPolicy = { lockedModeId: "mode-1", routeAllowlist: [key] };
+      const res = lockedModeRunStartDenial(policy, method, routeId);
+      expect({ key, status: res?.status }).toEqual({ key, status: 403 });
+      expect(await res!.json()).toEqual({
+        error:
+          "This key is locked to a mode that cannot be enforced on this run-start route — re-mint it without that route",
+        route: key,
+      });
+    }
+  });
+
+  test("a lock WITH an allowlist still reaches a route that starts no run", () => {
+    // The rule stays a run-start rule in this arm too — an allowlisted read is
+    // served exactly as before.
+    const policy: ToolPolicy = { lockedModeId: "mode-1", routeAllowlist: ["GET /api/tools"] };
+    expect(lockedModeRunStartDenial(policy, "GET", "/api/tools")).toBeNull();
+  });
+
+  test("no policy mintable TODAY is refused by either arm", async () => {
+    // The claim that makes this rule safe to ship: it is retroactive
+    // enforcement of the mint's verdict, never a new constraint. A lock is
+    // mintable only alongside an allowlist of non-unguardable routes, and every
+    // such request passes.
+    const mintable: ToolPolicy = {
       lockedModeId: "mode-1",
-      routeAllowlist: ["POST /api/conversations/[id]/messages"],
+      routeAllowlist: [...MODE_GUARDED_RUN_START_ROUTES, "GET /api/tools", "GET /api/modes"],
     };
-    expect(
-      lockedModeRunStartDenial(bundled, "POST", "/api/conversations/[id]/messages"),
-    ).toBeNull();
+    for (const key of mintable.routeAllowlist!) {
+      const [method, routeId] = parts(key);
+      expect({ key, res: lockedModeRunStartDenial(mintable, method, routeId) }).toEqual({
+        key,
+        res: null,
+      });
+    }
   });
 
   test("no lock ⇒ no denial, whatever the route", () => {
@@ -211,6 +280,40 @@ describe("toolPolicyRouteDenial — the whole of Boundary 1", () => {
 
   test("a lock-only key still reaches a route that starts no run", () => {
     expect(toolPolicyRouteDenial({ lockedModeId: "mode-1" }, "GET", "/api/tools")).toBeNull();
+  });
+
+  test("the lock arm ALSO decides for a key whose allowlist names an unguardable run start", async () => {
+    // The second key in the wild, and the one the first version of this rule
+    // let through: `{lockedModeId, routeAllowlist:["POST /api/briefing/run-now"]}`
+    // was mintable before this PR and is not now. Every other layer serves it —
+    // the allowlist arm because the route is allowlisted, Boundary 2 because
+    // this route has none — so a rule that skipped whenever an allowlist was
+    // present left the lock advertised and unenforced.
+    const wild: ToolPolicy = {
+      lockedModeId: "mode-1",
+      routeAllowlist: ["POST /api/briefing/run-now"],
+    };
+    const res = toolPolicyRouteDenial(wild, "POST", "/api/briefing/run-now");
+    expect(res!.status).toBe(403);
+    expect((await res!.json()).error).toContain("re-mint it without that route");
+  });
+
+  test("the github-projects approve route is refused for a locked key by BOTH arms", async () => {
+    // The tenth run-start route, and the one where the residual bit hardest:
+    // the spawned run is `permissionMode: 'yolo'` with no toolRestriction, and
+    // the route takes a Bearer key (`requireScope + requireAuth`, not a
+    // session). Asserted through the combined entry point, in both policy
+    // shapes, because either one alone would have served it.
+    const key = "POST /api/integrations/github-projects/proposals/[id]/approve";
+    const routeId = "/api/integrations/github-projects/proposals/[id]/approve";
+    for (const policy of [
+      { lockedModeId: "mode-1" },
+      { lockedModeId: "mode-1", routeAllowlist: [key] },
+    ] as ToolPolicy[]) {
+      const res = toolPolicyRouteDenial(policy, "POST", routeId);
+      expect(res!.status).toBe(403);
+      expect((await res!.json()).route).toBe(key);
+    }
   });
 
   test("an allowlist refusal wins over the lock arm when both apply", async () => {

@@ -378,6 +378,68 @@ describe("approveProposal", () => {
     expect(typeof opts.runId).toBe("string");
   });
 
+  // ── Boundary 3 (per-API-key tool policy) ──────────────────────────────────
+  //
+  // Asserted at the EXECUTOR's options bag, never at the route's intent. This
+  // boundary shipped INERT once already — declared on `streamChat`, threaded by
+  // `setup-tools`, tested by injecting it straight into `streamChat` — while no
+  // route in the product ever set it. "The route built a bag" is a different
+  // claim from "the run received one", and only the second confines anything.
+  //
+  // The stakes here are higher than on the other run-start routes: this spawn
+  // runs `permissionMode: 'yolo'` with no `toolRestriction`, so
+  // `forceDenyOrchestration` is the ONLY thing between a policied key and
+  // `invoke_agent` / `run_workflow`.
+
+  test("threads the caller's Boundary-3 bag into the streamChat that starts the run", async () => {
+    const { runtime } = makeRuntime();
+    await approveProposal(
+      "prop-1",
+      { kind: "user", userId: "u-1" },
+      {
+        runtime,
+        toolPolicyOptions: { forceDenyOrchestration: true, callerToolAllowlist: ["open_app"] },
+      },
+    );
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.forceDenyOrchestration).toBe(true);
+    expect(opts.callerToolAllowlist).toEqual(["open_app"]);
+  });
+
+  test("the bag is spread LAST, so a board setting can never overwrite the confinement", async () => {
+    // Ordering matters because both halves land in one options object. A
+    // per-column agent config or a board default model must not be able to
+    // reintroduce orchestration — assert the run's own bag, with the board
+    // fields present alongside it.
+    const { runtime } = makeRuntime();
+    getLinkByIdMock = mock(() =>
+      Promise.resolve(makeLink({ defaultModel: "anthropic:claude-x", defaultPermissionMode: "ask" })),
+    );
+    installMocks();
+    await approveProposal(
+      "prop-1",
+      { kind: "auto" },
+      { runtime, toolPolicyOptions: { forceDenyOrchestration: true } },
+    );
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect(opts.provider).toBe("anthropic");
+    expect(opts.permissionMode).toBe("ask");
+    expect(opts.forceDenyOrchestration).toBe(true);
+  });
+
+  test("a caller that passes NO bag leaves the options byte-for-byte unchanged", async () => {
+    // The daemon's auto-spawn and the extension RPC handler both call with no
+    // policy at all; so does a cookie session through the route
+    // (`runStartToolPolicyOptions(undefined)` is `{}`). Neither key may appear,
+    // because `forceDenyOrchestration: undefined` and an absent key are the
+    // same to the executor only by accident — assert absence.
+    const { runtime } = makeRuntime();
+    await approveProposal("prop-1", { kind: "auto" }, { runtime });
+    const opts = runtime.streamChat.mock.calls[0]![2] as Record<string, unknown>;
+    expect("forceDenyOrchestration" in opts).toBe(false);
+    expect("callerToolAllowlist" in opts).toBe(false);
+  });
+
   test("the run prompt passed to streamChat carries the untrusted-input fence", async () => {
     const { runtime } = makeRuntime();
     getProposalByIdMock = mock((id: string) =>

@@ -143,11 +143,22 @@ export const ROUTE_BUNDLES: Record<string, readonly string[]> = {
  * (`tools/filter.ts` `keep()` preserves orchestration through the read-only
  * branch, and only `forceDenyOrchestration` strips it).
  *
+ * AND IT HAD OMITTED A TENTH, the same cross-file shape once more: `POST
+ * /api/integrations/github-projects/proposals/[id]/approve` reaches
+ * `executor.streamChat` through `approveProposal` (`src/integrations/
+ * github-projects/spawn.ts`), which creates the conversation and launches the
+ * run fire-and-forget. It is the WORST of the ten to have missed: the run's
+ * permission mode defaults to `yolo` (every tool call auto-approved) and it
+ * carries no `toolRestriction`, so with Boundary 3 unwired a policied
+ * `extensions`-scoped key — a Bearer key, not a session — got the whole tool
+ * surface plus `invoke_agent`/`run_workflow`.
+ *
  * Scope note: the set is no longer conversation-scoped. `POST
- * /api/agents/[name]/run`, `POST /api/workflows/[name]/run` and the two
- * briefing entry points start a run with no PRE-EXISTING conversation to read
- * a `mode_id` from, so a locked mode is not enforceable on them even in
- * principle — which is exactly why a locked key must not be able to name them.
+ * /api/agents/[name]/run`, `POST /api/workflows/[name]/run`, the two briefing
+ * entry points and the github-projects approve route start a run with no
+ * PRE-EXISTING conversation to read a `mode_id` from, so a locked mode is not
+ * enforceable on them even in principle — which is exactly why a locked key
+ * must not be able to name them.
  */
 export const RUN_START_ROUTES: readonly string[] = [
   "POST /api/agents/[name]/run",
@@ -158,6 +169,7 @@ export const RUN_START_ROUTES: readonly string[] = [
   "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
   "POST /api/conversations/[id]/tasks/[taskId]/retry",
   "POST /api/hub/pages/[id]/actions/[action]",
+  "POST /api/integrations/github-projects/proposals/[id]/approve",
   "POST /api/workflows/[name]/run",
 ];
 
@@ -166,18 +178,20 @@ export const RUN_START_ROUTES: readonly string[] = [
  * real guard in the handler — `policy-run-start-surface.test.ts` asserts each
  * named route file actually calls {@link runStartPolicyDenial}.
  *
- * This is EVERY conversation-scoped run-start route. The four absentees —
+ * This is EVERY conversation-scoped run-start route. The five absentees —
  * `POST /api/agents/[name]/run`, `POST /api/workflows/[name]/run`,
- * `POST /api/briefing/run-now` and `POST /api/hub/pages/[id]/actions/[action]`
- * — start a run with no conversation to read a `mode_id` from, so a locked
- * mode is not enforceable on them even in principle: the two briefing entries
- * CREATE the conversation the run executes on, so "its persisted mode" is a
- * row that does not exist yet and a guard there would be a constant refusal
- * dressed up as a mode check. That is exactly why a locked key must not be
- * able to name them, and why a lock with NO allowlist (reaching all four) is
- * refused at mint — and, since {@link RUN_START_ROUTES} is also enforced at
- * Boundary 1 for such a policy, refused at request time for keys minted before
- * that rule existed.
+ * `POST /api/briefing/run-now`, `POST /api/hub/pages/[id]/actions/[action]`
+ * and `POST /api/integrations/github-projects/proposals/[id]/approve` — start a
+ * run with no conversation to read a `mode_id` from, so a locked mode is not
+ * enforceable on them even in principle: the briefing entries and the approve
+ * route CREATE the conversation the run executes on (`run.ts` and
+ * `approveProposal` both call `createConversation`, neither sets a `mode_id`),
+ * so "its persisted mode" is a row that does not exist yet and a guard there
+ * would be a constant refusal dressed up as a mode check. That is exactly why a
+ * locked key must not be able to name them, and why a lock with NO allowlist
+ * (reaching all five) is refused at mint — and, since the UNGUARDABLE ones are
+ * also enforced at Boundary 1, refused at request time for keys minted before
+ * that rule existed, allowlist or no allowlist.
  *
  * Scope of the guarantee, stated because the two shapes differ:
  *
@@ -564,8 +578,12 @@ export function runStartPolicyDenial(
  * briefing entry points derive it at the route (so the wiring stays greppable
  * from the route side, which is the only side that caught the inert Boundary 3)
  * and hand it down through `triggerBriefingRunNow` → `runBriefingForUser` into
- * the same spread. Deriving it at the route and dropping it on the way is the
- * failure this type exists to make visible.
+ * the same spread; the github-projects approve route hands it to
+ * `approveProposal` through its `ApproveDeps` injection seam, which spreads it
+ * into the spawn bridge's own `streamChat`. Deriving it at the route and
+ * dropping it on the way is the failure this type exists to make visible —
+ * which is why each hop is asserted at the EXECUTOR's options bag, not at the
+ * route's intent.
  */
 export interface RunStartToolPolicyOptions {
   /** Bare declaration names this run may wire/execute as caller tools.

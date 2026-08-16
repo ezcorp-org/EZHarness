@@ -88,7 +88,6 @@ describe("route bundles", () => {
     expect(BUNDLE.length).toBe(14);
   });
 
-
   test("desktop-companion excludes every HTTP-initiated spawn path", () => {
     // The class of bypass Boundary 1 exists for: routes that start a run with
     // no LLM tool call at all, so no tool-surface filter can ever see them.
@@ -432,11 +431,12 @@ describe("validateToolPolicy", () => {
 
     test("refuses a lock on every run-start route that has no conversation to read", async () => {
       // `agents/[name]/run` and `workflows/[name]/run` start a run with no
-      // conversation to read a `mode_id` from; `briefing/run-now` and the hub
-      // actions route CREATE the conversation their run executes on, so its
-      // mode is a row that does not exist yet. A locked mode is not
-      // enforceable on any of them even in principle — which is precisely why
-      // a locked key must not be able to name them.
+      // conversation to read a `mode_id` from; `briefing/run-now`, the hub
+      // actions route and the github-projects approve route CREATE the
+      // conversation their run executes on, so its mode is a row that does not
+      // exist yet. A locked mode is not enforceable on any of them even in
+      // principle — which is precisely why a locked key must not be able to
+      // name them.
       //
       // DERIVED from RUN_START_ROUTES ∖ MODE_GUARDED rather than listed, so a
       // route that joins the run-start surface without a guard is covered the
@@ -444,6 +444,9 @@ describe("validateToolPolicy", () => {
       // briefing entries ship unrefused: they were on neither list.
       expect(UNGUARDABLE).toContain("POST /api/briefing/run-now");
       expect(UNGUARDABLE).toContain("POST /api/hub/pages/[id]/actions/[action]");
+      expect(UNGUARDABLE).toContain(
+        "POST /api/integrations/github-projects/proposals/[id]/approve",
+      );
       for (const route of UNGUARDABLE) {
         expect(
           await validateToolPolicy(
