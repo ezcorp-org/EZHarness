@@ -334,7 +334,10 @@ export class GithubProjectsDaemon {
           });
         } else {
           // Auto-spawn is the dangerous opt-in path. approveProposal enforces
-          // the per-project concurrency cap + pins a non-yolo permission mode.
+          // the per-project concurrency cap. It does NOT pin a non-yolo
+          // permission mode: only an explicit per-column override caps the
+          // mode, and with none set the board default resolves to 'yolo'
+          // (spawn.ts, `parseSpawnPermissionMode(...) ?? "yolo"`).
           const approve = this.opts.approve ?? defaultApproveProposal;
           try {
             await approve(inserted.id, { kind: "auto" });

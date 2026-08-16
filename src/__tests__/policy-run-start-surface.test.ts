@@ -96,15 +96,21 @@
  *     evaluated in-process and every other step is stubbed. No LLM, no run row,
  *     so no primitive to match and nothing for a policy to confine.
  *   • **Extension-dispatch doors.** `POST /api/extensions/[name]/events/[event]`,
- *     `POST /api/ez-actions/[name]` and `POST /api/hooks/[extensionId]/[slug]`
- *     hand control to extension code, which — like the `.actions?.[` dispatch
- *     that IS pinned above — could in principle reach a run. The difference is
- *     the gate, not the mechanism: what an extension may do is decided per
- *     extension by its own approved permission grant (PDP), a per-install
- *     decision a route allowlist cannot re-derive, whereas the hub-page registry
- *     dispatches into FIRST-PARTY core providers with no such grant behind them.
- *     Naming these three here would confine the door and leave the grant
- *     unexamined, which is the weaker of the two controls.
+ *     `POST /api/ez-actions/[name]`, `POST /api/hooks/[extensionId]/[slug]` and
+ *     `POST /api/tool-invoke` (the sandbox reverse-RPC surface, whose handlers
+ *     include spawn-assignment and workflows) hand control to extension code,
+ *     which — like the `.actions?.[` dispatch that IS pinned above — could in
+ *     principle reach a run. The difference is the gate, not the mechanism:
+ *     what an extension may do is decided per extension by its own approved
+ *     permission grant (PDP), a per-install decision a route allowlist cannot
+ *     re-derive, whereas the hub-page registry dispatches into FIRST-PARTY core
+ *     providers with no such grant behind them. Naming these four here would
+ *     confine the door and leave the grant unexamined, which is the weaker of
+ *     the two controls. Consequence, stated rather than implied: a policied key
+ *     reaching any of them can cause a spawn that Boundary 3 never sees, and a
+ *     legacy lock-only key is not denied there — the Boundary-1 lock rule
+ *     covers RUN_START_ROUTES only. Boundary 1 still bounds it, and the shipped
+ *     `desktop-companion` bundle names none of these routes.
  */
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
