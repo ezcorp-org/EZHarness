@@ -51,6 +51,14 @@
  * the conditional must still be in the file, and the entry must still declare a
  * key scope. Make that gate unconditional and this suite fails until the entry
  * is re-declared.
+ *
+ * ── The one shape this walk cannot see ────────────────────────────────
+ * A verb bound by REFERENCE — `export const PUT = withGuard(handler)` — names
+ * no gate inside its own declaration, so the walk would read it as ungated and
+ * this suite would demand the scope be removed from a route that is in fact
+ * defended. The blind spot is EMPTY today: all 310 verb declarations under
+ * `web/src/routes/api` are direct arrow functions, so there is nothing yet to
+ * miss — the first wrapper form has to teach the walk to follow the binding.
  */
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
@@ -58,7 +66,7 @@ import { join } from "node:path";
 import { apiRegistry } from "../api-registry";
 import { API_KEY_SCOPES, SESSION_ROUTE_SCOPE, isApiKeyScope } from "../auth/api-key";
 import { ROUTE_BUNDLES, routeIdToRegistryPath } from "../auth/tool-policy";
-import { computeReaching, declarationsOf } from "./helpers/source-walk";
+import { computeReaching, declarationsOf, stripComments } from "./helpers/source-walk";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const ROUTES_ROOT = join(REPO_ROOT, "web/src/routes/api");
@@ -210,7 +218,10 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
       });
     }
     const rel = "hub/pages/[id]/actions/[action]/+server.ts";
-    const hubActions = await Bun.file(join(ROUTES_ROOT, rel)).text();
+    // Comments STRIPPED before matching, for the reason `stripComments`
+    // documents: a reviewer made this gate unconditional, left the conditional
+    // behind as a comment, and got green. Prose is not a gate.
+    const hubActions = stripComments(await Bun.file(join(ROUTES_ROOT, rel)).text());
     // Asserted as a boolean, not with `toContain` — the failure message for a
     // missing substring is the whole 170-line file, which buries the one fact
     // the reader needs.
@@ -225,10 +236,22 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
     // it composes. Pin that, so removing the session half forces this list to
     // be revisited rather than leaving five service-account verbs declaring a
     // boundary nothing enforces.
-    const middleware = await Bun.file(join(REPO_ROOT, "src/auth/middleware.ts")).text();
-    const fn = middleware.slice(middleware.indexOf("export function requireAdminSession"));
-    expect(fn).toContain("requireSessionAuth(locals)");
-    expect(fn).toContain('checkRole(locals, "admin")');
+    //
+    // Read through the same walker the derivation uses, and not as a raw slice
+    // of the file, because the raw slice ran to EOF and was satisfiable by any
+    // LATER function in `middleware.ts` — or by a doc comment. Both were
+    // demonstrated green against a `requireAdminSession` that had stopped
+    // gating. `declarationsOf` strips comments and bounds the span at the next
+    // top-level declaration, so the only thing that can satisfy this is code
+    // inside the function named.
+    const decls = await declarationsOf(join(REPO_ROOT, "src/auth/middleware.ts"));
+    const fn = decls.get("requireAdminSession");
+    expect({ declaration: "requireAdminSession", found: fn !== undefined }).toEqual({
+      declaration: "requireAdminSession",
+      found: true,
+    });
+    expect(fn?.body).toContain("requireSessionAuth(locals)");
+    expect(fn?.body).toContain('checkRole(locals, "admin")');
   });
 
   test("a session gate is never confused with a plain read on the same file", () => {

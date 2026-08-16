@@ -42,7 +42,7 @@ handle it explicitly, and each would otherwise publish or grant a reach that
 does not exist:
 
 - **OpenAPI** (`src/openapi.ts`) secures those operations with a
-  `sessionCookie` scheme (`apiKey` in cookie `pi_session`), never `bearerAuth`
+  `sessionCookie` scheme (`apiKey` in cookie `ezcorp_session`), never `bearerAuth`
   — `bearerAuth: ["session"]` would tell an integrator to mint a scope that
   does not exist for a route that refuses every key.
 - **Mint validation** (`validateToolPolicy`, `src/auth/tool-policy.ts`) refuses
