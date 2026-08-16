@@ -68,6 +68,11 @@ describe("getCardComponentName", () => {
 		["ez-draft", "EzToolResultCard"],
 		["ez-propose", "EzToolResultCard"],
 		["ez-preview-consent", "PreviewConsentCard"],
+		// The two web-search shapes share one component: a ranked link list
+		// and a single fetched page are the same question — what did the
+		// model read? — so they route together.
+		["web-search", "WebContextCard"],
+		["web-page", "WebContextCard"],
 	])("%s → %s", (cardType, component) => {
 		expect(getCardComponentName(cardType, false)).toBe(component);
 	});
