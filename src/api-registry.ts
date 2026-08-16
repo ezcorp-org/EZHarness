@@ -261,7 +261,16 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/projects/:id/members", description: "List a project's members (project members and instance admins)", category: "projects", scope: "read", responseDescription: "[{ id, projectId, userId, role, createdAt, userName, userEmail }]" },
   { method: "POST", path: "/api/projects/:id/members", description: "Add a member to a project, or change an existing member's role (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ id, projectId, userId, role, createdAt }" },
   { method: "DELETE", path: "/api/projects/:id/members/:userId", description: "Remove a member from a project; the LAST member is refused with 409 (project owners and instance admins)", category: "projects", scope: "write", responseDescription: "{ ok: true }" },
-  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set the project's built-in-tool permission mode (project members and instance admins); an optional conversationId — which must name a chat the caller owns inside this project — pushes the change live into that run", category: "projects", scope: "chat", responseDescription: "{ ok: true }" },
+  // SESSION-ONLY on top of the declared scope, and the `scope` is still
+  // declared rather than dropped: `requireScope(locals,"chat")` runs FIRST and
+  // genuinely refuses a key without `chat`, so `scope: "chat"` names a gate
+  // this handler enforces (#97's rule) rather than one it merely ought to.
+  // What the scope does NOT capture — that `requireSessionAuth` then refuses
+  // every key, of every scope — is stated in the description, the same way
+  // `POST /api/workflows/approvals/:id` states it. Setting this row is
+  // standing consent to auto-run tools, not a capability: a key that could
+  // raise it would be raising the ceiling on its own tool calls.
+  { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set the project's built-in-tool permission mode. SESSION-ONLY: refuses every API key (403) — this row pre-answers every future permission prompt in the project, so it is standing consent rather than a capability, and a `chat` key raising it would be raising the ceiling on its own tool calls. Project members and instance admins; an optional conversationId — which must name a chat the caller owns inside this project — pushes the change live into that run", category: "projects", scope: "chat", responseDescription: "{ ok: true }" },
 
   // Settings
   { method: "GET", path: "/api/settings", description: "Get every non-deny-listed instance setting. Gate: requireAdmin(locals) for the ROLE plus requireScope(locals,\"admin\") for the KEY axis (F6) — until 2026-08 the scope half was missing, so an admin-role key minted `--scopes read` read the whole settings blob", category: "settings", scope: "admin" },

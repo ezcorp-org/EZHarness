@@ -1,7 +1,7 @@
 import type { RequestHandler } from "./$types";
 import { getBus } from "$lib/server/context";
 import { requireScope } from "$lib/server/security/api-keys";
-import { checkProjectRole } from "$server/auth/middleware";
+import { checkProjectRole, requireSessionAuth } from "$server/auth/middleware";
 
 /**
  * The per-project built-in-tool permission mode — the dial that decides
@@ -33,6 +33,48 @@ import { checkProjectRole } from "$server/auth/middleware";
  * a 500 — and instance admins bypass membership. It also replaces the
  * `requireAuth` call, which threw on exactly that 401 path.
  *
+ * 403, NOT 404, for a project the caller cannot see. That looks like an
+ * existence oracle and is not one: `GET /api/projects` is deliberately
+ * instance-global and unfiltered, so every authenticated caller can already
+ * enumerate every project id one request later. A 404 here would be theatre
+ * AND a lie about a row the same caller may read. The reasoning is
+ * `checkProjectRole`'s own (`src/auth/middleware.ts`) and is pinned by the
+ * "reads stay instance-global" block in
+ * `src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts`.
+ * The sec-H3 404 shape is for ids that ARE secret; a project id is not.
+ *
+ * ── The WRITE is SESSION-ONLY; the read is not ──
+ *
+ * `requireSessionAuth` on PUT, so no API key of any scope can move this dial.
+ * Raising the stored mode to `yolo` is not a capability, it is STANDING
+ * CONSENT: it pre-answers every future permission prompt in the project, for
+ * every member, until someone lowers it again. `POST /api/workflows/
+ * approvals/:id` is session-only for the weaker case of spending ONE
+ * approval — "a leaked key must not be able to spend one" — so the row that
+ * abolishes all of them cannot be looser.
+ *
+ * It also closes a self-escalation loop. A `chat`-scoped key runs the agent
+ * whose `shell` / `write` / `edit_file` calls this dial gates. Without this,
+ * that key could raise its OWN ceiling and then auto-approve its own tool
+ * calls — the gate would be asking the caller's permission to gate the
+ * caller. The `internal` principal (`bearer-auth.ts`, the loopback
+ * extension-host identity) is refused for the same reason and it is the
+ * sharper case: an extension calling back into the API must not be able to
+ * stop the host asking about its own `shell` calls.
+ *
+ * Nothing shipped regresses: the only writer is
+ * `PermissionModeIndicator.svelte`, a cookie session, and the route is not
+ * `harness: { controllable: true }`.
+ *
+ * The scope check stays, and stays FIRST, so `scope: "chat"` in
+ * `src/api-registry.ts` keeps naming a gate this handler actually enforces
+ * (#97's rule) instead of becoming dead code behind the session check — a
+ * key lacking `chat` is still refused on the scope axis, and it is refused
+ * before any membership row is read, so no denial leaks who belongs here.
+ *
+ * GET is deliberately NOT session-gated. Reading the mode is a capability an
+ * agent legitimately needs, and disclosing it escalates nothing.
+ *
  * The CONVERSATION half of the PUT — that `conversationId` names a chat this
  * caller owns, inside this project — is enforced in `handleSetPermissionMode`
  * (`src/routes/tool-permission.ts`), where the body is parsed.
@@ -50,6 +92,8 @@ export const GET: RequestHandler = async ({ params, request, locals }) => {
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	const scopeErr = requireScope(locals, "chat");
 	if (scopeErr) return scopeErr;
+	const session = requireSessionAuth(locals);
+	if (session instanceof Response) return session;
 	const gate = await checkProjectRole(locals, params.id, "member");
 	if (gate instanceof Response) return gate;
 	const { handleSetPermissionMode } = await import("$server/routes/tool-permission");

@@ -29,17 +29,30 @@
  * id was therefore enough to disable the permission gate on their in-flight
  * turn — no membership, no ownership, no wait for the next run.
  *
+ * ── Exit 3: a key raises the ceiling on its own tool calls ──
+ *
+ * Closing the two above still left the WRITE reachable by any `chat`-scoped
+ * API key belonging to a project member. That is the wrong principal for this
+ * row. The stored mode is not a capability, it is STANDING CONSENT — it
+ * pre-answers every future permission prompt in the project, for every member.
+ * A key is precisely the non-interactive principal whose tool calls the prompt
+ * exists to stop, so a key that may raise the mode is a key that may
+ * auto-approve itself. `POST /api/workflows/approvals/:id` is session-only for
+ * the strictly weaker act of spending ONE approval.
+ *
  * ── What is under test ──
  *
- * The two halves are two different questions and are gated in two places:
+ * Three halves are three different questions, gated in three places:
  *
+ *   route   → `requireSessionAuth(locals)`                      — the METHOD
  *   route   → `checkProjectRole(locals, params.id, "member")`  — the PROJECT
  *   handler → the conversation is the caller's, and is IN this project
  *
- * Both shipped implementations run here. Only the DB reads underneath them
- * are stubbed (`getProjectMembership`, `getConversation`, the settings KV), so
- * `checkProjectRole`'s admin bypass, missing-row 403 and role ladder are the
- * real ones rather than a copy of the rule written in this file. Strategy
+ * All three shipped implementations run here. Only the DB reads underneath
+ * them are stubbed (`getProjectMembership`, `getConversation`, the settings
+ * KV), so `checkProjectRole`'s admin bypass, missing-row 403 and role ladder —
+ * and `requireSessionAuth`'s fail-closed method allowlist — are the real ones
+ * rather than a copy of the rule written in this file. Strategy
  * mirrors the sibling suite `cross-tenant-deletion-projects-kb-modes.test.ts`:
  * (A) source-level regression gates that flip with the fix, (B) behavioural
  * probes proving the attack is refused AND that the owner and an admin still
@@ -144,21 +157,42 @@ async function call(handler: (ev: any) => unknown, event: any): Promise<Response
   }
 }
 
-function putEvent(projectId: string, body: unknown, user: unknown) {
+/**
+ * The "no `authMethod` was stamped at all" case, which is a DISTINCT input
+ * from "the caller passed nothing" — a bare `undefined` argument would select
+ * the `"session"` default below and silently test the opposite of what it
+ * says. A sentinel makes the unstamped probe say so.
+ */
+const UNSTAMPED = Symbol("no authMethod stamped");
+
+/**
+ * `authMethod` defaults to `"session"` because the PUT is session-only: every
+ * probe below that is ABOUT the project or conversation axis must clear the
+ * session gate first, or it would pass for the wrong reason. The key probes
+ * pass it explicitly.
+ */
+function putEvent(
+  projectId: string,
+  body: unknown,
+  user: unknown,
+  authMethod: string | typeof UNSTAMPED = "session",
+) {
   return createMockEvent({
     method: "PUT",
     url: `http://localhost/api/projects/${projectId}/tool-permission-mode`,
     params: { id: projectId },
     body,
     user: user as any,
+    authMethod: authMethod === UNSTAMPED ? undefined : authMethod,
   });
 }
 
-function getEvent(projectId: string, user: unknown) {
+function getEvent(projectId: string, user: unknown, authMethod?: string) {
   return createMockEvent({
     url: `http://localhost/api/projects/${projectId}/tool-permission-mode`,
     params: { id: projectId },
     user: user as any,
+    authMethod,
   });
 }
 
@@ -209,6 +243,26 @@ describe("source: the mode route is membership-gated on BOTH verbs", () => {
     const handlers = src.slice(src.indexOf("export const GET"));
     expect(handlers.indexOf("export const GET")).toBe(0);
     expect(handlers).not.toMatch(/requireAuth\(locals\)/);
+  });
+
+  test(`${REL} — the WRITE is session-gated and the read is not`, () => {
+    const src = read(REL);
+    const handlers = src.slice(src.indexOf("export const GET"));
+    const put = handlers.slice(handlers.indexOf("export const PUT"));
+    const get = handlers.slice(0, handlers.indexOf("export const PUT"));
+    // Exactly one call site, and it is in the PUT. A `requireSessionAuth` that
+    // drifted into the GET would lock every agent out of reading the mode;
+    // one that fell out of the PUT would re-open the key escalation.
+    expect(put).toContain("requireSessionAuth(locals)");
+    expect(get).not.toContain("requireSessionAuth");
+    expect(handlers.match(/requireSessionAuth\(locals\)/g) ?? []).toHaveLength(1);
+    // Returned, not thrown — same reason as the membership gate above.
+    expect(put).toContain("if (session instanceof Response) return session;");
+    // And it runs BEFORE the membership lookup, so a key is refused as "not a
+    // session" rather than being told whether it belongs to this project.
+    expect(put.indexOf("requireSessionAuth(locals)")).toBeLessThan(
+      put.indexOf("checkProjectRole(locals, params.id, \"member\")"),
+    );
   });
 
   test("src/routes/tool-permission.ts — the emit is conversation-gated", () => {
@@ -389,6 +443,99 @@ describe("ATTACK 2: PUT — the bus emit kills the gate on another user's live r
     expect(res.status).toBe(400);
     expect(emitted).toEqual([]);
     expect(settingsStore[MODE_KEY("proj-victim")]).toBe("ask");
+  });
+});
+
+describe("ATTACK 3: PUT — a non-interactive principal raises its OWN ceiling", () => {
+  // The project gate above answers WHOSE project this is. It does not answer
+  // whether this principal may decide the project's standing posture at all,
+  // and for a key the answer is no: the same `chat` key that runs the agent
+  // would be raising the ceiling on that agent's own `shell` calls, so the
+  // permission gate would be asking the caller's permission to gate the
+  // caller. `requireSessionAuth` is the same gate `POST /api/workflows/
+  // approvals/:id` uses to keep a leaked key from spending ONE approval; this
+  // row pre-answers all of them.
+  //
+  // Every probe here uses VICTIM — the project's OWNER — so the refusal can
+  // only be about the auth METHOD. A non-member would be refused anyway.
+  test("a `chat`-scoped API key cannot set the mode, even as the project owner", async () => {
+    expect(membershipStore.get(`proj-victim:${VICTIM.id}`)!.role).toBe("owner");
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo" }, VICTIM, "api-key"),
+    );
+    expect(res.status).toBe(403);
+    expect((await jsonFromResponse(res)).error).toBe("Interactive session required");
+    // The load-bearing assertion: the ceiling did not move.
+    expect(settingsStore[MODE_KEY("proj-victim")]).toBe("ask");
+  });
+
+  test("an ADMIN's key is refused too — the role does not buy the method", async () => {
+    // `checkProjectRole` lets an admin bypass MEMBERSHIP. It has nothing to
+    // say about being a session, and the two must not be confused: an
+    // admin-minted key is exactly the credential worth stealing.
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo" }, ADMIN_USER, "api-key"),
+    );
+    expect(res.status).toBe(403);
+    expect(settingsStore[MODE_KEY("proj-victim")]).toBe("ask");
+  });
+
+  test("the `internal` extension-host principal is refused — the sharpest case", async () => {
+    // `bearer-auth.ts` stamps `internal` for the loopback extension host. An
+    // extension calling back into the API must not be able to stop the host
+    // asking about its own `shell` calls.
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo" }, VICTIM, "internal"),
+    );
+    expect(res.status).toBe(403);
+    expect(settingsStore[MODE_KEY("proj-victim")]).toBe("ask");
+  });
+
+  test("an UNSTAMPED principal is refused — the allowlist fails closed", async () => {
+    // `authMethod` is stamped positively by each auth site. A future auth mode
+    // that populates `locals.user` and forgets to stamp must land on DENY, not
+    // on allow-by-omission.
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo" }, VICTIM, UNSTAMPED),
+    );
+    expect(res.status).toBe(403);
+    expect(settingsStore[MODE_KEY("proj-victim")]).toBe("ask");
+  });
+
+  test("the key cannot reach the conversation half either", async () => {
+    // Refused before the emit, so a key cannot switch even its OWN live run —
+    // which is the whole point: the run is where the escalation would be spent.
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo", conversationId: "conv-victim" }, VICTIM, "api-key"),
+    );
+    expect(res.status).toBe(403);
+    expect(emitted).toEqual([]);
+  });
+
+  test("the same request from a real session succeeds — the gate is the method", async () => {
+    // Discrimination: identical project, principal, body and mode. Only
+    // `authMethod` differs from the first cell, so the 403s above cannot be
+    // some unrelated refusal.
+    const res = await call(
+      modePut as any,
+      putEvent("proj-victim", { mode: "yolo" }, VICTIM, "session"),
+    );
+    expect(res.status).toBe(200);
+    expect(settingsStore[MODE_KEY("proj-victim")]).toBe("yolo");
+  });
+
+  test("READING the mode with a key still works — only the write is narrowed", async () => {
+    // An agent must be able to see the posture it is running under. Gating the
+    // read would break that for no security gain: disclosure to a project
+    // MEMBER escalates nothing, and the write is where consent is spent.
+    const res = await call(modeGet as any, getEvent("proj-victim", VICTIM, "api-key"));
+    expect(res.status).toBe(200);
+    expect(await jsonFromResponse(res)).toEqual({ mode: "ask" });
   });
 });
 

@@ -561,7 +561,7 @@ describe("registry ⇄ filesystem parity", () => {
   // the count test fails if the baseline no longer matches the list (so the
   // ratchet cannot be loosened by deleting lines). Both failures name what to
   // do. This list may only SHRINK. Sorted; keep it sorted.
-  const BASELINE_SCOPELESS = 91;
+  const BASELINE_SCOPELESS = 90;
   const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
     "DELETE /api/agent-configs/:id",
     "DELETE /api/extensions/:id/settings/user",

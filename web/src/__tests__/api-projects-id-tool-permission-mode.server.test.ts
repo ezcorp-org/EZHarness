@@ -2,13 +2,18 @@
  * Server-handler unit tests for
  * /api/projects/[id]/tool-permission-mode/+server.ts.
  *
- * The handler is thin: it gates on API-key scope + PROJECT MEMBERSHIP, then
- * defers to the shared tool-permission helper via dynamic import, wiring a bus
- * emit into the helper's `onModeChange` callback. All three halves are covered
- * here — the scope gate and the membership gate that run BEFORE the dynamic
- * import, and the delegation + emit that run after it (the helper itself and
- * its DB write are integration-tested against real PGlite elsewhere; `vi.mock`
- * stands in for it here).
+ * The handler is thin: it gates on API-key scope, then (on PUT) an INTERACTIVE
+ * SESSION, then PROJECT MEMBERSHIP, then defers to the shared tool-permission
+ * helper via dynamic import, wiring a bus emit into the helper's
+ * `onModeChange` callback. Every half is covered here — the three gates that
+ * run BEFORE the dynamic import, and the delegation + emit that run after it
+ * (the helper itself and its DB write are integration-tested against real
+ * PGlite elsewhere; `vi.mock` stands in for it here).
+ *
+ * The session gate is why the PUT and the GET differ: the GET stays reachable
+ * by an API key because reading the posture escalates nothing, while WRITING
+ * it is standing consent to auto-run tools — and the key is the principal
+ * whose tool calls that consent releases.
  *
  * The membership gate is the fix for a real hole: both verbs used to carry
  * `requireAuth` + `requireScope` and nothing else, and `requireScope` is a
@@ -42,6 +47,9 @@ let roleCalls: RoleCall[] = [];
 /** Project ids the caller is a member of, per test. */
 let memberOf: Set<string>;
 
+/** Records every `requireSessionAuth` call so the route's ORDER is testable. */
+let sessionCalls: Array<{ authMethod: string | undefined }> = [];
+
 vi.mock("$server/auth/middleware", () => ({
 	checkProjectRole: async (
 		locals: { user?: { id: string } },
@@ -51,6 +59,18 @@ vi.mock("$server/auth/middleware", () => ({
 		roleCalls.push({ projectId, minRole, userId: locals.user?.id });
 		if (!locals.user) return Response.json({ error: "Authentication required" }, { status: 401 });
 		if (!memberOf.has(projectId)) return Response.json({ error: "Forbidden" }, { status: 403 });
+		return locals.user;
+	},
+	// Stubbed at the GATE, like `checkProjectRole` above: this file's job is the
+	// route's wiring. The shipped allowlist (`session` passes; `api-key`,
+	// `internal` and UNSTAMPED are refused) is exercised against the real
+	// implementation by `src/__tests__/security/project-permission-mode-authz.test.ts`.
+	requireSessionAuth: (locals: { user?: { id: string }; authMethod?: string }) => {
+		sessionCalls.push({ authMethod: locals.authMethod });
+		if (!locals.user) return Response.json({ error: "Authentication required" }, { status: 401 });
+		if (locals.authMethod !== "session") {
+			return Response.json({ error: "Interactive session required" }, { status: 403 });
+		}
 		return locals.user;
 	},
 }));
@@ -110,15 +130,21 @@ function makeEvent(opts: {
 	});
 }
 
+/** A browser session. The PUT is session-only, so this is what it takes. */
 const AUTHED = {
 	user: { id: "u1", email: "u@x", name: "u", role: "user" },
 	apiKeyScopes: ["read", "chat"],
+	authMethod: "session",
 };
+
+/** The same principal holding the same scopes, presenting an API KEY. */
+const KEYED = { ...AUTHED, authMethod: "api-key" };
 
 beforeEach(() => {
 	setCalls = [];
 	getCalls = [];
 	roleCalls = [];
+	sessionCalls = [];
 	emitted.length = 0;
 	modeChange = null;
 	// The default principal is a member of the project ids used below.
@@ -162,6 +188,16 @@ describe("GET /api/projects/[id]/tool-permission-mode", () => {
 		// Asked about the project in the PATH, at the `member` rung.
 		expect(roleCalls).toEqual([{ projectId: "proj-7", minRole: "member", userId: "u1" }]);
 	});
+
+	test("an API KEY may still READ — only the write is session-only", async () => {
+		// Deliberate asymmetry: an agent must be able to see the posture it runs
+		// under, and disclosure to a project member escalates nothing. Pinned so
+		// the PUT's session gate cannot be copied onto the GET by tidying.
+		const res = await GET(makeEvent({ id: "proj-7", locals: KEYED }));
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ mode: "ask" });
+		expect(sessionCalls).toEqual([]);
+	});
 });
 
 describe("PUT /api/projects/[id]/tool-permission-mode", () => {
@@ -179,6 +215,26 @@ describe("PUT /api/projects/[id]/tool-permission-mode", () => {
 		expect(res.status).toBe(403);
 		const body = (await res.json()) as { required?: string };
 		expect(body.required).toBe("chat");
+		// The scope gate is FIRST: neither the session gate nor the membership
+		// lookup runs for a key that may not chat.
+		expect(sessionCalls).toEqual([]);
+		expect(roleCalls).toEqual([]);
+	});
+
+	test("an API KEY is refused even holding 'chat' and full membership", async () => {
+		// The narrowing this route needed on top of membership. Setting the mode
+		// is standing consent to auto-run tools, and the key IS the principal
+		// whose tool calls that consent would release.
+		const res = await PUT(
+			makeEvent({ locals: KEYED, method: "PUT", body: { mode: "yolo" } }),
+		);
+		expect(res.status).toBe(403);
+		expect((await res.json()).error).toBe("Interactive session required");
+		expect(setCalls).toEqual([]);
+		expect(emitted).toEqual([]);
+		// Refused on the METHOD, before any membership row is read — so the
+		// denial cannot tell a key who belongs to this project.
+		expect(sessionCalls).toEqual([{ authMethod: "api-key" }]);
 		expect(roleCalls).toEqual([]);
 	});
 
@@ -204,8 +260,9 @@ describe("PUT /api/projects/[id]/tool-permission-mode", () => {
 	});
 
 	test("an UNAUTHENTICATED caller gets 401, not a 500", async () => {
-		// `checkProjectRole` RETURNS its denial; the `requireAuth` it replaced
-		// THREW one, which SvelteKit surfaces from a handler as a 500.
+		// Both gates RETURN their denial; the `requireAuth` they replaced THREW
+		// one, which SvelteKit surfaces from a handler as a 500. 401 rather than
+		// 403 because there is no principal at all to refuse on method.
 		const res = await PUT(makeEvent({ locals: {}, method: "PUT", body: { mode: "ask" } }));
 		expect(res.status).toBe(401);
 		expect(setCalls).toEqual([]);
