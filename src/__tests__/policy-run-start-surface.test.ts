@@ -43,7 +43,7 @@
  * names `streamChat` only in a comment, and `messages/[mid]/retry` names it
  * four times in prose above the one line that calls it.
  *
- * ── The known limit, stated rather than hidden ────────────────────────
+ * ── The known limit, stated rather than hidden — and what it cost ─────
  * Reachability is intra-file plus PINNED cross-file hops (see "the cross-file
  * hops are real"). A future route that starts a run through some new helper
  * whose name is on neither list is invisible to this walk — the same limit
@@ -51,6 +51,22 @@
  * keep a dead-detector: {@link MUST_DETECT} pins the routes the analysis is
  * KNOWN to reach, so a walker that stops matching fails loudly instead of
  * reporting an empty, vacuously-passing set.
+ *
+ * That limit is not theoretical. TWO run-start routes hid behind it:
+ *
+ *   • `POST /api/briefing/run-now` — two cross-file hops
+ *     (`triggerBriefingRunNow` → `runBriefingForUser` → `.streamChat(`), no
+ *     primitive anywhere in the route file.
+ *   • `POST /api/hub/pages/[id]/actions/[action]` — DYNAMIC DISPATCH into the
+ *     hub-page provider registry, reaching the same trigger with no helper
+ *     name in the file at all.
+ *
+ * Both were absent from `RUN_START_ROUTES`, so "names EXACTLY the routes that
+ * start a run" was passing against a list that was not exact, a `lockedModeId`
+ * key could name either one, and neither wired Boundary 3. The fix is to pin
+ * the ENTRY POINT as a primitive (a name the route file does contain) and to
+ * assert the hops themselves, which is the only form that survives a helper
+ * being renamed or a bag being dropped halfway down.
  */
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
@@ -81,17 +97,43 @@ const RUN_START_PRIMITIVES = [
   ".runWorkflow(",
   "startAssignment(",
   "spawnAssignment(",
+  // Two hops to a run and neither of them intra-file, which is why this list
+  // has to name the ENTRY POINT rather than the primitive:
+  // `triggerBriefingRunNow` → `runBriefingForUser` → `executor.streamChat`.
+  // `POST /api/briefing/run-now` was therefore invisible to this walk and
+  // absent from RUN_START_ROUTES — so `validateToolPolicy` accepted a
+  // `lockedModeId` policy that named it, and the "names EXACTLY the routes
+  // that start a run" assertion below was passing on a false list. Pinned in
+  // "the cross-file hops are real".
+  "triggerBriefingRunNow(",
+  // The hub actions route reaches the SAME trigger by DYNAMIC DISPATCH
+  // (`provider?.actions?.[actionName]`), so no run primitive and no helper
+  // name appears in that file at all. The dispatch expression is the only
+  // token there is; a registry whose members can start runs makes every
+  // dispatch into it a run start. Closing run-now alone would have left this
+  // door open — one bypass is all a boundary needs.
+  ".actions?.[",
 ] as const;
 
 /**
- * The primitive that takes a per-run tool-policy option bag. `runAgent`,
- * `runWorkflow` and `startAssignment` have no such parameter, so Boundary 3
- * cannot be wired into them and Boundary 1 (the route allowlist) plus the
- * mint-time refusal below are the controls on those routes.
+ * The primitives that reach a run which TAKES a per-run tool-policy option bag.
+ * `runAgent`, `runWorkflow` and `startAssignment` have no such parameter, so
+ * Boundary 3 cannot be wired into them and Boundary 1 (the route allowlist)
+ * plus the mint-time refusal below are the controls on those routes.
+ *
+ * The two briefing entries DO reach one — `runBriefingForUser` threads the bag
+ * into `streamChat` — so they owe the wiring exactly as the three direct
+ * `streamChat` routes do, and are asserted here rather than exempted for being
+ * indirect.
  */
-const STREAM_CHAT = ".streamChat(";
+const B3_CAPABLE_PRIMITIVES = [
+  ".streamChat(",
+  "triggerBriefingRunNow(",
+  ".actions?.[",
+] as const;
 
-/** The Boundary-3 derivation every `streamChat` run-start route must call. */
+/** The Boundary-3 derivation every {@link B3_CAPABLE_PRIMITIVES} route must
+ *  call — at the ROUTE, even when the run itself is two hops away. */
 const B3_WIRING = "runStartToolPolicyOptions(";
 
 /** The Boundary-2 guard every mode-guarded route must call. */
@@ -107,6 +149,8 @@ const MUST_DETECT = [
   "POST /api/agents/[name]/run", // .runAgent(
   "POST /api/workflows/[name]/run", // .runWorkflow(
   "POST /api/conversations/[id]/tasks/[taskId]/retry", // startAssignment(
+  "POST /api/briefing/run-now", // triggerBriefingRunNow(
+  "POST /api/hub/pages/[id]/actions/[action]", // .actions?.[
 ] as const;
 
 interface RouteAnalysis {
@@ -216,42 +260,51 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
     expect(derivedGuarded).toEqual([...MODE_GUARDED_RUN_START_ROUTES].sort());
   });
 
-  test("the two unguardable routes are the ones with no conversation", () => {
+  test("the unguardable routes are exactly the ones with no conversation to read", () => {
     // Pinned as the COMPLEMENT, so shrinking the guarded set has to be a
     // deliberate edit here. `runAgent` / `runWorkflow` start a run with no
-    // conversation to read a `mode_id` from, so a lock is not enforceable on
-    // them even in principle — which is why an absent routeAllowlist (reaching
-    // both) can never carry a lock.
+    // conversation to read a `mode_id` from; the two briefing entries CREATE
+    // the conversation their run executes on, so its persisted mode is a row
+    // that does not exist when a guard would run and `mayUseMode` would read a
+    // constant `null`. A lock is not enforceable on any of the four even in
+    // principle — which is why an absent routeAllowlist (reaching all of them)
+    // can never carry a lock, at mint OR at Boundary 1.
     const guarded = new Set(MODE_GUARDED_RUN_START_ROUTES);
     expect(RUN_START_ROUTES.filter((r) => !guarded.has(r))).toEqual([
       "POST /api/agents/[name]/run",
+      "POST /api/briefing/run-now",
+      "POST /api/hub/pages/[id]/actions/[action]",
       "POST /api/workflows/[name]/run",
     ]);
   });
 
-  test("EVERY streamChat run-start route wires Boundary 3", () => {
-    // The assertion that would have failed on the shipped code. All three
-    // `streamChat` routes called it with no policy options at all, so a
-    // policied key's spawn-deny and caller-tool cap were inert mid-turn.
+  test("EVERY run-start route that CAN carry Boundary 3 wires it", () => {
+    // The assertion that would have failed on the shipped code — twice. All
+    // three `streamChat` routes called `streamChat` with no policy options at
+    // all, so a policied key's spawn-deny and caller-tool cap were inert
+    // mid-turn; and both briefing entries reached the same executor two hops
+    // away with nothing to pass.
     const unwired = routes
-      .filter((r) => r.reachedText.includes(STREAM_CHAT))
+      .filter((r) => B3_CAPABLE_PRIMITIVES.some((p) => r.reachedText.includes(p)))
       .filter((r) => !r.reachedText.includes(B3_WIRING))
       .map((r) => `${r.key} — ${r.path}`);
     expect(unwired).toEqual([]);
   });
 
-  test("the streamChat routes are the three we think they are", () => {
-    // Pinned separately so that a route DROPPING its `streamChat` call (and
-    // with it, silently, the Boundary-3 assertion above) fails here rather
-    // than shrinking the set the previous test iterates. An empty filter
-    // passes that test vacuously.
-    const streamChatRoutes = routes
-      .filter((r) => r.reachedText.includes(STREAM_CHAT))
+  test("the Boundary-3-capable routes are the five we think they are", () => {
+    // Pinned separately so that a route DROPPING its run call (and with it,
+    // silently, the Boundary-3 assertion above) fails here rather than
+    // shrinking the set the previous test iterates. An empty filter passes
+    // that test vacuously.
+    const b3Routes = routes
+      .filter((r) => B3_CAPABLE_PRIMITIVES.some((p) => r.reachedText.includes(p)))
       .map((r) => r.key);
-    expect(streamChatRoutes).toEqual([
+    expect(b3Routes).toEqual([
+      "POST /api/briefing/run-now",
       "POST /api/conversations/[id]/agent-chat",
       "POST /api/conversations/[id]/messages",
       "POST /api/conversations/[id]/messages/[mid]/retry",
+      "POST /api/hub/pages/[id]/actions/[action]",
     ]);
   });
 
@@ -270,6 +323,30 @@ describe("RUN_START_ROUTES — tree-wide run-start surface assertion", () => {
       join(REPO_ROOT, "src/runtime/workflow-executor.ts"),
     ).text();
     expect(workflowExecutor).toContain("this.agentExecutor.runAgent(");
+
+    // `triggerBriefingRunNow` is TWO hops from the run, and the second hop is
+    // where Boundary 3 either arrives or is silently dropped. Pin BOTH: the
+    // trigger forwards the bag it was given, and the pipeline spreads it into
+    // the `streamChat` call. Wiring the route and losing the options in the
+    // middle is the exact half-wiring shape this suite exists to catch, and it
+    // is invisible from the route side alone.
+    const trigger = await Bun.file(
+      join(REPO_ROOT, "web/src/lib/server/briefing-run-now.ts"),
+    ).text();
+    expect(trigger).toContain("runBriefingForUser(config, { toolPolicyOptions })");
+
+    const briefingRun = await Bun.file(join(REPO_ROOT, "src/runtime/briefing/run.ts")).text();
+    expect(briefingRun).toContain(".streamChat(");
+    expect(briefingRun).toContain("...(opts.toolPolicyOptions ?? {})");
+
+    // The hub dispatch hop: the actions route hands the bag to a provider
+    // action, and the ONE core action that starts a run forwards it to the
+    // same trigger. Without this line the tab is a second, unconfined door to
+    // the run-now pipeline.
+    const briefingHubPage = await Bun.file(
+      join(REPO_ROOT, "src/runtime/briefing/hub-page.ts"),
+    ).text();
+    expect(briefingHubPage).toContain("deps.triggerRunNow(ctx.userId, ctx.toolPolicyOptions)");
   });
 
   test("a run-start route is never confused with a plain read on the same file", () => {

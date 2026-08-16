@@ -60,9 +60,15 @@ let userA: AuthUser;
 let userB: AuthUser;
 let projectId: string;
 
+/** Every options bag the stub executor was called with, so the Boundary-3
+ *  tests can assert what the RUN received rather than what the route passed —
+ *  the two are different claims and only the second one confines anything. */
+const streamChatCalls: Record<string, unknown>[] = [];
+
 function makeStubExecutor(opts: { assistantContent?: string | null; fail?: boolean }): BriefingExecutor {
   return {
     async streamChat(conversationId: string, _msg: string, options: Record<string, unknown>) {
+      streamChatCalls.push(options);
       if (opts.fail) throw new Error("provider exploded");
       if (opts.assistantContent) {
         await createMessage(conversationId, { role: "assistant", content: opts.assistantContent });
@@ -116,6 +122,7 @@ beforeEach(async () => {
   _resetBriefingAgentCacheForTests();
   __rateLimiter.reset();
   __testHooks.lastRun = undefined;
+  streamChatCalls.length = 0;
 
   const db = getTestDb();
   await db.delete(briefingConfigs);
@@ -372,6 +379,44 @@ describe("POST /api/briefing/run-now", () => {
     const body = await jsonFromResponse(second);
     expect(body.retryAfter).toBeGreaterThan(0);
     expect(Number(second.headers.get("Retry-After"))).toBeGreaterThan(0);
+  });
+
+  // ── Boundary 3 (per-API-key tool policy) ─────────────────────────
+  //
+  // This route STARTS A RUN and shipped with no boundary wired at all: it was
+  // absent from RUN_START_ROUTES, so `validateToolPolicy` accepted a
+  // `lockedModeId` key that named it, and the run it started kept the spawn
+  // primitives. `toolRestriction: "read-only"` does NOT strip them —
+  // `tools/filter.ts` `keep()` preserves `invoke_agent`/`run_workflow` through
+  // the read-only branch, and `forceDenyOrchestration` is the only layer that
+  // removes them. Asserted on the executor's options bag, because "the route
+  // derived it" and "the run received it" are different claims.
+  test("a POLICIED key's run inherits the key's confinement — spawn-deny reaches streamChat", async () => {
+    registerStubRuntime();
+    await upsertBriefingConfig(userA.id, { projectId });
+
+    const event = createMockEvent({ method: "POST", user: userA });
+    event.locals.apiKeyToolPolicy = { allowedCallerTools: ["open_app"] };
+    expect((await call(runNowPost, event)).status).toBe(202);
+    await __testHooks.lastRun;
+
+    expect(streamChatCalls).toHaveLength(1);
+    expect(streamChatCalls[0]!.forceDenyOrchestration).toBe(true);
+    expect(streamChatCalls[0]!.callerToolAllowlist).toEqual(["open_app"]);
+  });
+
+  test("an UNPOLICIED principal's run is byte-for-byte what it was", async () => {
+    // The back-compat half. Absent, not `false`: a `forceDenyOrchestration:
+    // false` on a cookie session's run would read as a deliberate grant.
+    registerStubRuntime();
+    await upsertBriefingConfig(userA.id, { projectId });
+
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(202);
+    await __testHooks.lastRun;
+
+    expect(streamChatCalls).toHaveLength(1);
+    expect("forceDenyOrchestration" in streamChatCalls[0]!).toBe(false);
+    expect("callerToolAllowlist" in streamChatCalls[0]!).toBe(false);
   });
 
   test("the Hub run-now trigger and the route share ONE rate bucket", async () => {

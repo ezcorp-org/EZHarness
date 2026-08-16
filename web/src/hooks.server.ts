@@ -7,7 +7,7 @@ import { devPageTransform } from "$server/dev-git-info";
 import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
-import { routeAllowlistDenial } from "$lib/server/security/route-allowlist";
+import { toolPolicyRouteDenial } from "$lib/server/security/route-allowlist";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
 import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
@@ -816,11 +816,18 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // Read only when a policy is present, so an unpolicied request touches
   // nothing new — the same positive-presence rule app.d.ts states for
   // `authMethod`.
-  const routeAllow = event.locals.apiKeyToolPolicy?.routeAllowlist;
-  if (routeAllow) {
-    const denial = routeAllowlistDenial(routeAllow, request.method, event.route.id);
-    if (denial) return denial;
-  }
+  //
+  // The WHOLE policy goes to the predicate, not just its `routeAllowlist`.
+  // Branching on that one field here is what confined the boundary to it: a
+  // key minted `{lockedModeId}` with no allowlist took the `if` and was
+  // enforced on nothing, so a lock-only key already in the wild kept reaching
+  // every run-start route. `toolPolicyRouteDenial` owns both rules.
+  const policyDenial = toolPolicyRouteDenial(
+    event.locals.apiKeyToolPolicy,
+    request.method,
+    event.route.id,
+  );
+  if (policyDenial) return policyDenial;
 
   // ── First-time onboarding gate ───────────────────────────────────
   // Pages-only: API routes (cookie OR Bearer) and asset paths bypass

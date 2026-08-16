@@ -32,11 +32,22 @@ may have been written by a different principal (the owner's own browser).
 **Boundary 3 is derived at the route, from one function.**
 `runStartToolPolicyOptions(locals.apiKeyToolPolicy)` returns the two
 `streamChat` options (`callerToolAllowlist`, `forceDenyOrchestration`), and
-every `streamChat` run-start route spreads it into the call — `messages`,
-`agent-chat`, and message `retry`. ANY policy ⇒ spawn-deny: a key confined on
-any axis is a leaf credential, and a mid-turn `invoke_agent` issues no HTTP
-request for Boundary 1 to see. No policy ⇒ `{}`, so a cookie session and an
-unpolicied key are unchanged.
+every run-start route that can carry them spreads it into the call — `messages`,
+`agent-chat`, message `retry`, and (through the shared briefing trigger)
+`briefing/run-now` plus `hub/pages/[id]/actions/[action]`. ANY policy ⇒
+spawn-deny: a key confined on any axis is a leaf credential, and a mid-turn
+`invoke_agent` issues no HTTP request for Boundary 1 to see. No policy ⇒ `{}`,
+so a cookie session and an unpolicied key are unchanged.
+
+The two briefing entry points derive the bag AT THE ROUTE and thread it down:
+`triggerBriefingRunNow(userId, bag)` → `runBriefingForUser(config, {
+toolPolicyOptions })` → `streamChat`. Derived at the route because that is the
+only layer that knows the principal, and the only side the surface test can
+read; threaded rather than re-derived because the run is fire-and-forget and
+two hops away. `toolRestriction: "read-only"` does **not** substitute for it —
+`tools/filter.ts` `keep()` preserves `invoke_agent`/`run_workflow` through the
+read-only branch, so `forceDenyOrchestration` is the only layer that removes
+them.
 
 It is one function rather than two inline reads because Boundary 3 first
 shipped **inert**: the options existed, `setup-tools` threaded them, and the
@@ -63,6 +74,14 @@ the assignment's agent config, so the lock gates *which conversations the key
 may spawn from* and does not narrow the spawned agent's surface. That residual
 is identical for an unlocked policied key, so the lock is still a strict
 narrowing — but do not read more into it.
+
+**Boundary 2 is NOT wired on the two briefing entry points, deliberately.**
+`runBriefingForUser` CREATES the conversation its run executes on, so there is
+no persisted `mode_id` when a guard would run: `mayUseMode` would read `null`
+and refuse every locked key unconditionally — a constant dressed up as a mode
+check, and a mint that then reports those routes as guarded. Locked keys are
+refused where the refusal is honest instead: at mint, and at Boundary 1 for
+keys minted before that rule existed.
 
 ## Shape
 
@@ -128,9 +147,26 @@ passed vacuously: the guard REFUSED
 the strictly wider `{lockedModeId}`. A key minted `--locked-mode` with no bundle
 reported as confined and was not — the holder detoured to a run-start route that
 never called `mayUseMode` and had the mode's denied tools back, `shell`
-included. The invariant now asserted in `tool-policy.test.ts`: **nothing wider
-than a refused policy may be accepted.** Note this fixes the MINT; keys already
-minted that way are confined only by the route-side guard, so re-mint them.
+included. The invariant asserted in `tool-policy.test.ts` is **family-scoped**,
+because the global reading is false: among policies that CLAIM A LOCK, widening
+the reach never turns a refusal into an acceptance. It is not monotone over all
+policies — `{lockedModeId, allowedCallerTools:[t]}` is refused while the
+strictly wider `{allowedCallerTools:[t]}` is accepted, and correctly so: the
+refusal exists to stop a key that ADVERTISES a lock it cannot enforce, and a
+key claiming no lock makes no such promise. That counterexample is pinned as
+its own test so the claim cannot be quietly widened back.
+
+**A lock-only key is also refused at REQUEST time, not only at mint.** The mint
+fix does nothing for keys already issued in that shape — Boundary 1 read
+`policy?.routeAllowlist` and branched on it, so `{lockedModeId}` with no
+allowlist was enforced on nothing until somebody re-minted it.
+`lockedModeRunStartDenial` (`route-allowlist.ts`, called from
+`toolPolicyRouteDenial` which the hook now uses) denies such a policy on **every**
+`RUN_START_ROUTES` entry, so the runtime verdict equals the mint verdict: a
+policy the mint would reject starts no runs. Non-run-start routes are untouched
+— it is a run-start rule, not a quarantine — and a policy with no
+`lockedModeId`, including none at all, never reaches the rule. Re-mint with a
+bundle to restore run-start reach.
 
 **`RUN_START_ROUTES` is derived from the tree, not trusted as a list.** The
 hand-written predecessor named three routes and had omitted four — including
@@ -142,11 +178,22 @@ detect an omission.
 `web/src/routes/api/**` per exported HTTP verb and fails when the list and the
 tree disagree in either direction — for `RUN_START_ROUTES` **and** for
 `MODE_GUARDED_RUN_START_ROUTES`, whose members it derives by finding the routes
-that actually call `runStartPolicyDenial`. Two of the seven routes
-(`agents/[name]/run`, `workflows/[name]/run`) have no conversation to read a
-`mode_id` from, so a lock is not enforceable on them even in principle — which
-is exactly why a locked key must not be able to name them, and why a lock with
-no allowlist (reaching both) can never be minted.
+that actually call `runStartPolicyDenial`.
+
+The walk is intra-file plus PINNED cross-file hops, and that limit hid two more
+run-start routes: `briefing/run-now` reaches `streamChat` through
+`triggerBriefingRunNow` → `runBriefingForUser` (no primitive in the route file
+at all), and `hub/pages/[id]/actions/[action]` reaches the same trigger by
+DYNAMIC DISPATCH through the hub-page provider registry. Both were absent from
+`RUN_START_ROUTES`, so a lock could name either; both now seed the walk from
+the entry-point token, and the hops themselves are asserted so a bag dropped
+halfway down fails the suite.
+
+Four of the nine routes (`agents/[name]/run`, `workflows/[name]/run`,
+`briefing/run-now`, `hub/pages/[id]/actions/[action]`) have no conversation to
+read a `mode_id` from, so a lock is not enforceable on them even in principle —
+which is exactly why a locked key must not be able to name them, and why a lock
+with no allowlist (reaching all four) can never be minted.
 
 ## Route bundles
 
@@ -189,9 +236,14 @@ is a footgun no code can catch — bundle review is the control.
   `runStartToolPolicyOptions`)
 - `src/__tests__/policy-run-start-surface.test.ts` — the tree-derived
   assertion that keeps `RUN_START_ROUTES` exhaustive and Boundary 3 wired
-- `web/src/lib/server/security/route-allowlist.ts` — the hook predicate + the
-  403 shape
+- `web/src/lib/server/security/route-allowlist.ts` — the hook predicates
+  (`routeAllowlistDenial`, `lockedModeRunStartDenial`, and
+  `toolPolicyRouteDenial` which the hook calls) + the 403 shape
 - `web/src/hooks.server.ts` — Boundary 1, after the auth branch closes
+- `web/src/lib/server/briefing-run-now.ts`, `src/runtime/briefing/run.ts` —
+  the shared briefing trigger and the pipeline it hands `toolPolicyOptions` to
+- `src/runtime/hub-pages.ts` — `HubPageContext.toolPolicyOptions`, the bag the
+  actions route derives for every core Hub action
 - `web/src/lib/server/security/api-keys.ts` — hydration at both verify sites
 - `web/src/lib/server/security/bearer-auth.ts` — stamps `locals.apiKeyToolPolicy`
 - `web/src/routes/api/settings/developer/{schema.ts,api-keys/+server.ts}` — HTTP mint

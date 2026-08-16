@@ -88,6 +88,7 @@ describe("route bundles", () => {
     expect(BUNDLE.length).toBe(14);
   });
 
+
   test("desktop-companion excludes every HTTP-initiated spawn path", () => {
     // The class of bypass Boundary 1 exists for: routes that start a run with
     // no LLM tool call at all, so no tool-surface filter can ever see them.
@@ -147,7 +148,10 @@ describe("route bundles", () => {
   test("every run-start route resolves to a registered route", () => {
     // Same closed-set check the bundles get: a typo here would silently stop
     // refusing a lock the allowlist can route around, because the allowlist
-    // entry it is compared against never matches.
+    // entry it is compared against never matches. The list is now load-bearing
+    // at RUN TIME as well — `lockedModeRunStartDenial` compares these strings
+    // to `event.route.id` — so a typo is a silent no-op in two places at once,
+    // both of which read exactly like protection.
     const known = new Set(apiRegistry.map((e) => `${e.method} ${e.path}`));
     const unresolved = RUN_START_ROUTES.filter((entry) => {
       const space = entry.indexOf(" ");
@@ -156,6 +160,7 @@ describe("route bundles", () => {
       );
     });
     expect(unresolved).toEqual([]);
+    expect(RUN_START_ROUTES.length).toBeGreaterThan(0);
   });
 
   test("TOOL_POLICY_FIELDS names every field of ToolPolicy", () => {
@@ -425,15 +430,21 @@ describe("validateToolPolicy", () => {
       ).toBeNull();
     });
 
-    test("refuses a lock on the two run-start routes that have no conversation", async () => {
+    test("refuses a lock on every run-start route that has no conversation to read", async () => {
       // `agents/[name]/run` and `workflows/[name]/run` start a run with no
-      // conversation to read a `mode_id` from, so a locked mode is not
-      // enforceable on them even in principle — which is precisely why a
-      // locked key must not be able to name them.
-      for (const route of [
-        "POST /api/agents/[name]/run",
-        "POST /api/workflows/[name]/run",
-      ]) {
+      // conversation to read a `mode_id` from; `briefing/run-now` and the hub
+      // actions route CREATE the conversation their run executes on, so its
+      // mode is a row that does not exist yet. A locked mode is not
+      // enforceable on any of them even in principle — which is precisely why
+      // a locked key must not be able to name them.
+      //
+      // DERIVED from RUN_START_ROUTES ∖ MODE_GUARDED rather than listed, so a
+      // route that joins the run-start surface without a guard is covered the
+      // day it lands. The pair-shaped version of this test is what let the
+      // briefing entries ship unrefused: they were on neither list.
+      expect(UNGUARDABLE).toContain("POST /api/briefing/run-now");
+      expect(UNGUARDABLE).toContain("POST /api/hub/pages/[id]/actions/[action]");
+      for (const route of UNGUARDABLE) {
         expect(
           await validateToolPolicy(
             { lockedModeId: "mode-1", routeAllowlist: [route] },
@@ -482,12 +493,20 @@ describe("validateToolPolicy", () => {
       expect(UNGUARDABLE.length).toBeGreaterThan(0);
     });
 
-    test("THE INVARIANT: nothing wider than a refused policy is accepted", async () => {
-      // The bug in one sentence — the guard was NON-MONOTONIC. Every policy
-      // below is strictly WIDER than `{lockedModeId, routeAllowlist:[r]}` for
-      // an unguardable `r`, because dropping the allowlist removes the only
-      // field confining reach. If the narrow one is refused, so must the wide
-      // one be. This is the assertion that fails on the shipped code.
+    test("THE INVARIANT: among policies that CLAIM A LOCK, widening the reach never turns a refusal into an acceptance", async () => {
+      // The bug in one sentence — the guard was NON-MONOTONIC over the family
+      // of lock-claiming policies. `{lockedModeId}` is strictly WIDER than
+      // `{lockedModeId, routeAllowlist:[r]}` for an unguardable `r`, because
+      // dropping the allowlist removes the only field confining reach and
+      // Boundary 1 binds on positive presence. If the narrow one is refused,
+      // so must the wide one be. This is the assertion that fails on the
+      // shipped code.
+      //
+      // SCOPE, because the previous name ("nothing wider than a refused
+      // policy is accepted") claimed more than the code does — see the
+      // counterexample pinned in the next test. The family is what makes the
+      // claim true: within it, `lockedModeId` is held fixed and the only thing
+      // varying is REACH, which is the axis the refusal is about.
       for (const route of UNGUARDABLE) {
         const narrow = await validateToolPolicy(
           { lockedModeId: "mode-1", routeAllowlist: [route] },
@@ -500,6 +519,35 @@ describe("validateToolPolicy", () => {
           widerRefused: true,
         });
       }
+    });
+
+    test("and the invariant is NOT global — the counterexample, pinned", async () => {
+      // `validateToolPolicy` is not monotonic over ALL policies, and must not
+      // be read as if it were. Dropping `lockedModeId` widens the policy (one
+      // fewer field constrained) and turns a refusal into an ACCEPTANCE:
+      //
+      //   {lockedModeId, allowedCallerTools:[t]}  → refused (no allowlist)
+      //   {allowedCallerTools:[t]}                → accepted
+      //
+      // That is correct, not a second hole. The refusal exists to stop a key
+      // whose policy ADVERTISES a mode lock it cannot enforce — an operator
+      // reads "locked to mode m" off the row and gets a credential that
+      // detours to a run-start route where `mayUseMode` is never called. A key
+      // that claims no lock makes no such promise: it is exactly as confined
+      // as it says it is, which is the property the mint owes. Reach itself is
+      // Boundary 1's job, and an unpolicied reach was always permitted.
+      //
+      // Pinned as a test so the invariant above can never be quietly widened
+      // back into the false global claim it used to carry.
+      const narrow = await validateToolPolicy(
+        { lockedModeId: "mode-1", allowedCallerTools: ["open_app"] },
+        ctxModeOk,
+      );
+      const wider = await validateToolPolicy({ allowedCallerTools: ["open_app"] }, ctxModeOk);
+      expect({ narrowRefused: narrow !== null, widerRefused: wider !== null }).toEqual({
+        narrowRefused: true,
+        widerRefused: false,
+      });
     });
 
     test("a malformed allowlist is refused on its shape, and never crashes the reach check", async () => {

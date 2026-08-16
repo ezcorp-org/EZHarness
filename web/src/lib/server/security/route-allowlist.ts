@@ -25,6 +25,7 @@
  * forbids inferring the auth method from the ABSENCE of `apiKeyScopes`, and
  * this module holds to the same rule.
  */
+import { RUN_START_ROUTES, type ToolPolicy } from "$server/auth/tool-policy";
 
 /**
  * Route ids that a policied key may reach regardless of its allowlist.
@@ -77,5 +78,75 @@ export function routeAllowlistDenial(
   return Response.json(
     { error: "Route not permitted for this key", route: key },
     { status: 403 },
+  );
+}
+
+/** Run-start routes, as a set, for the O(1) membership test below. Built once
+ *  at module load — the hook runs this on every request. */
+const RUN_START_KEYS: ReadonlySet<string> = new Set(RUN_START_ROUTES);
+
+/**
+ * The SECOND Boundary-1 rule: a `lockedModeId` policy with NO `routeAllowlist`
+ * may not start a run.
+ *
+ * `validateToolPolicy` now REFUSES to mint that policy, because an absent
+ * allowlist reaches every route and four run-start routes cannot enforce a
+ * mode at all. But the mint is only half the story — keys minted before that
+ * rule existed are still in the wild, still carry `{lockedModeId}` and no
+ * allowlist, and {@link routeAllowlistDenial} above returns `null` for them on
+ * the very first line. Without this rule those keys stay unconfined until
+ * somebody re-mints them, which is a remediation step no attacker waits for.
+ *
+ * Refused on EVERY run-start route, not just the four unguardable ones, so the
+ * runtime verdict is exactly the mint verdict: a policy the mint would reject
+ * starts no runs. A narrower rule would be a third semantics for the same
+ * policy shape, and the reach it left (`agents/[name]/run`,
+ * `workflows/[name]/run`, both briefing entries) is precisely the reach that
+ * skips `mayUseMode` and hands back the unfiltered tool surface.
+ *
+ * Non-run-start routes are untouched: this is a run-start rule, not a
+ * quarantine. The remedy is in the message, because the operator who hits it
+ * did nothing wrong at the time they minted.
+ */
+export function lockedModeRunStartDenial(
+  policy: ToolPolicy | undefined | null,
+  method: string,
+  routeId: string | null,
+): Response | null {
+  if (!policy?.lockedModeId) return null;
+  if (policy.routeAllowlist !== undefined) return null;
+  const key = routeAllowlistKey(method, routeId);
+  if (!RUN_START_KEYS.has(key)) return null;
+  return Response.json(
+    {
+      error:
+        "This key is locked to a mode but names no routeAllowlist, so it may not start a run — re-mint it with a route bundle",
+      route: key,
+    },
+    { status: 403 },
+  );
+}
+
+/**
+ * Boundary 1 in one call — every route-level refusal a policy carries.
+ *
+ * The hook calls THIS, not the individual predicates, so a rule added here is
+ * enforced without touching `hooks.server.ts`: the previous shape read
+ * `policy?.routeAllowlist` in the hook and branched on it, which made the
+ * allowlist the only field the boundary could ever see.
+ *
+ * `null` policy ⇒ `null` on the first line: a cookie session, an unpolicied
+ * key and an `ezkint_` principal all take that path and are byte-for-byte
+ * unchanged.
+ */
+export function toolPolicyRouteDenial(
+  policy: ToolPolicy | undefined | null,
+  method: string,
+  routeId: string | null,
+): Response | null {
+  if (!policy) return null;
+  return (
+    routeAllowlistDenial(policy.routeAllowlist, method, routeId) ??
+    lockedModeRunStartDenial(policy, method, routeId)
   );
 }

@@ -132,19 +132,32 @@ export const ROUTE_BUNDLES: Record<string, readonly string[]> = {
  * by walking every route handler under `web/src/routes/api/**` and fails when
  * this list and the tree disagree in EITHER direction.
  *
+ * IT HAD OMITTED THE BRIEFING PAIR TOO, and for the reason the walk is pinned
+ * rather than purely syntactic: `POST /api/briefing/run-now` reaches
+ * `streamChat` through TWO cross-file hops (`triggerBriefingRunNow` →
+ * `runBriefingForUser` → `executor.streamChat`), and `POST
+ * /api/hub/pages/[id]/actions/[action]` reaches the SAME trigger by dynamic
+ * dispatch through the hub-page provider registry. Both were absent, so
+ * `validateToolPolicy` ACCEPTED a lock naming them; neither wired Boundary 3,
+ * so the run they start kept `invoke_agent`/`run_workflow`
+ * (`tools/filter.ts` `keep()` preserves orchestration through the read-only
+ * branch, and only `forceDenyOrchestration` strips it).
+ *
  * Scope note: the set is no longer conversation-scoped. `POST
- * /api/agents/[name]/run` and `POST /api/workflows/[name]/run` start a run
- * with no conversation to read a `mode_id` from, so a locked mode is not
- * enforceable on them even in principle — which is exactly why a locked key
- * must not be able to name them.
+ * /api/agents/[name]/run`, `POST /api/workflows/[name]/run` and the two
+ * briefing entry points start a run with no PRE-EXISTING conversation to read
+ * a `mode_id` from, so a locked mode is not enforceable on them even in
+ * principle — which is exactly why a locked key must not be able to name them.
  */
 export const RUN_START_ROUTES: readonly string[] = [
   "POST /api/agents/[name]/run",
+  "POST /api/briefing/run-now",
   "POST /api/conversations/[id]/agent-chat",
   "POST /api/conversations/[id]/messages",
   "POST /api/conversations/[id]/messages/[mid]/retry",
   "POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start",
   "POST /api/conversations/[id]/tasks/[taskId]/retry",
+  "POST /api/hub/pages/[id]/actions/[action]",
   "POST /api/workflows/[name]/run",
 ];
 
@@ -153,12 +166,18 @@ export const RUN_START_ROUTES: readonly string[] = [
  * real guard in the handler — `policy-run-start-surface.test.ts` asserts each
  * named route file actually calls {@link runStartPolicyDenial}.
  *
- * This is EVERY conversation-scoped run-start route. The two absentees,
- * `POST /api/agents/[name]/run` and `POST /api/workflows/[name]/run`, start a
- * run with no conversation to read a `mode_id` from, so a locked mode is not
- * enforceable on them even in principle — which is exactly why a locked key
- * must not be able to name them, and why a lock with NO allowlist (reaching
- * both) is refused at mint.
+ * This is EVERY conversation-scoped run-start route. The four absentees —
+ * `POST /api/agents/[name]/run`, `POST /api/workflows/[name]/run`,
+ * `POST /api/briefing/run-now` and `POST /api/hub/pages/[id]/actions/[action]`
+ * — start a run with no conversation to read a `mode_id` from, so a locked
+ * mode is not enforceable on them even in principle: the two briefing entries
+ * CREATE the conversation the run executes on, so "its persisted mode" is a
+ * row that does not exist yet and a guard there would be a constant refusal
+ * dressed up as a mode check. That is exactly why a locked key must not be
+ * able to name them, and why a lock with NO allowlist (reaching all four) is
+ * refused at mint — and, since {@link RUN_START_ROUTES} is also enforced at
+ * Boundary 1 for such a policy, refused at request time for keys minted before
+ * that rule existed.
  *
  * Scope of the guarantee, stated because the two shapes differ:
  *
@@ -540,6 +559,13 @@ export function runStartPolicyDenial(
  * Shape-matched to `AgentExecutor.streamChat`'s options (`executor.ts`), and
  * spread into the call rather than assigned field by field, so a route can
  * neither wire half of the boundary nor drift from the other routes.
+ *
+ * The bag is also what gets THREADED when the run starts behind a helper: the
+ * briefing entry points derive it at the route (so the wiring stays greppable
+ * from the route side, which is the only side that caught the inert Boundary 3)
+ * and hand it down through `triggerBriefingRunNow` → `runBriefingForUser` into
+ * the same spread. Deriving it at the route and dropping it on the way is the
+ * failure this type exists to make visible.
  */
 export interface RunStartToolPolicyOptions {
   /** Bare declaration names this run may wire/execute as caller tools.

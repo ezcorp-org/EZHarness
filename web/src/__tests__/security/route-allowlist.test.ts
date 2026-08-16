@@ -17,21 +17,34 @@
  *   - an unmatched path (`route.id === null`) is DENIED, not allowed;
  *   - the allowlist is an exact match on SvelteKit ROUTE IDS, so a concrete
  *     path cannot be mistaken for the pattern that produced it;
- *   - the liveness probes stay reachable.
+ *   - the liveness probes stay reachable;
+ *   - and a `lockedModeId` policy with NO allowlist starts no run — the arm
+ *     that closes the residual for keys minted before the mint refused that
+ *     shape, since the allowlist arm answers `null` for them on its first line.
  */
 
 import { describe, expect, test } from "bun:test";
 import {
   ALWAYS_ALLOWED_ROUTE_IDS,
+  lockedModeRunStartDenial,
   routeAllowlistDenial,
   routeAllowlistKey,
+  toolPolicyRouteDenial,
 } from "$lib/server/security/route-allowlist";
+import { RUN_START_ROUTES, type ToolPolicy } from "$server/auth/tool-policy";
 
 const ALLOW = [
   "POST /api/conversations",
   "POST /api/conversations/[id]/messages",
   "GET /api/runtime-events",
 ];
+
+/** Split a `"METHOD /route/[id]"` key back into the two arguments the
+ *  predicates take, so the run-start list can drive the tests directly. */
+function parts(key: string): [string, string] {
+  const space = key.indexOf(" ");
+  return [key.slice(0, space), key.slice(space + 1)];
+}
 
 describe("routeAllowlistKey", () => {
   test("joins method and route id", () => {
@@ -93,6 +106,126 @@ describe("routeAllowlistDenial — the gate", () => {
     expect(
       routeAllowlistDenial(ALLOW, "POST", "/api/conversations/abc-123/messages"),
     ).not.toBeNull();
+  });
+});
+
+// ── The second Boundary-1 rule: a lock with no allowlist starts no run ──
+//
+// `validateToolPolicy` refuses to MINT `{lockedModeId}` with no allowlist,
+// because an absent allowlist reaches every route and four run-start routes
+// cannot enforce a mode. That fixes new keys. Keys already minted in that
+// shape were still unconfined at request time, because the predicate above
+// returns `null` on its first line for an absent allowlist — remediation by
+// re-mint, which nobody performs before the next request.
+describe("lockedModeRunStartDenial", () => {
+  const LOCK_ONLY: ToolPolicy = { lockedModeId: "mode-1" };
+
+  test("denies a lock-only key on EVERY run-start route", async () => {
+    // Derived from RUN_START_ROUTES, not listed: the rule must cover a route
+    // the day it joins the run-start surface, which is exactly what the
+    // hand-written half of this subsystem kept failing to do.
+    expect(RUN_START_ROUTES.length).toBeGreaterThan(0);
+    for (const key of RUN_START_ROUTES) {
+      const [method, routeId] = parts(key);
+      const res = lockedModeRunStartDenial(LOCK_ONLY, method, routeId);
+      expect({ key, status: res?.status }).toEqual({ key, status: 403 });
+      expect(await res!.json()).toEqual({
+        error:
+          "This key is locked to a mode but names no routeAllowlist, so it may not start a run — re-mint it with a route bundle",
+        route: key,
+      });
+    }
+  });
+
+  test("names the two routes the mint could never guard", () => {
+    // Non-vacuous: the reach this closes is not hypothetical. Both briefing
+    // entry points start a run that no mode can gate.
+    expect(RUN_START_ROUTES).toContain("POST /api/briefing/run-now");
+    expect(RUN_START_ROUTES).toContain("POST /api/hub/pages/[id]/actions/[action]");
+  });
+
+  test("leaves every NON-run-start route alone — this is a run-start rule, not a quarantine", () => {
+    for (const [method, routeId] of [
+      ["GET", "/api/conversations/[id]"],
+      ["POST", "/api/conversations"],
+      ["GET", "/api/runtime-events"],
+      ["GET", "/api/tools"],
+    ] as const) {
+      expect(lockedModeRunStartDenial(LOCK_ONLY, method, routeId)).toBeNull();
+    }
+  });
+
+  test("does not fire once the key HAS an allowlist — that is the other rule's job", () => {
+    // A lock WITH an allowlist is the shape the mint accepts, and Boundary 1's
+    // allowlist arm already decides it. Firing here too would refuse the very
+    // policy `--route-bundle` is meant to produce.
+    const bundled: ToolPolicy = {
+      lockedModeId: "mode-1",
+      routeAllowlist: ["POST /api/conversations/[id]/messages"],
+    };
+    expect(
+      lockedModeRunStartDenial(bundled, "POST", "/api/conversations/[id]/messages"),
+    ).toBeNull();
+  });
+
+  test("no lock ⇒ no denial, whatever the route", () => {
+    for (const policy of [
+      undefined,
+      null,
+      {},
+      { routeAllowlist: ALLOW },
+      { allowedCallerTools: ["open_app"] },
+      { maxCallerTools: 1 },
+    ] as (ToolPolicy | undefined | null)[]) {
+      expect(lockedModeRunStartDenial(policy, "POST", "/api/agents/[name]/run")).toBeNull();
+    }
+  });
+});
+
+describe("toolPolicyRouteDenial — the whole of Boundary 1", () => {
+  test("an ABSENT policy is untouched — cookie session, unpolicied key, internal key", () => {
+    // The back-compat contract, asserted on the combined entry point rather
+    // than on one arm of it: this is what the hook now calls.
+    for (const routeId of ["/api/workflows/[name]/run", "/api/briefing/run-now", null]) {
+      expect(toolPolicyRouteDenial(undefined, "POST", routeId)).toBeNull();
+      expect(toolPolicyRouteDenial(null, "POST", routeId)).toBeNull();
+    }
+  });
+
+  test("the allowlist arm still decides when there is an allowlist", async () => {
+    expect(
+      toolPolicyRouteDenial({ routeAllowlist: ALLOW }, "POST", "/api/conversations/[id]/messages"),
+    ).toBeNull();
+    const res = toolPolicyRouteDenial({ routeAllowlist: ALLOW }, "POST", "/api/briefing/run-now");
+    expect((await res!.json()).error).toBe("Route not permitted for this key");
+  });
+
+  test("the lock arm decides when there is NOT — the residual this closes", async () => {
+    // The key in the wild: minted `--locked-mode <id>` with no bundle, told it
+    // was confined, reaching every run-start route including the two the lock
+    // can never gate.
+    const res = toolPolicyRouteDenial({ lockedModeId: "mode-1" }, "POST", "/api/briefing/run-now");
+    expect(res!.status).toBe(403);
+    expect((await res!.json()).error).toContain("re-mint it with a route bundle");
+  });
+
+  test("a lock-only key still reaches a route that starts no run", () => {
+    expect(toolPolicyRouteDenial({ lockedModeId: "mode-1" }, "GET", "/api/tools")).toBeNull();
+  });
+
+  test("an allowlist refusal wins over the lock arm when both apply", async () => {
+    // Ordering is observable through the message, and the allowlist one is the
+    // answer an operator can act on ("widen the bundle"). Assert the arm, not
+    // just the status.
+    const res = toolPolicyRouteDenial(
+      { lockedModeId: "mode-1", routeAllowlist: ["GET /api/tools"] },
+      "POST",
+      "/api/agents/[name]/run",
+    );
+    expect(await res!.json()).toEqual({
+      error: "Route not permitted for this key",
+      route: "POST /api/agents/[name]/run",
+    });
   });
 });
 

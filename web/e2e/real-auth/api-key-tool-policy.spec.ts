@@ -245,13 +245,19 @@ test.describe("per-API-key tool policy", () => {
     expect(modeRes.status(), await modeRes.text()).toBe(201);
     const modeId = ((await modeRes.json()) as { id: string }).id;
 
-    for (const route of [
+    // All FOUR unguardable run-start routes. The briefing pair was missing
+    // from `RUN_START_ROUTES` entirely, so this mint used to return 201: the
+    // key reported as locked and could trigger a briefing run — which reaches
+    // `streamChat` two hops away, through a route the mode never sees.
+    for (const [i, route] of [
       "POST /api/agents/[name]/run",
       "POST /api/workflows/[name]/run",
-    ]) {
+      "POST /api/briefing/run-now",
+      "POST /api/hub/pages/[id]/actions/[action]",
+    ].entries()) {
       const res = await request.post("/api/settings/developer/api-keys", {
         data: {
-          name: `e2e-routes-around-${route.length}`,
+          name: `e2e-routes-around-${i}`,
           scopes: ["read", "chat"],
           toolPolicy: {
             routeAllowlist: ["POST /api/conversations/[id]/messages", route],

@@ -298,6 +298,44 @@ describe("run-now action", () => {
     expect(result!.title).toBe("Daily Briefing");
   });
 
+  test("forwards ctx.toolPolicyOptions — the hop that keeps this tab from being a second unconfined door", async () => {
+    // The action route derives Boundary 3 from the requesting credential and
+    // puts it on the ctx; this action is the ONE core action that starts a run,
+    // so it is the one that has to pass it on. Dropping it here would leave the
+    // Hub tab triggering exactly the unconfined briefing run that wiring
+    // `POST /api/briefing/run-now` was supposed to close.
+    const seen: unknown[] = [];
+    const provider = createBriefingHubPageProvider(
+      deps({
+        triggerRunNow: async (_uid, toolPolicyOptions) => {
+          seen.push(toolPolicyOptions);
+          return { ok: true };
+        },
+      }),
+    );
+    await provider.actions![BRIEFING_RUN_NOW_ACTION]!({
+      userId,
+      toolPolicyOptions: { forceDenyOrchestration: true, callerToolAllowlist: ["open_app"] },
+    });
+    expect(seen).toEqual([
+      { forceDenyOrchestration: true, callerToolAllowlist: ["open_app"] },
+    ]);
+  });
+
+  test("a ctx with no policy forwards undefined — the scheduled/cookie shape", async () => {
+    const seen: unknown[] = [];
+    const provider = createBriefingHubPageProvider(
+      deps({
+        triggerRunNow: async (_uid, toolPolicyOptions) => {
+          seen.push(toolPolicyOptions);
+          return { ok: true };
+        },
+      }),
+    );
+    await provider.actions![BRIEFING_RUN_NOW_ACTION]!({ userId });
+    expect(seen).toEqual([undefined]);
+  });
+
   test("rate-limited → HubPageActionError 429 with retryAfter", async () => {
     const provider = createBriefingHubPageProvider(
       deps({ triggerRunNow: async () => ({ ok: false, reason: "rate-limited", retryAfter: 42 }) }),

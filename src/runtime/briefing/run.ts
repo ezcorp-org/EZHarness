@@ -36,6 +36,7 @@ import {
   syncBriefingAgentWebSearch,
   type BriefingWebSearch,
 } from "./web-search";
+import type { RunStartToolPolicyOptions } from "../../auth/tool-policy";
 import { logger } from "../../logger";
 
 const log = logger.child("briefing.run");
@@ -53,6 +54,23 @@ export interface BriefingRunOptions {
   /** The fire is a boot/offline catch-up — flagged into the synthetic
    *  message so the agent can say "while you were away". */
   catchUp?: boolean;
+  /**
+   * Boundary 3 — the confinement of the CREDENTIAL that asked for this
+   * run, derived at the HTTP entry point with
+   * `runStartToolPolicyOptions(locals.apiKeyToolPolicy)` and spread into
+   * `streamChat` below.
+   *
+   * Absent for the daemon's scheduled fires: nobody asked, so there is no
+   * credential to inherit and the run keeps today's surface exactly.
+   *
+   * This is not decoration. `toolRestriction: "read-only"` does NOT strip
+   * the orchestration primitives — `tools/filter.ts` `keep()` preserves
+   * `invoke_agent`/`run_workflow` through the read-only branch, and
+   * `forceDenyOrchestration` is the only layer that removes them. An
+   * HTTP-triggered briefing run with this absent is a policied key
+   * spawning agents through a route that never sees an LLM tool call.
+   */
+  toolPolicyOptions?: RunStartToolPolicyOptions;
 }
 
 export interface BriefingRunDeps extends BriefingRuntime {
@@ -324,6 +342,11 @@ export async function runBriefingForUser(
           ...(watchlist.length > 0 && webSearch.available
             ? { readOnlyAllowedTools: webSearch.toolNames }
             : {}),
+          // Boundary 3, LAST so nothing above can shadow it. See
+          // BriefingRunOptions.toolPolicyOptions: `{}` for a scheduled fire,
+          // and `forceDenyOrchestration` (plus any caller-tool cap) for a run
+          // an HTTP credential asked for.
+          ...(opts.toolPolicyOptions ?? {}),
         })
         .then((run) => ({ kind: "run" as const, run })),
       timeoutPromise,

@@ -568,6 +568,55 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     expect(seenPayload).toEqual({ scope: "all" });
   });
 
+  // ── Boundary 3: this route DISPATCHES INTO A RUN ─────────────────
+  //
+  // `core:briefing` → `run-now` reaches `triggerBriefingRunNow` →
+  // `runBriefingForUser` → `executor.streamChat`, so a policied key drives a
+  // run from here with no LLM tool call anywhere for a filter to inspect. The
+  // route derives the caller's confinement once, for every action, and the
+  // provider decides whether its action needs it — the route must not learn
+  // what an action MEANS (the same rule `sessionOnlyActions` follows).
+  //
+  // Closing `POST /api/briefing/run-now` alone would merely have relocated the
+  // hole here, exactly as closing the REST approvals route relocated R-4.
+  test("the caller's tool policy reaches the action as ctx.toolPolicyOptions", async () => {
+    let seenCtx: { userId: string; toolPolicyOptions?: Record<string, unknown> } | undefined;
+    registerDemoProvider({
+      actions: {
+        go: async (ctx) => {
+          seenCtx = ctx as typeof seenCtx;
+          return undefined;
+        },
+      },
+    });
+    const event = actionEvent();
+    (event.locals as { apiKeyToolPolicy?: unknown }).apiKeyToolPolicy = {
+      allowedCallerTools: ["open_app"],
+    };
+    expect((await call(actionPost, event)).status).toBe(200);
+    expect(seenCtx?.toolPolicyOptions).toEqual({
+      callerToolAllowlist: ["open_app"],
+      forceDenyOrchestration: true,
+    });
+  });
+
+  test("an unpolicied caller's action gets an EMPTY bag — spread, it changes nothing", async () => {
+    // `{}` rather than `undefined` so the value is always spreadable; the
+    // property that matters is that neither option is set, since a run started
+    // by a cookie session must be byte-for-byte what it was.
+    let seenCtx: { toolPolicyOptions?: Record<string, unknown> } | undefined;
+    registerDemoProvider({
+      actions: {
+        go: async (ctx) => {
+          seenCtx = ctx as typeof seenCtx;
+          return undefined;
+        },
+      },
+    });
+    expect((await call(actionPost, actionEvent())).status).toBe(200);
+    expect(seenCtx?.toolPolicyOptions).toEqual({});
+  });
+
   test("missing body / missing payload are fine (payload undefined)", async () => {
     let seenPayload: unknown = "sentinel";
     registerDemoProvider({

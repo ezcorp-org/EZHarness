@@ -16,6 +16,13 @@
  * unmatched path (`route.id === null`) is denied, and the SSE stream at
  * `/api/runtime-events` is gated at connection OPEN — the only point it can
  * be, since the stream is produced by `resolve()` and never re-enters here.
+ *
+ * AND the fifth arm, added with the second Boundary-1 rule: a LOCK-ONLY key
+ * (`{lockedModeId}`, no allowlist) starts no run. The hook used to read
+ * `policy?.routeAllowlist` and branch on it, so that policy — which the mint
+ * now refuses, but which existing keys still carry — was enforced on nothing.
+ * The hook passes the WHOLE policy to `toolPolicyRouteDenial` for that reason;
+ * this file is where "the hook wires it" is proved.
  */
 
 // CRITICAL: set BEFORE the dynamic import of hooks.server — that module's
@@ -60,14 +67,19 @@ vi.mock("$lib/server/security/bearer-auth", () => ({
       },
       authHeader: string | null | undefined,
     ) => {
-      if (authHeader !== "Bearer ezk_policied" && authHeader !== "Bearer ezk_plain") {
-        return false;
-      }
+      const KNOWN = ["Bearer ezk_policied", "Bearer ezk_plain", "Bearer ezk_locked"];
+      if (!authHeader || !KNOWN.includes(authHeader)) return false;
       evt.locals.user = { id: "key-user", email: "", name: "Key", role: "member" };
       evt.locals.apiKeyScopes = ["read", "write", "chat"];
       evt.locals.authMethod = "api-key";
       if (authHeader === "Bearer ezk_policied") {
         evt.locals.apiKeyToolPolicy = { routeAllowlist: ALLOW };
+      }
+      // The key ALREADY IN THE WILD: `ezcorp key mint --locked-mode <id>` with
+      // no `--route-bundle`. The mint refuses this shape now; a key minted
+      // before it does not re-validate itself, so the hook has to.
+      if (authHeader === "Bearer ezk_locked") {
+        evt.locals.apiKeyToolPolicy = { lockedModeId: "mode-1" };
       }
       return true;
     },
@@ -140,8 +152,75 @@ async function run(event: unknown): Promise<{ status: number; resolved: boolean 
 
 const POLICIED = "Bearer ezk_policied";
 const PLAIN = "Bearer ezk_plain";
+const LOCKED = "Bearer ezk_locked";
 
 beforeEach(() => vi.clearAllMocks());
+
+describe("a LOCK-ONLY key (minted before the mint refused the shape)", () => {
+  test("is 403 on a run-start route it used to reach, and never reaches the handler", async () => {
+    // The residual the mint fix could not close. `if (routeAllow)` was the
+    // whole of Boundary 1, and this policy has no `routeAllowlist` — so the
+    // hook read nothing, the key reached `POST /api/briefing/run-now`, and the
+    // run it started skipped `mayUseMode` entirely.
+    const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
+    const res = (await handle({
+      event: makeEvent({
+        routeId: "/api/briefing/run-now",
+        method: "POST",
+        authHeader: LOCKED,
+      }),
+      resolve,
+    } as any)) as Response;
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error:
+        "This key is locked to a mode but names no routeAllowlist, so it may not start a run — re-mint it with a route bundle",
+      route: "POST /api/briefing/run-now",
+    });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("is 403 on the hub actions route — the second door to the same run", async () => {
+    expect(
+      (
+        await run(
+          makeEvent({
+            routeId: "/api/hub/pages/[id]/actions/[action]",
+            path: "/api/hub/pages/core:briefing/actions/run-now",
+            method: "POST",
+            authHeader: LOCKED,
+          }),
+        )
+      ).status,
+    ).toBe(403);
+  });
+
+  test("is 403 on the conversation run-start routes too — the runtime matches the mint", async () => {
+    // Refused on EVERY run-start route, not just the unguardable ones: the
+    // mint would reject this policy outright, so nothing it could have minted
+    // may start a run. A narrower rule would be a third reading of one shape.
+    for (const routeId of [
+      "/api/conversations/[id]/messages",
+      "/api/agents/[name]/run",
+      "/api/workflows/[name]/run",
+    ]) {
+      expect(
+        (await run(makeEvent({ routeId, method: "POST", authHeader: LOCKED }))).status,
+      ).toBe(403);
+    }
+  });
+
+  test("still reaches everything that starts no run", async () => {
+    // Not a quarantine — the key keeps reading its own conversations. A rule
+    // that bricked the credential would be traded for one nobody deploys.
+    expect(
+      await run(makeEvent({ routeId: "/api/conversations/[id]", authHeader: LOCKED })),
+    ).toEqual({ status: 200, resolved: true });
+    expect(
+      (await run(makeEvent({ routeId: "/api/runtime-events", authHeader: LOCKED }))).status,
+    ).toBe(200);
+  });
+});
 
 describe("a POLICIED key", () => {
   test("is served on an allowlisted route", async () => {
@@ -234,6 +313,20 @@ describe("back-compat — nothing else is confined", () => {
           method: "POST",
           cookie: "valid-cookie",
         }),
+      ),
+    ).toEqual({ status: 200, resolved: true });
+  });
+
+  test("an UNPOLICIED key and a COOKIE SESSION both still trigger a briefing", async () => {
+    // The new lock rule keys on `lockedModeId`, so a principal that carries no
+    // policy at all must be byte-for-byte unchanged on the route the rule
+    // guards — including the human whose own session drives the Hub tab.
+    expect(
+      await run(makeEvent({ routeId: "/api/briefing/run-now", method: "POST", authHeader: PLAIN })),
+    ).toEqual({ status: 200, resolved: true });
+    expect(
+      await run(
+        makeEvent({ routeId: "/api/briefing/run-now", method: "POST", cookie: "valid-cookie" }),
       ),
     ).toEqual({ status: 200, resolved: true });
   });
