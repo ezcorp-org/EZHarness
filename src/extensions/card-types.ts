@@ -22,6 +22,11 @@ export const KNOWN_CARD_TYPES: ReadonlySet<string> = new Set([
   "terminal",
   "diff",
   "search-results",
+  // Web-search source disclosure: `web-search` is the ranked link list
+  // (`search-web`), `web-page` the single fetched page (`read-url`).
+  // Both render through WebContextCard.
+  "web-search",
+  "web-page",
   "task-list",
   "task-detail",
   "ask-user-question",

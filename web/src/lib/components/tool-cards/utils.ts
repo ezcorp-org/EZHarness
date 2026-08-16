@@ -28,6 +28,11 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		case 'terminal': return 'TerminalCard';
 		case 'diff': return 'DiffCard';
 		case 'search-results': return 'SearchResultsCard';
+		// `web-search` (ranked links) and `web-page` (one fetched page) are
+		// the two shapes of the same question — what did the model read? —
+		// so they share WebContextCard and its parser.
+		case 'web-search': return 'WebContextCard';
+		case 'web-page': return 'WebContextCard';
 		case 'task-list': return 'TaskListCard';
 		case 'task-detail': return 'TaskDetailCard';
 		case 'ask-user-question': return 'AskUserQuestionCard';

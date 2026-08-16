@@ -26,13 +26,29 @@ async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(text);
 }
 
-async function spawnCli(args: string[], env: Record<string, string> = {}): Promise<{
+/**
+ * Run the CLI in a child process.
+ *
+ * `opts.cwd` matters for `--project`, which writes `<cwd>/.claude.json`.
+ * Without it the child inherits the RUNNER's cwd — the repo root under
+ * `bun run test` / `test:coverage` — so the test wrote `.claude.json`
+ * into the checkout and failed outright wherever that path is not
+ * writable (measured: `EACCES` against a root-owned `.claude.json` left
+ * in a dev container). A tmp cwd makes the case hermetic and lets it
+ * assert its own name instead of a proxy.
+ */
+async function spawnCli(
+  args: string[],
+  env: Record<string, string> = {},
+  opts: { cwd?: string } = {},
+): Promise<{
   exitCode: number;
   stdout: string;
   stderr: string;
 }> {
   const proc = Bun.spawn(["bun", CLI_PATH, ...args], {
     env: { ...process.env, ...env },
+    ...(opts.cwd === undefined ? {} : { cwd: opts.cwd }),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -94,14 +110,18 @@ describe("CLI install claude-code (spawned process)", () => {
   test("--project writes to cwd/.claude.json", async () => {
     const cwd = makeTmpDir();
     try {
-      const { exitCode } = await spawnCli(["install", "claude-code", "--project"], {
-        HOME: home,
-      });
-      // Can't easily override cwd via env, so just confirm exit code 0 and
-      // that home was NOT written (project flag used cwd instead)
-      // Note: actual cwd will be somewhere else; we only assert exit is clean.
+      const { exitCode, stderr } = await spawnCli(
+        ["install", "claude-code", "--project"],
+        { HOME: home },
+        { cwd },
+      );
+
+      expect(stderr).not.toContain("Error");
       expect(exitCode).toBe(0);
-      // home-scoped file should not exist
+      // The project-scoped file lands in the CWD the CLI ran in…
+      expect(nodeFs.existsSync(nodePath.join(cwd, ".claude.json"))).toBe(true);
+      // …and the home-scoped one is left alone, which is the whole point
+      // of the flag.
       expect(nodeFs.existsSync(nodePath.join(home, ".claude.json"))).toBe(false);
     } finally {
       rmTmpDir(cwd);

@@ -18,8 +18,13 @@
  * work for ANY agent. Same stranding class as the v2→v3 `capabilities`
  * phantom drift (see `bundled-v2-tools-hash-shape.test.ts`).
  *
+ * The boot-path cases below are driven off `NON_SEMANTIC_TOOL_FIELDS`,
+ * not off `suggestExamples` by name, so a newly authored presentation
+ * field inherits this proof instead of needing a copy of it. `cardType`
+ * (the web-search source-disclosure card) is the second member.
+ *
  * Contract:
- *   - Stored manifest differing from disk ONLY by `suggestExamples`
+ *   - Stored manifest differing from disk ONLY by presentation fields
  *     ⇒ NOT a tool-list change. No disable; the normal path re-enables.
  *   - A GENUINE tool-list change still disables fail-closed.
  *   - The LOCKFILE hash keeps full fidelity — tamper detection must
@@ -34,6 +39,7 @@ import type { ToolDefinition } from "../extensions/types";
 import {
   canonicalizeAndHash,
   canonicalizeAndHashForReapproval,
+  NON_SEMANTIC_TOOL_FIELDS,
 } from "../extensions/bundled-lock";
 
 // ── Captured audit rows ─────────────────────────────────────────────
@@ -104,12 +110,20 @@ async function loadDiskManifest() {
 }
 
 /**
- * The live-repro shape: the REAL on-disk manifest as a pre-`suggestExamples`
- * install stored it. Everything that defines the tool contract (name,
- * description, inputSchema, capabilities, version, permissions) is
- * untouched, so the ONLY difference from disk is the presentation field.
+ * The live-repro shape: the REAL on-disk manifest as an install from
+ * BEFORE any presentation field was authored stored it. Everything that
+ * defines the tool contract (name, description, inputSchema,
+ * capabilities, version, permissions) is untouched, so the ONLY
+ * difference from disk is presentation.
+ *
+ * Driven off `NON_SEMANTIC_TOOL_FIELDS` rather than naming
+ * `suggestExamples`, so the boot-path proof below extends to every
+ * future presentation field automatically — the same design as the
+ * generic hash guard in `bundled-presentation-fields-never-strand`.
+ * `cardType` (the web-search source-disclosure card) is the second
+ * member and the reason this was generalised.
  */
-async function seedRowWithoutSuggestExamples(
+async function seedRowWithoutPresentationFields(
   opts: {
     /** Live-repro default: a prior boot already fail-closed the row. */
     enabled?: boolean;
@@ -120,10 +134,9 @@ async function seedRowWithoutSuggestExamples(
   const disk = await loadDiskManifest();
 
   const stripped: ToolDefinition[] = (disk.tools ?? []).map((t) => {
-    const { suggestExamples: _authored, ...rest } = t as ToolDefinition & {
-      suggestExamples?: string[];
-    };
-    return rest as ToolDefinition;
+    const rest = { ...t } as ToolDefinition;
+    for (const field of NON_SEMANTIC_TOOL_FIELDS) delete rest[field];
+    return rest;
   });
 
   store.set(SEED_NAME, {
@@ -181,10 +194,10 @@ describe("canonicalizeAndHashForReapproval", () => {
   });
 });
 
-describe("S9 tool-list gate — authored suggestExamples", () => {
-  test("a suggestExamples-only difference is NOT a tool-list change", async () => {
+describe("S9 tool-list gate — authored presentation fields", () => {
+  test("a presentation-only difference is NOT a tool-list change", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
-    await seedRowWithoutSuggestExamples();
+    await seedRowWithoutPresentationFields();
 
     // Guard: the raw arrays really do hash differently — i.e. this test
     // exercises the bug and not a no-op.
@@ -204,9 +217,9 @@ describe("S9 tool-list gate — authored suggestExamples", () => {
     expect(store.get(SEED_NAME)?.enabled).toBe(true);
   }, 30_000);
 
-  test("the stranded row's stored manifest is refreshed to carry suggestExamples", async () => {
+  test("the stranded row's stored manifest is refreshed to carry them", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
-    await seedRowWithoutSuggestExamples();
+    await seedRowWithoutPresentationFields();
 
     await ensureBundledExtensions();
 
@@ -215,10 +228,14 @@ describe("S9 tool-list gate — authored suggestExamples", () => {
     // even under the full-fidelity hash.
     const refreshed = store.get(SEED_NAME)?.manifest as { tools?: ToolDefinition[] };
     expect(refreshed.tools?.length).toBeGreaterThan(0);
-    for (const tool of refreshed.tools ?? []) {
-      expect(tool).toHaveProperty("suggestExamples");
-    }
     const disk = await loadDiskManifest();
+    // Every presentation field the DISK manifest declares is now stored.
+    for (const [i, tool] of (refreshed.tools ?? []).entries()) {
+      const diskTool = (disk.tools ?? [])[i] as ToolDefinition | undefined;
+      for (const field of NON_SEMANTIC_TOOL_FIELDS) {
+        if (diskTool?.[field] !== undefined) expect(tool).toHaveProperty(field);
+      }
+    }
     expect(canonicalizeAndHash(refreshed.tools ?? [])).toBe(
       canonicalizeAndHash(disk.tools ?? []),
     );
@@ -230,7 +247,7 @@ describe("S9 tool-list gate — authored suggestExamples", () => {
     // declares — exactly the "extension gained a tool" case the gate
     // exists to catch. Seeded ENABLED so the disable TRANSITION is
     // observable: D4 skips the redundant write on an already-disabled row.
-    await seedRowWithoutSuggestExamples({
+    await seedRowWithoutPresentationFields({
       enabled: true,
       mutateTools: (tools) => tools.slice(1),
     });

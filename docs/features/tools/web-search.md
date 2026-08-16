@@ -19,6 +19,23 @@ The data path for a single `ctx.search.web` / `ctx.search.read` call:
 7. **Cache.** `src/search/cache.ts` is a process-wide in-memory TTL+LRU (500 entries; 15-min search TTL, 60-min read TTL). The key embeds the **provider name** so a fallback provider's results never poison the primary's namespace; on a primary-namespace miss it also probes the fallback's namespace. This holds for **both** chains: a search served by DuckDuckGo caches under `duckduckgo:*`, a read served by the direct reader caches under `direct:*`.
 8. **SSRF-guarded fetch.** Every provider fetch routes through `src/search/egress.ts#guardedFetch` (injected as the transport via `makeGuardedTransport`). Two modes: `mode:"backend"` (configured hosts → allowlist by exact host, still IP-pinned) and `mode:"read"` (fully attacker-controlled → resolve all IPs, reject any private/loopback/link-local/metadata/CGNAT address, pin the connection to the validated IP, re-validate every redirect, cap redirects ≤3 / body 5 MiB / timeout 15 s, http(s)-only). Search backends **and the Jina hop** are `backend` mode (Jina sandboxes the inner fetch); the host-side `DirectReader` — the only provider that dials the agent-supplied host itself — is the production caller of `mode:"read"`. Each block fires `onBlocked` → a `SDK_SEARCH_EGRESS_BLOCKED` audit row.
 9. **Render + return.** `src/search/markdown.ts#formatResults` renders a markdown bullet list (`read-url` returns the reader's markdown, truncated to `maxChars`). The handler returns `{ markdown, provider, cached }`, writes a `SDK_SEARCH_QUERY` audit row + an `sdk_capability_calls` governance row, and (when in a conversation) inserts a chat pill. The SDK maps `-32101 → SearchDisabledError`, `-32105 → SearchError`.
+10. **Disclose in chat.** The two tools declare `cardType` (`web-search` / `web-page`), so the chat renders `WebContextCard` instead of the generic tool card: collapsed it names the query, the source count and the top domains; expanded it lists every result as a real link with its snippet, or — for `read-url` — the source link plus the extracted page. See "Source disclosure card" below.
+
+## Source disclosure card
+
+`search-web` and `read-url` render through **`WebContextCard`** — one component, two shapes, both **collapsed by default**:
+
+- **`cardType: "web-search"`** — the collapsed header carries the query, `N sources`, and up to three distinct host chips (`+N` for the rest). Expanded: a ranked list where each result is a `target="_blank" rel="noopener noreferrer"` anchor with its host and the snippet the model received.
+- **`cardType: "web-page"`** — the header carries the page title (its first markdown heading), the host, and how many characters were pulled in. Expanded: the source link plus the extracted markdown, re-based to the card's type scale.
+
+Both end in a footer that says the text was added to the conversation context, with a copy button for the verbatim output.
+
+**The card parses the PERSISTED markdown; the tool output is unchanged.** No envelope, no provenance line, nothing extra reaches the model — and every historical `tool_calls` row renders richly with no migration. Two rules the parser owns (`web-context-card-logic.ts`):
+
+- **Only `http:`/`https:` become an `href`.** The URLs come from an LLM-supplied query or argument, so a `javascript:`/`data:` target is rendered as inert text *plus its raw string* — showing a hostile URL inertly discloses more than hiding it.
+- **A running, failed, or empty call returns `null`** and the router falls through to `DefaultCard`, which owns the spinner and the failure treatment. `_No results._` is a distinct, deliberate state ("nothing entered the context"), not a parse failure.
+
+`cardType` is in `NON_SEMANTIC_TOOL_FIELDS` (`src/extensions/bundled-lock.ts`), so authoring one on an already-installed bundled tool does **not** fire the S9 re-approval gate — see the gotcha below.
 
 The bundled `web-search` extension (`docs/extensions/examples/web-search/index.ts`) is a **thin shim**: its `search-web` / `read-url` handlers just forward to `ctx.search.web` / `ctx.search.read`. It owns no network hosts, no provider-key env vars, and no filesystem grant — only `permissions.search: "inherit"`.
 
@@ -67,7 +84,9 @@ UI: **Settings → Search** (`web/src/routes/(app)/settings/search/+page.svelte`
 - `src/search/policy.ts` — the 3-layer policy resolver (`resolveSearchPolicy`, `mergeSearchPolicy`, `getSearchInstanceDefaults`), `HARD_SEARCH_DEFAULTS`, `SEARCH_SETTING_KEYS`, capability settings schema for the UI.
 - `src/search/search-quota.ts` — per-extension/day quota counter (`consumeSearchQuota`, `hydrateSearchQuota`) backed by `extension_search_calls_daily`.
 - `src/search/cache.ts` — process-wide TTL+LRU `SearchCache`; provider-namespaced keys; `getSharedSearchCache` singleton.
-- `src/search/markdown.ts` — `formatResults` (markdown bullet list) + `truncate`.
+- `src/search/markdown.ts` — `formatResults` (markdown bullet list) + `truncate`. **Its output shape is a UI contract now**: `web-context-card-logic.ts` parses `- [title](url)` + continuation lines back into sources.
+- `web/src/lib/components/tool-cards/web-context-card-logic.ts` — the parser + view model (`safeUrl` scheme allowlist, host chips, char/source counts, null-degradation).
+- `web/src/lib/components/tool-cards/WebContextCard.svelte` — the template-only card; routed from `utils.ts#getCardComponentName` (`web-search` / `web-page`).
 - `src/search/backend-config.ts` — `resolveSearchBackendEnv`: bridges persisted Settings → Search backend config (SearXNG URL + decrypted BYOK keys) into the resolver env (host-only; keys never leave the server).
 - `src/extensions/search-handler.ts` — `handlePiSearch`: grant gate, policy + quota enforcement, audit rows, soft-fail codes (-32101/-32103/-32105).
 - `src/extensions/tool-executor/rpc-handlers.ts` — `ezcorp/search` method dispatch.
@@ -111,4 +130,5 @@ UI: **Settings → Search** (`web/src/routes/(app)/settings/search/+page.svelte`
 - **`/api/search/backend` vs `/api/search/messages` are unrelated.** `messages` is conversation message search (a different feature); only `backend` configures web-search providers.
 - **Quota is best-effort durable, not transactional.** The in-process counter increments synchronously but the DB upsert is fire-and-forget; a multi-process deployment would not share the counter (the table is the durable record, hydrated per-process on first lookup).
 - **Custom SearXNG hostnames** beyond `searxng` / `localhost` / `127.0.0.1` are blocked by the egress allowlist until added to the configured backend host set — searches then fall back to DuckDuckGo and the deny lands in the audit log, not stderr.
+- **Authoring `cardType` on these tools would have stranded the extension for the THIRD time.** The S9 re-approval gate hashes the tool surface, and a flipped hash disables a bundled extension "pending re-approval" — an exit that `continue`s before the manifest refresh, so the row stays disabled on every subsequent boot with its tools registered nowhere. `web-search` has already died this way twice (v2→v3 `capabilities`, then `suggestExamples`). `cardType` is presentation only — validated at install against the closed `KNOWN_CARD_TYPES` set, never sent to the model, grants nothing — so it joined `NON_SEMANTIC_TOOL_FIELDS` in the same change that authored it. The **lockfile** hash still sees it (tamper detection keeps full fidelity), and the boot-path proof in `src/__tests__/bundled-suggest-examples-phantom-drift.test.ts` is now driven off that list rather than off one field name.
 - **`maxResults` is clamped down, never up:** the handler uses `min(requested, policy.maxResults)`, and `performSearch` further clamps to 1..20.

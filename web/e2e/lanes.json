@@ -118,6 +118,7 @@
       "web/e2e/topic-contexts.spec.ts",
       "web/e2e/user-commands.spec.ts",
       "web/e2e/visual-evidence.spec.ts",
+      "web/e2e/web-search-source-card.spec.ts",
       "web/e2e/workflow-approval-tray.spec.ts",
       "web/e2e/workflow-delegations.spec.ts",
       "web/e2e/workflow-mention.spec.ts",
