@@ -265,17 +265,27 @@ export function canonicalizeAndHash(tools: ToolDefinition[]): string {
 
 /**
  * Tool fields that carry NO capability and NO LLM-facing contract —
- * pure presentation/retrieval metadata. `suggestExamples` is authored
- * phrasing consumed ONLY by the composer's suggestion ranker
- * (`src/suggest/` — embedding anchors + training export); it is never
- * sent to the model as part of the tool definition and cannot widen
- * what a tool is able to do.
+ * pure presentation/retrieval metadata.
+ *
+ * - `suggestExamples` is authored phrasing consumed ONLY by the
+ *   composer's suggestion ranker (`src/suggest/` — embedding anchors +
+ *   training export); it is never sent to the model as part of the tool
+ *   definition and cannot widen what a tool is able to do.
+ * - `cardType` names the chat component that RENDERS a result the tool
+ *   already returned. It is validated at install against the closed
+ *   `KNOWN_CARD_TYPES` set (`./card-types.ts`), reaches only the
+ *   frontend router, is never sent to the model, and grants nothing —
+ *   an unknown value is rejected outright and a known one only chooses
+ *   a layout. Authoring one on an existing tool is exactly the upgrade
+ *   shape described below, so leaving it out of this list would strand
+ *   `web-search` a THIRD time (this is how it was found: the
+ *   source-disclosure card adds `cardType` to `search-web`/`read-url`).
  *
  * Excluded from the S9 RE-APPROVAL signature only. The lockfile hash
  * (`canonicalizeAndHash`, used by `verifyManifestAgainstLock`) keeps
  * full fidelity — tamper detection should still notice every byte.
  */
-export const NON_SEMANTIC_TOOL_FIELDS = ["suggestExamples"] as const;
+export const NON_SEMANTIC_TOOL_FIELDS = ["suggestExamples", "cardType"] as const;
 
 /**
  * Canonical-JSON SHA-256 of the SECURITY-RELEVANT tool surface — the
