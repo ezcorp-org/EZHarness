@@ -329,6 +329,12 @@
     "web/src/app.css",
     "web/src/routes/(app)/hub/+page.svelte"
   ],
+  "web/e2e/web-search-source-card.spec.ts": [
+    "web/src/lib/components/tool-cards/WebContextCard.svelte",
+    "web/src/lib/components/tool-cards/web-context-card-logic.ts",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/tool-cards/DefaultCard.svelte"
+  ],
   "web/e2e/workflow-approval-tray.spec.ts": [
     "web/src/lib/components/tool-cards/PendingDecisionsTray.svelte",
     "web/src/lib/components/tool-cards/PendingApprovalCard.svelte",

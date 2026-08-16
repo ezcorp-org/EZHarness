@@ -29,6 +29,8 @@
 	import { parseDraftCardResult } from "./ez-draft-card-logic.js";
 	import PreviewConsentCard from "./PreviewConsentCard.svelte";
 	import { parseConsentCardResult } from "./preview-consent-card-logic.js";
+	import WebContextCard from "./WebContextCard.svelte";
+	import { buildWebContextView } from "./web-context-card-logic.js";
 
 	let { toolCall, conversationId, messageId, onsendmessage, mode = 'inline' }: { toolCall: ToolCallState; conversationId?: string; messageId?: string; onsendmessage?: (message: string) => void; mode?: 'inline' | 'dock' } = $props();
 
@@ -91,6 +93,23 @@
 		cardName === 'PreviewConsentCard' ? parseConsentCardResult(toolCall.output) : null,
 	);
 
+	// Web-search disclosure: the view is built from the PERSISTED markdown
+	// output, so scrollback renders as richly as a live call. A running or
+	// failed call yields null and falls through to DefaultCard, which owns
+	// the spinner and the failure treatment — same contract as the ez-*
+	// and city-conditions parsers above.
+	let webContextView = $derived(
+		cardName === 'WebContextCard'
+			? buildWebContextView({
+				cardType: toolCall.cardType,
+				status: toolCall.status,
+				output: toolCall.output,
+				input: toolCall.input,
+				duration: toolCall.duration,
+			})
+			: null,
+	);
+
 	// Noisy dev-command cards (Bash, grep/glob, Edit/Write diffs) collapse to a
 	// one-line header inline; full-size in the dock. Decision lives in a pure
 	// helper so the matrix is unit-tested without a renderer.
@@ -145,6 +164,8 @@
 	<EzToolResultCard result={ezCardResult} toolName={toolCall.toolName} />
 {:else if cardName === 'PreviewConsentCard' && consentCardData}
 	<PreviewConsentCard data={consentCardData} />
+{:else if cardName === 'WebContextCard' && webContextView}
+	<WebContextCard view={webContextView} />
 {:else}
 	<DefaultCard {toolCall} />
 {/if}

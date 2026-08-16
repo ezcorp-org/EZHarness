@@ -16,6 +16,11 @@ export default defineExtension({
       name: "search-web",
       description:
         "Search the web for a query. Returns a ranked markdown list of results with title, URL, and snippet.",
+      // Source disclosure: WebContextCard parses this tool's markdown
+      // back into clickable, countable sources so the user can see which
+      // pages entered the model's context. The OUTPUT is unchanged — the
+      // card reads the same text the model does.
+      cardType: "web-search",
       // How a user would ASK for a web search — phrased as intent, not a
       // restatement of the description. The first entry is a live-measured
       // MiniLM miss (description cosine 0.19, below the gate).
@@ -43,6 +48,9 @@ export default defineExtension({
       name: "read-url",
       description:
         "Fetch a URL and return the main content as clean markdown, ready for summarization.",
+      // Same card, page shape: the source link, the host, how many
+      // characters were pulled in, and the extracted markdown itself.
+      cardType: "web-page",
       suggestExamples: [
         "read this page and summarize it for me",
         "pull the article at this link into markdown",

@@ -70,10 +70,21 @@ function without(tools: ToolDefinition[], field: PresentationField): ToolDefinit
   });
 }
 
+/** A different, TYPE-CORRECT value for each presentation field — an
+ *  array of phrasings for `suggestExamples`, a real card name for
+ *  `cardType`. A generic stand-in would still prove the field is
+ *  stripped, but only by accident: `cardType` is validated against
+ *  `KNOWN_CARD_TYPES`, so the edit a maintainer actually makes is a
+ *  swap between two valid card names. */
+const PERTURBED_VALUE: Record<PresentationField, unknown> = {
+  suggestExamples: ["totally different phrasing"],
+  cardType: "terminal",
+};
+
 /** Change one field's value on every tool — simulates a maintainer
- *  EDITING existing example phrasings rather than adding them. */
+ *  EDITING an existing presentation field rather than adding it. */
 function perturbed(tools: ToolDefinition[], field: PresentationField): ToolDefinition[] {
-  return tools.map((t) => ({ ...t, [field]: ["totally different phrasing"] }) as ToolDefinition);
+  return tools.map((t) => ({ ...t, [field]: PERTURBED_VALUE[field] }) as ToolDefinition);
 }
 
 describe("presentation-only tool fields never strand an installed row", () => {
@@ -132,7 +143,7 @@ describe("the lockfile hash keeps full fidelity", () => {
           inputSchema: { type: "object" },
         } as ToolDefinition,
       ];
-      const withField = [{ ...base[0]!, [field]: ["x"] } as ToolDefinition];
+      const withField = [{ ...base[0]!, [field]: PERTURBED_VALUE[field] } as ToolDefinition];
       expect(canonicalizeAndHash(withField)).not.toBe(canonicalizeAndHash(base));
     });
   }
