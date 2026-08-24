@@ -34,7 +34,7 @@ export default defineExtension({
       maxCallsPerDay: 200,
       maxTokensPerCall: 1024,
       allowedModels: {
-        google: ["gemini-2.0-flash-lite"],
+        google: ["gemini-2.5-flash-lite"],
         openai: ["gpt-4o-mini"],
         anthropic: ["claude-haiku-4-5-20250514"],
         // Ollama models are user-installed and listed by `ollama pull`,
@@ -96,7 +96,7 @@ export default defineExtension({
       type: "text",
       label: "Model id (override)",
       description:
-        "Leave blank to use the provider default (gemini-2.0-flash-lite / gpt-4o-mini / claude-haiku-4-5 / gemma4:e2b for Ollama).",
+        "Leave blank to use the provider default (gemini-2.5-flash-lite / gpt-4o-mini / claude-haiku-4-5 / gemma4:e2b for Ollama).",
       default: "",
     },
   },

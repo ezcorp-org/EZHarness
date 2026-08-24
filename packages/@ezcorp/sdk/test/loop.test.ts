@@ -244,11 +244,11 @@ describe("resolveProviderModel (centralized map)", () => {
     });
     expect(resolveProviderModel("nope", "")).toEqual({
       provider: "google",
-      model: "gemini-2.0-flash-lite",
+      model: "gemini-2.5-flash-lite",
     });
     expect(resolveProviderModel(undefined, undefined)).toEqual({
       provider: "google",
-      model: "gemini-2.0-flash-lite",
+      model: "gemini-2.5-flash-lite",
     });
     expect(resolveProviderModel("ollama", "")).toEqual({
       provider: "ollama",

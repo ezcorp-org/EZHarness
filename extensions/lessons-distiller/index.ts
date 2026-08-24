@@ -140,9 +140,10 @@ interface DistilledLesson {
 //
 // The provider→default-model map + resolution logic live in the SDK
 // (`resolveProviderModel`, imported above) — the Loop primitive owns the
-// single shared copy, so there is no per-extension duplicate. v1 values:
-// google/gemini-2.0-flash-lite, openai/gpt-4o-mini,
-// anthropic/claude-haiku-4-5, ollama/gemma4:e2b.
+// single shared copy, so there is no per-extension duplicate. Current
+// values: google/gemini-2.5-flash-lite, openai/gpt-4o-mini,
+// anthropic/claude-haiku-4-5, ollama/gemma4:e2b. (The google default was
+// `gemini-2.0-flash-lite` until pi-ai 0.84.0 dropped it from the catalog.)
 
 // ── RPC contract shapes ─────────────────────────────────────────────
 interface RuntimeMessage {
@@ -269,7 +270,7 @@ export function _resetRuntimeApiForTests(): void {
 // Provider/credential-class failures (`LlmCredentialError`,
 // `LlmProviderError`) mean the distiller's configured model is not
 // usable on THIS instance — e.g. the default `google` /
-// `gemini-2.0-flash-lite` with no GOOGLE/GEMINI credential configured.
+// `gemini-2.5-flash-lite` with no GOOGLE/GEMINI credential configured.
 // These are a deployment-config condition, not a transient blip, so we
 // degrade fail-soft: skip distillation and warn exactly once instead of
 // re-failing (and re-spamming) the identical credential-less call on
