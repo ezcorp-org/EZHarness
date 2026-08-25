@@ -79,7 +79,7 @@ export const DEFAULT_TIER_LADDER: TierLadder = {
     // intersection AND make every turn it served report as "unpriced".
     { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
     { provider: "openai", model: "gpt-4o-mini" },
-    { provider: "google", model: "gemini-2.0-flash-lite" },
+    { provider: "google", model: "gemini-2.5-flash-lite" },
     { provider: "ollama", model: "gemma4:e2b" },
     { provider: "openrouter", model: "openrouter/auto" },
   ],

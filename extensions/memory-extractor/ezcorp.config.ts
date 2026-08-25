@@ -26,7 +26,10 @@
 //
 // `permissions.llm` mirrors `EXTRACTION_MODELS` from the legacy file
 // (claude-haiku-4-5-20250514, gpt-4o-mini, gemini-2.0-flash-lite) plus
-// Ollama parity with the lessons-distiller (added in Phase 53.1).
+// Ollama parity with the lessons-distiller (added in Phase 53.1). The
+// google entry has since moved to `gemini-2.5-flash-lite`: pi-ai 0.84.0
+// dropped `gemini-2.0-flash-lite` from the catalog, and an unlisted id
+// resolves to a zero-cost stub that reports every turn as unpriced.
 
 import { defineExtension } from "../../src/extensions/sdk/define";
 
@@ -51,7 +54,7 @@ export default defineExtension({
       // the legacy `extractMemories` call shape.
       maxTokensPerCall: 2048,
       allowedModels: {
-        google: ["gemini-2.0-flash-lite"],
+        google: ["gemini-2.5-flash-lite"],
         openai: ["gpt-4o-mini"],
         anthropic: ["claude-haiku-4-5-20250514"],
         // Mirror the lessons-distiller's Ollama defaults; user-installed
@@ -137,7 +140,7 @@ export default defineExtension({
       type: "text",
       label: "Model id (override)",
       description:
-        "Leave blank to use the provider default (gemini-2.0-flash-lite / gpt-4o-mini / claude-haiku-4-5 / gemma4:e2b for Ollama).",
+        "Leave blank to use the provider default (gemini-2.5-flash-lite / gpt-4o-mini / claude-haiku-4-5 / gemma4:e2b for Ollama).",
       default: "",
     },
     compaction_enabled: {

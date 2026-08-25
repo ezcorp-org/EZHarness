@@ -202,7 +202,7 @@ describe("extract — happy path", () => {
       projectId: "proj-1",
     });
     const llmCall = fake.calls.find((c) => c.api === "llmComplete");
-    expect(llmCall?.args).toMatchObject({ provider: "google", model: "gemini-2.0-flash-lite" });
+    expect(llmCall?.args).toMatchObject({ provider: "google", model: "gemini-2.5-flash-lite" });
   });
 
   test("[N2] ollama provider resolves to gemma4:e2b default", async () => {

@@ -9,14 +9,17 @@
  * `appendCompaction`, byte-for-byte, so every expectation here is the same
  * assertion about the same tree.
  *
- * pi's `buildSessionContext` IS still used, in the one describe that is
- * about the engine-side context transform rather than about storage — it
- * also proves the repo-owned `SessionTreeEntry` union is structurally what
- * the engine consumes.
+ * pi's `buildSessionContext` used to appear here too, as the oracle for the
+ * context transform. pi-ai 0.84.0 made the repo-owned entry union
+ * structurally unusable with it — pi's `EntryBase` now requires a `seq` and
+ * a numeric `timestamp`, and its `CompactionEntry` swapped
+ * `firstKeptEntryId` for a required `retainedTail` — so the branch is
+ * asserted directly instead. That is the storage contract this suite is
+ * about; the divergence itself is pinned in
+ * `session-owned-types-parity.test.ts`.
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { sql } from "drizzle-orm";
-import { buildSessionContext } from "@earendil-works/pi-agent-core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { agentSessionEntries } from "../db/schema";
@@ -162,11 +165,17 @@ describe("DbSessionStorage — append + branch semantics", () => {
     const branch = await branchOf(storage);
     expect(branch.map((e) => e.id)).toEqual([id1, id2, id3]);
 
-    const ctx = buildSessionContext(branch);
-    expect(ctx.messages.map((m: any) => m.content)).toEqual(["first", "second", "third"]);
-    // deriveSessionContextState reads the latest assistant message's model.
-    expect(ctx.model).toEqual({ provider: "anthropic", modelId: "claude" });
-    expect(ctx.thinkingLevel).toBe("off");
+    // Root→leaf order, and each entry's message survives the round-trip
+    // verbatim. (This used to read the same three contents back out of pi's
+    // `buildSessionContext`; see the note on describe 6 for why the builder
+    // is no longer the oracle. The order assertion is the storage contract,
+    // and it is asserted directly here.)
+    expect(branch.map((e) => e.type)).toEqual(["message", "message", "message"]);
+    expect(branch.filter((e) => e.type === "message").map((e) => (e.message as any).content)).toEqual([
+      "first",
+      "second",
+      "third",
+    ]);
   });
 
   test("createEntryId returns an 8-char id that does not persist", async () => {
@@ -457,10 +466,18 @@ describe("DbSessionStorage — payload + timestamp fidelity", () => {
   });
 });
 
-// ── 6. the engine-side context transform over a stored branch ───────
-// The one describe that is about pi's context builder rather than about
-// storage: it feeds a REAL persisted branch (repo-owned entry types) into
-// pi's `buildSessionContext`, which is what the runtime ultimately targets.
+// ── 6. the compaction transform over a stored branch ────────────────
+// This used to assert the whole transform through pi's `buildSessionContext`,
+// on the premise that it "is what the runtime ultimately targets". pi-ai
+// 0.84.0 retired that premise: pi's `CompactionEntry` dropped
+// `firstKeptEntryId` for a REQUIRED `retainedTail` that its builder spreads
+// unconditionally, so pi no longer implements the boundary rule this repo
+// persists — it throws on our entries instead of honouring them. Nothing in
+// `src/` ever called that builder (it appears in tests only), and the
+// `compactionSummary` role it emitted appears nowhere else in the repo, so
+// the vendor half of the old assertion was never EZCorp behaviour to begin
+// with. What IS ours is the boundary rule in `getPathToRootOrCompaction`,
+// asserted here directly against the persisted branch.
 describe("DbSessionStorage — compaction context transform", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -469,7 +486,7 @@ describe("DbSessionStorage — compaction context transform", () => {
     await closeTestDb();
   });
 
-  test("compaction on branch drops pre-firstKeptEntryId and injects the summary", async () => {
+  test("compaction on branch drops pre-firstKeptEntryId and carries the summary", async () => {
     const storage = await DbSessionStorage.create();
     await appendMessage(storage, userMsg("m1-dropped"));
     const id2 = await appendMessage(storage, userMsg("m2-kept"));
@@ -477,14 +494,18 @@ describe("DbSessionStorage — compaction context transform", () => {
     await appendCompaction(storage, "SUMMARY-TEXT", id2, 4321);
     await appendMessage(storage, userMsg("m4-post"));
 
-    const ctx = buildSessionContext(await branchOf(storage));
-    expect((ctx.messages[0] as any).role).toBe("compactionSummary");
-    expect((ctx.messages[0] as any).summary).toBe("SUMMARY-TEXT");
-    expect((ctx.messages[0] as any).tokensBefore).toBe(4321);
+    const branch = await branchOf(storage);
 
-    const kept = ctx.messages.slice(1).map((m: any) => m.content);
-    expect(kept).toEqual(["m2-kept", "m3-kept", "m4-post"]);
-    expect(ctx.messages.some((m: any) => m.content === "m1-dropped")).toBe(false);
+    // The compaction entry itself carries the summary pi used to inject.
+    const compaction = branch.find((e) => e.type === "compaction");
+    expect(compaction).toBeDefined();
+    expect(compaction).toMatchObject({ summary: "SUMMARY-TEXT", tokensBefore: 4321, firstKeptEntryId: id2 });
+
+    // `firstKeptEntryId` bounds the walk: m1 is older than it and is gone,
+    // everything from m1's successor forward survives, in root→leaf order.
+    const surviving = branch.filter((e) => e.type === "message").map((e) => (e.message as any).content);
+    expect(surviving).toEqual(["m2-kept", "m3-kept", "m4-post"]);
+    expect(surviving).not.toContain("m1-dropped");
   });
 });
 

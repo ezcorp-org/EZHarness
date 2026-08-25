@@ -458,7 +458,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         maxCallsPerDay: 200,
         maxTokensPerCall: 1024,
         allowedModels: {
-          google: ["gemini-2.0-flash-lite"],
+          google: ["gemini-2.5-flash-lite"],
           openai: ["gpt-4o-mini"],
           anthropic: ["claude-haiku-4-5-20250514"],
           ollama: ["gemma4:e2b", "gemma4:latest", "qwen3.6:35b"],
@@ -548,7 +548,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
         maxCallsPerDay: 200,
         maxTokensPerCall: 2048,
         allowedModels: {
-          google: ["gemini-2.0-flash-lite"],
+          google: ["gemini-2.5-flash-lite"],
           openai: ["gpt-4o-mini"],
           anthropic: ["claude-haiku-4-5-20250514"],
           ollama: ["gemma4:e2b", "gemma4:latest", "qwen3.6:35b"],

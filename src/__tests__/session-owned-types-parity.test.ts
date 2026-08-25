@@ -8,29 +8,43 @@
  * redeemed that promise — no production code constructs pi's `Session` — so
  * the storage shapes are now declared in the module that owns the table.
  *
- * This suite is the receipt. It proves, at BOTH compile time and run time:
- *  1. every owned entry variant is still assignable to pi's, and pi's is
- *     still assignable to ours — so no call site's meaning changed and
- *     re-coupling later stays a one-line import;
- *  2. real owned entries still flow through pi's engine-side context
- *     builder and produce the same messages;
- *  3. the owned `SessionError` is observationally identical to pi's — same
- *     `name`, `message`, `code` strings and `Error` ancestry — including the
- *     `invalid_session` code pi drops after 0.83;
- *  4. `DbSessionStorage`'s method surface is exactly the set the product
- *     calls, with the five interface-only methods gone and nothing else.
+ * Through 0.83 this suite asserted the two models were still mutually
+ * assignable, so re-coupling stayed a one-line import. **pi-ai 0.84.0 ended
+ * that**, and deliberately: pi redesigned its session model, so the suite
+ * now pins the DIVERGENCE instead. The four deltas, each asserted below:
+ *
+ *  | shape             | pi 0.84                       | owned (this repo)          |
+ *  |-------------------|-------------------------------|----------------------------|
+ *  | `EntryBase.seq`   | required `number`             | absent (a DB column)       |
+ *  | `EntryBase.timestamp` | `number`                  | `string`, ISO-8601 verbatim|
+ *  | entry union       | 7 variants                    | 11 variants                |
+ *  | compaction bound  | required `retainedTail`       | `firstKeptEntryId`         |
+ *
+ * That divergence is SAFE because nothing in `src/` constructs pi's
+ * `Session` or calls its context builder, and it is LOAD-BEARING because
+ * `timestamp` is the durable form of a TEXT column — adopting pi's `number`
+ * would be a schema migration, not a type edit.
+ *
+ * Pinning it is the point: `NotAssignable` fails to compile the day pi's
+ * shape drifts back toward ours (or further from it), so the next bump
+ * reports the change instead of silently re-typing the storage layer.
+ * The suite still proves, unchanged by 0.84:
+ *  - the owned `SessionError` is observationally identical to pi's — same
+ *    `name`, `message`, `code` strings and `Error` ancestry — including the
+ *    `invalid_session` code pi drops after 0.83;
+ *  - `DbSessionStorage`'s method surface is exactly the set the product
+ *    calls, with the five interface-only methods gone and nothing else.
  *
  * The `assignable<T>()` helper is deliberately identity: the ASSERTION is
  * the type argument (checked by `bun run typecheck`), and the `expect` keeps
  * it a real, non-vacuous runtime test too.
  */
 import { test, expect, describe } from "bun:test";
-import { buildSessionContext } from "@earendil-works/pi-agent-core";
 import type {
   AgentMessage,
-  SessionEntryCursorOptions as PiSessionEntryCursorOptions,
+  CompactionEntry as PiCompactionEntry,
+  Entry as PiEntry,
   SessionMetadata as PiSessionMetadata,
-  SessionTreeEntry as PiSessionTreeEntry,
 } from "@earendil-works/pi-agent-core";
 import {
   SessionError,
@@ -38,6 +52,7 @@ import {
   leafIdAfterEntry,
   rowToEntry,
   DbSessionStorage,
+  type CompactionEntry,
   type DbSessionMetadata,
   type SessionEntryCursorOptions,
   type SessionTreeEntry,
@@ -48,11 +63,18 @@ function assignable<T>(value: T): T {
   return value;
 }
 
+/**
+ * Compile-time `true` ONLY while `A` is not assignable to `B`.
+ *
+ * The inverse of {@link assignable}, and the reason this file still fails
+ * loudly: each `const _x: NotAssignable<…> = true` below stops compiling the
+ * moment the two shapes converge, which is exactly when a human needs to
+ * re-decide whether to re-couple.
+ */
+type NotAssignable<A, B> = [A] extends [B] ? false : true;
+
 function userMsg(content: string): AgentMessage {
   return { role: "user", content } as unknown as AgentMessage;
-}
-function assistantMsg(content: string): AgentMessage {
-  return { role: "assistant", content, provider: "anthropic", model: "claude" } as unknown as AgentMessage;
 }
 
 /** One value of every owned variant, keyed by its discriminant. */
@@ -70,40 +92,82 @@ const OWNED_ENTRIES = {
   leaf: { type: "leaf", id: "e11", parentId: "e10", timestamp: "t", targetId: "e1" },
 } as const satisfies Record<string, SessionTreeEntry>;
 
-describe("owned session types — assignable to and from pi's", () => {
-  test("every owned variant is a pi SessionTreeEntry, and vice versa", () => {
-    for (const [type, entry] of Object.entries(OWNED_ENTRIES)) {
-      const owned: SessionTreeEntry = entry;
-      // Owned → pi: nothing this repo persists became unrepresentable.
-      const asPi = assignable<PiSessionTreeEntry>(owned);
-      // pi → owned: nothing pi produces became unrepresentable either.
-      const backToOwned = assignable<SessionTreeEntry>(asPi);
-      expect(backToOwned).toBe(owned);
-      expect(backToOwned.type as string).toBe(type);
-    }
-    // The union is exhaustive in both directions — same 11 members.
+describe("owned session types — the divergence from pi, pinned", () => {
+  // ── Compile-time half. Each `= true` stops compiling if pi's shape
+  //    converges back on ours; `bun run typecheck` is the gate.
+  const _ownedIsNotPiEntry: NotAssignable<SessionTreeEntry, PiEntry> = true;
+  const _piEntryIsNotOwned: NotAssignable<PiEntry, SessionTreeEntry> = true;
+  const _metaIsNotPiMeta: NotAssignable<DbSessionMetadata, PiSessionMetadata> = true;
+  const _compactionIsNotPis: NotAssignable<CompactionEntry, PiCompactionEntry> = true;
+
+  test("the owned union and pi's Entry are mutually unassignable", () => {
+    // Non-vacuous at run time too: the four flags above are real values.
+    expect([_ownedIsNotPiEntry, _piEntryIsNotOwned, _metaIsNotPiMeta, _compactionIsNotPis]).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+  });
+
+  test("`NotAssignable` DOES resolve false for a shape against itself", () => {
+    // Guards the guard: proves the four assertions above can fail, so a pi
+    // release that re-converged on our shapes could not pass silently.
+    const selfIsAssignable: NotAssignable<SessionTreeEntry, SessionTreeEntry> = false;
+    expect(selfIsAssignable).toBe(false);
+  });
+
+  test("the owned union still carries all 11 variants, 4 of which pi has no name for", () => {
     expect(Object.keys(OWNED_ENTRIES)).toHaveLength(11);
+    // pi 0.84's `Entry` is these 7 …
+    const shared = ["message", "model_change", "thinking_level_change", "active_tools_change", "compaction", "branch_summary", "custom"];
+    // … and these 4 are EZCorp-only. `rowToEntry` reconstructs whatever the
+    // table holds, so dropping one would silently change what a stored tree
+    // reads back as.
+    const ezcorpOnly = ["custom_message", "label", "session_info", "leaf"];
+    expect(Object.keys(OWNED_ENTRIES).sort()).toEqual([...shared, ...ezcorpOnly].sort());
+    for (const [type, entry] of Object.entries(OWNED_ENTRIES)) {
+      expect((entry as SessionTreeEntry).type as string).toBe(type);
+    }
   });
 
-  test("the cursor options and the metadata shape are still pi-compatible", () => {
+  test("every owned entry keeps a STRING timestamp and no `seq` — the DB contract pi left", () => {
+    // pi 0.84's `EntryBase` requires `seq: number` and `timestamp: number`.
+    // Ours stores `timestamp` verbatim in a TEXT column and keeps `seq` as a
+    // table column, off the entry. This is the delta that would cost a
+    // migration, so it is asserted on real values, not just in the types.
+    for (const entry of Object.values(OWNED_ENTRIES)) {
+      expect(typeof (entry as SessionTreeEntry).timestamp).toBe("string");
+      expect(entry).not.toHaveProperty("seq");
+    }
+  });
+
+  test("compaction is bounded by firstKeptEntryId, not pi's required retainedTail", () => {
+    // `getPathToRootOrCompaction` reads `firstKeptEntryId`; pi 0.84 removed
+    // that field and made `retainedTail` required, spreading it unguarded.
+    const compaction: CompactionEntry = {
+      type: "compaction",
+      id: "c1",
+      parentId: "e1",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      summary: "s",
+      tokensBefore: 7,
+      firstKeptEntryId: "e1",
+    };
+    expect(compaction.firstKeptEntryId).toBe("e1");
+    // Optional here, required there — the reason pi's builder throws on ours.
+    expect(compaction.retainedTail).toBeUndefined();
+  });
+
+  test("the cursor options are owned outright — pi no longer exports the type", () => {
+    // `SessionEntryCursorOptions` was removed from pi's public surface in
+    // 0.84; the shape below is now defined solely by `session-storage.ts`.
     const cursor: SessionEntryCursorOptions = { afterEntrySeq: 2, limit: 3 };
-    expect(assignable<PiSessionEntryCursorOptions>(cursor)).toEqual({ afterEntrySeq: 2, limit: 3 });
-    // DbSessionMetadata used to `extends SessionMetadata`; it still satisfies
-    // it structurally, so the extra fields were never the coupling.
+    expect(assignable<SessionEntryCursorOptions>(cursor)).toEqual({ afterEntrySeq: 2, limit: 3 });
+    // Metadata keeps its ISO-8601 string; pi's `createdAt` is now a number.
     const meta: DbSessionMetadata = { id: "s1", createdAt: "2026-01-01T00:00:00.000Z", cwd: "/repo" };
-    expect(assignable<PiSessionMetadata>(meta).id).toBe("s1");
-  });
-
-  test("owned entries still drive pi's engine-side context builder", () => {
-    // A branch of owned values, straight into pi — the seam that matters,
-    // since `AgentMessage` is deliberately still pi's.
-    const branch: SessionTreeEntry[] = [
-      { type: "message", id: "m1", parentId: null, timestamp: "t", message: userMsg("first") },
-      { type: "message", id: "m2", parentId: "m1", timestamp: "t", message: assistantMsg("second") },
-    ];
-    const ctx = buildSessionContext(branch);
-    expect(ctx.messages.map((m) => (m as { content?: unknown }).content)).toEqual(["first", "second"]);
-    expect(ctx.model).toEqual({ provider: "anthropic", modelId: "claude" });
+    expect(typeof meta.createdAt).toBe("string");
+    expect(meta.id).toBe("s1");
   });
 
   test("the pure helpers accept and return owned entries unchanged", () => {

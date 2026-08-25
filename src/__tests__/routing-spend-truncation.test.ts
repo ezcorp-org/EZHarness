@@ -46,8 +46,11 @@ const ONE_M = 1_000_000;
  * SQL-capped total.
  */
 const MODELS: readonly (readonly [string, string])[] = [
-  ["google", "gemini-2.0-flash-lite"],
-  ["google", "gemini-2.0-flash"],
+  // `google/gemini-2.0-flash{,-lite}` used to head this list. pi-ai 0.84.0
+  // dropped both from the catalog, so `modelPrices` no longer answers for
+  // them and every turn they served would land on the UNPRICED axis — the
+  // one axis this fixture exists to keep empty. Removed rather than
+  // re-pointed: 18 models × 3 provenances = 54 groups still clears `CAP`.
   ["openai", "gpt-4.1-nano"],
   ["google", "gemini-2.5-flash-lite"],
   ["openai", "gpt-4o-mini"],
@@ -65,7 +68,10 @@ const MODELS: readonly (readonly [string, string])[] = [
   ["openai", "gpt-5.5"],
   ["anthropic", "claude-opus-4-5"],
   ["openai", "gpt-4-turbo"],
-  ["anthropic", "claude-opus-4-1"], // $15/1M in — the priciest, and the rarest
+  // Was `claude-opus-4-1` ($15/1M in) until pi-ai 0.84.0 dropped it from the
+  // anthropic catalog alongside `claude-opus-4-1-20250805`. `claude-fable-5`
+  // inherits the role: it is the priciest entry the catalog still lists.
+  ["anthropic", "claude-fable-5"], // $10/1M in — the priciest, and the rarest
 ] as const;
 
 const PROVENANCES = ["pinned", "routed", "legacy"] as const;

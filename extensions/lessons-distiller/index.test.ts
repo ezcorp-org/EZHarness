@@ -259,7 +259,7 @@ describe("distill — happy path", () => {
 
     await distill(distillArgs({ settings: { provider: "fictitious" } }));
     const llmCall = fake.calls.find((c) => c.api === "llmComplete");
-    expect(llmCall?.args).toMatchObject({ provider: "google", model: "gemini-2.0-flash-lite" });
+    expect(llmCall?.args).toMatchObject({ provider: "google", model: "gemini-2.5-flash-lite" });
   });
 
   test("[N2] ollama provider resolves to gemma4:e2b default", async () => {
@@ -621,7 +621,7 @@ describe("distillRunComplete — fail-soft on unavailable model", () => {
     }
 
     expect(cap.warnings.length).toBe(1);
-    expect(cap.warnings[0]).toContain("gemini-2.0-flash-lite");
+    expect(cap.warnings[0]).toContain("gemini-2.5-flash-lite");
     expect(cap.warnings[0]).toContain("google");
     expect(cap.warnings[0]).toContain("once per server start");
     expect(errorSpy.length).toBe(0);
