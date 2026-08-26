@@ -31,7 +31,7 @@
     "lint:fix": "bun run lint --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8",
+    "@biomejs/biome": "2.5.9",
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.2.0",
@@ -54,7 +54,7 @@
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
     "fast-png": "^8.0.0",
-    "file-type": "^22.0.1",
+    "file-type": "^22.0.2",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
     "yaml": "^2.8.2"
