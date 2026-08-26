@@ -123,31 +123,59 @@ updates:
     # routine bump we know is a migration — not to go blind on advisories.
     #
     # Delete an entry once that package's migration lands:
-    #   - The two `@electric-sql/pglite*` packages — these move as ONE PAIR and
-    #     a lone bump of either is broken by construction:
-    #       * `@electric-sql/pglite` is pinned EXACTLY (not `^`) because
-    #         `@electric-sql/pglite-pgvector` peer-pins an exact version
-    #         (`0.0.5` → `0.5.4`). pgvector left the core package in 0.5.x, so
-    #         a caret would silently drift off its own extension.
-    #       * `@electric-sql/pglite-pgvector` is a 0.0.x package. Every future
-    #         PGlite bump needs a matching pgvector release to exist FIRST.
-    #     A PGlite minor can also bump bundled Postgres across a MAJOR (0.3.x
-    #     was PG 17.5, 0.5.x is PG 18.3), and Postgres data directories are
-    #     never compatible across majors — so such a bump strands the data
-    #     directory of every self-hosted install. `src/db/datadir-upgrade.ts`
-    #     refuses to boot on one rather than silently starting empty, but
-    #     refusing is not migrating: a major jump needs an operator-facing
-    #     upgrade story shipped with it, so it stays a hand-reviewed PR.
     #   - `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core` — must move
     #     as a pair, and 0.83.0 removes `getOAuthApiKey`, requires `streamFn`,
     #     and grows the `SessionStorage` interface. A code migration.
+    #
+    # The `@electric-sql/pglite*` pair was excluded here too, for the same
+    # stated reason — and that was the WRONG SHAPE for them. Exclusion buys a
+    # package its own PR, which is exactly what breaks these two, because
+    # neither is installable without the other at a matching version. They now
+    # get a group of their own instead; see `pglite` below.
     groups:
+      # The two `@electric-sql/pglite*` packages move as ONE PR, because a lone
+      # bump of either is broken by construction:
+      #   * `@electric-sql/pglite` is pinned EXACTLY (not `^`) because
+      #     `@electric-sql/pglite-pgvector` peer-pins an exact version
+      #     (`0.0.5` → `0.5.4`). pgvector left the core package in 0.5.x, so a
+      #     caret would silently drift off its own extension.
+      #   * `@electric-sql/pglite-pgvector` is a 0.0.x package. Every future
+      #     PGlite bump needs a matching pgvector release to exist FIRST.
+      # The pairing is one-to-one and total: 0.0.6→0.5.5, 0.0.7→0.5.6,
+      # 0.0.8→0.5.7. Split across two PRs, whichever lands first leaves `main`
+      # holding an extension peer-pinned to a PGlite it is not installed
+      # against. That happened in #223/#224 — the third recurrence.
+      #
+      # Listed FIRST on purpose: a dependency lands in the first group it
+      # matches, so these two never reach `bun-minor-and-patch` and need no
+      # exclusion there.
+      #
+      # No `update-types` filter. The peer-pin binds on every update type,
+      # majors included. Grouping decides which PR a bump lands in, not whether
+      # anyone reads it — a major still gets the hand review it deserves. That
+      # review is not optional here: a PGlite minor can bump bundled Postgres
+      # across a MAJOR (0.3.x was PG 17.5, 0.5.x is PG 18.3), and Postgres data
+      # directories are never compatible across majors, so such a bump strands
+      # the data directory of every self-hosted install.
+      # `src/db/datadir-upgrade.ts` refuses to boot on one rather than silently
+      # starting empty, but refusing is not migrating: a major jump needs an
+      # operator-facing upgrade story shipped with it.
+      #
+      # What this does NOT fix: a group PR carries whichever members have an
+      # ELIGIBLE update, so if only one of the two clears `cooldown` on a given
+      # day, that PR is a lone bump again. Upstream publishes the pair minutes
+      # apart (0.0.6 and 0.5.5 five minutes apart), and `cooldown` is
+      # day-granular, so in practice they become eligible together — but a
+      # single-package PR from this group is a signal to WAIT for its partner,
+      # not to merge.
+      pglite:
+        patterns:
+          - "@electric-sql/pglite"
+          - "@electric-sql/pglite-pgvector"
       bun-minor-and-patch:
         patterns:
           - "*"
         exclude-patterns:
-          - "@electric-sql/pglite"
-          - "@electric-sql/pglite-pgvector"
           - "@earendil-works/pi-ai"
           - "@earendil-works/pi-agent-core"
         update-types:
