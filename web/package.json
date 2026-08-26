@@ -27,7 +27,7 @@
 		"@tailwindcss/vite": "^4.2.1",
 		"@testing-library/jest-dom": "^7.0.0",
 		"@testing-library/svelte": "^5.3.1",
-		"@types/jsdom": "^28.0.1",
+		"@types/jsdom": "^30.0.0",
 		"@typescript/native": "npm:typescript@7.0.2",
 		"@vitest/coverage-v8": "4.1.11",
 		"jsdom": "^30.0.1",
