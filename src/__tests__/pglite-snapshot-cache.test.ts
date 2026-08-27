@@ -458,6 +458,41 @@ describe("cache storage", () => {
     expect(existsSync(snapshotEntryPath(dir, "e"))).toBe(true);
   });
 
+  // The test above only REACHES the mtime tie when all five writes land in one
+  // filesystem timestamp tick — a property of the host, not of the code, so on
+  // a slow enough box it passes without ever exercising the ranking. These two
+  // freeze the tie open instead of racing it, which is what makes them an
+  // assertion rather than a measurement.
+  test("an equal-mtime tie ranks by path, so prune never depends on readdir order", () => {
+    const dir = tmp("cache");
+    const frozen = new Date(1_700_000_000_000);
+    for (const key of ["a", "b", "c", "d"]) {
+      const path = snapshotEntryPath(dir, key);
+      writeFileSync(path, key);
+      utimesSync(path, frozen, frozen);
+    }
+
+    expect(pruneSnapshotCache(dir, 2)).toBe(2);
+    // Every mtime is identical, so only the path key orders these. The two
+    // lowest names survive whatever order readdir happened to return.
+    expect(readdirSync(dir).sort()).toEqual(["migrated-a.tar", "migrated-b.tar"]);
+  });
+
+  test("protect outranks both mtime and path, so a writer cannot evict itself", () => {
+    const dir = tmp("cache");
+    const frozen = new Date(1_700_000_000_000);
+    for (const key of ["a", "b", "c", "d"]) {
+      const path = snapshotEntryPath(dir, key);
+      writeFileSync(path, key);
+      utimesSync(path, frozen, frozen);
+    }
+
+    // "d" loses on both other keys — same mtime as the rest, highest path — so
+    // it is exactly the entry an unprotected prune would discard first.
+    expect(pruneSnapshotCache(dir, 2, snapshotEntryPath(dir, "d"))).toBe(2);
+    expect(readdirSync(dir).sort()).toEqual(["migrated-a.tar", "migrated-d.tar"]);
+  });
+
   test("an entry older than the max age is a miss, so frozen NOW() cannot drift far", async () => {
     const dir = tmp("cache");
     await writeCachedSnapshot("aged", new Blob(["x"]), { dir, env: NO_ENV });
