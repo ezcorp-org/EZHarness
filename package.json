@@ -43,8 +43,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.2",
     "@earendil-works/pi-ai": "0.84.2",
-    "@electric-sql/pglite": "0.5.4",
-    "@electric-sql/pglite-pgvector": "0.0.5",
+    "@electric-sql/pglite": "0.5.7",
+    "@electric-sql/pglite-pgvector": "0.0.8",
     "@ezcorp/ai-kit": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
