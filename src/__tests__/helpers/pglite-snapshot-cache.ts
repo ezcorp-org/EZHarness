@@ -358,21 +358,40 @@ export async function writeCachedSnapshot(
     }
     return false;
   }
-  pruneSnapshotCache(dir, CACHE_KEEP);
+  // `final` is protected: a prune must never evict the entry this call just
+  // published. See the ranking note on `pruneSnapshotCache`.
+  pruneSnapshotCache(dir, CACHE_KEEP, final);
   return true;
 }
 
 /**
- * Keep the `keep` most recently modified entries, delete the rest — plus any
- * temp file abandoned by a process that was killed mid-write (a SIGKILLed pool
- * would otherwise leak a 33MB file it can never claim). "Abandoned" is defined
- * by age so a write in flight in another process is never touched.
+ * Keep the `keep` best-ranked entries, delete the rest — plus any temp file
+ * abandoned by a process that was killed mid-write (a SIGKILLed pool would
+ * otherwise leak a 33MB file it can never claim). "Abandoned" is defined by
+ * age so a write in flight in another process is never touched.
+ *
+ * Entries rank by three keys, in order:
+ *
+ *   1. `protect` — the caller's own just-written entry, if any.
+ *   2. Most recently modified.
+ *   3. Path, as a deterministic tiebreak.
+ *
+ * Keys 1 and 3 both exist because mtime alone does not order this set. Entries
+ * written in quick succession land in the SAME filesystem timestamp tick and
+ * carry an identical `mtimeMs`, so key 2 returns 0 for every pair and — the
+ * sort being stable — `readdir` order decides the survivors. `readdir` order is
+ * not write order, so the newest entry could be pruned by its own write: five
+ * keys written in one tick with `keep: 2` kept the two `readdir` happened to
+ * list first, discarding the one the caller had just published. That is a
+ * silent performance bug, not a correctness one — the entry is rebuilt on the
+ * next run at 3.2–6.4s against 0.7–0.9s to restore it — which is exactly why it
+ * needs a test rather than a bug report.
  *
  * Returns the number of files deleted, or `-1` if the prune was abandoned (a
  * concurrent pool process removed an entry between `readdir` and `unlink`, or
  * the directory is gone). Abandoning is safe: the next write prunes again.
  */
-export function pruneSnapshotCache(dir: string, keep: number): number {
+export function pruneSnapshotCache(dir: string, keep: number, protect?: string): number {
   try {
     const names = readdirSync(dir).filter((name) => name.startsWith(ENTRY_PREFIX));
     const withMtime = names.map((name) => {
@@ -381,7 +400,12 @@ export function pruneSnapshotCache(dir: string, keep: number): number {
     });
     const doomed = withMtime
       .filter((f) => f.isEntry)
-      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .sort(
+        (a, b) =>
+          Number(b.path === protect) - Number(a.path === protect) ||
+          b.mtimeMs - a.mtimeMs ||
+          a.path.localeCompare(b.path),
+      )
       .slice(keep)
       .concat(withMtime.filter((f) => !f.isEntry && Date.now() - f.mtimeMs > ABANDONED_TMP_MS));
     for (const file of doomed) unlinkSync(file.path);
