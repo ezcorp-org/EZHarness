@@ -94,9 +94,16 @@ web/e2e/.validate-auth.json
 # old dir on disk and it must not become committable when they empty it.
 /projects/
 
-# Local git worktrees — checked-out branches under ./worktrees/ for parallel
-# work. Never commit; the actual branches live in the remote.
+# Local git worktrees — checked-out branches for parallel work. Never commit;
+# the actual branches live in the remote.
+#
+# Both spellings are in use and neither pattern covers the other: a leading dot
+# makes a different directory name, so `worktrees/` never matched `.worktrees/`.
+# CLAUDE.md documents `./worktrees/<slug>`; agents that hide the dir pick
+# `.worktrees/`. (`.claude/worktrees/`, which the Agent tool's
+# `isolation: "worktree"` creates, is already covered by `.claude/*` below.)
 worktrees/
+.worktrees/
 
 # Local Claude Code agent config (per-machine, do not commit) — EXCEPT the two
 # shared, committed maintenance tools for docs/features (everything else in
