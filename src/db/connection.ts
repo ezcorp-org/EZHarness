@@ -23,6 +23,7 @@ import {
 } from "./live-holder-guard";
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
+import { composePostgresHint } from "./compose-db-hint";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -412,6 +413,13 @@ async function initPglite(): Promise<void> {
   // breaker further down.
   clearRecoveryMarker();
   log.info("Database mode: embedded PGlite", { path: DB_PATH });
+
+  // "Embedded PGlite" alone is not the useful signal — the ambiguous case is
+  // PGlite chosen WHILE the compose Postgres holding the real data is up. See
+  // compose-db-hint.ts for what that mistake has already cost. Advisory only:
+  // a probe failure yields no hint rather than blocking the boot.
+  const wrongDatabaseHint = await composePostgresHint({ databaseUrl: DATABASE_URL, dbPath: DB_PATH });
+  if (wrongDatabaseHint) log.warn(wrongDatabaseHint);
 
   try {
     await migrate(_db);
