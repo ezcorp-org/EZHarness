@@ -222,6 +222,14 @@ boundary, and these lines have no record at all in the executing shard. See
 Full rules live in the linked docs and nested CLAUDE.md files; these are the
 ones that break things silently if missed:
 
+- **The dev data lives in the compose Postgres, NOT in `~/ez-corp/.data`** —
+  `DATABASE_URL` is set only on the `app` service in `docker-compose.yml`, so
+  a host-side `bun run dev` silently falls back to an empty embedded PGlite
+  and redirects to `/setup`. That looks exactly like data loss and has already
+  been misdiagnosed as such. Use **`bun run dev:stack`**. Never put
+  `DATABASE_URL` in `.env` — Bun loads it into every process and
+  `__tests__/preload.ts` would then run the whole pool against that database
+  ([platform/database-and-migrations.md](docs/features/platform/database-and-migrations.md)).
 - **Session tree** — `parentMessageId` is append-only. The one sanctioned
   mutation is `reparentMessage()` (steered-row reconciliation), called only
   from `subscribe-bridge.ts`; rewind/retry never reparent

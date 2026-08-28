@@ -92,6 +92,7 @@
   "docs/extensions/examples/city-conditions/ezcorp.config.ts": 100,
   "docs/extensions/examples/city-conditions/lib/**": 100,
   "src/db/connection.ts": 41,
+  "src/db/compose-db-hint.ts": 100,
   "src/db/datadir-upgrade.ts": 100,
   "src/db/sanitize-nul.ts": 100,
   "src/db/nul-column-patch.ts": 100,
