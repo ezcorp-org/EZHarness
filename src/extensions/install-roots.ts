@@ -21,7 +21,7 @@
  * `web/src/routes/api/__test/cleanup-extension/+server.ts`.
  */
 
-import { join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { getProjectRoot } from "./project-root";
 
 /**
@@ -129,4 +129,38 @@ export function isRemovableInstallPath(
   return allowedInstallRoots(projectPaths).some(
     (root) => p !== root && p.startsWith(root + sep),
   );
+}
+
+/**
+ * Resolve a stored `extensions.install_path` to an on-disk absolute path,
+ * against `root` (defaults to {@link getProjectRoot}).
+ *
+ * BUNDLED extensions record install paths RELATIVE to the project root —
+ * exactly the same string as the entry's `path` in `bundled.ts`
+ * (`docs/extensions/examples/<name>`, `extensions/<name>`,
+ * `packages/@ezcorp/ai-kit`) — precisely so the row is portable: the
+ * database is shared between a containerised app (root `/app`) and a
+ * host-side process (root = wherever the checkout lives), and an absolute
+ * path baked in by whichever one wrote the row is unresolvable from the
+ * other. `join(root, instPath)` reconstructs the correct absolute path
+ * from WHICHEVER root the CURRENT process resolves — see
+ * `../db/migrations/relativize-bundled-install-paths.ts` for the migration
+ * that puts existing rows into this shape.
+ *
+ * An already-absolute `instPath` is returned unchanged — that is the
+ * ENTIRE handling for every genuinely external install (GitHub release /
+ * git clone under `data/extensions`, `ezcorp ext install <path>`, an
+ * imported project's `.ezcorp/extensions`): their on-disk location is not
+ * derivable from `root` at all, so there is nothing to reconstruct and
+ * nothing to break here.
+ *
+ * `null`/`undefined`/empty in, `null` out — mirrors the nullable
+ * `install_path` column (MCP-kind extensions have none).
+ */
+export function resolveInstallPath(
+  instPath: string | null | undefined,
+  root: string = getProjectRoot(),
+): string | null {
+  if (typeof instPath !== "string" || instPath.length === 0) return null;
+  return isAbsolute(instPath) ? instPath : join(root, instPath);
 }

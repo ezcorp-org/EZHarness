@@ -91,6 +91,7 @@ const {
   authoredExtensionsDir,
   downloadedExtensionsDir,
   isRemovableInstallPath,
+  resolveInstallPath,
 } = await import("../extensions/install-roots");
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -186,6 +187,90 @@ describe("installFromLocal", () => {
     // No entrypoint → no entrypoint checksum, checksumVerified false.
     expect(result.manifest.checksum).toBeUndefined();
     expect(result.checksumVerified).toBe(false);
+  });
+
+  // ── persistPath (bundled install-path portability) ──────────────────
+  describe("persistPath override", () => {
+    test("persists the override instead of the absolute localPath, in BOTH installPath and source", async () => {
+      const extDir = join(tempBase, "portable-ext");
+      await mkdir(extDir, { recursive: true });
+      await writeConfig(extDir, makeManifest({ name: "portable-ext" }));
+      await Bun.write(join(extDir, "index.ts"), 'console.log("hi");');
+
+      const result = await installFromLocal(extDir, defaultPerms, true, {
+        isBundled: true,
+        persistPath: "docs/extensions/examples/portable-ext",
+      });
+
+      expect(result.installPath).toBe("docs/extensions/examples/portable-ext");
+      expect(result.source).toBe("local:docs/extensions/examples/portable-ext");
+    });
+
+    test("still reads the manifest + computes checksums from the REAL absolute localPath", async () => {
+      // The override only changes what's PERSISTED; the files read to
+      // build the row must still come from the real on-disk directory.
+      const extDir = join(tempBase, "portable-ext-2");
+      await mkdir(extDir, { recursive: true });
+      await writeConfig(extDir, makeManifest({ name: "portable-ext-2" }));
+      await Bun.write(join(extDir, "index.ts"), 'console.log("hi");');
+
+      const result = await installFromLocal(extDir, defaultPerms, true, {
+        persistPath: "some/portable/path",
+      });
+
+      expect(result.manifest.checksum).toBeDefined();
+      expect(result.checksumVerified).toBe(true);
+    });
+
+    test("omitting persistPath keeps the historical behavior (persists localPath verbatim)", async () => {
+      const extDir = join(tempBase, "unportable-ext");
+      await mkdir(extDir, { recursive: true });
+      await writeConfig(extDir, makeManifest({ name: "unportable-ext" }));
+      await Bun.write(join(extDir, "index.ts"), 'console.log("hi");');
+
+      const result = await installFromLocal(extDir, defaultPerms, true);
+
+      expect(result.installPath).toBe(extDir);
+      expect(result.source).toBe(`local:${extDir}`);
+    });
+
+    test("a second install with the SAME persistPath hits the refresh-in-place branch, not a collision error", async () => {
+      // Mirrors the bundled boot loop: `ensureBundledExtensions()` calls
+      // `installFromLocal(resolvedPath, ..., { persistPath: entry.path })`
+      // on every startup. The `source` comparison that decides "refresh in
+      // place" vs. "different source, same name" must key off the PERSISTED
+      // value, or a second boot from a DIFFERENT absolute localPath (e.g. a
+      // different checkout, or a rebuilt container layer) would spuriously
+      // collide.
+      const extDir = join(tempBase, "reinstall-ext");
+      await mkdir(extDir, { recursive: true });
+      await writeConfig(extDir, makeManifest({ name: "reinstall-ext", version: "1.0.0" }));
+      await Bun.write(join(extDir, "index.ts"), 'console.log("hi");');
+
+      const first = await installFromLocal(extDir, defaultPerms, true, {
+        isBundled: true,
+        persistPath: "extensions/reinstall-ext",
+      });
+      expect(first.installPath).toBe("extensions/reinstall-ext");
+
+      // A DIFFERENT absolute localPath (simulating a different checkout /
+      // container root) but the SAME persistPath.
+      const extDir2 = join(tempBase, "reinstall-ext-different-checkout");
+      await mkdir(extDir2, { recursive: true });
+      await writeConfig(extDir2, makeManifest({ name: "reinstall-ext", version: "1.0.1" }));
+      await Bun.write(join(extDir2, "index.ts"), 'console.log("hi v2");');
+
+      const second = await installFromLocal(extDir2, defaultPerms, true, {
+        isBundled: true,
+        persistPath: "extensions/reinstall-ext",
+      });
+
+      expect(second.installPath).toBe("extensions/reinstall-ext");
+      expect(second.version).toBe("1.0.1");
+      // Exactly one row exists — it was refreshed, not duplicated or
+      // rejected as a collision.
+      expect(mockExtensions.size).toBe(1);
+    });
   });
 });
 
@@ -1175,6 +1260,54 @@ describe("uninstallExtension (teardown order)", () => {
     expect(result!.dataRemoved).toBe(false);
     expect(warnings.some((w) => w.includes("failed to delete install path"))).toBe(true);
     expect(warnings.some((w) => w.includes("failed to delete stored data"))).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// resolveInstallPath — bundled install-path portability
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("resolveInstallPath", () => {
+  test("null / undefined / empty in, null out", () => {
+    expect(resolveInstallPath(null)).toBeNull();
+    expect(resolveInstallPath(undefined)).toBeNull();
+    expect(resolveInstallPath("")).toBeNull();
+  });
+
+  test("an already-absolute path is returned unchanged (every genuinely external install)", () => {
+    expect(resolveInstallPath("/opt/elsewhere/my-ext")).toBe("/opt/elsewhere/my-ext");
+    // Even one that happens to sit under the resolved root: absolute means
+    // "trust it verbatim", no reconstruction attempted.
+    const underRoot = join(TMP_ROOT.root, "my-ext");
+    expect(resolveInstallPath(underRoot)).toBe(underRoot);
+  });
+
+  test("a relative path resolves against the DEFAULT root (getProjectRoot())", () => {
+    expect(resolveInstallPath("docs/extensions/examples/web-search")).toBe(
+      join(TMP_ROOT.root, "docs/extensions/examples/web-search"),
+    );
+    expect(resolveInstallPath("extensions/ez-factory")).toBe(
+      join(TMP_ROOT.root, "extensions/ez-factory"),
+    );
+    expect(resolveInstallPath("packages/@ezcorp/ai-kit")).toBe(
+      join(TMP_ROOT.root, "packages/@ezcorp/ai-kit"),
+    );
+  });
+
+  test("an explicit root argument overrides the default", () => {
+    expect(resolveInstallPath("docs/extensions/examples/web-search", "/app")).toBe(
+      "/app/docs/extensions/examples/web-search",
+    );
+  });
+
+  test("this is the exact reconstruction of a bundled entry's resolvedPath", () => {
+    // bundled.ts computes `join(getProjectRoot(), entry.path)` to READ the
+    // files and persists `entry.path` via `persistPath`. resolveInstallPath
+    // must invert that exactly, from whichever root the CURRENT process
+    // resolves.
+    const entryPath = "docs/extensions/examples/web-search";
+    const resolvedAtInstallTime = join(TMP_ROOT.root, entryPath);
+    expect(resolveInstallPath(entryPath)).toBe(resolvedAtInstallTime);
   });
 });
 

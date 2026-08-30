@@ -32,6 +32,27 @@ The authoring surface is `@ezcorp/sdk` (`defineExtension` + runtime helpers,
   paths as an argument. An install path outside every root is unregistered
   but never deleted (a bundled extension's row points at its git-tracked
   source tree).
+- **Install-path portability (binding)** — a BUNDLED extension's
+  `extensions.install_path` is stored PROJECT-ROOT-RELATIVE (the same
+  string as its `BundledExtension.path` in `bundled.ts`), never absolute.
+  `installFromLocal`'s `persistPath` option (`installer.ts`) is what
+  bundled installs use to persist that relative form while still reading
+  the real files from the absolute `localPath`; `registry.ts`'s
+  `loadFromDb` resolves it back to absolute via `resolveInstallPath()`
+  (`install-roots.ts`), against THIS process's own `getProjectRoot()` —
+  never trust `ext.installPath` read directly off a bundled row without
+  going through that resolver. This is what lets the same database be
+  served by a containerised app (root `/app`) and a host-side process
+  (root = the checkout) without one baking in a path the other can't
+  read. `src/db/migrations/relativize-bundled-install-paths.ts` carries
+  pre-existing absolute rows into the relative shape. Every genuinely
+  external install (GitHub/git/authored/imported) is unaffected —
+  `resolveInstallPath()` is a no-op on an already-absolute path.
+  Companion invariant: `ExtensionProcess.ensureRunning()`
+  (`subprocess.ts`) treats an unresolvable install path (the entrypoint
+  file doesn't exist on disk) as an ENVIRONMENT failure — it throws
+  before `Bun.spawn`, so it never increments `consecutive_failures` or
+  auto-disables the extension the way a genuine crash-loop does.
 - **Project-root resolution** — `project-root.ts` owns `getProjectRoot()` /
   `resolveProjectRoot()` (env → `import.meta` → `.git` walk-up → cwd, cached
   per process). `bundled.ts` re-exports them so pre-existing importers needed

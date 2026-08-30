@@ -1439,6 +1439,15 @@ export async function ensureBundledExtensions(): Promise<void> {
       const installed = await installFromLocal(resolvedPath, clampedPerms, true, {
         isBundled: true,
         envEscapeHatch: entry.envEscapeHatch === true,
+        // Portability fix: persist the PROJECT-ROOT-RELATIVE `entry.path`
+        // (not the absolute `resolvedPath` used to read the files above)
+        // so the row resolves under any root — a host checkout or the
+        // container's `/app` — instead of baking in whichever one ran
+        // this install. `resolveInstallPath()` (`./install-roots.ts`)
+        // reconstructs the absolute path at read time. See
+        // `../db/migrations/relativize-bundled-install-paths.ts` for the
+        // migration that puts pre-existing rows into this shape.
+        persistPath: entry.path,
         ...(legacyEntityMappings
           ? { legacyEntityMappings: [...legacyEntityMappings] }
           : {}),

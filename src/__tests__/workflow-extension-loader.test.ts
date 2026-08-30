@@ -117,6 +117,111 @@ describe("loadExtensionWorkflows — discovery", () => {
     expect(loaded).toEqual([]);
   });
 
+  describe("the NUL byte in a missing-installPath ENOENT (investigation — external bug, no code defect here)", () => {
+    // Incident evidence: scanning a missing installPath logged
+    //   error=Error: ENOENT: no such file or directory, open '.../web-search '
+    // — a stray byte rendered as a trailing space right before the closing
+    // quote. Root-caused (against Bun 1.3.9) to `Bun.Glob.prototype.scan()`
+    // itself: its ENOENT error message embeds a literal NUL (Unicode code
+    // point zero) after the path, independent of anything this codebase
+    // builds. Confirmed NOT an artifact of how EZCorp constructs the path:
+    //
+    //   - `node:fs/promises.readdir()` on the IDENTICAL missing path
+    //     produces a clean message with no such byte (asserted below).
+    //   - The persisted `extensions.install_path` column has no trailing
+    //     byte of any kind (checked directly against the dev database via
+    //     `octet_length`/`encode(..., 'hex')` while diagnosing this).
+    //
+    // CONCLUSION: this is an artifact of a Bun engine bug plus how a NUL
+    // renders when a downstream tool re-parses the JSON log line and
+    // prints a raw field value to a terminal — NOT something this
+    // codebase's own path-building or logging introduces, and NOT
+    // something that needs (or should get) a source change here.
+    // `loadOne`'s `log.warn(..., { error: String(err) })` already goes
+    // through `src/logger.ts`'s `JSON.stringify`, which renders a NUL as
+    // the six-character JSON escape sequence — valid JSON text with NO
+    // literal NUL byte in the emitted line — and round-trips it back to
+    // the exact original character on `JSON.parse` (asserted below).
+    // `src/__tests__/logger.test.ts` documents why the logger must NOT
+    // additionally scrub it: a security-hardening suite
+    // (`web/src/__tests__/security/bearer-auth.test.ts`) requires that a
+    // NUL in a logged field round-trips UNCHANGED, precisely so an
+    // operator investigating an injection attempt sees the exact bytes
+    // received. The separate, real concern — Postgres's jsonb/text types
+    // refusing a NUL outright — is unrelated to this call site (`warn`
+    // never reaches `persistError`) and is handled at the DB-column
+    // boundary regardless (`src/db/sanitize-nul.ts` +
+    // `src/db/nul-column-patch.ts`).
+    const NUL = String.fromCharCode(0);
+
+    test("Bun.Glob(...).scan() on a missing cwd embeds a literal NUL in its ENOENT message", async () => {
+      const glob = new Bun.Glob("*.workflow.yaml");
+      const missing = join(root, "does-not-exist");
+      let caught: unknown;
+      try {
+        await Array.fromAsync(glob.scan({ cwd: missing, absolute: true }));
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message.includes(NUL)).toBe(true);
+    });
+
+    test("node:fs readdir on the SAME missing path does NOT embed a NUL (isolates the bug to Bun.Glob)", async () => {
+      const { readdir } = await import("node:fs/promises");
+      const missing = join(root, "does-not-exist");
+      let caught: unknown;
+      try {
+        await readdir(missing);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message.includes(NUL)).toBe(false);
+    });
+
+    test("end-to-end: the logged warning JSON-escapes the NUL (no raw byte on the wire) and round-trips it exactly", async () => {
+      const stderrChunks: string[] = [];
+      const origWrite = process.stderr.write.bind(process.stderr);
+      (process.stderr as unknown as { write: (c: unknown) => boolean }).write = (chunk) => {
+        stderrChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      };
+      let thrownMessage = "";
+      try {
+        // Reproduce the exact incident shape directly, so the asserted
+        // `error` field is the real Bun.Glob message, not a hand-built one.
+        const glob = new Bun.Glob("*.workflow.yaml");
+        try {
+          await Array.fromAsync(
+            glob.scan({ cwd: join(root, "does-not-exist"), absolute: true }),
+          );
+        } catch (err) {
+          thrownMessage = String(err);
+        }
+
+        const loaded = await loadExtensionWorkflows([
+          { extensionName: "web-search", installPath: join(root, "does-not-exist") },
+        ]);
+        expect(loaded).toEqual([]);
+      } finally {
+        (process.stderr as unknown as { write: typeof origWrite }).write = origWrite;
+      }
+
+      expect(thrownMessage.includes(NUL)).toBe(true); // sanity: the repro fired
+
+      const line = stderrChunks.find((l) => l.includes("Failed to scan extension workflows"));
+      expect(line).toBeTruthy();
+      // The line on the wire is safe, valid JSON with no literal NUL byte…
+      expect(line!.includes(NUL)).toBe(false);
+      // …and JSON.parse recovers the EXACT original error string, NUL
+      // included — nothing was substituted or dropped.
+      const parsed = JSON.parse(line!) as { error?: string };
+      expect(parsed.error).toBe(thrownMessage);
+      expect(parsed.error!.includes(NUL)).toBe(true);
+    });
+  });
+
   test("an empty source list is a no-op", async () => {
     expect(await loadExtensionWorkflows([])).toEqual([]);
   });

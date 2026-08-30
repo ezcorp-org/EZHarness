@@ -222,6 +222,55 @@ describe("structured logger", () => {
     });
   });
 
+  describe("a NUL (Unicode code point zero) in a field never reaches stdout/stderr as a raw byte", () => {
+    // Investigation note (extension install-path portability incident,
+    // 2026-08): a workflow-scan ENOENT error can embed a stray NUL (root
+    // cause: a Bun engine defect in `Bun.Glob.prototype.scan()`'s error
+    // path — see src/__tests__/workflow-extension-loader.test.ts for the
+    // isolating repro). It would be tempting to "fix" that by scrubbing
+    // NUL out of every log line, but this logger does NOT do that, and
+    // MUST NOT: `web/src/__tests__/security/bearer-auth.test.ts`'s
+    // OBO-audit-log injection-hardening suite requires the OPPOSITE —
+    // that a NUL (among other injection-shaped payloads) in a logged
+    // field round-trips through JSON.stringify/JSON.parse UNCHANGED, so
+    // an operator reading the log sees the exact value that was received.
+    // `JSON.stringify` already fully solves the actual problem on its
+    // own: it renders a NUL as the six-character escape sequence made of
+    // a backslash, the letter u, and four zero digits — valid JSON text,
+    // with NO literal NUL byte in the emitted line — and `JSON.parse`
+    // decodes that escape back to the exact original character. Nothing
+    // in this file needs to (or may) touch that. The SEPARATE concern —
+    // Postgres's jsonb/text types outright refusing a NUL, even via that
+    // same escape — is handled at the DB-column boundary instead
+    // (`src/db/sanitize-nul.ts` + `src/db/nul-column-patch.ts`,
+    // independent of this logger; see
+    // src/__tests__/db-nul-byte-persistence.test.ts).
+    const NUL = String.fromCharCode(0);
+
+    test("a NUL in the message is JSON-escaped, not emitted as a raw byte, and round-trips exactly", () => {
+      const logger = freshLogger();
+      const withNul = `open 'web-search${NUL}'`;
+      logger.warn(withNul);
+      expect(stderrChunks.length).toBe(1);
+      const raw = at(stderrChunks, 0, "stderr chunk");
+      expect(raw.includes(NUL)).toBe(false);
+      expect(JSON.parse(raw).msg).toBe(withNul);
+    });
+
+    test("a NUL nested in extra fields is JSON-escaped and round-trips exactly", () => {
+      const logger = freshLogger();
+      const errorField = `Error: ENOENT: no such file or directory, open '/app/docs/extensions/examples/web-search${NUL}'`;
+      logger.warn("Failed to scan extension workflows", {
+        extensionName: "web-search",
+        installPath: "/app/docs/extensions/examples/web-search",
+        error: errorField,
+      });
+      const raw = at(stderrChunks, 0, "stderr chunk");
+      expect(raw.includes(NUL)).toBe(false);
+      expect(JSON.parse(raw).error).toBe(errorField);
+    });
+  });
+
   describe("extensionLogger standard helper", () => {
     test("namespaces under ext.<name>.<component>", () => {
       const { extensionLogger } = freshModule();
