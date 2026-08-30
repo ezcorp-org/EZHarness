@@ -44,7 +44,7 @@ The deterministic-run data path:
 
 1. The harness seeds an ordered list of turns under a key via `POST /api/__test/mock-llm/script` (`{ scriptKey, turns: MockTurn[] }`) — this is called **externally**, so it goes through normal `chat`-scoped auth. `web/src/lib/server/mock-llm.ts`'s `setMockScript` stores them in a per-process `Map`.
 2. The harness drives a message selecting `provider: "ezcorp-mock"`, `model: "mock:<key>"`.
-3. The backend provider layer (gated by the same `isTestSurfaceEnabled()`) resolves the mock model; pi-ai's HTTP client POSTs to the in-process `POST /api/__test/mock-llm/v1/chat/completions` over loopback (`mockLlmBaseUrl()`, default `http://127.0.0.1:<port>/api/__test/mock-llm/v1`).
+3. The backend provider layer (gated by the same `isTestSurfaceEnabled()`) resolves the mock model; pi-ai's HTTP client POSTs to the in-process `POST /api/__test/mock-llm/v1/chat/completions` over loopback (`mockLlmBaseUrl()` → `http://127.0.0.1:<port>/api/__test/mock-llm/v1`, `<port>` from `PORT`/`EZCORP_PORT`, or the whole URL from `EZCORP_MOCK_LLM_BASE_URL`). There is no numeric default — `mockLlmBaseUrl()` throws a clear, actionable error naming all three env vars if none is set, rather than guessing a port that might belong to a different process.
 4. That completions handler pulls the next scripted turn (`mockScriptKeyFromModel(model)` → `dequeueMockTurn`) and replays it as a standard OpenAI **streaming** response (`buildMockStreamResponse` → `mockTurnToSseFrames`/`mockTurnToChunks`, including tool-call deltas and `finish_reason`). An unseeded key returns a clear sentinel stop-turn so an unscripted run is debuggable rather than hanging.
 5. Only the LLM's HTTP boundary is faked — the pi-agent tool loop, permission gates, runtime SSE, and persistence all run unchanged.
 
@@ -132,7 +132,7 @@ for await (const evt of ez.streamEvents({ conversationId })) { /* ... */ }
 - `EZCORP_ALLOW_TEST_SURFACE=1` — operator opt-in for the determinism tier (default OFF).
 - `PI_E2E_REAL=1` — harness flag for the determinism tier.
 - `NODE_ENV` — must be non-`production` for the determinism tier.
-- `EZCORP_MOCK_LLM_BASE_URL` — override the loopback mock-LLM base URL when the bound port isn't in `PORT`/`EZCORP_PORT` (e.g. the e2e `vite preview` on :4173).
+- `EZCORP_MOCK_LLM_BASE_URL` — override the loopback mock-LLM base URL when the bound port isn't in `PORT`/`EZCORP_PORT` (e.g. the e2e `vite preview` on :4173). One of `EZCORP_MOCK_LLM_BASE_URL`, `PORT`, or `EZCORP_PORT` is REQUIRED for the `ezcorp-mock` provider to resolve — `mockLlmBaseUrl()` throws rather than guessing a port when none is set.
 - `EZCORP_MAX_RUN_WAITS` — admission cap on concurrent `?wait=1` long-polls (default 200).
 - `CORS_ALLOWED_ORIGINS`, `TRUSTED_PROXY_COUNT`, `FORCE_SECURE_COOKIES` — browser-harness / proxy / HTTPS knobs.
 

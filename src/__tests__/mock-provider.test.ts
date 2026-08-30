@@ -48,11 +48,37 @@ afterAll(() => restoreModuleMocks());
 
 describe("resolveModel: ezcorp-mock", () => {
   test("under the surface → custom openai-completions model at loopback mock baseUrl", async () => {
-    const r = await resolveModel("ezcorp-mock", "mock:conv-1");
-    expect(r.provider).toBe("ezcorp-mock");
-    expect(r.model).toBe("mock:conv-1");
-    expect(r.piModel.baseUrl).toContain("/api/__test/mock-llm/v1");
-    expect(r.piModel.api).toBe("openai-completions");
+    // mockLlmBaseUrl() requires one of EZCORP_MOCK_LLM_BASE_URL / PORT /
+    // EZCORP_PORT to be set — it no longer guesses a default port.
+    const savedPort = process.env.PORT;
+    process.env.PORT = "3000";
+    try {
+      const r = await resolveModel("ezcorp-mock", "mock:conv-1");
+      expect(r.provider).toBe("ezcorp-mock");
+      expect(r.model).toBe("mock:conv-1");
+      expect(r.piModel.baseUrl).toContain("/api/__test/mock-llm/v1");
+      expect(r.piModel.api).toBe("openai-completions");
+    } finally {
+      if (savedPort === undefined) delete process.env.PORT; else process.env.PORT = savedPort;
+    }
+  });
+
+  test("no PORT/EZCORP_PORT/EZCORP_MOCK_LLM_BASE_URL set → resolveModel propagates the clear error (was: silently guessed :3000)", async () => {
+    const savedPort = process.env.PORT;
+    const savedEzPort = process.env.EZCORP_PORT;
+    const savedMockUrl = process.env.EZCORP_MOCK_LLM_BASE_URL;
+    delete process.env.PORT;
+    delete process.env.EZCORP_PORT;
+    delete process.env.EZCORP_MOCK_LLM_BASE_URL;
+    try {
+      await expect(resolveModel("ezcorp-mock", "mock:conv-1")).rejects.toThrow(
+        /EZCORP_MOCK_LLM_BASE_URL.*PORT.*EZCORP_PORT/s,
+      );
+    } finally {
+      if (savedPort === undefined) delete process.env.PORT; else process.env.PORT = savedPort;
+      if (savedEzPort === undefined) delete process.env.EZCORP_PORT; else process.env.EZCORP_PORT = savedEzPort;
+      if (savedMockUrl === undefined) delete process.env.EZCORP_MOCK_LLM_BASE_URL; else process.env.EZCORP_MOCK_LLM_BASE_URL = savedMockUrl;
+    }
   });
 
   test("baseUrl honors PORT", async () => {
