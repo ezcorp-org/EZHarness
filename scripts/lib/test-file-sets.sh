@@ -615,6 +615,107 @@ gate_host_failures() {
   fi
 }
 
+# ── coverage-recovery for a crashed host-pool file ──────────────────────────
+# THE DEFECT THIS CLOSES: gate_host_failures' isolated retry sweep above
+# recovers the PASS/FAIL verdict for a crashed file by re-running it PLAIN —
+# deliberately WITHOUT --coverage, because instrumentation overhead is itself
+# a source of the flake (several backend suites are timing/rate-limit
+# sensitive under --coverage). That retry never touches the crashed file's
+# --coverage-dir, so its shard's lcov.info stays whatever the crash left
+# behind — usually NOTHING, because the process died before the lcov
+# reporter could flush. The merge then sees that source file ONLY through
+# OTHER shards that merely IMPORT it: their unexecuted-function zeros have no
+# positive "straddled" hit anywhere to be forgiven by merge-lcov's
+# no-evidence rule (see merge-lcov.ts's header — that rule requires SOME
+# shard to have genuinely executed around the gap), so they survive the merge
+# as ordinary misses. A file that was actually 100% tested reads as
+# partially covered, and whether the run fails depends entirely on WHICH file
+# bun happened to crash on — the coverage verdict becomes a lottery.
+#
+# THE FIX: for every host-pool file that failed (HOST_FAILED_FILES — P and
+# non-P alike; coverage integrity does not care about pass/fail set
+# membership), check whether its shard's lcov.info is missing or empty. If
+# so, re-run the SAME file ISOLATED + SERIAL WITH --coverage, up to
+# COVERAGE_RECOVERY_ATTEMPTS times, writing into the SAME --coverage-dir the
+# pooled run used — so a successful attempt's lcov.info lands exactly where
+# the merge glob ($TMPDIR/cov_*/lcov.info) already expects it, with no
+# special-casing downstream. The retry's own pass/fail is irrelevant here: a
+# genuine assertion failure still completes the process and flushes a full,
+# valid lcov. Only "did it produce coverage data" matters.
+#
+# BOUNDED, AND LOUD WHEN EXHAUSTED: the crash can recur — bun's coverage
+# instrumenter can genuinely SIGILL on some inputs, not just flake under
+# contention. After COVERAGE_RECOVERY_ATTEMPTS fruitless attempts the file
+# goes into UNRECOVERABLE_COVERAGE_FILES instead of looping forever. Callers
+# MUST fail the COVERAGE verdict loudly on a non-empty
+# UNRECOVERABLE_COVERAGE_FILES, and MUST do so BEFORE the merge step
+# (mirrors check_leg_lcov's placement) — never let check-coverage.ts compute
+# a percentage from data known to be incomplete. That is what keeps an
+# unrecoverable shard from reading as either extreme the task guards
+# against: it cannot fabricate a false "0% covered" miss (the run exits
+# before check-coverage.ts ever sees the file), and it cannot silently vanish
+# into a benign "no evidence" the way a healthy no-evidence zero does (that
+# mechanism is per-LINE and requires some OTHER shard's positive straddle —
+# a file nobody successfully executed has none, so its zeros would be
+# counted as real misses, not dropped, which is exactly the false-fail this
+# function prevents by never reaching that computation at all).
+#
+# SCOPE: this covers the per-file host pool only. It does NOT cover a whole
+# LEG dying (run_legs bundles many files into ONE `bun test` process, so a
+# SIGILL there takes far more than one file's coverage with it) — that case
+# is already fail-loud via check_leg_lcov (a dead leg's total absence from
+# the merge is caught by name, unconditionally, before the merge), so it does
+# not exhibit the SILENT-corruption defect this function targets. It is,
+# however, still a real gap: a leg SIGILL is not retried at all, coverage or
+# otherwise, so that failure mode always costs a full re-run of the leg
+# rather than self-healing the way a per-file crash now does.
+COVERAGE_RECOVERY_ATTEMPTS=2
+UNRECOVERABLE_COVERAGE_FILES=()
+
+# Caller populates HOST_COVDIR["<repo-relative file>"]="<covdir the pooled
+# run used>" for every host file before calling this (test-coverage.sh builds
+# it alongside HOST_FAILED_FILES, from the same $TMPDIR/cov_$i layout
+# run_host_pool wrote into). Reads HOST_FAILED_FILES + HOST_COVDIR; sets
+# UNRECOVERABLE_COVERAGE_FILES; prints its own report line per file.
+recover_missing_coverage() {
+  UNRECOVERABLE_COVERAGE_FILES=()
+  local f dir attempt recovered
+  for f in "${HOST_FAILED_FILES[@]}"; do
+    dir="${HOST_COVDIR[$f]:-}"
+    # No covdir on record for this file — a caller wiring gap, not a crash;
+    # nothing this function can act on.
+    [ -n "$dir" ] || continue
+    # A real assertion failure still completes the process and flushes a
+    # full lcov — only a crash-before-flush leaves this missing or empty.
+    [ -s "$dir/lcov.info" ] && continue
+
+    echo ""
+    echo "Coverage recovery: $f produced no lcov in the pooled run (crash before the reporter could flush?) — re-running isolated WITH --coverage, up to $COVERAGE_RECOVERY_ATTEMPTS attempt(s):"
+    recovered=0
+    for ((attempt = 1; attempt <= COVERAGE_RECOVERY_ATTEMPTS; attempt++)); do
+      set +e
+      if command -v timeout >/dev/null 2>&1; then
+        timeout -k 30 300 bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+          --coverage-dir="$dir" "./$f" >/dev/null 2>&1
+      else
+        bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+          --coverage-dir="$dir" "./$f" >/dev/null 2>&1
+      fi
+      set -e
+      if [ -s "$dir/lcov.info" ]; then
+        recovered=1
+        echo "  - $f: recovered coverage on attempt $attempt/$COVERAGE_RECOVERY_ATTEMPTS"
+        break
+      fi
+      echo "  - $f: attempt $attempt/$COVERAGE_RECOVERY_ATTEMPTS produced no lcov"
+    done
+    if [ "$recovered" != "1" ]; then
+      echo "  - $f: NO COVERAGE EVIDENCE after $COVERAGE_RECOVERY_ATTEMPTS attempt(s) — unrecoverable this run"
+      UNRECOVERABLE_COVERAGE_FILES+=("$f")
+    fi
+  done
+}
+
 # Extract the last "N pass" / "N fail" count from a bun test summary.
 # Usage: summary_count "$OUTPUT" pass|fail — prints nothing when no summary
 # was printed (module-load error, crash, SIGKILL); callers default with :-0.

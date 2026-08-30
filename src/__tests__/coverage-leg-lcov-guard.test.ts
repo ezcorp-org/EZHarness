@@ -28,7 +28,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -401,6 +401,279 @@ describe("gate_host_failures: the shared host-pool pass/fail rule", () => {
     expect(r.stdout).toContain("Retry sweep: 3 failed pass/fail-set (P) file(s)");
     expect(r.stdout).toContain("STILL_FAILED=[src/a.test.ts src/c.test.ts]");
     expect(r.stdout).toContain("web/src/x.test.ts"); // listed as non-gating
+  });
+});
+
+// ── coverage recovery for a crashed host-pool file ──────────────────────────
+/**
+ * recover_missing_coverage (scripts/lib/test-file-sets.sh) closes the gap
+ * gate_host_failures' PLAIN retry deliberately leaves open: that retry
+ * recovers the PASS/FAIL verdict without ever touching the crashed file's
+ * --coverage-dir, so a crash that lost its lcov used to stay lost even once
+ * the retry proved the file was fine — see this repo's coverage traps for
+ * the mechanism (a source file measured only by an importing shard's
+ * unexecuted-function zeros reads as a false miss, not "no evidence").
+ *
+ * Exercised here against the REAL function: a stub `bun` on PATH decides,
+ * per (file, attempt number), whether to drop a valid lcov.info into the
+ * `--coverage-dir` it's given — so every branch (already-valid, recovered on
+ * attempt 1, recovered on attempt 2, exhausted, no HOST_COVDIR entry) is
+ * driven without a genuinely crashing test file in the repo.
+ */
+describe("recover_missing_coverage: coverage recovery for a crashed host-pool file", () => {
+  /**
+   * A `bun` stub that answers `bun test … --coverage-dir=X … ./<file>` calls
+   * per `plan[file]`: "write" drops a valid lcov.info into X and exits 0;
+   * "fail" exits 1 without writing anything. Each file's plan is consumed in
+   * call order (a per-file counter file tracks how many times it's been
+   * invoked); a file invoked more times than its plan has entries always
+   * "fail"s, and a file with NO plan entry at all is a test bug — it exits 1
+   * loudly so a wrongly-invoked file is never mistaken for a recovered one.
+   */
+  function writeBunStub(tmp: string, plan: Record<string, Array<"write" | "fail">>): string {
+    const bin = join(tmp, "bin");
+    mkdirSync(bin, { recursive: true });
+    const counters = join(tmp, "counters");
+    mkdirSync(counters, { recursive: true });
+    const lines: string[] = [
+      "#!/usr/bin/env bash",
+      'COVDIR=""',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+      'for a in "$@"; do case "$a" in --coverage-dir=*) COVDIR="${a#--coverage-dir=}";; esac; done',
+    ];
+    for (const [file, steps] of Object.entries(plan)) {
+      const counterFile = join(counters, file.replace(/[^a-zA-Z0-9]/g, "_"));
+      lines.push(`case "$*" in *"${file}"*)`);
+      lines.push(`  N=$(( $(cat ${JSON.stringify(counterFile)} 2>/dev/null || echo 0) + 1 ))`);
+      lines.push(`  echo "$N" > ${JSON.stringify(counterFile)}`);
+      steps.forEach((step, i) => {
+        const attempt = i + 1;
+        if (step === "write") {
+          lines.push(
+            `  if [ "$N" = "${attempt}" ]; then mkdir -p "$COVDIR"; printf '${LCOV.replace(/\n/g, "\\n")}' > "$COVDIR/lcov.info"; exit 0; fi`,
+          );
+        } else {
+          lines.push(`  if [ "$N" = "${attempt}" ]; then exit 1; fi`);
+        }
+      });
+      lines.push("  exit 1", "  ;;", "esac");
+    }
+    // A file with no plan entry, or invoked more than the plan describes:
+    // fail loud rather than silently pretending to write coverage.
+    lines.push("exit 1");
+    writeFileSync(join(bin, "bun"), `${lines.join("\n")}\n`, { mode: 0o755 });
+    return bin;
+  }
+
+  /** Run recover_missing_coverage after `setup` seeds HOST_FAILED_FILES/HOST_COVDIR/PATH. */
+  function runRecovery(setup: string): Run {
+    const script = [
+      "set -e",
+      `source ${SETS_LIB}`,
+      setup,
+      "recover_missing_coverage",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+      'echo "UNRECOVERABLE=[${UNRECOVERABLE_COVERAGE_FILES[*]}]"',
+    ].join("\n");
+    const proc = Bun.spawnSync(["bash", "-c", script], { cwd: REPO_ROOT });
+    return {
+      code: proc.exitCode,
+      stdout: proc.stdout.toString(),
+      stderr: proc.stderr.toString(),
+    };
+  }
+
+  test("a shard that already has valid lcov is left alone — no retry attempted", () => {
+    withTmp((tmp) => {
+      const cov = join(tmp, "cov_a");
+      mkdirSync(cov, { recursive: true });
+      writeFileSync(join(cov, "lcov.info"), LCOV);
+      const bin = writeBunStub(tmp, {}); // any invocation at all is a test failure
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/a.test.ts")',
+          `declare -A HOST_COVDIR=([src/a.test.ts]=${JSON.stringify(cov)})`,
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).not.toContain("Coverage recovery:");
+      expect(r.stdout).toContain("UNRECOVERABLE=[]");
+      expect(readFileSync(join(cov, "lcov.info"), "utf8")).toBe(LCOV); // untouched
+    });
+  });
+
+  test("an EMPTY lcov.info counts as missing, same rule as check_leg_lcov", () => {
+    withTmp((tmp) => {
+      const cov = join(tmp, "cov_b");
+      mkdirSync(cov, { recursive: true });
+      writeFileSync(join(cov, "lcov.info"), ""); // present but empty — a crash mid-flush
+      const bin = writeBunStub(tmp, { "src/b.test.ts": ["write"] });
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/b.test.ts")',
+          `declare -A HOST_COVDIR=([src/b.test.ts]=${JSON.stringify(cov)})`,
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("Coverage recovery: src/b.test.ts");
+      expect(r.stdout).toContain("recovered coverage on attempt 1/2");
+      expect(r.stdout).toContain("UNRECOVERABLE=[]");
+      expect(readFileSync(join(cov, "lcov.info"), "utf8")).toBe(LCOV);
+    });
+  });
+
+  test("a missing shard recovers on the SECOND attempt after the first also produces nothing", () => {
+    withTmp((tmp) => {
+      const cov = join(tmp, "cov_c"); // never pre-created — the crash never got that far
+      const bin = writeBunStub(tmp, { "src/c.test.ts": ["fail", "write"] });
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/c.test.ts")',
+          `declare -A HOST_COVDIR=([src/c.test.ts]=${JSON.stringify(cov)})`,
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("attempt 1/2 produced no lcov");
+      expect(r.stdout).toContain("recovered coverage on attempt 2/2");
+      expect(r.stdout).toContain("UNRECOVERABLE=[]");
+      expect(existsSync(join(cov, "lcov.info"))).toBe(true);
+    });
+  });
+
+  test("a shard that stays crashed for every bounded attempt is UNRECOVERABLE, loudly, not silently anything", () => {
+    withTmp((tmp) => {
+      const cov = join(tmp, "cov_d");
+      const bin = writeBunStub(tmp, { "src/d.test.ts": ["fail", "fail"] });
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/d.test.ts")',
+          `declare -A HOST_COVDIR=([src/d.test.ts]=${JSON.stringify(cov)})`,
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      // The function itself only reports; the CALLER (test-coverage.sh) turns
+      // a non-empty UNRECOVERABLE_COVERAGE_FILES into exit 1 — asserted below
+      // against the real script, not re-implemented here.
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain("NO COVERAGE EVIDENCE after 2 attempt(s)");
+      expect(r.stdout).toContain("UNRECOVERABLE=[src/d.test.ts]");
+      // Never fabricated: no lcov.info was ever written for this shard, so it
+      // cannot read as a false "0% covered" — the caller must refuse to merge
+      // it, not merge a zero.
+      expect(existsSync(join(cov, "lcov.info"))).toBe(false);
+    });
+  });
+
+  test("a failed file with no HOST_COVDIR entry is skipped, not treated as unrecoverable", () => {
+    withTmp((tmp) => {
+      const bin = writeBunStub(tmp, {}); // must never be invoked
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/e.test.ts")',
+          "declare -A HOST_COVDIR=()", // no entry — a caller wiring gap, not a crash
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).not.toContain("Coverage recovery:");
+      expect(r.stdout).toContain("UNRECOVERABLE=[]");
+    });
+  });
+
+  test("a mixed sweep handles every file independently in one pass", () => {
+    withTmp((tmp) => {
+      const covA = join(tmp, "cov_a");
+      mkdirSync(covA, { recursive: true });
+      writeFileSync(join(covA, "lcov.info"), LCOV); // already valid
+      const covC = join(tmp, "cov_c"); // recovers
+      const covD = join(tmp, "cov_d"); // never recovers
+      const bin = writeBunStub(tmp, {
+        "src/c.test.ts": ["write"],
+        "src/d.test.ts": ["fail", "fail"],
+      });
+      const r = runRecovery(
+        [
+          'HOST_FAILED_FILES=("src/a.test.ts" "src/c.test.ts" "src/d.test.ts")',
+          `declare -A HOST_COVDIR=([src/a.test.ts]=${JSON.stringify(covA)} [src/c.test.ts]=${JSON.stringify(covC)} [src/d.test.ts]=${JSON.stringify(covD)})`,
+          `PATH=${JSON.stringify(bin)}:$PATH`,
+        ].join("\n"),
+      );
+      expect(r.code).toBe(0);
+      expect(r.stdout).not.toContain("Coverage recovery: src/a.test.ts");
+      expect(r.stdout).toContain("Coverage recovery: src/c.test.ts");
+      expect(r.stdout).toContain("Coverage recovery: src/d.test.ts");
+      expect(r.stdout).toContain("UNRECOVERABLE=[src/d.test.ts]");
+      expect(existsSync(join(covC, "lcov.info"))).toBe(true);
+      expect(existsSync(join(covD, "lcov.info"))).toBe(false);
+    });
+  });
+
+  test("COVERAGE_RECOVERY_ATTEMPTS is a small bounded literal, never unbounded", async () => {
+    const src = await Bun.file(join(REPO_ROOT, SETS_LIB)).text();
+    const m = src.match(/^COVERAGE_RECOVERY_ATTEMPTS=(\d+)$/m);
+    expect(m, "COVERAGE_RECOVERY_ATTEMPTS must be a literal so it can't drift to unbounded").not.toBeNull();
+    const n = Number(m?.[1]);
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThanOrEqual(5); // bounded — a runaway retry loop is its own outage
+  });
+});
+
+// ── coverage recovery wired into both host-pool modes ───────────────────────
+/**
+ * The recovery mechanism above is useless if test-coverage.sh doesn't call it
+ * before trusting $TMPDIR/cov_*​/lcov.info, or calls it AFTER a mode's merge
+ * has already run. These assert the wiring against the real script source,
+ * the same way the gate_host_failures anti-rot test above does.
+ */
+describe("test-coverage.sh: coverage recovery runs before every merge", () => {
+  const runner = Bun.file(RUNNER).text();
+
+  test("recover_missing_coverage is called exactly once, shared by both modes", async () => {
+    const src = await runner;
+    const calls = [...src.matchAll(/^recover_missing_coverage\s*$/gm)];
+    expect(calls.length).toBe(1);
+    // Before the shard/full-mode split, like gate_host_failures is shared —
+    // never a private per-mode copy that could drift.
+    const split = src.indexOf('if [ -n "$SHARD_TOTAL" ]; then\n  # SHARDED CI form');
+    expect(split).toBeGreaterThan(-1);
+    expect(calls[0]?.index ?? -1).toBeLessThan(split);
+  });
+
+  test("shard mode checks UNRECOVERABLE_COVERAGE_FILES and exits BEFORE its pre-merge", async () => {
+    const src = await runner;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+    const guard = src.indexOf('if [ "${#UNRECOVERABLE_COVERAGE_FILES[@]}" -gt 0 ]; then');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+    const shardMerge = src.indexOf('bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$COV_OUT/lcov_shard_${SHARD_INDEX}.info"');
+    expect(guard).toBeGreaterThan(-1);
+    expect(shardMerge).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(shardMerge);
+  });
+
+  test("full mode checks UNRECOVERABLE_COVERAGE_FILES and exits BEFORE its merge", async () => {
+    const src = await runner;
+    const guards = [...src.matchAll(/if \[ "\$\{#UNRECOVERABLE_COVERAGE_FILES\[@\]\}" -gt 0 \]; then/g)];
+    // One per mode: the shard branch (asserted above) and the full-mode tail.
+    expect(guards.length).toBe(2);
+    const fullModeMerge = src.indexOf('bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info');
+    expect(fullModeMerge).toBeGreaterThan(-1);
+    expect(guards[1]?.index ?? -1).toBeLessThan(fullModeMerge);
+    expect(guards[1]?.index ?? -1).toBeGreaterThan(fullModeMerge - 4000); // roughly adjacent, not coincidental
+  });
+
+  test("both UNRECOVERABLE_COVERAGE_FILES guards exit 1 — an unrecoverable shard is an infrastructure failure, never a threshold call", async () => {
+    const src = await runner;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+    const blocks = src.split('if [ "${#UNRECOVERABLE_COVERAGE_FILES[@]}" -gt 0 ]; then').slice(1);
+    expect(blocks.length).toBe(2);
+    for (const block of blocks) {
+      const body = block.slice(0, block.indexOf("\nfi"));
+      expect(body).toContain("exit 1");
+      expect(body).toContain("::error::");
+    }
   });
 });
 
