@@ -19,6 +19,7 @@ import {
 	buildWorkflowRunView,
 	extractWorkflowRunObject,
 	NO_ERROR_REPORTED,
+	RESULT_UNDISPLAYABLE,
 	type WorkflowRunView,
 } from "./workflow-run-card-logic.js";
 
@@ -178,6 +179,42 @@ describe("buildWorkflowRunView — result degradation", () => {
 	test("a primitive result pretty-prints verbatim", () => {
 		const v = buildWorkflowRunView({ workflowName: "demo", status: "success", result: 42 });
 		expect(v?.resultText).toBe("42");
+	});
+
+	test("a result nested past JSON.stringify's stack limit degrades to a placeholder instead of throwing", () => {
+		// Built directly as a JSON STRING and then parsed — NOT built via
+		// JSON.stringify, which is exactly the call that throws (RangeError:
+		// Maximum call stack size exceeded) once nesting is this deep. V8's
+		// JSON.parse tolerates this depth fine (reproduced: parse succeeds up
+		// to at least 10000 levels); only the pretty-printing stringify call
+		// in workflow-run-card-logic.ts's safeStringify overflows, at ~6000
+		// levels (36 KB) — an order of magnitude under run_workflow's 8 MiB
+		// output cap, so getToolOutputLimit's truncation never intervenes and
+		// this exact shape can be authored, run, and persisted for real.
+		const depth = 6000;
+		const nestedJson = `${'{"a":'.repeat(depth)}null${"}".repeat(depth)}`;
+		const deeplyNestedResult: unknown = JSON.parse(nestedJson);
+
+		expect(() =>
+			buildWorkflowRunView({
+				workflowName: "demo-deep-result",
+				status: "success",
+				result: deeplyNestedResult,
+			}),
+		).not.toThrow();
+
+		const v = buildWorkflowRunView({
+			workflowName: "demo-deep-result",
+			status: "success",
+			result: deeplyNestedResult,
+		});
+		// The rest of the card must still render — this is the whole point of
+		// degrading resultText in place rather than returning null and losing
+		// the workflow name, status and steps over one unrenderable field.
+		expect(v).not.toBeNull();
+		expect(v?.workflowName).toBe("demo-deep-result");
+		expect(v?.succeeded).toBe(true);
+		expect(v?.resultText).toBe(RESULT_UNDISPLAYABLE);
 	});
 });
 

@@ -17,7 +17,12 @@ import { cleanup, render } from "@testing-library/svelte";
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import WorkflowRunCard from "./WorkflowRunCard.svelte";
-import { buildWorkflowRunView, NO_ERROR_REPORTED, type WorkflowRunView } from "./workflow-run-card-logic.js";
+import {
+	buildWorkflowRunView,
+	NO_ERROR_REPORTED,
+	RESULT_UNDISPLAYABLE,
+	type WorkflowRunView,
+} from "./workflow-run-card-logic.js";
 
 afterEach(() => cleanup());
 
@@ -96,6 +101,27 @@ describe("WorkflowRunCard — a successful run", () => {
 	test("a run with no steps renders no steps list", () => {
 		const { queryByTestId } = renderCard({ workflowName: "demo", status: "success", steps: [] });
 		expect(queryByTestId("workflow-run-steps")).toBeNull();
+	});
+
+	test("a result nested past JSON.stringify's stack limit renders a placeholder instead of crashing the card", () => {
+		// Same crash this card exists to guard against, exercised through the
+		// real render path (not just the pure logic function): a `result` this
+		// deep used to throw a RangeError out of the component's $derived,
+		// which nothing on the page catches (no <svelte:boundary> in web/src).
+		const depth = 6000;
+		const nestedJson = `${'{"a":'.repeat(depth)}null${"}".repeat(depth)}`;
+		const deeplyNestedResult: unknown = JSON.parse(nestedJson);
+
+		const { getByTestId } = renderCard({
+			workflowName: "demo-deep-result",
+			status: "success",
+			result: deeplyNestedResult,
+		});
+		expect(getByTestId("workflow-run-result-body")).toHaveTextContent(RESULT_UNDISPLAYABLE);
+		// The rest of the card — name and status — is unaffected by the one
+		// undisplayable field.
+		expect(getByTestId("workflow-run-name")).toHaveTextContent("demo-deep-result");
+		expect(getByTestId("workflow-run-status")).toHaveTextContent("success");
 	});
 });
 

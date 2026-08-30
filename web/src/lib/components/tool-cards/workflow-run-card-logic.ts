@@ -55,7 +55,14 @@ export interface WorkflowRunView {
 	steps: WorkflowRunStepView[];
 	/** `result`, pretty-printed verbatim (`JSON.stringify(result, null, 2)`).
 	 *  Never truncated, never re-summarized — that is the entire point of
-	 *  this card over DefaultCard's preview line. */
+	 *  this card over DefaultCard's preview line. Falls back to
+	 *  {@link RESULT_UNDISPLAYABLE} for the one shape pretty-printing itself
+	 *  cannot survive: a `result` nested deep enough that `JSON.stringify`'s
+	 *  recursive descent overflows the engine's call stack even though the
+	 *  value parsed and persisted fine (V8's stringify stack limit is far
+	 *  shallower than its parse limit, and shallower still than Bun's, so a
+	 *  workflow authored and run once can persist a `result` the browser
+	 *  can never pretty-print). */
 	resultText: string;
 	/** Only true when the run did NOT succeed — a successful run's `error`
 	 *  is never rendered (the projection carries it as `null`). */
@@ -67,6 +74,13 @@ export interface WorkflowRunView {
  *  never leave a failed run with no explanation on screen. */
 export const NO_ERROR_REPORTED =
 	"The workflow did not succeed, but no error was reported.";
+
+/** Shown in place of `resultText` when `result` cannot be pretty-printed —
+ *  never leave the Result panel of a card that otherwise renders fine
+ *  blank or absent, which would read as "this run's result is nothing"
+ *  rather than "this result could not be shown". */
+export const RESULT_UNDISPLAYABLE =
+	"The result could not be displayed (its structure is too deeply nested to render).";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -129,6 +143,28 @@ function buildStepView(raw: unknown, index: number): WorkflowRunStepView {
 }
 
 /**
+ * Pretty-print `value` the way {@link WorkflowRunView.resultText} promises,
+ * degrading to {@link RESULT_UNDISPLAYABLE} instead of throwing.
+ *
+ * The one input this cannot survive is a `result` nested deep enough that
+ * `JSON.stringify`'s recursive descent overflows the call stack — reproduced
+ * on V8 at ~6000 levels (36 KB), an order of magnitude under `run_workflow`'s
+ * 8 MiB output cap, so `getToolOutputLimit`'s truncation never intervenes and
+ * the value round-trips through `JSON.parse`/persistence unchanged. Bun's
+ * stack is deeper than V8's, so the backend builds and stores it without
+ * incident; only the browser's pretty-print throws. Mirrors
+ * {@link extractWorkflowRunObject}'s try/catch-on-parse — same asymmetry, same
+ * fix, the other direction.
+ */
+function safeStringify(value: unknown): string {
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return RESULT_UNDISPLAYABLE;
+	}
+}
+
+/**
  * `error`'s two observed shapes (`run-workflow.ts` forwards whichever the
  * workflow executor produced): a plain string (a gate/loop failure message,
  * e.g. `Step "count" exhausted 5 iterations…`) or a `{code, message}` object
@@ -164,7 +200,7 @@ export function buildWorkflowRunView(output: unknown): WorkflowRunView | null {
 	const runId = nonEmptyString(obj.runId);
 	const succeeded = status === "success";
 	const steps = Array.isArray(obj.steps) ? obj.steps.map(buildStepView) : [];
-	const resultText = JSON.stringify(obj.result ?? null, null, 2);
+	const resultText = safeStringify(obj.result ?? null);
 
 	let errorText = "";
 	if (!succeeded) {
