@@ -14,7 +14,9 @@
  *      sdk row deliberately doesn't carry.
  *   3. Optional in-chat capability-event message: a `messages` row with
  *      `role: "capability-event"` and metadata pointing at write 1.
- *      The chat UI's pill renderer is just a foreign key.
+ *      The chat UI's pill renderer is just a foreign key. Deliberately
+ *      omits `errorCode`/`errorMessage` (that detail lives on the write-1
+ *      row, fetched on pill-expand) — which is why write 0 below exists.
  *
  * Each failure writes to `error_logs` via `persistError` so an audit
  * hiccup is observable to admins, but does NOT propagate up to the
@@ -22,9 +24,27 @@
  * calls (e.g. scheduled-fire → its LLM call) by passing
  * `parentCallId`.
  *
+ * ── Write 0: loud-failure log (binding — see src/extensions/CLAUDE.md
+ *    "Extension logging") ──────────────────────────────────────────
+ * Every `success: false` capability call ALSO gets a `log.warn` under the
+ * calling extension's own `ext.<name>.capability` subsystem, BEFORE writes
+ * 1-3 are attempted. This is the ONLY trace that survives when write 1
+ * itself fails (a caller passing a stale/unknown `actorExtensionId` gets
+ * `sdkCapabilityCallId: ""` — no audit row, no chat pill, nothing — see the
+ * "silent swallow" incident this guards against: an LLM capability call
+ * that fails in under 5ms, before the network is ever reached, previously
+ * left `success:false` in the chat-pill JSON and a matching
+ * `sdk_capability_calls.errorMessage` a developer would only find by
+ * knowing to query that table directly — `error_logs` and the host process
+ * log stayed silent). It also fires independent of `insertChatPill` (a
+ * cron/schedule fire has no `conversationId`, so write 3 never runs, but
+ * the failure is exactly as real). A logging hiccup here must never mask
+ * or replace the original capability failure, so it's wrapped in its own
+ * try/catch same as writes 1-3.
+ *
  * Reference: `tasks/v1.3-phase-50-audit-foundation.md` § 50.6.
  */
-import { logger } from "../logger";
+import { extensionLogger, logger } from "../logger";
 import { redactForAudit } from "./audit-redaction";
 import {
   insertSdkCapabilityCall,
@@ -108,6 +128,47 @@ export async function recordCapabilityCall(
   spec: CapabilityCallSpec,
 ): Promise<CapabilityCallResult> {
   let sdkCapabilityCallId = "";
+
+  // Extension display name, resolved AT MOST ONCE per call and shared by
+  // write 0 (loud-failure log) and write 3 (chat pill) — avoids a second
+  // `getExtension` round trip when both need it. `null` on lookup failure;
+  // both consumers degrade gracefully (write 0 falls back to the raw
+  // extension id, write 3's pill falls back to "extension").
+  let cachedExtensionName: string | null = null;
+  let extensionNameResolved = false;
+  const resolveExtensionName = async (): Promise<string | null> => {
+    if (extensionNameResolved) return cachedExtensionName;
+    extensionNameResolved = true;
+    try {
+      const ext = await getExtension(spec.ctx.actorExtensionId);
+      cachedExtensionName = ext?.name ?? null;
+    } catch {
+      cachedExtensionName = null;
+    }
+    return cachedExtensionName;
+  };
+
+  // ── Write 0: loud-failure log ─────────────────────────────────────
+  // Runs BEFORE write 1 so it is unaffected by (and unconditional on) that
+  // write's own success — see the "Write 0" doc block above. Never throws:
+  // a logging hiccup must not mask the original capability failure.
+  if (!spec.success) {
+    try {
+      const name = (await resolveExtensionName()) ?? spec.ctx.actorExtensionId;
+      extensionLogger(name, "capability").warn(`${spec.capability}.${spec.action} failed`, {
+        extensionId: spec.ctx.actorExtensionId,
+        onBehalfOf: spec.ctx.onBehalfOf,
+        conversationId: spec.ctx.conversationId,
+        errorCode: spec.errorCode ?? null,
+        errorMessage: spec.errorMessage ?? null,
+        provider: spec.provider ?? null,
+        model: spec.model ?? null,
+        durationMs: spec.durationMs,
+      });
+    } catch {
+      // Logging must never mask the original capability failure.
+    }
+  }
 
   // ── Write 1: sdk_capability_calls row ────────────────────────────
   try {
@@ -201,16 +262,10 @@ export async function recordCapabilityCall(
   if (shouldPill && sdkCapabilityCallId !== "") {
     // Phase 52.5 — surface the extension name in the pill payload so
     // the in-chat pill renders "lessons-keeper called gpt-4o-mini"
-    // without a second fetch from the chat page. Resolve via getExtension;
-    // null on lookup failure (audit row still works, pill falls back
-    // to "extension").
-    let extensionName: string | null = null;
-    try {
-      const ext = await getExtension(spec.ctx.actorExtensionId);
-      extensionName = ext?.name ?? null;
-    } catch {
-      // non-fatal — continue with null name.
-    }
+    // without a second fetch from the chat page. Shares write 0's
+    // resolution (memoized above); null on lookup failure (audit row
+    // still works, pill falls back to "extension").
+    const extensionName = await resolveExtensionName();
     try {
       // Note: `messages` has no `metadata` column today; we encode the
       // pill payload into the `content` field as a JSON blob with a
