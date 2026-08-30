@@ -350,6 +350,8 @@
   "web/src/lib/components/tool-cards/GradeDeltaCard.svelte": 100,
   "web/src/lib/components/tool-cards/city-conditions-card-logic.ts": 100,
   "web/src/lib/components/tool-cards/CityConditionsCard.svelte": 100,
+  "web/src/lib/components/tool-cards/workflow-run-card-logic.ts": 100,
+  "web/src/lib/components/tool-cards/WorkflowRunCard.svelte": 100,
   "web/src/lib/components/tool-cards/web-context-card-logic.ts": 100,
   "web/src/lib/components/tool-cards/WebContextCard.svelte": 100,
   "web/src/lib/components/tool-cards/PendingPermissionTray.svelte": 100,

@@ -76,6 +76,14 @@ export function getCardComponentName(cardType: string | undefined, permissionPen
 		// the [Expose]/[Ignore]/[Always expose] affordances render (a card
 		// without cardType falls through to DefaultCard — prior incident).
 		case 'ez-preview-consent': return 'PreviewConsentCard';
+		// `workflow-run` is `run_workflow`'s result (execution half of the
+		// `!workflow:name` mention/run split). A deterministic run must not
+		// be re-rendered by a stochastic component — the model's PROSE
+		// summary of the JSON varies between two identical runs, the tool's
+		// own result never does — so it gets a card that renders the
+		// projection verbatim instead of DefaultCard's truncated,
+		// collapsed-by-default preview.
+		case 'workflow-run': return 'WorkflowRunCard';
 		default: return 'DefaultCard';
 	}
 }

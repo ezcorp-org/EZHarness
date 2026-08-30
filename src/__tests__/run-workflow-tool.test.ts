@@ -469,7 +469,10 @@ describe("run_workflow — declared metadata", () => {
     expect(def.name).toBe("run_workflow");
     expect(def.label).toBe("run_workflow");
     expect(def.category).toBe("execute");
-    expect(def.cardType).toBe("default");
+    // WorkflowRunCard renders the projection verbatim — a deterministic
+    // result must not be re-rendered by the model's (stochastic) prose,
+    // which is what routing through DefaultCard used to leave it to.
+    expect(def.cardType).toBe("workflow-run");
   });
 
   test("declares a 10-minute callTimeoutMs — a workflow outlives the 90s default", () => {

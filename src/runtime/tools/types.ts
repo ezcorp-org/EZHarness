@@ -65,7 +65,14 @@ export type PermissionMode = "ask" | "auto-edit" | "yolo";
 // result falls through to DefaultCard and the form is never surfaced
 // (the EZ system prompt promises "a card with a button that opens the
 // prefilled form").
-export type CardType = "terminal" | "diff" | "search-results" | "table" | "default" | "ez-propose";
+//
+// `workflow-run` routes `run_workflow`'s result to WorkflowRunCard. A
+// deterministic workflow run must not be re-rendered by a stochastic
+// component — the model's PROSE summary of the JSON varies between
+// identical runs, but the tool's own result never does, so it needs a card
+// that renders the projection verbatim instead of DefaultCard's truncated,
+// collapsed-by-default preview (`docs/features/orchestration/workflows.md`).
+export type CardType = "terminal" | "diff" | "search-results" | "table" | "default" | "ez-propose" | "workflow-run";
 
 export interface BuiltinToolDef {
   name: string;

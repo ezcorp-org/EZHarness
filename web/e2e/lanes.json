@@ -122,6 +122,7 @@
       "web/e2e/workflow-approval-tray.spec.ts",
       "web/e2e/workflow-delegations.spec.ts",
       "web/e2e/workflow-mention.spec.ts",
+      "web/e2e/workflow-run-card.spec.ts",
       "web/e2e/workflows-action-bar.spec.ts",
       "web/e2e/workflows-approvals.spec.ts",
       "web/e2e/workflows-conditional.spec.ts",

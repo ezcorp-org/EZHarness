@@ -494,6 +494,8 @@ run_legs() {
       src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
       src/lib/components/tool-cards/city-conditions-card-logic.unit.test.ts \
       src/lib/components/tool-cards/CityConditionsCard.component.test.ts \
+      src/lib/components/tool-cards/workflow-run-card-logic.unit.test.ts \
+      src/lib/components/tool-cards/WorkflowRunCard.component.test.ts \
       src/lib/components/tool-cards/web-context-card-logic.unit.test.ts \
       src/lib/components/tool-cards/WebContextCard.component.test.ts \
       src/__tests__/pending-permission-tray.component.test.ts \
@@ -724,6 +726,8 @@ run_legs() {
       --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/city-conditions-card-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/CityConditionsCard.svelte' \
+      --coverage.include='src/lib/components/tool-cards/workflow-run-card-logic.ts' \
+      --coverage.include='src/lib/components/tool-cards/WorkflowRunCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/web-context-card-logic.ts' \
       --coverage.include='src/lib/components/tool-cards/WebContextCard.svelte' \
       --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \

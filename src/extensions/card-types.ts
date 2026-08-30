@@ -44,6 +44,10 @@ export const KNOWN_CARD_TYPES: ReadonlySet<string> = new Set([
   "ez-draft",
   "ez-propose",
   "ez-preview-consent",
+  // `workflow-run` is declared by the built-in `run_workflow` tool (never
+  // by an extension manifest) — see the switch parity note in
+  // `web/src/lib/components/tool-cards/utils.ts`.
+  "workflow-run",
 ]);
 
 /** Sorted list for error messages — stable ordering so the text a user

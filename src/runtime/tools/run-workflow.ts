@@ -119,7 +119,12 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
       "Compose `input` to match that workflow's declared inputSchema. " +
       "Steps needing sensitive permissions prompt the user; a declined prompt fails the run.",
     category: "execute",
-    cardType: "default",
+    // WorkflowRunCard renders this projection verbatim (name, status,
+    // per-step outcome, result, error) so the card is byte-for-byte
+    // identical between two runs on identical input — the model's PROSE
+    // above it is not, and used to be the only rendering of the result
+    // (`cardType: "default"` truncates and starts collapsed).
+    cardType: "workflow-run",
     maxOutputBytes,
     callTimeoutMs: RUN_WORKFLOW_CALL_TIMEOUT_MS,
     parameters: Type.Unsafe({
