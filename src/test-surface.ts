@@ -50,12 +50,42 @@ export const MOCK_PROVIDER = "ezcorp-mock";
  *
  * `EZCORP_MOCK_LLM_BASE_URL` is an explicit override for environments where
  * the bound port isn't reflected in `PORT`/`EZCORP_PORT` (e.g. the e2e
- * `vite preview` on :4173) — set it to `http://127.0.0.1:<port>/api/__test/mock-llm/v1`.
- * Otherwise we derive the port from the env, defaulting to 3000.
+ * `vite preview` on :4173, which binds via a CLI flag / vite config, not the
+ * `PORT` env var) — set it to
+ * `http://127.0.0.1:<port>/api/__test/mock-llm/v1`. Otherwise the port is
+ * derived from `PORT`/`EZCORP_PORT`.
+ *
+ * There is deliberately no numeric default (e.g. `:3000`) when none of the
+ * three is set. This module has no reliable way to learn which port the
+ * server actually bound — it's `env`-only (no web aliases, see file header)
+ * and reused by callers with no HTTP request in scope at all (background
+ * workflow/loop turns, the `worker/` Cloudflare Workers target, which has no
+ * concept of a "port"). A guessed port can silently disagree with the real
+ * one: the outgoing request still succeeds at the socket level against
+ * whatever ELSE is listening there, and the failure then surfaces as a
+ * confusing auth/protocol error blamed on the LLM rather than a
+ * configuration error naming the real cause. Failing loudly here is safe
+ * precisely because every caller already sits behind `isTestSurfaceEnabled()`
+ * (`src/providers/router.ts`) — this can only ever throw inside a process
+ * that has *already* opted into the test surface (`PI_E2E_REAL=1` +
+ * `EZCORP_ALLOW_TEST_SURFACE=1` + non-production `NODE_ENV`), never in
+ * production, which pins `NODE_ENV=production` and keeps that gate closed.
  */
 export function mockLlmBaseUrl(): string {
   const explicit = process.env.EZCORP_MOCK_LLM_BASE_URL;
   if (explicit) return explicit;
-  const port = process.env.PORT ?? process.env.EZCORP_PORT ?? "3000";
+  const port = process.env.PORT ?? process.env.EZCORP_PORT;
+  if (!port) {
+    throw new Error(
+      "mockLlmBaseUrl(): cannot determine which port this server bound — " +
+        "none of EZCORP_MOCK_LLM_BASE_URL, PORT, or EZCORP_PORT is set. " +
+        "Guessing a default port risks silently targeting a DIFFERENT " +
+        "process listening there, which surfaces as a confusing " +
+        "auth/protocol error instead of a configuration error. Set " +
+        "EZCORP_MOCK_LLM_BASE_URL to " +
+        "http://127.0.0.1:<bound-port>/api/__test/mock-llm/v1, or set " +
+        "PORT/EZCORP_PORT to the port this server actually bound.",
+    );
+  }
   return `http://127.0.0.1:${port}/api/__test/mock-llm/v1`;
 }

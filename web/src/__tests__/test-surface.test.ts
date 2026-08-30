@@ -132,8 +132,16 @@ describe("mockLlmBaseUrl", () => {
     expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:9999/api/__test/mock-llm/v1");
   });
 
-  test("defaults to :3000 when neither PORT nor EZCORP_PORT is set", () => {
+  // Regression test for the real-world mis-targeting bug: a real-tier app
+  // was started on a non-default port with none of the three vars set, so
+  // the OLD code silently guessed :3000 — a DIFFERENT, unrelated app was
+  // listening there, and the mock-LLM call succeeded at the socket level
+  // against it, returning a 401 that was misread as an LLM auth failure.
+  // The fix: refuse to guess, and say exactly what to set instead.
+  test("throws a clear, actionable error naming all three vars when none is set (was: silently guessed :3000)", () => {
     setPortEnv(undefined, undefined, undefined);
-    expect(mockLlmBaseUrl()).toBe("http://127.0.0.1:3000/api/__test/mock-llm/v1");
+    expect(() => mockLlmBaseUrl()).toThrow(
+      /EZCORP_MOCK_LLM_BASE_URL.*PORT.*EZCORP_PORT/s,
+    );
   });
 });
