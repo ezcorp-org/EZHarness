@@ -15,6 +15,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { findProjectRoot } from "@ezcorp/sdk/runtime";
 import { getProjectRoot } from "./bundled";
+import { resolveInstallPath } from "./install-roots";
 import { McpClient } from "../mcp/client";
 import { buildSandboxedMcpSpec, runMcpSeccompSoakReader } from "./mcp-sandbox";
 import { releaseVethSlot, initStage2 } from "./mcp-netns";
@@ -443,9 +444,20 @@ export class ExtensionRegistry {
       // reference, untouched.
       const manifest = normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
       this.manifests.set(ext.id, manifest);
-      if (ext.installPath) this.installPaths.set(ext.id, ext.installPath);
+      const isBundled = (ext as { isBundled?: boolean }).isBundled === true;
+      // Bundled rows store `install_path` PROJECT-ROOT-RELATIVE (portability
+      // fix — see `./install-roots.ts` `resolveInstallPath` +
+      // `../db/migrations/relativize-bundled-install-paths.ts`), so it must
+      // be reconstructed against THIS process's root before anything reads
+      // the filesystem with it. Every other row's `install_path` is left
+      // exactly as stored — `resolveInstallPath` is a no-op for an already-
+      // absolute path, which is every genuinely external install.
+      const resolvedInstallPath = isBundled
+        ? resolveInstallPath(ext.installPath)
+        : ext.installPath;
+      if (resolvedInstallPath) this.installPaths.set(ext.id, resolvedInstallPath);
       this.grantedPerms.set(ext.id, ext.grantedPermissions);
-      this.bundledFlags.set(ext.id, (ext as { isBundled?: boolean }).isBundled === true);
+      this.bundledFlags.set(ext.id, isBundled);
       this.reportUnhealedMcpRow(ext, manifest);
 
       // Boot visibility: surface an unresolvable npm-dependency declaration
@@ -453,9 +465,10 @@ export class ExtensionRegistry {
       // NOT disable or throw: config drift must not nuke state at boot, and
       // the per-call spawn pre-check (subprocess.ts) already refuses the
       // spawn with the same actionable message. Applies to bundled AND
-      // non-bundled; resolution is anchored at the extension's install dir.
-      if (manifest.npmDependencies && ext.installPath) {
-        const check = verifyNpmDependencies(manifest.npmDependencies, ext.installPath);
+      // non-bundled; resolution is anchored at the extension's (resolved)
+      // install dir.
+      if (manifest.npmDependencies && resolvedInstallPath) {
+        const check = verifyNpmDependencies(manifest.npmDependencies, resolvedInstallPath);
         if (!check.ok) {
           log.error("extension npm dependencies unresolvable", {
             extension: manifest.name,

@@ -99,6 +99,7 @@
   "src/db/live-holder-guard.ts": 100,
   "src/db/seed-self-project.ts": 100,
   "src/db/migrations/claim-ownerless-kb-files-once.ts": 100,
+  "src/db/migrations/relativize-bundled-install-paths.ts": 100,
   "src/db/session-storage.ts": 100,
   "src/db/session-backfill.ts": 100,
   "src/db/unique-violation.ts": 100,

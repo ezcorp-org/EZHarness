@@ -161,6 +161,22 @@ export interface InstallFromLocalOpts {
    * no rows match the legacy prefix.
    */
   legacyEntityMappings?: readonly LegacyNamespaceMapping[];
+  /**
+   * The value to PERSIST as `installPath` (and embed in `source`) instead
+   * of `localPath`. `localPath` still has to be the real absolute on-disk
+   * directory — `loadManifest` / `computeManifestChecksums` read files
+   * from it — but persisting that path verbatim bakes in whichever
+   * environment ran the installer. The bundled-install caller resolves
+   * `localPath` as `join(getProjectRoot(), entry.path)` and passes
+   * `persistPath: entry.path` here, so the DB row stores the
+   * project-root-RELATIVE form and stays resolvable from any root
+   * (`resolveInstallPath()`, `./install-roots.ts`) — a host checkout, a
+   * container's `/app`, or a different clone of the same repo. Every
+   * other caller (GitHub / git / authored / imported installs) omits
+   * this, so their persisted path is `localPath` unchanged, exactly as
+   * before.
+   */
+  persistPath?: string;
 }
 
 /**
@@ -304,7 +320,12 @@ export async function installFromLocal(
   // the install path (verify-only; same refusal surface as the env gate).
   runNpmDependencyInstallGate(manifest, localPath);
 
-  const source = `local:${localPath}`;
+  // What gets PERSISTED — `localPath` unless the caller supplied a
+  // portable override (see `InstallFromLocalOpts.persistPath`). Reading
+  // files above always used `localPath` itself; only the stored value
+  // changes.
+  const persistPath = opts.persistPath ?? localPath;
+  const source = `local:${persistPath}`;
 
   // Idempotency gate: `ext install <path>` (CLI, author endpoint, and
   // bundled-install all route through here) used to do a bare INSERT
@@ -333,7 +354,7 @@ export async function installFromLocal(
         version: manifest.version,
         description: manifest.description || "",
         manifest: { ...manifest, ...checksumFields },
-        installPath: localPath,
+        installPath: persistPath,
         checksumVerified: !!checksum,
       };
       if (opts.isBundled !== true) {
@@ -393,7 +414,7 @@ export async function installFromLocal(
     description: manifest.description || "",
     manifest: { ...manifest, ...checksumFields },
     source,
-    installPath: localPath,
+    installPath: persistPath,
     enabled,
     grantedPermissions,
     checksumVerified: !!checksum,

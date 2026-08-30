@@ -7,6 +7,7 @@ import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-
 // Value import is safe: this module imports only `drizzle-orm`. Its
 // project-root ARGUMENT comes from `getProjectRoot()` below.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
+import { up as upRelativizeBundledInstallPaths } from "./migrations/relativize-bundled-install-paths";
 import type { MigrateDb } from "./migrations/types";
 // Value import is safe: `project-root.ts` depends only on `../logger` and
 // node builtins. It used to live in `../extensions/bundled.ts`, which
@@ -566,6 +567,40 @@ export async function migrate(db: MigrateDb): Promise<void> {
   } catch (err) {
     log.warn(
       "Skipped extension-state-root normalization — could not resolve the project root",
+      { error: String(err) },
+    );
+  }
+
+  // ── Bundled install-path relativization ─────────────────────────────
+  // SINGLE SOURCE OF TRUTH: the rewrite lives in
+  // src/db/migrations/relativize-bundled-install-paths.ts and is invoked
+  // here (not re-inlined), same pattern as the extension-state-root
+  // normalization directly above.
+  //
+  // `ensureBundledExtensions()` used to persist `install_path` as
+  // `join(getProjectRoot(), entry.path)` — an ABSOLUTE path baked in by
+  // whichever environment (typically the container, root `/app`) ran the
+  // install. That path is unresolvable from a different root (a host-side
+  // process reading the same external-Postgres database), which is exactly
+  // what turned a read-only workflow scan into ENOENT warnings and then
+  // permanently auto-disabled two extensions once the resulting "Module not
+  // found" spawn failures were miscounted as a genuine crash-loop. The
+  // install path is now stored RELATIVE to the project root (matching
+  // `entry.path` in bundled.ts) and reconstructed per-process by
+  // `resolveInstallPath()` (`../extensions/install-roots.ts`); this
+  // migration puts pre-existing rows into that shape. Scoped to
+  // `is_bundled = true` rows recorded under exactly THIS root — see the
+  // module header for why neither is optional.
+  //
+  // Same try/catch rationale as the block above: a resolution failure
+  // SKIPS the rewrite (repairable next boot) rather than risking a wrong
+  // guess, and must never trip the migrate() rollback-and-exit breaker over
+  // a path repair.
+  try {
+    await upRelativizeBundledInstallPaths(db, getProjectRoot());
+  } catch (err) {
+    log.warn(
+      "Skipped bundled install-path relativization — could not resolve the project root",
       { error: String(err) },
     );
   }

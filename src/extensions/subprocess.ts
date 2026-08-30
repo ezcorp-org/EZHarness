@@ -498,6 +498,34 @@ export class ExtensionProcess {
   ensureRunning(): void {
     if (this.proc && !this.killed) return;
 
+    // Install-path pre-check (kills a DIFFERENT crash loop than the
+    // npm-dependency one below). If the entrypoint file doesn't exist on
+    // disk, that is an ENVIRONMENT problem — the DB row's install path
+    // doesn't resolve from THIS process (a host-vs-container path
+    // mismatch, a moved/deleted checkout, a stale `EZCORP_PROJECT_ROOT`)
+    // — never a defect in the extension's own code. Left unchecked, Bun
+    // fails to spawn the missing file ("Module not found" /
+    // "Cannot find module"), which looks EXACTLY like a genuine crash to
+    // the code below: `proc.exited` fires, `consecutive_failures`
+    // increments, and three unlucky calls permanently disables an
+    // extension whose code was never at fault (live incident: a host-side
+    // process reading a database whose bundled `install_path` rows were
+    // written by a container boot). THROW here instead, before
+    // `Bun.spawn` ever runs — same shape as the npm-dependency pre-check
+    // below, and for the same reason: no spawn, no `proc.exited`, no
+    // failure increment, no auto-disable. A genuine repeated CODE crash
+    // (the entrypoint exists and exits non-zero on its own) still reaches
+    // `Bun.spawn` and still counts exactly as before.
+    if (!existsSync(this.extensionPath)) {
+      throw new Error(
+        `Extension "${this.extensionName ?? this.extensionId}" install path could not be resolved: ` +
+          `"${this.extensionPath}" does not exist. This looks like an environment problem — a ` +
+          "host-vs-container path mismatch, a moved/deleted install directory, or a stale " +
+          "EZCORP_PROJECT_ROOT — not a crash in the extension's code, so it does not count " +
+          "toward the auto-disable threshold. Fix the path/environment and try again.",
+      );
+    }
+
     // npm-dependency pre-check (kills the crash-loop). Verify the
     // manifest's declared third-party npm deps resolve from the
     // extension's install dir BEFORE spawning. On failure THROW the
