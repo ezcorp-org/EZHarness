@@ -543,6 +543,40 @@ export interface WorkflowDefinition {
   defaultModel?: WorkflowModelBinding;
   steps: WorkflowStep[];
   /**
+   * Render the run's own final output (`$steps.<last>.output` — the same
+   * value `run.result.output` carries) into human-readable text,
+   * deterministically. Optional: absent ⇒ the run's `result` is unchanged
+   * from before this field existed (**backward compatible**).
+   *
+   * Same `{{ ref }}` interpolation `transform` steps already use
+   * (`interpolateTemplate`, `workflow-refs.ts`) — reused verbatim, not a
+   * second templating engine — but scoped to exactly ONE ref root,
+   * `$output[.path]`, addressing the final output object rather than any
+   * step's. `validateWorkflow` rejects every other root at save time, and
+   * `$output` itself is always LENIENT (a missing path renders empty,
+   * never throws) — rendering is a pure, best-effort function of `output`
+   * and must never be able to fail the run it describes.
+   *
+   * Rendered ONLY on a `success` terminal status, into
+   * `WorkflowRun.result.renderedOutput` — a NEW, additive field. The raw
+   * `output` this was rendered from is never replaced or hidden: the card
+   * that renders `renderedOutput` still shows the verbatim JSON `result`
+   * beside it, unmodified. That is load-bearing — see
+   * `workflow-run-card-logic.ts`'s header comment for why a deterministic
+   * result must never be re-rendered by anything that can drift from it.
+   *
+   * Every workflow string is attacker-controlled (`POST /api/workflows`
+   * needs only the `chat` scope, and workflows are global), so the HOST
+   * renders this as PLAIN TEXT — never markdown, never HTML — exactly like
+   * every other author-supplied string this subsystem interpolates into a
+   * surface someone else's browser renders (`mention-wiring.ts`'s
+   * `sanitizeNoteValue`). The difference here is sharper: that module
+   * defends a PROMPT surface, and `outputTemplate` renders straight into
+   * the DOM, so "plain text, no exceptions" is the whole of the defence —
+   * see `WorkflowRunCard.svelte`.
+   */
+  outputTemplate?: string;
+  /**
    * Which loader produced this definition. Stamped by the loader itself —
    * NEVER read from the YAML/JSON a definition was parsed out of, so an
    * extension asset that declares `source: db` is overwritten, not trusted.
@@ -596,6 +630,23 @@ export interface WorkflowDefinition {
  */
 export type WorkflowVisibility = "system" | "project" | "private";
 
+/**
+ * A workflow run's `result` — an {@link AgentResult} plus the OPTIONAL text
+ * a definition's `outputTemplate` rendered from `output`. Its own type
+ * (rather than widening {@link AgentResult} itself) because `AgentResult`
+ * is the generic per-agent-run shape too, and a plain agent run has no
+ * template to render — adding the field there would be a workflow-only
+ * concept leaking into every `AgentRun` in the codebase.
+ *
+ * `renderedOutput` is present ONLY on a `success` run whose definition
+ * declared `outputTemplate` — every other run's `result` carries no such
+ * field, byte-identical to what it was before this type existed
+ * (**backward compatible**).
+ */
+export interface WorkflowRunResult extends AgentResult {
+  renderedOutput?: string;
+}
+
 export interface WorkflowRun {
   id: string;
   workflowName: string;
@@ -604,7 +655,7 @@ export interface WorkflowRun {
   startedAt: number;
   finishedAt?: number;
   steps: WorkflowStepRun[];
-  result?: AgentResult;
+  result?: WorkflowRunResult;
 }
 
 export interface WorkflowStepRun {

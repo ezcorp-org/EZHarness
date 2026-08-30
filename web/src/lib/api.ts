@@ -1051,6 +1051,10 @@ export interface Workflow {
 	inputSchema?: Record<string, unknown>;
 	/** Binding inherited by agent steps that declare no `model`. */
 	defaultModel?: WorkflowModelOverride;
+	/** Renders the run's final output into a human-readable report,
+	 *  deterministically. Only the `$output[.path]` ref root is legal;
+	 *  `validateWorkflow` rejects anything else at save time. */
+	outputTemplate?: string;
 
 	// ── Provenance (server-computed, additive) ──────────────────────
 	// Present on every workflow the API returns since C6. Optional here
@@ -1072,6 +1076,16 @@ export interface Workflow {
 	canEdit?: boolean;
 }
 
+/** A workflow run's own `result` — {@link AgentResult} plus the optional
+ *  text the definition's `outputTemplate` rendered from `output`. Its own
+ *  interface (not a widened `AgentResult`) for the same reason as the
+ *  server's `WorkflowRunResult` (`src/types.ts`): `AgentResult` is the
+ *  generic per-agent-run shape too, shared with the unrelated `Run`
+ *  interface above, which has no template to render. */
+export interface WorkflowRunResult extends AgentResult {
+	renderedOutput?: string;
+}
+
 export interface WorkflowRun {
 	id: string;
 	workflowName: string;
@@ -1090,7 +1104,7 @@ export interface WorkflowRun {
 		 *  dependency that suppressed it. Absent for every other status. */
 		skippedReason?: string;
 	}[];
-	result?: AgentResult;
+	result?: WorkflowRunResult;
 }
 
 export async function fetchWorkflows(): Promise<Workflow[]> {

@@ -5,6 +5,7 @@ import type {
   WorkflowCursor,
   WorkflowModelBinding,
   WorkflowRunPhase,
+  WorkflowRunResult,
   WorkflowRunStatus,
   WorkflowStep,
   WorkflowVisibility,
@@ -495,6 +496,15 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
   // what every pre-existing row means.
   defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
   steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+  // Renders the run's final output into a human-readable report,
+  // deterministically — see `WorkflowDefinition.outputTemplate`. NULL ⇒
+  // unchanged from before this column existed. Presentation, not
+  // executable content: like `description`, editing it mints no new
+  // `workflow_definition_versions` row and does not move
+  // `workflowDefinitionHash` (`workflow-versions.ts`'s `VersionMaterial` is
+  // unchanged) — it does not change what a run DOES or what `output`
+  // contains, only how the already-produced value is displayed.
+  outputTemplate: text("output_template"),
 
   // ── Ownership ────────────────────────────────────────────────────
   // CASCADE: a project-scoped workflow is part of the project and dies
@@ -848,7 +858,10 @@ export const workflowRuns = pgTable("workflow_runs", {
   // and `suspended` (the one non-terminal, non-`running` state).
   status: text("status").notNull().$type<WorkflowRunStatus>(),
   input: jsonb("input").$type<Record<string, unknown>>(),
-  result: jsonb("result").$type<AgentResult>(),
+  // `WorkflowRunResult` (an `AgentResult` plus the optional `renderedOutput`
+  // an `outputTemplate` produced) — the wider of the two shapes this column
+  // has ever stored, so no migration: jsonb already accepted either.
+  result: jsonb("result").$type<WorkflowRunResult>(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

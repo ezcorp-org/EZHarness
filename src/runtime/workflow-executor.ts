@@ -17,6 +17,7 @@ import type { DelegationOwnerKind } from "../db/schema";
 import type { EventBus } from "./events";
 import { resumeReasonRefusal } from "./workflow-resume-reasons";
 import {
+  renderOutputTemplate,
   resolveMapping,
   resolveOutputMapping,
   type RefContext,
@@ -1705,7 +1706,21 @@ export class WorkflowExecutor {
 
       workflowRun.status = "success";
       workflowRun.finishedAt = Date.now();
-      workflowRun.result = prevResult ?? { success: true, output: null };
+      const finalResult = prevResult ?? { success: true, output: null };
+      // outputTemplate is rendered ONLY here, on a clean success — never on
+      // `awaiting_approval` / `suspended` / `cancelled` / `error`, all of
+      // which already carry their own explanation (the last successful
+      // output, or the error itself). The template promises a report of
+      // WHAT THE RUN PRODUCED, which only a success actually did.
+      //
+      // Additive: `finalResult` (the verbatim `output`/`success`/`error`
+      // triple every pre-existing caller already reads) is spread first and
+      // never altered — `renderedOutput` can only ADD a key, never replace
+      // one, so a run whose definition has no `outputTemplate` produces the
+      // exact same `result` object this line always has.
+      workflowRun.result = workflow.outputTemplate
+        ? { ...finalResult, renderedOutput: renderOutputTemplate(workflow.outputTemplate, finalResult.output) }
+        : finalResult;
       this.bus.emit("workflow:complete", { workflowRun, userId });
     } catch (err) {
       cancelInFlight();

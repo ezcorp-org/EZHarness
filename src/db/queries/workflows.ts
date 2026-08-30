@@ -104,6 +104,7 @@ export async function createWorkflow(
     inputSchema: (data.inputSchema as Record<string, unknown>) ?? null,
     defaultModel: data.defaultModel ?? null,
     steps: data.steps,
+    outputTemplate: data.outputTemplate ?? null,
     projectId: ownership.projectId ?? null,
     userId: ownership.userId ?? null,
     // Defaults to `system`, matching the column default, so a caller that
@@ -146,6 +147,7 @@ export async function updateWorkflow(
   if (data.inputSchema !== undefined) updates.inputSchema = data.inputSchema;
   if (data.defaultModel !== undefined) updates.defaultModel = data.defaultModel;
   if (data.steps !== undefined) updates.steps = data.steps;
+  if (data.outputTemplate !== undefined) updates.outputTemplate = data.outputTemplate;
   // An OWNER (`userId`) moves only through the admin claim action and the
   // fork route, never through an ordinary definition edit — and both go
   // through this one writer rather than a second UPDATE path.
@@ -223,6 +225,7 @@ function toDefinition(row: DbWorkflow): WorkflowDefinition {
     // `step.model ?? workflow.defaultModel` fallback's `??`.
     defaultModel: row.defaultModel ?? undefined,
     steps: row.steps as WorkflowStep[],
+    outputTemplate: row.outputTemplate ?? undefined,
     // Server-derived provenance, never accepted on a write (the body
     // schema is `.strict()` and has no `source` key). Stamped on the
     // DEFINITION as well as on the cache entry because the authz helpers

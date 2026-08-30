@@ -28,9 +28,12 @@
  * usable `workflowName` + `status` — including a truncated/invalid JSON
  * string (`getToolOutputLimit` can cut the text mid-object) — so the router
  * degrades to DefaultCard exactly like the other parsers here rather than
- * throwing or rendering a blank-but-successful card. `steps`, `result`, and
- * `error` each degrade to their own honest fallback instead of failing the
- * whole card over one bad field.
+ * throwing or rendering a blank-but-successful card. `steps`, `result`,
+ * `error` and `renderedOutput` each degrade to their own honest fallback
+ * instead of failing the whole card over one bad field — a missing or
+ * blank `renderedOutput` (no `outputTemplate` on the definition, or an
+ * older persisted call from before this field existed) simply hides that
+ * one panel; it never blocks the rest of the card.
  */
 
 export interface WorkflowRunStepView {
@@ -68,6 +71,21 @@ export interface WorkflowRunView {
 	 *  is never rendered (the projection carries it as `null`). */
 	hasError: boolean;
 	errorText: string;
+	/** false ⇒ the definition declared no `outputTemplate` (or the
+	 *  projection carried no usable rendered text) — the card shows only
+	 *  the raw `resultText` panel, exactly as it did before this field
+	 *  existed. */
+	hasRenderedOutput: boolean;
+	/**
+	 * The workflow author's rendered report, VERBATIM — never re-parsed as
+	 * markdown or HTML by this card (see `WorkflowRunCard.svelte`: it is
+	 * interpolated as plain text, never `{@html}`). `resultText` is never
+	 * hidden or replaced by this — both render when both are present,
+	 * because the raw result is the canonical value this card exists to
+	 * protect (see the file header) and the template is only ever an
+	 * ADDITION on top of it.
+	 */
+	renderedOutputText: string;
 }
 
 /** Shown when the run failed but the projection's `error` was empty —
@@ -208,6 +226,8 @@ export function buildWorkflowRunView(output: unknown): WorkflowRunView | null {
 		errorText = formatted === "" ? NO_ERROR_REPORTED : formatted;
 	}
 
+	const renderedOutputText = nonEmptyString(obj.renderedOutput);
+
 	return {
 		runId,
 		hasRunId: runId !== "",
@@ -218,5 +238,7 @@ export function buildWorkflowRunView(output: unknown): WorkflowRunView | null {
 		resultText,
 		hasError: !succeeded,
 		errorText,
+		hasRenderedOutput: renderedOutputText !== "",
+		renderedOutputText,
 	};
 }

@@ -78,7 +78,9 @@ export interface RunWorkflowToolContext {
  * The raw run carries per-step `runId`s and epoch timestamps the model
  * cannot use, and an unbounded `result`. This keeps the shape the model
  * needs to explain what happened: the terminal status, the per-step
- * outcome, the final output, and the error.
+ * outcome, the final output, the error, and (when the definition declares
+ * an `outputTemplate`) the deterministic rendered report alongside it —
+ * never instead of it.
  */
 export interface RunWorkflowToolResult {
   runId: string;
@@ -87,6 +89,15 @@ export interface RunWorkflowToolResult {
   steps: Array<{ name: string; status: string; iterations?: number }>;
   result: unknown;
   error: unknown;
+  /**
+   * The workflow definition's `outputTemplate`, rendered from `result` —
+   * `null` when the definition declared none (never an absent key: the
+   * model reads this projection as JSON, and an optional key it must
+   * `"renderedOutput" in obj`-check is a worse contract than a field that
+   * is always present and sometimes `null`, matching `result`/`error`
+   * above). Additive: `result` is still the verbatim output object, always.
+   */
+  renderedOutput: string | null;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -105,6 +116,7 @@ export function projectWorkflowRun(run: WorkflowRun): RunWorkflowToolResult {
     })),
     result: run.result?.output ?? null,
     error: run.result?.error ?? null,
+    renderedOutput: run.result?.renderedOutput ?? null,
   };
 }
 

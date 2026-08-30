@@ -51,7 +51,7 @@ export function parseWorkflowYaml(text: string): YamlParseResult {
  */
 export function workflowToYaml(definition: Record<string, unknown>): string {
   const ordered: Record<string, unknown> = {};
-  for (const key of ["name", "description", "inputSchema", "defaultModel", "steps"]) {
+  for (const key of ["name", "description", "inputSchema", "defaultModel", "outputTemplate", "steps"]) {
     const value = definition[key];
     if (value !== undefined && value !== null) ordered[key] = value;
   }
@@ -68,7 +68,7 @@ export function workflowToYaml(definition: Record<string, unknown>): string {
  */
 export function definitionFields(workflow: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const key of ["name", "description", "inputSchema", "defaultModel", "steps"]) {
+  for (const key of ["name", "description", "inputSchema", "defaultModel", "outputTemplate", "steps"]) {
     if (workflow[key] !== undefined && workflow[key] !== null) out[key] = workflow[key];
   }
   return out;

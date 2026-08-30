@@ -440,6 +440,39 @@ describe("POST /api/workflows", () => {
     );
   });
 
+  test("returns 400 for an outputTemplate referencing a ref root other than $output", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: authedUser,
+        body: {
+          name: "w1",
+          outputTemplate: "{{$steps.a.output}}",
+          steps: [{ name: "a", agent: "a" }],
+        },
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain('Workflow "outputTemplate" references "$steps.a.output"');
+  });
+
+  test("persists a valid outputTemplate — the boundary schema must not strip it", async () => {
+    const def = {
+      name: "w1",
+      outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})",
+      steps: [{ name: "s1", agent: "a" }],
+    };
+    queries.createWorkflow.mockResolvedValue({ id: "wf-1", ...def, description: "" });
+    const res = await POST(makeEvent({ locals: authedUser, body: def }));
+    expect(res.status).toBe(201);
+    expect(queries.createWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})",
+      }),
+      expect.anything(),
+    );
+  });
+
   test("accepts every step kind the executor dispatches, and their control-flow fields", async () => {
     // The `kind` enum is the ONE place the boundary schema is not loose, so
     // it is the one place a kind added server-side becomes uncreatable

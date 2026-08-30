@@ -65,9 +65,12 @@ describe("shipped demo workflows", () => {
       slug: "workflows-report",
       headline: "Report on workflows",
     });
-    // Determinism: the whole run result is byte-identical across two runs of
-    // the same input (a transform/gate-only workflow is a pure function — no
-    // LLM, no I/O, no clock) — now over meaningful composed content.
+    // The shipped demo also carries an `outputTemplate` — rendered here
+    // from the SAME final output, via the `$output` ref root.
+    expect(a.result?.renderedOutput).toBe("Report on workflows (slug: workflows-report)");
+    // Determinism: the whole run result — including the rendered report —
+    // is byte-identical across two runs of the same input (a transform/
+    // gate-only workflow is a pure function — no LLM, no I/O, no clock).
     expect(JSON.stringify(a.result)).toBe(JSON.stringify(b.result));
     // The intermediate compose step is present and byte-identical too.
     const composeA = a.steps.find((s) => s.stepName === "compose");

@@ -155,6 +155,44 @@ describe("WorkflowRunCard — a successful run", () => {
 	});
 });
 
+describe("WorkflowRunCard — outputTemplate report", () => {
+	test("a run with no renderedOutput shows no Report panel", () => {
+		const { queryByTestId } = renderCard(SUCCESS_PROJECTION);
+		expect(queryByTestId("workflow-run-rendered-output")).toBeNull();
+	});
+
+	test("a rendered report shows ADDITIVE to the raw result, never instead of it", () => {
+		const { getByTestId } = renderCard({
+			...SUCCESS_PROJECTION,
+			renderedOutput: "Report on workflows (slug: workflows-report)",
+		});
+		expect(getByTestId("workflow-run-rendered-output-body")).toHaveTextContent(
+			"Report on workflows (slug: workflows-report)",
+		);
+		// The canonical value is still on screen, unmodified.
+		const resultBody = getByTestId("workflow-run-result-body");
+		expect(resultBody.textContent).toBe(
+			JSON.stringify({ headline: "Report on workflows" }, null, 2),
+		);
+	});
+
+	test("an author-supplied template string cannot inject markup — it renders as literal text", () => {
+		// Every workflow string is attacker-controlled (any `chat`-scoped
+		// caller may author a DB workflow), so this is the load-bearing
+		// property: the template is interpolated as text, never `{@html}`.
+		const { getByTestId, queryByTestId } = renderCard({
+			...SUCCESS_PROJECTION,
+			renderedOutput: '<img src=x onerror="window.__pwned = true">',
+		});
+		const body = getByTestId("workflow-run-rendered-output-body");
+		// The tag text is on screen verbatim, but as TEXT — no <img> element
+		// was created, so nothing could have fired `onerror`.
+		expect(body.textContent).toBe('<img src=x onerror="window.__pwned = true">');
+		expect(body.querySelector("img")).toBeNull();
+		expect(queryByTestId("workflow-run-rendered-output-body")?.innerHTML).not.toContain("<img");
+	});
+});
+
 describe("WorkflowRunCard — loop iterations", () => {
 	test("a step that looped 3 times shows the count", () => {
 		const { getByTestId } = renderCard({

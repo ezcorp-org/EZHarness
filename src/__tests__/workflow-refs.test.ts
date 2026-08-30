@@ -8,6 +8,7 @@ import {
   resolveConditionRef,
   interpolateTemplate,
   hasTemplate,
+  renderOutputTemplate,
   type RefContext,
 } from "../runtime/workflow-refs";
 import type { AgentResult } from "../types";
@@ -109,6 +110,32 @@ describe("resolveInputRef", () => {
     expect(() =>
       resolveInputRef("k", "$steps.fetch.output.nope", ctx({ stepResults: results })),
     ).toThrow(/field "output.nope" is missing/);
+  });
+
+  describe("$output (outputTemplate only)", () => {
+    test("bare $output yields the whole final-output value", () => {
+      const finalOutput = { slug: "s", headline: "H" };
+      expect(resolveInputRef("k", "$output", ctx({ finalOutput }))).toEqual(finalOutput);
+    });
+
+    test("$output.<path> resolves a nested field", () => {
+      const finalOutput = { nested: { slug: "s" } };
+      expect(resolveInputRef("k", "$output.nested.slug", ctx({ finalOutput }))).toBe("s");
+    });
+
+    test("a missing path is LENIENT — undefined, never a throw", () => {
+      expect(resolveInputRef("k", "$output.gone", ctx({ finalOutput: {} }))).toBeUndefined();
+      expect(resolveInputRef("k", "$output.a.b.c", ctx({ finalOutput: { a: 1 } }))).toBeUndefined();
+    });
+
+    test("inert for every OTHER caller: with no finalOutput set, $output.* is a literal", () => {
+      // No RefContext built for step-input / transform-output resolution
+      // ever sets `finalOutput`, so a literal string that happens to look
+      // like a `$output` ref keeps resolving as a literal for them —
+      // unchanged from before this ref root existed.
+      expect(resolveInputRef("k", "$output.foo", ctx())).toBe("$output.foo");
+      expect(resolveInputRef("k", "$output", ctx())).toBe("$output");
+    });
   });
 });
 
@@ -217,6 +244,40 @@ describe("interpolateTemplate", () => {
     expect(interpolateTemplate("k", pathological, ctx())).toBe(pathological);
     const trailingBrace = `{{ ${"a ".repeat(4096)}}`;
     expect(interpolateTemplate("k", trailingBrace, ctx())).toBe(trailingBrace);
+  });
+});
+
+describe("renderOutputTemplate", () => {
+  test("interpolates $output refs against the final output object", () => {
+    expect(
+      renderOutputTemplate("{{$output.headline}} (slug: {{$output.slug}})", {
+        headline: "Report on workflows",
+        slug: "workflows-report",
+      }),
+    ).toBe("Report on workflows (slug: workflows-report)");
+  });
+
+  test("a template with no placeholders renders as literal text", () => {
+    expect(renderOutputTemplate("Done.", { anything: true })).toBe("Done.");
+  });
+
+  test("a missing path renders empty, never throws", () => {
+    expect(renderOutputTemplate("[{{$output.gone}}]", {})).toBe("[]");
+  });
+
+  test("deterministic: identical output renders identical text", () => {
+    const output = { a: 1, b: { c: 2 } };
+    const template = "a={{$output.a}} c={{$output.b.c}}";
+    expect(renderOutputTemplate(template, output)).toBe(renderOutputTemplate(template, output));
+  });
+
+  test("returns undefined rather than throwing on an unserializable value", () => {
+    // A circular object cannot reach here through a JSON-parsed tool result
+    // or a plain transform mapping, but the guarantee is unconditional:
+    // rendering must never be able to fail the run it describes.
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(renderOutputTemplate("{{$output}}", circular)).toBeUndefined();
   });
 });
 

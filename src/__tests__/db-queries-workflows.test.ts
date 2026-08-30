@@ -242,3 +242,49 @@ describe("workflows queries — definition-level model binding", () => {
     expect(again?.defaultModel).toEqual({ model: "claude-opus-5" });
   });
 });
+
+describe("workflows queries — outputTemplate", () => {
+  beforeEach(async () => await setupTestDb());
+  afterAll(async () => await closeTestDb());
+
+  test("outputTemplate round-trips through create → load", async () => {
+    await createWorkflow({
+      name: "templated",
+      description: "",
+      outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})",
+      steps: sampleSteps as any,
+    });
+
+    const row = await getWorkflowByName("templated");
+    expect(row?.outputTemplate).toBe("{{$output.headline}} (slug: {{$output.slug}})");
+
+    const [def] = (await loadDbWorkflows()).filter((w) => w.name === "templated");
+    expect(def?.outputTemplate).toBe("{{$output.headline}} (slug: {{$output.slug}})");
+  });
+
+  test("a workflow with no outputTemplate loads it as undefined, not null", async () => {
+    // `undefined` matches every other optional definition-level field
+    // (`defaultModel`) — the executor's `workflow.outputTemplate ? … : …`
+    // check treats `null` and `undefined` the same, but the type contract
+    // is that an absent field is `undefined`, never a stored `null`.
+    await createWorkflow({ name: "untemplated", description: "", steps: sampleSteps as any });
+    const row = await getWorkflowByName("untemplated");
+    expect(row?.outputTemplate).toBeNull();
+    const [def] = (await loadDbWorkflows()).filter((w) => w.name === "untemplated");
+    expect(def?.outputTemplate).toBeUndefined();
+  });
+
+  test("updateWorkflow patches outputTemplate, and leaves it alone when absent from the patch", async () => {
+    const created = await createWorkflow({
+      name: "patchable-template",
+      description: "",
+      steps: sampleSteps as any,
+    });
+    const updated = await updateWorkflow(created.id, {
+      outputTemplate: "Done: {{$output}}",
+    });
+    expect(updated?.outputTemplate).toBe("Done: {{$output}}");
+    const again = await updateWorkflow(created.id, { description: "d" });
+    expect(again?.outputTemplate).toBe("Done: {{$output}}");
+  });
+});

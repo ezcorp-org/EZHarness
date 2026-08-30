@@ -221,6 +221,42 @@ describe("PUT /api/workflows/[name]", () => {
 		});
 	});
 
+	test("returns 400 for an outputTemplate referencing a ref root other than $output, even with no steps", async () => {
+		// Same partial-update rationale as defaultModel above: a
+		// template-only body has no step list to hand the whole-definition
+		// validator — it is checked on its own, or a malformed template
+		// would slip through unvalidated and render empty forever at run
+		// time instead of failing loudly at save time.
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { outputTemplate: "{{$steps.a.output}}" },
+			}),
+		);
+		expect(res.status).toBe(400);
+		const body = (await res.json()) as { error?: string };
+		expect(body.error).toContain('Workflow "outputTemplate" references "$steps.a.output"');
+		expect(queries.getWorkflowByName).not.toHaveBeenCalled();
+	});
+
+	test("forwards a valid outputTemplate to the update", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([ownedEntry()]);
+		queries.getWorkflowByName.mockResolvedValue({ id: "wf-1" });
+		queries.updateWorkflow.mockResolvedValue({ id: "wf-1", name: "w1" });
+		const res = await PUT(
+			makeEvent({
+				locals: authedUser,
+				method: "PUT",
+				body: { outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})" },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(queries.updateWorkflow).toHaveBeenCalledWith("wf-1", {
+			outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})",
+		});
+	});
+
 	// ── Re-classification (Ruling 1, update path) ──────────────────────
 	//
 	// Changing an existing workflow's visibility is a re-classification, so

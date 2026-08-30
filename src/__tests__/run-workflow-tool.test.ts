@@ -387,6 +387,10 @@ describe("run_workflow — result is a bounded projection, not the raw run", () 
       steps: [{ name: "build", status: "success" }],
       result: { url: "https://example.test" },
       error: null,
+      // The YAML fixture declares no `outputTemplate` — `null`, never an
+      // absent key (the model reads this as JSON and should not have to
+      // guard an optional field).
+      renderedOutput: null,
     });
     // The per-step `runId` and the epoch timestamps are dropped — the model
     // can do nothing with them and they are pure token cost.
@@ -413,6 +417,22 @@ describe("run_workflow — result is a bounded projection, not the raw run", () 
     const projected = projectWorkflowRun(successRun({ result: undefined }));
     expect(projected.result).toBeNull();
     expect(projected.error).toBeNull();
+    expect(projected.renderedOutput).toBeNull();
+  });
+
+  test("renderedOutput is projected verbatim from result.renderedOutput", () => {
+    const projected = projectWorkflowRun(
+      successRun({
+        result: {
+          success: true,
+          output: { slug: "workflows-report" },
+          renderedOutput: "Report on workflows (slug: workflows-report)",
+        },
+      }),
+    );
+    expect(projected.renderedOutput).toBe("Report on workflows (slug: workflows-report)");
+    // Additive, never a replacement: the raw output is still there too.
+    expect(projected.result).toEqual({ slug: "workflows-report" });
   });
 
   test("a FAILED run sets details.isError but keeps the text structured", async () => {

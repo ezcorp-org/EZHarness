@@ -3,7 +3,7 @@ import { errorJson } from "$lib/server/http-errors";
 import * as workflowQueries from "$server/db/queries/workflows";
 import { reloadWorkflows } from "$lib/server/context";
 import { ensureWorkflowVersion } from "$server/db/queries/workflow-versions";
-import { validateWorkflow } from "$server/runtime/workflow-validator";
+import { validateOutputTemplate, validateWorkflow } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -85,6 +85,13 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (parsed.data.defaultModel !== undefined) {
     const modelErrors = validateModelOverride(parsed.data.defaultModel, 'Workflow "defaultModel"');
     if (modelErrors.length > 0) return errorJson(400, modelErrors[0]!);
+  }
+  // Same rationale, same shared function `validateWorkflow` delegates to
+  // internally: a malformed `outputTemplate` must be a clean 400 here too,
+  // never a silent write that renders empty forever at run time.
+  if (parsed.data.outputTemplate !== undefined) {
+    const templateErrors = validateOutputTemplate(parsed.data.outputTemplate);
+    if (templateErrors.length > 0) return errorJson(400, templateErrors[0]!);
   }
   // Re-validate step-level rules when steps are being replaced.
   if (Array.isArray(parsed.data.steps)) {
