@@ -103,11 +103,22 @@ describe("WorkflowRunCard — a successful run", () => {
 		expect(queryByTestId("workflow-run-steps")).toBeNull();
 	});
 
-	test("a result nested past JSON.stringify's stack limit renders a placeholder instead of crashing the card", () => {
+	test("a result nested past V8's JSON.stringify stack limit renders without crashing the card, on any engine", () => {
 		// Same crash this card exists to guard against, exercised through the
 		// real render path (not just the pure logic function): a `result` this
 		// deep used to throw a RangeError out of the component's $derived,
 		// which nothing on the page catches (no <svelte:boundary> in web/src).
+		//
+		// This test does NOT assert the result body shows RESULT_UNDISPLAYABLE
+		// — whether JSON.stringify throws at this depth depends on the JS
+		// engine's call-stack size, not on this code. Measured: V8 (node,
+		// `npx vitest` locally) throws at depth 6000; Bun (CI's "Web tests"
+		// shard, `bunx --bun vitest`) has a deeper stack and does not throw at
+		// depth 6000 or even 10000, so on Bun this fixture renders the real
+		// JSON instead. A prior version asserted the placeholder here and
+		// passed locally under V8 while failing in CI under Bun — don't
+		// reintroduce that by tightening this assertion. The
+		// engine-independent guard is the circular-reference test below.
 		const depth = 6000;
 		const nestedJson = `${'{"a":'.repeat(depth)}null${"}".repeat(depth)}`;
 		const deeplyNestedResult: unknown = JSON.parse(nestedJson);
@@ -117,10 +128,29 @@ describe("WorkflowRunCard — a successful run", () => {
 			status: "success",
 			result: deeplyNestedResult,
 		});
-		expect(getByTestId("workflow-run-result-body")).toHaveTextContent(RESULT_UNDISPLAYABLE);
-		// The rest of the card — name and status — is unaffected by the one
-		// undisplayable field.
+		// The card renders at all (no thrown RangeError) and the rest of it —
+		// name and status — is unaffected regardless of what the result body
+		// ends up showing.
 		expect(getByTestId("workflow-run-name")).toHaveTextContent("demo-deep-result");
+		expect(getByTestId("workflow-run-status")).toHaveTextContent("success");
+	});
+
+	test("a circular result renders the placeholder instead of crashing the card (engine-independent)", () => {
+		// Unlike depth, a circular reference makes JSON.stringify throw
+		// `TypeError: Converting circular structure to JSON` on every engine
+		// per spec — so this is the render-path assertion that actually
+		// proves the guard degrades to RESULT_UNDISPLAYABLE, portably (not
+		// just under whichever engine happens to run the test).
+		const circular: Record<string, unknown> = { name: "self-referencing" };
+		circular.self = circular;
+
+		const { getByTestId } = renderCard({
+			workflowName: "demo-circular-result",
+			status: "success",
+			result: circular,
+		});
+		expect(getByTestId("workflow-run-result-body")).toHaveTextContent(RESULT_UNDISPLAYABLE);
+		expect(getByTestId("workflow-run-name")).toHaveTextContent("demo-circular-result");
 		expect(getByTestId("workflow-run-status")).toHaveTextContent("success");
 	});
 });

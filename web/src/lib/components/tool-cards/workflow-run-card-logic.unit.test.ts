@@ -181,16 +181,31 @@ describe("buildWorkflowRunView — result degradation", () => {
 		expect(v?.resultText).toBe("42");
 	});
 
-	test("a result nested past JSON.stringify's stack limit degrades to a placeholder instead of throwing", () => {
+	test("a result nested past V8's JSON.stringify stack limit never throws, regardless of engine", () => {
 		// Built directly as a JSON STRING and then parsed — NOT built via
 		// JSON.stringify, which is exactly the call that throws (RangeError:
-		// Maximum call stack size exceeded) once nesting is this deep. V8's
-		// JSON.parse tolerates this depth fine (reproduced: parse succeeds up
-		// to at least 10000 levels); only the pretty-printing stringify call
-		// in workflow-run-card-logic.ts's safeStringify overflows, at ~6000
-		// levels (36 KB) — an order of magnitude under run_workflow's 8 MiB
-		// output cap, so getToolOutputLimit's truncation never intervenes and
-		// this exact shape can be authored, run, and persisted for real.
+		// Maximum call stack size exceeded) once nesting is this deep on V8.
+		// V8's JSON.parse tolerates this depth fine (reproduced: parse
+		// succeeds up to at least 10000 levels); only the pretty-printing
+		// stringify call in safeStringify overflows on V8, at ~6000 levels
+		// (36 KB) — an order of magnitude under run_workflow's 8 MiB output
+		// cap, so getToolOutputLimit's truncation never intervenes and this
+		// exact shape can be authored, run, and persisted for real.
+		//
+		// IMPORTANT — this test does NOT assert `resultText ===
+		// RESULT_UNDISPLAYABLE`, on purpose. Whether JSON.stringify throws at
+		// a given nesting depth is a property of the JS ENGINE's call-stack
+		// size, not of this code: measured, V8 (node, what `npx vitest` runs
+		// locally) throws at depth 6000, but Bun's engine (what CI's "Web
+		// tests" shard runs via `bunx --bun vitest`) has a deeper stack and
+		// does NOT throw at depth 6000, or even 10000 — so on Bun this same
+		// fixture pretty-prints successfully and resultText is the real JSON,
+		// not the placeholder. A prior version of this test asserted the
+		// placeholder here and passed under `npx vitest` (V8) while failing
+		// in CI (Bun). Do not "fix" that by tightening this assertion again —
+		// use the circular-reference test below instead, which throws
+		// identically on every engine. This test only pins the property that
+		// IS engine-independent: deep nesting must never crash the card.
 		const depth = 6000;
 		const nestedJson = `${'{"a":'.repeat(depth)}null${"}".repeat(depth)}`;
 		const deeplyNestedResult: unknown = JSON.parse(nestedJson);
@@ -213,6 +228,29 @@ describe("buildWorkflowRunView — result degradation", () => {
 		// the workflow name, status and steps over one unrenderable field.
 		expect(v).not.toBeNull();
 		expect(v?.workflowName).toBe("demo-deep-result");
+		expect(v?.succeeded).toBe(true);
+	});
+
+	test("a circular result degrades to the placeholder instead of throwing (engine-independent)", () => {
+		// Unlike depth, a circular reference makes JSON.stringify throw
+		// `TypeError: Converting circular structure to JSON` on every engine
+		// per spec (V8, JavaScriptCore, and Bun's engine alike) — so this is
+		// the assertion that actually proves safeStringify's catch degrades
+		// to RESULT_UNDISPLAYABLE, portably. A circular `result` is reachable
+		// in practice via the "live, not-yet-persisted call" shape
+		// `extractWorkflowRunObject` also accepts (an already-parsed object,
+		// not a JSON string) — JSON.parse itself can never produce a cycle,
+		// but a live object handed straight from the workflow runtime can.
+		const circular: Record<string, unknown> = { name: "self-referencing" };
+		circular.self = circular;
+
+		const v = buildWorkflowRunView({
+			workflowName: "demo-circular-result",
+			status: "success",
+			result: circular,
+		});
+		expect(v).not.toBeNull();
+		expect(v?.workflowName).toBe("demo-circular-result");
 		expect(v?.succeeded).toBe(true);
 		expect(v?.resultText).toBe(RESULT_UNDISPLAYABLE);
 	});
