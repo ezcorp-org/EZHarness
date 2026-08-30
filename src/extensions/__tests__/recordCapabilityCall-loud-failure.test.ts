@@ -41,8 +41,14 @@ mock.module("../../db/queries/settings", () => ({
 // catch branch (a lookup that genuinely throws — a DB hiccup) still needs
 // direct coverage.
 let extensionLookupShouldThrow = false;
+// Counts every `getExtension` invocation — the CA-issue-2 regression test
+// below asserts this stays at 0 for a no-conversationId failure, proving
+// write 0 skips the lookup rather than turning that previously-free path
+// into a paid DB round trip.
+let getExtensionCallCount = 0;
 mock.module("../../db/queries/extensions", () => ({
   getExtension: async (id: string) => {
+    getExtensionCallCount++;
     if (extensionLookupShouldThrow) throw new Error("extensions table unreachable");
     const { getDb } = await import("../../db/connection");
     const { extensions } = await import("../../db/schema");
@@ -144,6 +150,7 @@ beforeEach(() => {
 afterEach(() => {
   process.stderr.write = origStderrWrite;
   extensionLookupShouldThrow = false;
+  getExtensionCallCount = 0;
 });
 
 function warnLines(): Array<Record<string, unknown>> {
@@ -154,8 +161,12 @@ function warnLines(): Array<Record<string, unknown>> {
 
 describe("recordCapabilityCall — write 0 (loud-failure log)", () => {
   test("success:false logs a warn under ext.<name>.capability with the failure reason", async () => {
+    // conversationId set — write 3 will need the resolved name, so write 0
+    // resolves it too (memoized, shared). The no-conversationId case (name
+    // resolution SKIPPED, raw extensionId used instead) has its own
+    // dedicated coverage further down.
     const result = await recordCapabilityCall({
-      ctx: makeCtx(),
+      ctx: makeCtx({ conversationId }),
       capability: "llm",
       action: "complete",
       durationMs: 2,
@@ -197,11 +208,53 @@ describe("recordCapabilityCall — write 0 (loud-failure log)", () => {
     const msgs = await getTestDb().select().from(messages);
     expect(msgs.length).toBe(0);
 
+    // No conversationId means write 3 will never run, so write 0 skips the
+    // `getExtension` lookup entirely (issue 2 fix) and logs under the RAW
+    // extensionId rather than the resolved display name.
     const lines = warnLines();
-    const capabilityWarn = lines.find((l) => l.subsystem === `ext.${extensionName}.capability`);
+    const capabilityWarn = lines.find((l) => l.subsystem === `ext.${extensionId}.capability`);
     expect(capabilityWarn).toBeTruthy();
     expect(capabilityWarn!.msg).toBe("schedule.fire failed");
     expect(capabilityWarn!.conversationId).toBeNull();
+  });
+
+  test("no conversationId → write 0 skips the getExtension round trip entirely", async () => {
+    // CA-issue-2 regression: this lookup used to run only inside write 3,
+    // gated on `shouldPill`. Write 0 must not make it unconditional — a
+    // schedule/cron failure (no conversationId, insertChatPill unset) must
+    // still cost ZERO extra DB round trips, exactly as before write 0
+    // existed.
+    expect(getExtensionCallCount).toBe(0);
+    const result = await recordCapabilityCall({
+      ctx: makeCtx({ conversationId: null }),
+      capability: "schedule",
+      action: "fire",
+      durationMs: 1,
+      success: false,
+      errorCode: "SCHEDULE_FIRE_FAILED",
+      errorMessage: "downstream handler threw",
+    });
+    expect(result.sdkCapabilityCallId).toBeTruthy();
+    expect(getExtensionCallCount).toBe(0);
+  });
+
+  test("conversationId present → write 0 DOES resolve the name (write 3 needs it)", async () => {
+    expect(getExtensionCallCount).toBe(0);
+    await recordCapabilityCall({
+      ctx: makeCtx({ conversationId }),
+      capability: "llm",
+      action: "complete",
+      durationMs: 2,
+      success: false,
+      errorCode: "LLM_CREDENTIAL_MISSING",
+      errorMessage: "No credentials available for google. Connect via OAuth or add an API key.",
+    });
+    // Exactly one lookup — memoized and shared between write 0 and write 3,
+    // not a second round trip per consumer.
+    expect(getExtensionCallCount).toBe(1);
+    const lines = warnLines();
+    const capabilityWarn = lines.find((l) => l.subsystem === `ext.${extensionName}.capability`);
+    expect(capabilityWarn).toBeTruthy();
   });
 
   test("fires even when write 1 (sdk_capability_calls) itself fails — the worst case", async () => {
@@ -336,5 +389,90 @@ describe("recordCapabilityCall — write 0 (loud-failure log)", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]!.success).toBe(false);
     expect(rows[0]!.errorCode).toBe("LLM_CREDENTIAL_MISSING");
+  });
+});
+
+describe("recordCapabilityCall — errorCode/errorMessage redaction (should-fix issue 1)", () => {
+  // The reviewer's traced vector: `guardedFetch`'s "Malformed URL: <url>"
+  // path (src/search/egress.ts) echoes a request URL verbatim, and
+  // SerpAPI (src/search/providers.ts) puts its BYOK key in that URL as
+  // `?...&api_key=<key>`. Neither `errorCode` nor `errorMessage` were ever
+  // redacted before this fix — not in write 0 (new) and not in write 1
+  // (pre-existing gap, fixed here too since it's the same threat one line
+  // away).
+  test("a secret-shaped errorMessage is redacted in BOTH the loud log and the sdk_capability_calls row", async () => {
+    const secret = "sk-1234567890abcdef1234567890abcdef";
+    const result = await recordCapabilityCall({
+      ctx: makeCtx({ conversationId: null }),
+      capability: "llm",
+      action: "complete",
+      durationMs: 2,
+      success: false,
+      errorCode: "LLM_UPSTREAM_ERROR",
+      errorMessage: `upstream rejected credential ${secret}`,
+    });
+    expect(result.sdkCapabilityCallId).toBeTruthy();
+
+    // Write 0 (the log).
+    const lines = warnLines();
+    const capabilityWarn = lines.find((l) => l.subsystem === `ext.${extensionId}.capability`);
+    expect(capabilityWarn).toBeTruthy();
+    expect(String(capabilityWarn!.errorMessage)).not.toContain(secret);
+    expect(capabilityWarn!.errorMessage).toBe("[REDACTED]");
+
+    // Write 1 (the DB row) — the pre-existing gap this fix also closes.
+    const rows = await getTestDb()
+      .select().from(sdkCapabilityCalls)
+      .where(eq(sdkCapabilityCalls.id, result.sdkCapabilityCallId));
+    expect(rows[0]!.errorMessage).toBe("[REDACTED]");
+    expect(JSON.stringify(rows[0])).not.toContain(secret);
+  });
+
+  test("a URL-embedded, shape-agnostic key (SerpAPI-style) in errorMessage is redacted without wiping the whole message", async () => {
+    const secret = "9f8e7d6c5b4a3928170695817263544a";
+    const errorMessage = `Malformed URL: https://serpapi.com/search.json?q=x&num=5&api_key=${secret}`;
+    const result = await recordCapabilityCall({
+      ctx: makeCtx({ conversationId: null }),
+      capability: "search",
+      action: "search",
+      durationMs: 1,
+      success: false,
+      errorCode: "SEARCH_EGRESS_BLOCKED",
+      errorMessage,
+    });
+
+    const lines = warnLines();
+    const capabilityWarn = lines.find((l) => l.subsystem === `ext.${extensionId}.capability`);
+    expect(capabilityWarn).toBeTruthy();
+    const loggedMessage = String(capabilityWarn!.errorMessage);
+    expect(loggedMessage).not.toContain(secret);
+    // Structure-preserving: host/path/prefix survive, only the query value
+    // is blanked — this is a MORE useful redaction than the whole-string
+    // wipe the shape-based patterns produce.
+    expect(loggedMessage).toContain("Malformed URL: https://serpapi.com/search.json");
+    expect(loggedMessage).toContain("api_key=");
+
+    const rows = await getTestDb()
+      .select().from(sdkCapabilityCalls)
+      .where(eq(sdkCapabilityCalls.id, result.sdkCapabilityCallId));
+    expect(rows[0]!.errorMessage).not.toContain(secret);
+    expect(rows[0]!.errorMessage).toContain("serpapi.com/search.json");
+  });
+
+  test("a non-secret-shaped errorCode/errorMessage pass through unchanged", async () => {
+    const result = await recordCapabilityCall({
+      ctx: makeCtx({ conversationId: null }),
+      capability: "schedule",
+      action: "fire",
+      durationMs: 1,
+      success: false,
+      errorCode: "SCHEDULE_FIRE_FAILED",
+      errorMessage: "downstream handler threw",
+    });
+    const rows = await getTestDb()
+      .select().from(sdkCapabilityCalls)
+      .where(eq(sdkCapabilityCalls.id, result.sdkCapabilityCallId));
+    expect(rows[0]!.errorCode).toBe("SCHEDULE_FIRE_FAILED");
+    expect(rows[0]!.errorMessage).toBe("downstream handler threw");
   });
 });

@@ -280,6 +280,57 @@ describe("redactForAudit — edge cases that must NOT throw", () => {
   });
 });
 
+describe("redactForAudit — URL-embedded, shape-agnostic credentials (residual-gap fix)", () => {
+  // A BYOK key with no recognizable prefix (SerpAPI, and any future
+  // provider that follows the same `?api_key=` convention) slips past
+  // every VALUE_PATTERNS regex above. `walk()` also runs every string
+  // through `redactUrlSecretsInToken` (reused from `mcp-secret-redaction.ts`)
+  // as a shape-agnostic fallback.
+  test("fixture 36: SerpAPI-shaped api_key query value inside a longer message", () => {
+    const secret = "9f8e7d6c5b4a3928170695817263544a";
+    const message = `Malformed URL: https://serpapi.com/search.json?q=x&num=5&api_key=${secret}`;
+    const out = redactForAudit({ errorMessage: message });
+    assertNoLiteral(out.redacted, secret);
+    expect(out.redactedFields).toContain("errorMessage");
+    // Structure-preserving — unlike the shape-based patterns' whole-string
+    // wipe, only the query VALUES are blanked; host + path survive.
+    const redactedMessage = (out.redacted as { errorMessage: string }).errorMessage;
+    expect(redactedMessage).toContain("Malformed URL: https://serpapi.com/search.json");
+    expect(redactedMessage).toContain("api_key=");
+    expect(redactedMessage).not.toBe("[REDACTED]");
+  });
+
+  test("fixture 37: access_token query value at top-level string (no wrapping object)", () => {
+    const secret = "abcdefghijklmnopqrstuvwxyz012345";
+    const url = `https://api.example.com/oauth/callback?access_token=${secret}&state=xyz`;
+    const out = redactForAudit(url);
+    assertNoLiteral(out.redacted, secret);
+    expect(out.redactedFields).toContain("$");
+  });
+
+  test("fixture 38: a URL with no query string is left untouched (identity, no false positive)", () => {
+    const url = "https://example.com/some/path";
+    const out = redactForAudit({ url });
+    expect(out.redactedFields).toEqual([]);
+    expect((out.redacted as { url: string }).url).toBe(url);
+  });
+
+  test("fixture 39: a plain string with no URL and no known shape is left untouched", () => {
+    const out = redactForAudit({ note: "downstream handler threw" });
+    expect(out.redactedFields).toEqual([]);
+  });
+
+  test("fixture 40: a shape-based match (sk-...) still wins whole-string replacement over the URL fallback", () => {
+    // When BOTH a recognizable-shape secret and a URL are present, the
+    // existing shape-based patterns run first and short-circuit — the
+    // whole string is wiped, same contract as before this change.
+    const secret = "sk-1234567890abcdef1234567890abcdef";
+    const out = redactForAudit(`see https://example.com/x?key=1 — key is ${secret}`);
+    assertNoLiteral(out.redacted, secret);
+    expect(out.redacted).toBe("[REDACTED]");
+  });
+});
+
 describe("redactForAudit — robustness of the contract", () => {
   test("never throws on a JSON-poison object (BigInt + circular + symbols)", () => {
     const a: any = { big: 9007199254740993n, sym: Symbol("k") };

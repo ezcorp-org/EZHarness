@@ -32,6 +32,26 @@
  *   - SHA-256 hashing: mirror `src/runtime/lessons/distiller.ts:505-517`
  *     — Bun.CryptoHasher fast path; node:crypto fallback for non-Bun
  *     test runners (Vitest in `web/`).
+ *
+ * ── Residual gap (stated, not silently implied covered) ────────────────
+ * `VALUE_PATTERNS` below is shape-based — it only catches a credential
+ * with a recognizable prefix (`sk-`, `AIza`, `ghp_`, …) or a `Bearer`/JWT
+ * envelope. A BYOK key with NO recognizable shape (e.g. a bare-hex SerpAPI
+ * key) still leaks once it is a URL query-parameter VALUE, which is
+ * exactly what a malformed-URL egress error echoes verbatim (see
+ * `src/search/egress.ts`'s "Malformed URL: <url>" path and
+ * `src/search/providers.ts`'s `SerpApi` — `?...&api_key=<key>`). `walk()`
+ * closes that specific gap by also running every string through
+ * `redactUrlSecretsInToken` (`./mcp-secret-redaction.ts`) — the same
+ * NAME/POSITION-based blanker already proven for MCP server credentials —
+ * which blanks every URL query VALUE and userinfo password while leaving
+ * the host/path/rest of the message intact. It is still a closed net: a
+ * secret with no name, no shape, and no URL carrier at all is not caught
+ * by anything in this file. It also only runs on strings that literally
+ * contain "://" and are under `URL_SCAN_MAX_CHARS` — a large non-URL
+ * string (an oversized `before`/`after` payload field) skips the scan
+ * entirely rather than pay `TOKEN_URL_RE`'s quadratic-backtracking worst
+ * case on a string it can never match.
  */
 
 // CR-5: ESM import (project standard for src/extensions/). The logger
@@ -41,6 +61,7 @@
 // further down stay — they're documented Bun fallbacks for a different
 // purpose (Bun.CryptoHasher fast path).
 import { logger } from "../logger";
+import { redactUrlSecretsInToken } from "./mcp-secret-redaction";
 
 const log = logger.child("audit-redaction");
 
@@ -74,6 +95,11 @@ const REDACTED = "[REDACTED]";
 const FAILURE_MARKER = "[REDACTION_FAILED]";
 const DEFAULT_MAX_BYTES = 8192;
 const TRUNCATION_KEEP_BYTES = 4096;
+
+/** Length ceiling for the URL-scan fallback in `redactString` — see the
+ *  comment at its call site. Real URLs, even with dozens of query params,
+ *  are nowhere near this. */
+const URL_SCAN_MAX_CHARS = 2048;
 
 // ── Value-pattern regexes ─────────────────────────────────────────────
 //
@@ -133,6 +159,29 @@ function redactString(value: string): { value: string; matched: boolean } {
     re.lastIndex = 0;
     if (re.test(value)) {
       return { value: REDACTED, matched: true };
+    }
+  }
+  // Shape-agnostic fallback: a credential with no recognizable prefix
+  // still leaks as a URL query-parameter value (SerpAPI's `api_key`, a
+  // BYOK key with no fixed format). Reuses the MCP module's proven
+  // name/position-based blanker rather than a second regex — it blanks
+  // every query VALUE and userinfo password while leaving the rest of
+  // the string (host, path, surrounding message text) readable, which is
+  // a MORE useful redaction than the whole-string wipe above, not just a
+  // narrower one. See the module docstring's "Residual gap" section.
+  //
+  // Two guards before paying for `TOKEN_URL_RE`, whose `[a-z0-9+.-]*` can
+  // backtrack quadratically on a long string that never contains "://" at
+  // all: a cheap literal `includes` bails out the overwhelmingly common
+  // case with no regex engine involved (this is exactly what a large
+  // non-URL `before`/`after` payload field hits — fixture 32's <50ms
+  // budget measured at ~9.4s without this guard), and the length ceiling
+  // bounds the rarer case where "://" IS present but the string is
+  // payload-sized rather than message-sized.
+  if (value.includes("://") && value.length <= URL_SCAN_MAX_CHARS) {
+    const urlRedacted = redactUrlSecretsInToken(value);
+    if (urlRedacted !== value) {
+      return { value: urlRedacted, matched: true };
     }
   }
   return { value, matched: false };

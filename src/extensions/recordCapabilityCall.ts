@@ -6,8 +6,10 @@
  * aborts the underlying capability call (Pitfall #2 in research):
  *
  *   1. `insertSdkCapabilityCall(...)` — the row in
- *      `sdk_capability_calls`. `before` and `after` are passed through
- *      `redactForAudit` first.
+ *      `sdk_capability_calls`. `before`, `after`, `errorCode` and
+ *      `errorMessage` are all passed through `redactForAudit` first (the
+ *      error fields share write 0's redacted copies below — see the
+ *      "Write 0" block).
  *   2. Optional per-resource audit row: `memory_audit_log` or
  *      `lessons_audit_log` if `perResourceAudit.kind` is set. Captures
  *      full before/after body + frontmatter that the high-volume
@@ -40,7 +42,18 @@
  * cron/schedule fire has no `conversationId`, so write 3 never runs, but
  * the failure is exactly as real). A logging hiccup here must never mask
  * or replace the original capability failure, so it's wrapped in its own
- * try/catch same as writes 1-3.
+ * try/catch same as writes 1-3. `errorCode`/`errorMessage` are redacted
+ * (shared with write 1, see above) before they reach this log line, same
+ * as `before`/`after` always were.
+ *
+ * The `getExtension` lookup behind the log's `ext.<name>` tag is SKIPPED
+ * (logs under the raw `extensionId` instead) when write 3 will not run —
+ * i.e. exactly the schedule/cron case above. That lookup used to run only
+ * inside write 3, gated on the same condition, so a no-pill failure paid
+ * zero extra DB round trips; write 0 must not turn that free path into a
+ * paid one for a cosmetic-only benefit (a friendlier name in a subsystem
+ * tag) on a failure class this file exists because it can be fast and
+ * frequent.
  *
  * Reference: `tasks/v1.3-phase-50-audit-foundation.md` § 50.6.
  */
@@ -129,6 +142,13 @@ export async function recordCapabilityCall(
 ): Promise<CapabilityCallResult> {
   let sdkCapabilityCallId = "";
 
+  // Whether write 3 (chat pill) will run at all — a pure function of the
+  // spec, known up front. Hoisted so write 0 can consult it before doing a
+  // `getExtension` round trip it may not need (see "resolveExtensionName
+  // is not free" below); write 3 further down reuses this same binding
+  // instead of recomputing it.
+  const shouldPill = spec.insertChatPill !== false && spec.ctx.conversationId !== null;
+
   // Extension display name, resolved AT MOST ONCE per call and shared by
   // write 0 (loud-failure log) and write 3 (chat pill) — avoids a second
   // `getExtension` round trip when both need it. `null` on lookup failure;
@@ -148,19 +168,55 @@ export async function recordCapabilityCall(
     return cachedExtensionName;
   };
 
+  // Redact BEFORE either sink below sees them. `errorCode`/`errorMessage`
+  // carry the exact same threat `before`/`after` are already redacted
+  // against — `audit-redaction.ts`'s stated purpose is credential leakage,
+  // and an error string is precisely where a misconfigured BYOK provider's
+  // key surfaces (e.g. a malformed-URL egress error echoing a
+  // `?api_key=...` query value verbatim — see `src/search/egress.ts` +
+  // `src/search/providers.ts`'s `SerpApi`). Shared by write 0 (the log)
+  // and write 1 (the DB row) — the same gap existed on write 1 before this
+  // change too, and it is one line away from write 0's fix for the same
+  // threat, so both get it rather than leaving the longer-retention sink
+  // (the DB row, unlike the log stream) exposed.
+  // `{ truncate: false }` mirrors `redactToolCallOutputContent`: an error
+  // message keeps its full length (the 8 KB cap is for `before`/`after`
+  // payload bodies, not a one-line message) and — just as important —
+  // guarantees `.redacted` stays a `string` rather than risking the
+  // truncation-marker OBJECT a capped call could return into a `text`
+  // column.
+  const redactedErrorCode =
+    spec.errorCode !== undefined
+      ? (redactForAudit(spec.errorCode, { truncate: false }).redacted as string)
+      : undefined;
+  const redactedErrorMessage =
+    spec.errorMessage !== undefined
+      ? (redactForAudit(spec.errorMessage, { truncate: false }).redacted as string)
+      : undefined;
+
   // ── Write 0: loud-failure log ─────────────────────────────────────
   // Runs BEFORE write 1 so it is unaffected by (and unconditional on) that
   // write's own success — see the "Write 0" doc block above. Never throws:
   // a logging hiccup must not mask the original capability failure.
   if (!spec.success) {
     try {
-      const name = (await resolveExtensionName()) ?? spec.ctx.actorExtensionId;
+      // resolveExtensionName is not free — it is a `getExtension` DB round
+      // trip, and write 0 makes it unconditional on EVERY failure.
+      // Previously that lookup only ran inside write 3, gated on
+      // `shouldPill`, so a schedule/cron fire (no conversationId — exactly
+      // the incident this file exists to fix: a failure that took 2-3ms)
+      // cost zero extra round trips. Only pay for the lookup here when
+      // write 3 will actually consume its result; otherwise log under the
+      // raw extensionId, which is already a field on this line regardless.
+      const name = shouldPill
+        ? ((await resolveExtensionName()) ?? spec.ctx.actorExtensionId)
+        : spec.ctx.actorExtensionId;
       extensionLogger(name, "capability").warn(`${spec.capability}.${spec.action} failed`, {
         extensionId: spec.ctx.actorExtensionId,
         onBehalfOf: spec.ctx.onBehalfOf,
         conversationId: spec.ctx.conversationId,
-        errorCode: spec.errorCode ?? null,
-        errorMessage: spec.errorMessage ?? null,
+        errorCode: redactedErrorCode ?? null,
+        errorMessage: redactedErrorMessage ?? null,
         provider: spec.provider ?? null,
         model: spec.model ?? null,
         durationMs: spec.durationMs,
@@ -188,8 +244,8 @@ export async function recordCapabilityCall(
       after: redactedAfter as unknown,
       success: spec.success,
       durationMs: spec.durationMs,
-      errorCode: spec.errorCode ?? null,
-      errorMessage: spec.errorMessage ?? null,
+      errorCode: redactedErrorCode ?? null,
+      errorMessage: redactedErrorMessage ?? null,
       tokensUsed: spec.tokensUsed ?? null,
       costUsd: spec.costUsd ?? null,
       provider: spec.provider ?? null,
@@ -257,8 +313,8 @@ export async function recordCapabilityCall(
 
   // ── Write 3: in-chat capability-event message ────────────────────
   // Default: insert when a conversationId is present, skip otherwise.
-  // Caller can force-skip with `insertChatPill: false`.
-  const shouldPill = spec.insertChatPill !== false && spec.ctx.conversationId !== null;
+  // Caller can force-skip with `insertChatPill: false`. `shouldPill` is
+  // computed once, up top, and shared with write 0's lookup-skip decision.
   if (shouldPill && sdkCapabilityCallId !== "") {
     // Phase 52.5 — surface the extension name in the pill payload so
     // the in-chat pill renders "lessons-keeper called gpt-4o-mini"
