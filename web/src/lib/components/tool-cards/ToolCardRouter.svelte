@@ -31,6 +31,8 @@
 	import { parseConsentCardResult } from "./preview-consent-card-logic.js";
 	import WebContextCard from "./WebContextCard.svelte";
 	import { buildWebContextView } from "./web-context-card-logic.js";
+	import WorkflowRunCard from "./WorkflowRunCard.svelte";
+	import { buildWorkflowRunView } from "./workflow-run-card-logic.js";
 
 	let { toolCall, conversationId, messageId, onsendmessage, mode = 'inline' }: { toolCall: ToolCallState; conversationId?: string; messageId?: string; onsendmessage?: (message: string) => void; mode?: 'inline' | 'dock' } = $props();
 
@@ -114,6 +116,16 @@
 	// one-line header inline; full-size in the dock. Decision lives in a pure
 	// helper so the matrix is unit-tested without a renderer.
 	let collapsibleDevCard = $derived(isCollapsibleDevCard(cardName, mode));
+
+	// run_workflow's result: a DETERMINISTIC value for identical input, so it
+	// must render identically every time regardless of the model's (sampled)
+	// prose above it — the reason this card exists instead of DefaultCard.
+	// A null view (streaming, unparseable, or missing workflowName/status)
+	// degrades to DefaultCard exactly like the ez-*/city-conditions parsers
+	// above rather than rendering a blank-but-successful run card.
+	let workflowRunView = $derived(
+		cardName === 'WorkflowRunCard' ? buildWorkflowRunView(toolCall.output) : null,
+	);
 </script>
 
 {#snippet devCard()}
@@ -166,6 +178,8 @@
 	<PreviewConsentCard data={consentCardData} />
 {:else if cardName === 'WebContextCard' && webContextView}
 	<WebContextCard view={webContextView} />
+{:else if cardName === 'WorkflowRunCard' && workflowRunView}
+	<WorkflowRunCard view={workflowRunView} />
 {:else}
 	<DefaultCard {toolCall} />
 {/if}

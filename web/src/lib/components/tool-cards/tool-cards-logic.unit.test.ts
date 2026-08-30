@@ -74,6 +74,9 @@ describe("getCardComponentName", () => {
 		// model read? — so they route together.
 		["web-search", "WebContextCard"],
 		["web-page", "WebContextCard"],
+		// run_workflow's result — a deterministic value that must render
+		// identically regardless of the model's prose above it.
+		["workflow-run", "WorkflowRunCard"],
 	])("%s → %s", (cardType, component) => {
 		expect(getCardComponentName(cardType, false)).toBe(component);
 	});

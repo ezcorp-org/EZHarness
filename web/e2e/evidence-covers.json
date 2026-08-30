@@ -80,6 +80,12 @@
     "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
     "web/src/lib/components/tool-cards/DefaultCard.svelte"
   ],
+  "web/e2e/workflow-run-card.spec.ts": [
+    "web/src/lib/components/tool-cards/WorkflowRunCard.svelte",
+    "web/src/lib/components/tool-cards/workflow-run-card-logic.ts",
+    "web/src/lib/components/tool-cards/ToolCardRouter.svelte",
+    "web/src/lib/components/tool-cards/DefaultCard.svelte"
+  ],
   "web/e2e/code-review-panel-evidence.spec.ts": [
     "web/src/lib/components/DiffSummaryPanel.svelte",
     "web/src/lib/components/review/DiffStatBar.svelte",
