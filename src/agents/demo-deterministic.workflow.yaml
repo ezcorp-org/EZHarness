@@ -10,6 +10,15 @@ inputSchema:
     description: The subject the report is composed around.
     required: true
     default: workflows
+# Renders the run's final output into a one-line report, deterministically —
+# a pure function of `output` via the SAME `{{…}}` interpolation the
+# transform steps below use, scoped to the one ref root `$output` addresses
+# (the final `output` object; see workflow-refs.ts's `renderOutputTemplate`
+# and workflow-validator.ts's outputTemplate check). Demonstrates the
+# feature this workflow's own doc comment argues for: byte-identical output
+# on every run means the RENDERED report is just as reproducible as the raw
+# JSON, so there is no need to let the model paraphrase it.
+outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})"
 steps:
   - name: compose
     kind: transform

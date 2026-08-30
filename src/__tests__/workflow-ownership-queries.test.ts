@@ -207,6 +207,7 @@ describe("the cache projection carries provenance", () => {
       "description",
       "inputSchema",
       "name",
+      "outputTemplate",
       "source",
       "steps",
     ]);

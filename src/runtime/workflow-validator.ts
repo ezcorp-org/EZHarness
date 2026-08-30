@@ -110,6 +110,46 @@ export function validateCondition(
   return errors;
 }
 
+/**
+ * Validate a workflow's `outputTemplate` shape in isolation — a string
+ * within the shared mapping-value length cap, referencing no ref root
+ * other than `$output`. Standalone (rather than inlined into
+ * `validateWorkflow`) for the same reason `validateModelOverride` is: `PUT
+ * /api/workflows/[name]` is a partial update, so a body carrying only
+ * `outputTemplate` has no `steps` to hand the whole-definition validator,
+ * and this is what it calls directly instead. One rule either way.
+ *
+ * `renderOutputTemplate` is deliberately lenient at run time (a missing
+ * path renders empty, never throws), so THIS is the one gate a malformed
+ * template ever passes through: the only thing worth rejecting here is a
+ * ref root the renderer does not resolve — `$steps`/`$prev`/`$input`/
+ * `$loop`/`$result` would silently render as empty text forever, which is
+ * a confusing, undebuggable form of the "I set it and nothing happened"
+ * bug this module already refuses for a non-agent step's `model` binding.
+ */
+export function validateOutputTemplate(
+  value: unknown,
+  label = 'Workflow "outputTemplate"',
+): string[] {
+  if (typeof value !== "string") {
+    return [`${label} must be a string`];
+  }
+  if (value.length > MAX_MAPPING_VALUE_LENGTH) {
+    return [`${label} exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`];
+  }
+  const errors: string[] = [];
+  for (const ref of templateRefs(value)) {
+    if (ref !== "$output" && !ref.startsWith("$output.")) {
+      errors.push(
+        `${label} references "${ref}", but the only ref root a template may use is "$output" ` +
+          `(the run's own final output) — refer to "$output.<field>" or bare "$output" for the ` +
+          `whole object`,
+      );
+    }
+  }
+  return errors;
+}
+
 /** Clamp a loop's declared `maxIterations` to the supported 1..25 range.
  *  Callers validate integer-ness first; this only bounds the value. A
  *  non-finite value (`NaN`, `±Infinity`) is malformed input — clamp it to
@@ -278,6 +318,18 @@ export function validateWorkflow(
   // unrelated fix.
   if (def.defaultModel !== undefined) {
     errors.push(...validateModelOverride(def.defaultModel, 'Workflow "defaultModel"'));
+  }
+  // ── outputTemplate ──
+  //
+  // Same treatment as `defaultModel`, and checked before the same
+  // early-return: a definition-level field is wrong (or not) independently
+  // of the step list. Delegates to the standalone `validateOutputTemplate`
+  // (below) — the SAME function `PUT /api/workflows/[name]` calls directly
+  // for a body that carries `outputTemplate` with no `steps` (a partial
+  // update has nothing to hand this whole-definition validator), exactly
+  // mirroring how `validateModelOverride` is shared between the two.
+  if (def.outputTemplate !== undefined) {
+    errors.push(...validateOutputTemplate(def.outputTemplate));
   }
   if (!Array.isArray(def.steps) || def.steps.length === 0) {
     errors.push("Workflow must have at least one step");

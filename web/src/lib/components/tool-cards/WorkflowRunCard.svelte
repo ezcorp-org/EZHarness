@@ -1,9 +1,10 @@
 <!--
   WorkflowRunCard — renders `run_workflow`'s result (`cardType:
   "workflow-run"`) verbatim: the workflow name + terminal status, the
-  per-step list (with loop iteration counts when a step carries one), the
-  RESULT object pretty-printed in full, and — for a run that did not
-  succeed — the error.
+  per-step list (with loop iteration counts when a step carries one), an
+  OPTIONAL author-rendered report (`outputTemplate`, see below), the RESULT
+  object pretty-printed in full, and — for a run that did not succeed — the
+  error.
 
   WHY this card exists: `run_workflow`'s result is deterministic for
   identical input, but the model's PROSE about it is not — the same JSON
@@ -14,12 +15,19 @@
   shown through a component with no determinism contract of its own. This
   card is the one surface the user can trust to look the same twice, so it
   never paraphrases: every string below is either the raw shape (a status
-  word, a step name) or `JSON.stringify(result, null, 2)` unmodified.
+  word, a step name), a HOST-rendered template (`outputTemplate` — see
+  below), or `JSON.stringify(result, null, 2)` unmodified.
+
+  The `outputTemplate` panel is an AUTHOR-CONTROLLED string, and every
+  workflow string is attacker-controlled (any `chat`-scoped caller may
+  create or edit a DB workflow, and workflows are global) — so it is
+  interpolated as plain text ({expr}), never `{@html}`, and it is always an
+  ADDITION next to the verbatim Result panel, never a replacement for it.
 
   TEMPLATE ONLY, same rule as CityConditionsCard: every parse and format
   lives in `workflow-run-card-logic.ts`; the markup here branches solely on
   precomputed booleans (`succeeded`, `hasIterations`, `hasError`,
-  `hasRunId`) and iterates a precomputed `steps` array.
+  `hasRunId`, `hasRenderedOutput`) and iterates a precomputed `steps` array.
 -->
 
 <script lang="ts">
@@ -47,6 +55,24 @@
 			data-status={view.status}>{view.status}</span
 		>
 	</header>
+
+	{#if view.hasRenderedOutput}
+		<!-- The author's `outputTemplate`, rendered host-side and interpolated
+		     here as PLAIN TEXT ({expr}, never {@html}) — every workflow string
+		     is attacker-controlled (any `chat`-scoped caller may create or edit
+		     a DB workflow, and workflows are global), so this is the entire
+		     defence: Svelte's default text interpolation escapes markup, so a
+		     template cannot inject a tag, an attribute or forged card chrome
+		     into this or any other user's browser. It is an ADDITION, never a
+		     replacement — the verbatim `Result` panel below still renders
+		     unconditionally, exactly as it did before this section existed. -->
+		<div class="panel rendered-output" data-testid="workflow-run-rendered-output">
+			<p class="panel-title">Report</p>
+			<p class="rendered-output-body" data-testid="workflow-run-rendered-output-body"
+				>{view.renderedOutputText}</p
+			>
+		</div>
+	{/if}
 
 	{#if view.steps.length > 0}
 		<ol class="steps" data-testid="workflow-run-steps">
@@ -224,6 +250,30 @@
 		font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
 		font-size: 0.8125rem;
 		line-height: 1.5;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	/* The author's `outputTemplate`, rendered. Styled as a callout ABOVE the
+	   steps and the raw Result panel — it is the human-readable headline,
+	   never a replacement for the canonical JSON below it. No border-top
+	   (unlike `.panel`): it is the first thing in the card body, not a
+	   continuation of the header. */
+	.rendered-output {
+		padding: 0.625rem 0.75rem;
+		background: var(--color-surface-secondary, #eef1f7);
+		border: 1px solid var(--color-border, #d4dae8);
+		border-radius: 6px;
+	}
+	.rendered-output .panel-title {
+		cursor: default;
+	}
+	.rendered-output-body {
+		margin: 0;
+		min-width: 0;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		color: var(--color-text-primary, #11141f);
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}

@@ -405,6 +405,41 @@ describe("buildWorkflowRunView — a run that did not succeed", () => {
 	});
 });
 
+describe("buildWorkflowRunView — renderedOutput (outputTemplate)", () => {
+	test("absent renderedOutput ⇒ hasRenderedOutput is false, text is empty", () => {
+		const v = buildWorkflowRunView(SUCCESS_PROJECTION);
+		expect(v?.hasRenderedOutput).toBe(false);
+		expect(v?.renderedOutputText).toBe("");
+	});
+
+	test("a present renderedOutput is carried verbatim, ADDITIVE to resultText", () => {
+		const v = buildWorkflowRunView({
+			...SUCCESS_PROJECTION,
+			renderedOutput: "Report on workflows (slug: workflows-report)",
+		});
+		expect(v?.hasRenderedOutput).toBe(true);
+		expect(v?.renderedOutputText).toBe("Report on workflows (slug: workflows-report)");
+		// Never a replacement — the raw result panel's text is unchanged.
+		expect(v?.resultText).toBe(JSON.stringify(SUCCESS_PROJECTION.result, null, 2));
+	});
+
+	test("null renderedOutput (the projection's explicit 'no template' value) degrades to absent", () => {
+		const v = buildWorkflowRunView({ ...SUCCESS_PROJECTION, renderedOutput: null });
+		expect(v?.hasRenderedOutput).toBe(false);
+		expect(v?.renderedOutputText).toBe("");
+	});
+
+	test("a blank-string renderedOutput degrades to absent, same as no template", () => {
+		const v = buildWorkflowRunView({ ...SUCCESS_PROJECTION, renderedOutput: "   " });
+		expect(v?.hasRenderedOutput).toBe(false);
+	});
+
+	test("a non-string renderedOutput degrades to absent rather than throwing", () => {
+		const v = buildWorkflowRunView({ ...SUCCESS_PROJECTION, renderedOutput: 42 });
+		expect(v?.hasRenderedOutput).toBe(false);
+	});
+});
+
 describe("buildWorkflowRunView — runId degradation", () => {
 	test("a missing runId is reported as absent, not an empty label", () => {
 		const v = buildWorkflowRunView({ workflowName: "demo", status: "success" });

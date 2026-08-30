@@ -241,6 +241,19 @@ describe("the YAML tab", () => {
     expect(parsed).toEqual({ ok: true, value: definition });
   });
 
+  test("outputTemplate survives the YAML round-trip too", () => {
+    // Not in the whitelist would mean opening the editor's YAML tab on a
+    // templated workflow silently drops it from what the author sees.
+    const definition = {
+      name: "ship",
+      description: "d",
+      outputTemplate: "{{$output.headline}} (slug: {{$output.slug}})",
+      steps: [{ name: "s", agent: "a" }],
+    };
+    const parsed = parseWorkflowYaml(workflowToYaml(definition));
+    expect(parsed).toEqual({ ok: true, value: definition });
+  });
+
   test("definitionFields strips the provenance the strict PUT body would reject", () => {
     // The single-workflow GET returns definition + provenance, and the PUT
     // schema is `.strict()` — echoing the whole object back would 400.
@@ -256,5 +269,18 @@ describe("the YAML tab", () => {
         forkedFrom: null,
       }),
     ).toEqual({ name: "ship", description: "d", steps: [] });
+  });
+
+  test("definitionFields keeps outputTemplate — it is a saveable definition field, not provenance", () => {
+    expect(
+      definitionFields({
+        name: "ship",
+        description: "d",
+        outputTemplate: "Done: {{$output}}",
+        steps: [],
+        source: "db",
+        canEdit: true,
+      }),
+    ).toEqual({ name: "ship", description: "d", outputTemplate: "Done: {{$output}}", steps: [] });
   });
 });

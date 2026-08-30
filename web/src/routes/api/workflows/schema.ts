@@ -58,6 +58,12 @@ export const workflowBodySchema = z
     // `model` above: shape is validated by `validateWorkflow`.
     defaultModel: z.unknown().optional(),
     steps: z.array(workflowStepSchema).optional(),
+    // Renders the run's final output into a report, deterministically.
+    // Typed here (unlike `defaultModel` / `condition` / `loop`) because its
+    // shape is a plain scalar — the same reason `description` above is
+    // `z.string()` rather than `z.unknown()`. `validateWorkflow` still owns
+    // the deeper rule (only the `$output` ref root is legal, max length).
+    outputTemplate: z.string().optional(),
     // The confidentiality tier, chosen by the author. Before this key
     // existed the schema's `.strict()` rejected any body carrying one, so
     // no caller could reach `private` at all and every workflow that could

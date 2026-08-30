@@ -1,4 +1,5 @@
 import type { AgentResult } from "../types";
+import { truncateText } from "./tools/output-limits";
 
 /**
  * Shared reference-resolution language for workflows. Used by three
@@ -30,6 +31,16 @@ export interface RefContext {
   /** Present only while evaluating a loop `until` condition. */
   result?: AgentResult;
   iteration?: number;
+  /**
+   * The run's own final output — present ONLY while rendering a workflow
+   * definition's `outputTemplate`, after the run has already finished
+   * (`$output` root). Every other caller (step-input resolution, transform
+   * templates, conditions) never sets this key, so `$output` is inert for
+   * them and a literal string like `"$output.foo"` in an ordinary mapping
+   * value keeps resolving as a literal — exactly as it did before this
+   * field existed.
+   */
+  finalOutput?: unknown;
   /**
    * Steps this run SKIPPED (`when` false, or a skipped dependency), keyed
    * by step name and valued by the human-readable reason.
@@ -185,6 +196,25 @@ export function resolveInputRef(
     return value;
   }
 
+  // `$output[.path]` — the ONE ref root `outputTemplate` may use (see
+  // `renderOutputTemplate` below). Guarded on `finalOutput` actually being
+  // present rather than merely truthy, so this branch is unreachable for
+  // every OTHER caller of this function (step input / transform output),
+  // none of which ever sets the key — a literal value equal to a `$output`
+  // string keeps resolving as a literal for them, unchanged.
+  //
+  // Deliberately LENIENT, unlike `$steps`/`$prev`: a missing or undefined
+  // path resolves to `undefined` (interpolated as "") rather than
+  // throwing. `outputTemplate` renders against DATA, not a declared graph
+  // shape, so there is no definition-time way to know a path will be
+  // present — throwing here would let a runtime data shape fail a run
+  // that otherwise succeeded, which is exactly what this feature must
+  // never do.
+  if (ctx.finalOutput !== undefined && (ref === "$output" || ref.startsWith("$output."))) {
+    if (ref === "$output") return ctx.finalOutput;
+    return getNestedValue(ctx.finalOutput, ref.slice("$output.".length));
+  }
+
   // Literal value.
   return ref;
 }
@@ -331,4 +361,61 @@ export function hasTemplate(value: string): boolean {
  */
 export function templateRefs(value: string): string[] {
   return [...value.matchAll(/\{\{([^{}]*)\}\}/g)].map((m) => (m[1] ?? "").trim());
+}
+
+/**
+ * Cap on the RENDERED text `renderOutputTemplate` produces, independent of
+ * `validateOutputTemplate`'s `MAX_MAPPING_VALUE_LENGTH` cap on the TEMPLATE
+ * SOURCE (10,000 characters).
+ *
+ * A short template can still blow the render up: `{{$output}}` repeated a
+ * few hundred times against a large output object multiplies out to a
+ * multi-hundred-MB string, and nothing bounded the RESULT before this cap
+ * existed. That text is written unbounded to `workflow_runs.result` and
+ * broadcast over SSE to every subscriber — `run-workflow.ts`'s tool-output
+ * cap (`getToolOutputLimit`) only protects the copy that reaches the LLM,
+ * well after this value has already been stored and broadcast. Mirrors
+ * `MAX_RESOLVED_INPUT_BYTES` (`workflow-step-output.ts`, 64 KiB): a
+ * human-readable report is a handful of interpolated fields, not a bulk
+ * payload, so a value this large is already abusive.
+ */
+export const MAX_RENDERED_OUTPUT_BYTES = 64 * 1024;
+
+/**
+ * Render a workflow definition's `outputTemplate` against the run's own
+ * final output object. The whole feature this function exists for: a
+ * `run_workflow` result is a raw JSON object today, and the only way to
+ * make it read like a report is letting the model paraphrase it — which is
+ * a sampled, non-deterministic last hop (see `workflow-run-card-logic.ts`).
+ * `outputTemplate` lets the workflow AUTHOR write that report declaratively
+ * instead, as a pure function of `output`.
+ *
+ * Reuses {@link interpolateTemplate} VERBATIM rather than a second
+ * templating engine (same ReDoS-safe regex, same `{{…}}` grammar, same
+ * null/undefined-renders-empty rule) — the only thing scoped down for this
+ * caller is which ref ROOT is legal, and that is enforced once, at save
+ * time, by `validateWorkflow` (via {@link templateRefs}), not here.
+ *
+ * Capped at {@link MAX_RENDERED_OUTPUT_BYTES} via the same `truncateText`
+ * every tool result is capped through (`tools/output-limits.ts`) — one
+ * capping implementation, not a second that could disagree with it about
+ * where a multi-byte UTF-8 sequence may split.
+ *
+ * NEVER THROWS. `$output[.path]` is resolved leniently (see
+ * `resolveInputRef`), so a missing field renders empty rather than failing;
+ * this still wraps the call in case of an exotic value `JSON.stringify`
+ * itself rejects (e.g. a `BigInt`, which cannot reach a JSON-parsed tool
+ * result but is not structurally impossible from a code-based agent step).
+ * A rendering failure degrades to `undefined` — the caller leaves
+ * `renderedOutput` unset — because a cosmetic display feature must never
+ * be able to fail the run it is describing.
+ */
+export function renderOutputTemplate(template: string, output: unknown): string | undefined {
+  try {
+    const ctx: RefContext = { input: {}, stepResults: new Map(), finalOutput: output };
+    const rendered = interpolateTemplate("outputTemplate", template, ctx);
+    return truncateText(rendered, MAX_RENDERED_OUTPUT_BYTES, "outputTemplate").text;
+  } catch {
+    return undefined;
+  }
 }

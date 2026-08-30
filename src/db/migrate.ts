@@ -2908,6 +2908,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // deterministically. Dropping it would remove a real constraint for nothing.
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`);
 
+  // outputTemplate: renders a workflow run's final output into a
+  // human-readable report, deterministically. Plain nullable TEXT, no FK,
+  // no default — NULL is exactly "no template", which is what every
+  // pre-existing row means and is unchanged by adding this column.
+  // Presentation, not executable content, so it does not join the
+  // `workflow_definition_versions` / `definition_hash` materiality set
+  // (see the column's own comment in `schema.ts`).
+  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS output_template TEXT`);
+
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,
   // AEAD-bound extension_secrets store. Runs LAST (every FK target exists by

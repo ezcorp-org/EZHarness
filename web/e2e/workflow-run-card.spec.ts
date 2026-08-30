@@ -23,6 +23,9 @@
  *   4. A failed run shows the loud, readable error — not just a red mark.
  *   5. An infra-level tool failure (`Error: ...`, not JSON) degrades to
  *      DefaultCard rather than a blank or broken workflow-run card.
+ *   6. A definition's `outputTemplate` renders as an author-controlled
+ *      report ALONGSIDE the raw result — never instead of it — and a run
+ *      with no template shows no such panel.
  *
  * `captureEvidence` is a hard no-op unless `EZCORP_E2E_EVIDENCE=1`.
  */
@@ -32,7 +35,7 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 const PROJECT_ID = "proj-workflow-run-card";
 const project = makeProject({ id: PROJECT_ID, name: "Workflow Run Card Project" });
 
-/** The shape `projectWorkflowRun` produces (`run-workflow.ts:96-109`). */
+/** The shape `projectWorkflowRun` produces (`run-workflow.ts:116-140`). */
 const SUCCESS_PROJECTION = {
 	runId: "wr-det-9001",
 	workflowName: "demo-deterministic",
@@ -44,6 +47,22 @@ const SUCCESS_PROJECTION = {
 	],
 	result: { headline: "Report on workflows" },
 	error: null,
+};
+
+/** The shape a definition with `outputTemplate` produces — additive to
+ *  the raw `result`, never a replacement for it. */
+const TEMPLATED_PROJECTION = {
+	runId: "wr-det-9002",
+	workflowName: "demo-deterministic",
+	status: "success",
+	steps: [
+		{ name: "compose", status: "success" },
+		{ name: "assert-composed", status: "success" },
+		{ name: "publish", status: "success" },
+	],
+	result: { slug: "workflows-report", headline: "Report on workflows" },
+	error: null,
+	renderedOutput: "Report on workflows (slug: workflows-report)",
 };
 
 const LOOP_PROJECTION = {
@@ -180,6 +199,68 @@ test.describe("run_workflow result card in the transcript", () => {
 				false,
 			);
 		}
+	});
+
+	test("a workflow with an outputTemplate shows the rendered report ALONGSIDE the verbatim result @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		const convId = "conv-workflow-run-templated";
+		await seedRun(
+			mockApi,
+			convId,
+			"The workflow finished.",
+			persistedRunWorkflowCall({
+				id: "tc-wf-templated",
+				messageId: `${convId}-a1`,
+				output: JSON.stringify(TEMPLATED_PROJECTION),
+			}),
+		);
+		await page.goto(`/project/${PROJECT_ID}/chat/${convId}`);
+
+		const card = page.getByTestId("workflow-run-card");
+		await expect(card).toBeVisible({ timeout: 10_000 });
+
+		// The rendered report — the deterministic, author-authored headline.
+		const rendered = page.getByTestId("workflow-run-rendered-output-body");
+		await expect(rendered).toHaveText("Report on workflows (slug: workflows-report)");
+
+		// ADDITIVE, never a replacement: the verbatim JSON result is still
+		// on screen, unmodified, exactly as it is on every other run.
+		const resultBody = page.getByTestId("workflow-run-result-body");
+		expect(await resultBody.textContent()).toBe(
+			JSON.stringify(TEMPLATED_PROJECTION.result, null, 2),
+		);
+
+		await captureEvidence(page, testInfo, "workflow-run-card-templated");
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			expect(
+				testInfo.attachments.some(
+					(a) => a.name === "workflow-run-card-templated" && a.contentType === "image/png",
+				),
+			).toBe(true);
+		} else {
+			expect(testInfo.attachments.some((a) => a.name === "workflow-run-card-templated")).toBe(
+				false,
+			);
+		}
+	});
+
+	test("a run with no outputTemplate shows no report panel", async ({ page, mockApi }) => {
+		const convId = "conv-workflow-run-no-template";
+		await seedRun(
+			mockApi,
+			convId,
+			"Done.",
+			persistedRunWorkflowCall({
+				id: "tc-wf-no-template",
+				messageId: `${convId}-a1`,
+				output: JSON.stringify(SUCCESS_PROJECTION),
+			}),
+		);
+		await page.goto(`/project/${PROJECT_ID}/chat/${convId}`);
+		await expect(page.getByTestId("workflow-run-card")).toBeVisible({ timeout: 10_000 });
+		await expect(page.getByTestId("workflow-run-rendered-output")).toHaveCount(0);
 	});
 
 	test("a looped step reports its iteration count", async ({ page, mockApi }) => {

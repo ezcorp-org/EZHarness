@@ -444,6 +444,75 @@ describe("validateWorkflow — per-step model bindings", () => {
   });
 });
 
+describe("validateWorkflow — outputTemplate", () => {
+  test("a valid $output template passes", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = "{{$output.headline}} (slug: {{$output.slug}})";
+    expect(validateWorkflow(d)).toEqual([]);
+  });
+
+  test("a bare $output ref (whole object) passes", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = "Result: {{$output}}";
+    expect(validateWorkflow(d)).toEqual([]);
+  });
+
+  test("literal text with no placeholders at all passes", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = "Done.";
+    expect(validateWorkflow(d)).toEqual([]);
+  });
+
+  test("a non-string outputTemplate is rejected", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = 42 as never;
+    expect(validateWorkflow(d)).toContain('Workflow "outputTemplate" must be a string');
+  });
+
+  test("an outputTemplate over the max mapping length is rejected", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = "x".repeat(MAX_MAPPING_VALUE_LENGTH + 1);
+    expect(
+      validateWorkflow(d).some((e) =>
+        e.startsWith('Workflow "outputTemplate" exceeds the maximum length'),
+      ),
+    ).toBe(true);
+  });
+
+  test("any ref root other than $output is rejected — never a render-time throw instead", () => {
+    for (const bad of ["$input.topic", "$steps.a.output", "$prev.output", "$loop.iteration"]) {
+      const d = def([{ name: "s", agent: "a" }]);
+      d.outputTemplate = `{{${bad}}}`;
+      const errs = validateWorkflow(d);
+      expect(
+        errs.some(
+          (e) => e.startsWith('Workflow "outputTemplate" references') && e.includes(bad),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  test("an empty {{}} placeholder is rejected by name", () => {
+    const d = def([{ name: "s", agent: "a" }]);
+    d.outputTemplate = "a{{}}b";
+    expect(
+      validateWorkflow(d).some((e) => e.startsWith('Workflow "outputTemplate" references ""')),
+    ).toBe(true);
+  });
+
+  test("checked BEFORE the steps early-return, like defaultModel", () => {
+    const d: WorkflowDefinition = { name: "wf", description: "", steps: [] };
+    d.outputTemplate = "{{$steps.a.output}}";
+    const errs = validateWorkflow(d);
+    expect(errs.some((e) => e.startsWith('Workflow "outputTemplate" references'))).toBe(true);
+    expect(errs).toContain("Workflow must have at least one step");
+  });
+
+  test("absent outputTemplate is unaffected — the default, every existing workflow", () => {
+    expect(validateWorkflow(def([{ name: "s", agent: "a" }]))).toEqual([]);
+  });
+});
+
 describe("validateWorkflow — approval steps", () => {
   const approval = (extra: Partial<WorkflowStep> = {}): WorkflowDefinition => ({
     name: "wf",
