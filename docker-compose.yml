@@ -26,6 +26,18 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    # Postgres is the smallest thing in this stack and the only one holding
+    # state, so a host OOM must never choose it. Measured on the primary dev
+    # box: 131 MB steady-state against a 160 MB `shared_buffers` — killing it
+    # frees nothing, and it took the whole stack with it when the kernel
+    # picked it anyway (see the `oom_score_adj` note on `app` below).
+    #
+    # 1g is deliberate headroom, not a fit: it clears shared_buffers plus
+    # per-connection `work_mem` (4 MB x 100 max_connections in the worst
+    # case) with room to spare, so this cap bounds a runaway and is not
+    # reachable in normal use. A cap this service can actually hit would
+    # recreate the failure it exists to prevent.
+    mem_limit: 1g
 
   app:
     build:
@@ -39,6 +51,34 @@ services:
     # that, NOT to depend on host networking. See `docs/deployment.md`
     # §"Container networking" for the production layout.
     network_mode: host
+    # ── OOM victim ordering ─────────────────────────────────────────────────
+    #
+    # This box runs the dev stack alongside several agents, and the backend
+    # test pool gives every test file its own bun + PGlite process (see
+    # CLAUDE.md §Testing, which records a `PARALLEL=12` coverage run
+    # OOM-killing a leg). Nothing here is cgroup-capped by systemd
+    # (`MemoryMax=infinity` on the user slice), so a spike is a HOST-wide OOM
+    # and the kernel scores victims by RSS alone. It chose postgres — 131 MB,
+    # all the state — and killing it freed nothing while taking the stack
+    # down. Worse, the OOM also killed postgres's `conmon`, so the container
+    # was left unmanageable: `compose down` failed with "conmon exited
+    # prematurely" and needed a `podman rm -f`.
+    #
+    # The fix is stated backwards from the obvious one. Rootless Podman
+    # cannot PROTECT a container — an unprivileged process may only ever
+    # RAISE its oom_score_adj, and a negative value is silently downgraded:
+    #   "Requested oom_score_adj=-900 is lower than the current one,
+    #    changing to 0"
+    # (verified with `podman run --oom-score-adj`). So `-900` on postgres
+    # would read as applied and do nothing. Volunteer the expendable
+    # containers instead: the app is stateless and restarts clean, so it is
+    # the right thing to lose, and marking it makes postgres relatively safer
+    # without needing a privilege we do not have.
+    oom_score_adj: 500
+    # Bounds the largest service (1.66 GB measured) so a runaway dies inside
+    # its own cgroup — a legible per-container OOM — instead of triggering
+    # the host-wide hunt that claims bystanders and their conmons.
+    mem_limit: 4g
     environment:
       - DATABASE_URL=postgres://ezcorp:ezcorp@localhost:5432/ezcorp
       - EZCORP_PORT=3000
@@ -520,7 +560,18 @@ services:
   searxng:
     image: docker.io/searxng/searxng:latest
     restart: unless-stopped
-    mem_limit: 256m
+    # Was 256m, raised after this container exited 137 (SIGKILL) while
+    # sitting at 151 MB — 56% of that cap — at REST. A steady state that
+    # close to the limit leaves no room for a search burst, and 137 on a
+    # capped container is its own cgroup OOM rather than the host one that
+    # took postgres. 512m restores headroom; idle cost is unchanged, since
+    # a cap reserves nothing.
+    mem_limit: 512m
+    # Expendable, and more so than the app: the app falls back to keyless
+    # DuckDuckGo when this is down (see the note above), so losing it
+    # degrades search rather than breaking it. Highest score in the stack =
+    # first chosen if the host runs out.
+    oom_score_adj: 750
     cpus: 0.5
     ports:
       - "127.0.0.1:8889:8080"
