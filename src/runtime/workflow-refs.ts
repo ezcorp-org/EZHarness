@@ -1,4 +1,5 @@
 import type { AgentResult } from "../types";
+import { truncateText } from "./tools/output-limits";
 
 /**
  * Shared reference-resolution language for workflows. Used by three
@@ -363,6 +364,24 @@ export function templateRefs(value: string): string[] {
 }
 
 /**
+ * Cap on the RENDERED text `renderOutputTemplate` produces, independent of
+ * `validateOutputTemplate`'s `MAX_MAPPING_VALUE_LENGTH` cap on the TEMPLATE
+ * SOURCE (10,000 characters).
+ *
+ * A short template can still blow the render up: `{{$output}}` repeated a
+ * few hundred times against a large output object multiplies out to a
+ * multi-hundred-MB string, and nothing bounded the RESULT before this cap
+ * existed. That text is written unbounded to `workflow_runs.result` and
+ * broadcast over SSE to every subscriber — `run-workflow.ts`'s tool-output
+ * cap (`getToolOutputLimit`) only protects the copy that reaches the LLM,
+ * well after this value has already been stored and broadcast. Mirrors
+ * `MAX_RESOLVED_INPUT_BYTES` (`workflow-step-output.ts`, 64 KiB): a
+ * human-readable report is a handful of interpolated fields, not a bulk
+ * payload, so a value this large is already abusive.
+ */
+export const MAX_RENDERED_OUTPUT_BYTES = 64 * 1024;
+
+/**
  * Render a workflow definition's `outputTemplate` against the run's own
  * final output object. The whole feature this function exists for: a
  * `run_workflow` result is a raw JSON object today, and the only way to
@@ -377,6 +396,11 @@ export function templateRefs(value: string): string[] {
  * caller is which ref ROOT is legal, and that is enforced once, at save
  * time, by `validateWorkflow` (via {@link templateRefs}), not here.
  *
+ * Capped at {@link MAX_RENDERED_OUTPUT_BYTES} via the same `truncateText`
+ * every tool result is capped through (`tools/output-limits.ts`) — one
+ * capping implementation, not a second that could disagree with it about
+ * where a multi-byte UTF-8 sequence may split.
+ *
  * NEVER THROWS. `$output[.path]` is resolved leniently (see
  * `resolveInputRef`), so a missing field renders empty rather than failing;
  * this still wraps the call in case of an exotic value `JSON.stringify`
@@ -389,7 +413,8 @@ export function templateRefs(value: string): string[] {
 export function renderOutputTemplate(template: string, output: unknown): string | undefined {
   try {
     const ctx: RefContext = { input: {}, stepResults: new Map(), finalOutput: output };
-    return interpolateTemplate("outputTemplate", template, ctx);
+    const rendered = interpolateTemplate("outputTemplate", template, ctx);
+    return truncateText(rendered, MAX_RENDERED_OUTPUT_BYTES, "outputTemplate").text;
   } catch {
     return undefined;
   }

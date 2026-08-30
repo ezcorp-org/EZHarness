@@ -35,7 +35,7 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 const PROJECT_ID = "proj-workflow-run-card";
 const project = makeProject({ id: PROJECT_ID, name: "Workflow Run Card Project" });
 
-/** The shape `projectWorkflowRun` produces (`run-workflow.ts:96-109`). */
+/** The shape `projectWorkflowRun` produces (`run-workflow.ts:116-140`). */
 const SUCCESS_PROJECTION = {
 	runId: "wr-det-9001",
 	workflowName: "demo-deterministic",

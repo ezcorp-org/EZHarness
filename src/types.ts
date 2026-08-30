@@ -566,14 +566,31 @@ export interface WorkflowDefinition {
    * result must never be re-rendered by anything that can drift from it.
    *
    * Every workflow string is attacker-controlled (`POST /api/workflows`
-   * needs only the `chat` scope, and workflows are global), so the HOST
-   * renders this as PLAIN TEXT — never markdown, never HTML — exactly like
-   * every other author-supplied string this subsystem interpolates into a
-   * surface someone else's browser renders (`mention-wiring.ts`'s
-   * `sanitizeNoteValue`). The difference here is sharper: that module
-   * defends a PROMPT surface, and `outputTemplate` renders straight into
-   * the DOM, so "plain text, no exceptions" is the whole of the defence —
-   * see `WorkflowRunCard.svelte`.
+   * needs only the `chat` scope, and workflows are global), so this crosses
+   * TWO trust boundaries and each has its own defence:
+   *
+   *   - The BROWSER. The host renders `renderedOutput` as PLAIN TEXT —
+   *     never markdown, never HTML — exactly like every other
+   *     author-supplied string this subsystem interpolates into a surface
+   *     someone else's browser renders (`mention-wiring.ts`'s
+   *     `sanitizeNoteValue`). Here "plain text, no exceptions" IS the whole
+   *     of the DOM-XSS defence — see `WorkflowRunCard.svelte`.
+   *   - The MODEL. `run_workflow`'s tool result also carries
+   *     `renderedOutput` straight into the calling model's own context, in
+   *     the SAME turn — a second-order prompt-injection surface the DOM
+   *     defence above does nothing for (Svelte's text binding stops a
+   *     forged `<script>`, not a forged "SYSTEM: …" sentence an LLM reads
+   *     as an instruction). That surface is marked, not escaped: the
+   *     projection carries a sibling `renderedOutputNote` field whenever
+   *     `renderedOutput` is non-null (`RENDERED_OUTPUT_UNTRUSTED_NOTE`,
+   *     `runtime/tools/run-workflow.ts`), and the tool's own description
+   *     repeats the warning before the model ever sees a result.
+   *
+   * `outputTemplate` cannot influence what a run DOES even under
+   * composition: a `kind: "workflow"` step's `renderedOutput` is stripped
+   * before the child's result becomes the parent's `$steps.<name>` value
+   * (`nestedOutcome`, `workflow-executor.ts`) — see **Composition** in
+   * `docs/features/orchestration/workflows.md`.
    */
   outputTemplate?: string;
   /**

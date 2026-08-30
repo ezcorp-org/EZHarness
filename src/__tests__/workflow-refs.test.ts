@@ -9,6 +9,7 @@ import {
   interpolateTemplate,
   hasTemplate,
   renderOutputTemplate,
+  MAX_RENDERED_OUTPUT_BYTES,
   type RefContext,
 } from "../runtime/workflow-refs";
 import type { AgentResult } from "../types";
@@ -278,6 +279,31 @@ describe("renderOutputTemplate", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(renderOutputTemplate("{{$output}}", circular)).toBeUndefined();
+  });
+
+  test("caps the rendered text at MAX_RENDERED_OUTPUT_BYTES with a visible marker", () => {
+    // A SHORT template can still blow the render up: `{{$output}}` repeated
+    // many times against a moderately large output object multiplies out
+    // to megabytes — `validateOutputTemplate`'s cap is on the TEMPLATE
+    // SOURCE (10,000 chars) and never bounds this.
+    const output = { blob: "x".repeat(2000) };
+    const template = "{{$output.blob}}".repeat(900);
+    const rendered = renderOutputTemplate(template, output);
+    expect(rendered).toBeDefined();
+    const bytes = new TextEncoder().encode(rendered ?? "").byteLength;
+    // The marker itself is allowed to push slightly past the cap (matching
+    // `truncateText`'s own contract) — the point is the result is bounded
+    // to roughly the cap, not left to grow with the template's repeat count.
+    expect(bytes).toBeLessThan(MAX_RENDERED_OUTPUT_BYTES + 1024);
+    expect(rendered).toContain("[output truncated:");
+    expect(rendered).toContain("outputTemplate");
+  });
+
+  test("a rendered output at or under the cap is untouched", () => {
+    const output = { headline: "short report" };
+    const rendered = renderOutputTemplate("Report: {{$output.headline}}", output);
+    expect(rendered).toBe("Report: short report");
+    expect(rendered).not.toContain("[output truncated:");
   });
 });
 

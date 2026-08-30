@@ -7,6 +7,7 @@ import type {
   WorkflowDefinition,
   WorkflowModelBinding,
   WorkflowRun,
+  WorkflowRunResult,
   WorkflowRunStatus,
   WorkflowStep,
   WorkflowStepInputSink,
@@ -2465,7 +2466,8 @@ function skipDecision(
  *
  *   • `success` — the child's own result becomes this step's result, so
  *     `$steps.<step>.output.…` addresses the nested graph's final output
- *     through the unchanged ref grammar.
+ *     through the unchanged ref grammar. `renderedOutput` is stripped
+ *     first — see the note below.
  *   • `suspended` / `running` — the child is ALIVE. The parent parks rather
  *     than failing, and resumes into this same step later. `running` lands
  *     here on the re-entrant path only: another process (the daemon) is
@@ -2474,14 +2476,42 @@ function skipDecision(
  *   • anything else — the child failed, was cancelled, or is parked AND
  *     dead (`awaiting_approval`). A failed child throws in the parent,
  *     exactly like a failed agent step.
+ *
+ * ── `renderedOutput` is stripped, never promoted ────────────────────────
+ *
+ * `outputTemplate` is documented as PRESENTATION, not executable content:
+ * editing it mints no `workflow_definition_versions` row and does not move
+ * `workflowDefinitionHash` (`docs/features/orchestration/workflows.md`'s
+ * "Rendering a run for humans"). That claim is only true if a child's
+ * `renderedOutput` can never reach a parent's *decision* — and without this
+ * strip it could: `$steps.<name>` addresses the WHOLE child result through
+ * the same generic `getNestedValue` walk `.output` uses, so
+ * `$steps.child.renderedOutput` would be exactly as readable from a
+ * parent's `gate` condition, `agent` input or `transform` mapping as
+ * `$steps.child.output` is. That would let anyone with edit rights on the
+ * CHILD workflow flip a PARENT's gate by editing only `outputTemplate` —
+ * no version minted, `definition_hash` unmoved, consent (C3) unbroken.
+ *
+ * Stripping it HERE, at the one seam a nested result crosses into a
+ * parent's `$steps`, makes the "presentation only" guarantee hold
+ * structurally for every current and future caller of `$steps.<name>`,
+ * rather than by convention at each ref call site. The child's OWN
+ * `workflow_runs` row is untouched — its trace and its own chat card still
+ * show the rendered report; only its PROMOTION into a parent's data is
+ * refused.
  */
 function nestedOutcome(
   step: WorkflowStep,
   workflowName: string,
   status: string,
-  result: AgentResult | null | undefined,
+  result: WorkflowRunResult | null | undefined,
 ): AgentResult {
-  if (status === "success") return result ?? { success: true, output: null };
+  if (status === "success") {
+    const outcome = result ?? { success: true, output: null };
+    if (!("renderedOutput" in outcome)) return outcome;
+    const { renderedOutput: _renderedOutput, ...rest } = outcome;
+    return rest;
+  }
   if (status === "suspended" || status === "running") {
     throw new WorkflowSuspendedError(step.name, "nested-suspended");
   }
