@@ -38,6 +38,12 @@ source "$SCRIPT_DIR/lib/test-file-sets.sh"
 # for the full incident writeup and parameter justification.
 # shellcheck source=scripts/lib/watchdog.sh
 source "$SCRIPT_DIR/lib/watchdog.sh"
+# shellcheck source=scripts/lib/bun-version-check.sh
+source "$SCRIPT_DIR/lib/bun-version-check.sh"
+# A wrong bun here corrupts the results, not just the timing — see
+# lib/bun-version-check.sh. Runs before anything else; `set -e` above stops
+# the whole pool on a minor/major skew.
+check_bun_version_skew
 
 # Default pool width: min(nproc, 6) — see default_parallel in
 # lib/test-file-sets.sh. Explicit PARALLEL still overrides.

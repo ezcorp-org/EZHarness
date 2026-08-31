@@ -21,6 +21,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
+# shellcheck source=scripts/lib/bun-version-check.sh
+source "$SCRIPT_DIR/lib/bun-version-check.sh"
+# A wrong bun corrupts results here too — see lib/bun-version-check.sh.
+check_bun_version_skew
 
 cd "$REPO_ROOT"
 
