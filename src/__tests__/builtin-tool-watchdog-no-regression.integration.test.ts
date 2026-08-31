@@ -323,7 +323,10 @@ describe("declared callTimeoutMs=600_000 (Bash): tool inside budget completes cl
     await h.ctx.dbQueue;
 
     expect(h.events.find((e) => e.type === "tool:complete")).toBeDefined();
-    expect(persisted.find((r) => r.id === "tc-sh-ok")).toBeDefined();
+    // `id` is never the wire id (see the FK-collision fix on
+    // toolCalls.id) — the built-in path threads it through as
+    // `providerToolCallId` instead.
+    expect(persisted.find((r) => r.providerToolCallId === "tc-sh-ok")).toBeDefined();
     expect(h.events.find((e) => e.type === "tool:error")).toBeUndefined();
     expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
     expect(h.run.status).toBe("running");

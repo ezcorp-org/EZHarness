@@ -20,7 +20,14 @@ vi.mock("$server/db/connection", () => ({
   }),
 }));
 vi.mock("$server/db/schema", () => ({
-  toolCalls: { id: "id", output: "output", userId: "user_id", conversationId: "conversation_id" },
+  toolCalls: {
+    id: "id",
+    output: "output",
+    userId: "user_id",
+    conversationId: "conversation_id",
+    providerToolCallId: "provider_tool_call_id",
+    createdAt: "created_at",
+  },
 }));
 vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(),
@@ -39,8 +46,24 @@ function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   });
 }
 
+// The route now tries an exact `id` match first, then falls back to
+// `providerToolCallId` (most-recent-first via `.orderBy().limit(1)`) — see
+// the FK-collision fix on `toolCalls.id`. Every step of the chain is
+// forgiving of extra calls so the SAME mocked row set answers whichever
+// query the route happens to run.
 function chainReturning(rows: unknown[]) {
-  return { from: () => ({ where: async () => rows }) };
+  const chain: {
+    from: () => typeof chain;
+    where: () => typeof chain;
+    orderBy: () => typeof chain;
+    limit: () => Promise<unknown[]>;
+  } = {
+    from: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: async () => rows,
+  };
+  return chain;
 }
 
 const OWNER = { user: { id: "owner-1", email: "o@x", name: "o", role: "member" } };

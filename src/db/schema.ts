@@ -1441,6 +1441,20 @@ export const extensions = pgTable("extensions", {
 });
 
 export const toolCalls = pgTable("tool_calls", {
+  // ALWAYS a host-generated surrogate — never set from caller/provider
+  // input. It used to be pinned verbatim to the built-in path's
+  // `event.toolCallId` (the LLM's own wire id) so a streamed card and its
+  // DB-hydrated row would share one key; that made the PK collide the
+  // instant two conversations' providers reused an id — the mock LLM
+  // defaults an unset id to positional `call_0` and so do plenty of
+  // real OpenAI-compatible local servers, and a colliding INSERT is
+  // silently dropped (never-throw contract), so the SECOND tool call's
+  // row — and its card, on reload — never existed at all. `provider_tool_
+  // call_id` below now carries that wire id for the client-correlation
+  // use case instead; `id` stays a plain globally-unique row key so every
+  // existing single-column lookup (`/api/tool-calls/[id]/output`, the
+  // `ezcorp/finalize-tool-call` ownership lookup, `getToolCallConversationById`)
+  // keeps returning exactly one unambiguous row.
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
   messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
@@ -1458,6 +1472,17 @@ export const toolCalls = pgTable("tool_calls", {
   agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
   model: text("model"),
   provider: text("provider"),
+  /**
+   * The LLM provider's own wire id for this call (`event.toolCallId` on the
+   * built-in path) — correlation-only, deliberately NOT unique (not even
+   * per-conversation: the same positional id can recur across turns in one
+   * conversation, e.g. a scripted/local provider that resets its counter
+   * per completion). Client hydration reads THIS (falling back to `id`) so
+   * a reload matches an in-flight card by the same id the live stream used
+   * — see `toolCallRowToSummary`. Null for extension-authored rows, which
+   * never had a provider wire id to begin with.
+   */
+  providerToolCallId: text("provider_tool_call_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   // Plain created_at index powers every analytics query's date-range filter.
@@ -1473,6 +1498,12 @@ export const toolCalls = pgTable("tool_calls", {
   // ON DELETE SET NULL FK target (message delete). (extension_id /
   // conversation_id indexes stay migrate.ts-only.)
   index("idx_tool_calls_message").on(table.messageId),
+  // Serves the `providerToolCallId` fallback lookup (`getToolCallConversationById`,
+  // `/api/tool-calls/[id]/output`) that fires when a built-in tool's card
+  // presents the provider WIRE id instead of the row's own PK — both sites
+  // filter on this column then `ORDER BY created_at DESC LIMIT 1`, since the
+  // wire id is deliberately not unique (see the column's own doc above).
+  index("idx_tool_calls_provider_call").on(table.providerToolCallId, table.createdAt),
 ]);
 
 // ── Composer suggestion telemetry ─────────────────────────────────

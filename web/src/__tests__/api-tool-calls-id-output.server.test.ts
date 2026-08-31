@@ -17,7 +17,14 @@ vi.mock("$server/db/connection", () => ({
 }));
 // Importing the schema pulls in drizzle-orm; stub it out.
 vi.mock("$server/db/schema", () => ({
-  toolCalls: { id: "id", output: "output" },
+  toolCalls: {
+    id: "id",
+    output: "output",
+    userId: "user_id",
+    conversationId: "conversation_id",
+    providerToolCallId: "provider_tool_call_id",
+    createdAt: "created_at",
+  },
 }));
 
 const { GET } = await import(
@@ -37,12 +44,24 @@ function makeEvent(opts: {
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 
+// The route now tries an exact `id` match first, then falls back to
+// `providerToolCallId` (most-recent-first via `.orderBy().limit(1)`) — see
+// the FK-collision fix on `toolCalls.id`. Every step of the chain is
+// forgiving of extra calls so the SAME mocked row set answers whichever
+// query the route happens to run.
 function chainReturning(rows: unknown[]) {
-  return {
-    from: () => ({
-      where: async () => rows,
-    }),
+  const chain: {
+    from: () => typeof chain;
+    where: () => typeof chain;
+    orderBy: () => typeof chain;
+    limit: () => Promise<unknown[]>;
+  } = {
+    from: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: async () => rows,
   };
+  return chain;
 }
 
 describe("GET /api/tool-calls/[id]/output", () => {
@@ -103,5 +122,32 @@ describe("GET /api/tool-calls/[id]/output", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { output?: unknown };
     expect(body.output).toEqual({ foo: "bar" });
+  });
+
+  test("falls back to providerToolCallId when the exact `id` match misses (built-in card, live card.id === wire id)", async () => {
+    // First `.select()` (exact `id`) comes back empty; second (`.select()`
+    // on providerToolCallId) is what actually resolves the row. This is the
+    // shape a built-in tool's card hits: its client-visible id is the
+    // PROVIDER wire id (see toolCallRowToSummary), never the row's own
+    // surrogate PK — see the FK-collision fix on `toolCalls.id`.
+    selectMock
+      .mockReturnValueOnce(chainReturning([]))
+      .mockReturnValueOnce(
+        chainReturning([{ userId: "u1", conversationId: null, output: { foo: "wire-id-match" } }]),
+      );
+    const res = await GET(makeEvent({ locals: authedUser, id: "call_0" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { output?: unknown };
+    expect(body.output).toEqual({ foo: "wire-id-match" });
+    expect(selectMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("404 when NEITHER the exact id NOR providerToolCallId matches", async () => {
+    selectMock
+      .mockReturnValueOnce(chainReturning([]))
+      .mockReturnValueOnce(chainReturning([]));
+    const res = await GET(makeEvent({ locals: authedUser, id: "nowhere" }));
+    expect(res.status).toBe(404);
+    expect(selectMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -416,13 +416,16 @@ export function wireExtensionToolsIntoTurn(args: {
   conversationId: string;
   runId: string;
 }): number {
-  const { agentTools, registry, toolExec, extensionId, conversationId, runId } = args;
+  // `runId` stays part of the public shape (existing callers/tests pass it)
+  // but is deliberately NOT threaded through as messageId — see the
+  // `messageId` doc comment on `extensionToAgentTool` for why.
+  const { agentTools, registry, toolExec, extensionId, conversationId } = args;
   let wired = 0;
   for (const t of registry.getToolsForExtension(extensionId)) {
     if (!agentTools.some((at) => at.name === t.name)) {
       agentTools.push(extensionToAgentTool(
         { name: t.name, description: t.description, inputSchema: t.inputSchema },
-        toolExec, conversationId, runId,
+        toolExec, conversationId, null,
       ));
       wired++;
     }
@@ -471,9 +474,12 @@ export async function collectMissingExtensionTools(args: {
   conversationId: string;
   runId: string;
 }): Promise<AgentTool[]> {
+  // `runId` stays part of the public shape (existing callers/tests pass it)
+  // but is deliberately NOT threaded through as messageId — see the
+  // `messageId` doc comment on `extensionToAgentTool` for why.
   const {
     registry, agentConfigId, conversationExtensionIds,
-    existingToolNames, toolExec, conversationId, runId,
+    existingToolNames, toolExec, conversationId,
   } = args;
 
   // Single-line generic on purpose: a multi-line type argument list leaves
@@ -493,7 +499,7 @@ export async function collectMissingExtensionTools(args: {
     if (existingToolNames.has(name)) continue;
     added.push(extensionToAgentTool(
       { name, description: t.description, inputSchema: t.inputSchema },
-      toolExec, conversationId, runId,
+      toolExec, conversationId, null,
     ));
   }
   return added;
@@ -1164,7 +1170,7 @@ export async function setupTools(
             // `permission-engine.ts` for the canonical contract.
             ctx.agentTools = extTools.map((t) => extensionToAgentTool(
               { name: t.name, description: t.description, inputSchema: t.inputSchema },
-              toolExec, conversationId, run.id,
+              toolExec, conversationId, null,
             ));
           }
         } catch { /* Extension loading failure is non-fatal */ }
@@ -1371,7 +1377,7 @@ export async function setupTools(
               if (!ctx.agentTools.some(at => at.name === t.name)) {
                 ctx.agentTools.push(extensionToAgentTool(
                   { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                  toolExec, conversationId, run.id,
+                  toolExec, conversationId, null,
                 ));
               }
             }
@@ -1511,7 +1517,7 @@ export async function setupTools(
                 if (!ctx.agentTools.some(at => at.name === t.name)) {
                   ctx.agentTools.push(extensionToAgentTool(
                     { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                    toolExec, conversationId, run.id,
+                    toolExec, conversationId, null,
                   ));
                 }
               }
@@ -1739,7 +1745,7 @@ export async function setupTools(
                   if (!ctx.agentTools.some(at => at.name === t.name)) {
                     ctx.agentTools.push(extensionToAgentTool(
                       { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                      toolExec, conversationId, run.id,
+                      toolExec, conversationId, null,
                     ));
                   }
                 }

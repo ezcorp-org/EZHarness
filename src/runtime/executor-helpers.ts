@@ -349,14 +349,13 @@ export async function persistErrorMessage(
       parentMessageId: options.parentMessageId,
     });
 
-    // Fix tool call anchoring for error messages too
-    await getDb()
-      .update(toolCalls)
-      .set({ messageId: errorMsg.id })
-      .where(and(
-        eq(toolCalls.conversationId, conversationId),
-        eq(toolCalls.messageId, runId),
-      ));
+    // Fix tool call anchoring for error messages too. Every writer inserts
+    // with `messageId: null` (the turn's message doesn't exist yet at
+    // tool-call time — see the `messageId` doc on `extensionToAgentTool`),
+    // so `IS NULL` is the only anchor predicate that ever matches; a prior
+    // second UPDATE keyed on `messageId = runId` was dead code (a run id is
+    // never a `messages.id`, so nothing was ever inserted with that value —
+    // the non-deferrable FK rejects the insert outright).
     await getDb()
       .update(toolCalls)
       .set({ messageId: errorMsg.id })

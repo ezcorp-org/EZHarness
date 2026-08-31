@@ -147,7 +147,10 @@ describe("validation: subscribeBridge — clarify-brief tool propagation", () =>
 		expect(completeEvt!.data.cardType).toBe("design-brief");
 
 		await ctx.dbQueue;
-		const row = persisted.find((r) => r.id === "tc-brief-1");
+		// `id` is never the wire id (see the FK-collision fix on
+		// toolCalls.id) — the built-in path now threads it through as
+		// `providerToolCallId` instead.
+		const row = persisted.find((r) => r.providerToolCallId === "tc-brief-1");
 		expect(row).toBeDefined();
 		expect(row!.cardType).toBe("design-brief");
 	});
@@ -236,7 +239,7 @@ describe("subscribeBridge — cardLayout fan-out", () => {
 		// Drain the dbQueue so the persistToolCall promise lands.
 		await ctx.dbQueue;
 
-		const row = persisted.find((r) => r.id === "tc-1");
+		const row = persisted.find((r) => r.providerToolCallId === "tc-1");
 		expect(row, "persistToolCall called for the tool").toBeDefined();
 		expect(row!.cardLayout).toBe("dock");
 	});

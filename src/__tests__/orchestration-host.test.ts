@@ -10,7 +10,7 @@
  *      stubbed out, and the 6-arg `extensionToAgentTool` call is
  *      intercepted via a module mock so we can assert the exact args
  *      passed through (schema-override enum contents, invocationMetadata
- *      shape, messageId == runId, etc.).
+ *      shape, messageId always null at wire time, etc.).
  */
 
 import {
@@ -53,7 +53,7 @@ interface CapturedExtToolCall {
   extTool: { name: string; description: string; inputSchema: Record<string, unknown>; dispatchName?: string };
   toolExecutor: unknown;
   conversationId: string;
-  messageId: string;
+  messageId: string | null;
   schemaOverride?: Record<string, unknown>;
   invocationMetadata?: Record<string, unknown>;
 }
@@ -81,7 +81,7 @@ mock.module("../extensions/tool-executor", () => ({
     extTool: CapturedExtToolCall["extTool"],
     toolExecutor: unknown,
     conversationId: string,
-    messageId: string,
+    messageId: string | null,
     schemaOverride?: Record<string, unknown>,
     invocationMetadata?: Record<string, unknown>,
   ): AgentTool => {
@@ -433,7 +433,14 @@ describe("wireOrchestrationToolsForTurn", () => {
     // returns null and dispatch fails with "Unknown tool: invoke_agent".
     expect(call.extTool.dispatchName).toBe("orchestration__invoke_agent");
     expect(call.conversationId).toBe("conv-wire-3");
-    expect(call.messageId).toBe("run-123"); // runId IS messageId
+    // tool-call-persist-losses fix: `messageId` is ALWAYS null at wire time —
+    // the turn's assistant message doesn't exist yet (it's created in
+    // subscribe-bridge.ts's turn_end handler). `run.id` used to be passed
+    // here as a "placeholder", but `tool_calls.message_id` is a
+    // non-deferrable FK to `messages(id)`, so that always violated the
+    // constraint and the row silently never persisted at all. See the
+    // `messageId` doc on `extensionToAgentTool`.
+    expect(call.messageId).toBeNull();
 
     const override = call.schemaOverride as {
       properties: { agentConfigId: { enum: string[] } };
@@ -617,7 +624,8 @@ describe("wireOrchestrationToolsForTurn", () => {
     // ...but DOES carry the caller conversationId (F3 authz) in invocationMetadata.
     expect(collectCall!.invocationMetadata).toEqual({ conversationId: "conv-wire-3" });
     expect(collectCall!.conversationId).toBe("conv-wire-3");
-    expect(collectCall!.messageId).toBe("run-123");
+    // See the happy-path test above: always null at wire time, never `runId`.
+    expect(collectCall!.messageId).toBeNull();
   });
 
   test("Phase B2: collect_agent_result is dedup-safe when already present (turn 2+ general-path wiring)", async () => {

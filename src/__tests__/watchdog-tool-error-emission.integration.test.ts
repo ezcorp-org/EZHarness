@@ -436,7 +436,10 @@ describe("subscribe-bridge → WatchdogManager: tool_execution_end clears inflig
     // accidentally short-circuits before hitting our wired noteToolEnd).
     await h.ctx.dbQueue;
     expect(h.events.find((e) => e.type === "tool:complete")).toBeDefined();
-    expect(persisted.find((r) => r.id === "tc-end-1")).toBeDefined();
+    // `id` is never the wire id (see the FK-collision fix on
+    // toolCalls.id) — the built-in path threads it through as
+    // `providerToolCallId` instead.
+    expect(persisted.find((r) => r.providerToolCallId === "tc-end-1")).toBeDefined();
 
     // Now there are no inflight tools. A 95s idle MUST kill — no
     // spurious tool:error should be synthesized for the completed call.
