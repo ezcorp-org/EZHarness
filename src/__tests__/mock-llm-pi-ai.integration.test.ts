@@ -16,13 +16,16 @@ import {
   buildMockTurnResponse,
 } from "../../web/src/lib/server/mock-llm";
 
-let server: ReturnType<typeof Bun.serve>;
-let baseUrl: string;
-
-beforeAll(() => {
-  server = Bun.serve({
+/**
+ * Start a fresh mock-LLM HTTP server. Factored out (instead of one
+ * module-level `beforeAll` server) because the connection-fault test below
+ * needs an origin Bun's fetch client has NEVER made a request to before —
+ * see the comment on that test for why.
+ */
+function startMockLlmServer() {
+  const srv = Bun.serve({
     port: 0,
-    async fetch(req) {
+    async fetch(req, thisServer) {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname.endsWith("/chat/completions")) {
         const body = (await req.json()) as { model?: unknown };
@@ -40,7 +43,7 @@ beforeAll(() => {
         // (web/src/routes/api/__test/mock-llm/.../+server.ts) keeps using
         // the erroring-stream Response, which is fine in its environment.
         if (turn.fault?.kind === "connection") {
-          server.timeout(req, 1);
+          thisServer.timeout(req, 1);
           return new Promise<Response>(() => {});
         }
         return buildMockTurnResponse(turn);
@@ -50,7 +53,14 @@ beforeAll(() => {
   });
   // resolveModelObject normalises to a trailing /v1; the openai SDK then
   // appends /chat/completions.
-  baseUrl = `http://127.0.0.1:${server.port}`;
+  return { server: srv, baseUrl: `http://127.0.0.1:${srv.port}` };
+}
+
+let server: ReturnType<typeof Bun.serve>;
+let baseUrl: string;
+
+beforeAll(() => {
+  ({ server, baseUrl } = startMockLlmServer());
 });
 
 afterAll(() => server.stop(true));
@@ -132,11 +142,41 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
   });
 
   test("connection fault fails the turn with no HTTP status", async () => {
-    setMockScript("itest-conn", [{ fault: { kind: "connection" } }]);
-    const model = resolveModelObject("ezcorp-mock", "mock:itest-conn", baseUrl);
-    const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
-    expect(msg.stopReason).toBe("error");
-    expect(msg.content.filter((b) => b.type === "text")).toHaveLength(0);
+    // This test needs its OWN server (a fresh port, never touched by an
+    // earlier request in this file) rather than the shared `baseUrl`.
+    // Reason, found by tracing a real failure: once Bun's fetch client has
+    // made and completed even one prior request to an origin, it keeps a
+    // keep-alive-pooled connection to it. When THIS test's request then
+    // dies with zero response bytes (the socket-drop simulated above),
+    // Bun's fetch — natively, invisibly to JS, below even a custom `fetch`
+    // wrapper passed as `options.fetch` — silently retries the exact
+    // request on a fresh connection ONE time and resolves the ORIGINAL
+    // `fetch()` promise with the retry's response. Against the shared
+    // server that retry lands on the SAME script key with its one queued
+    // fault turn already dequeued, so it falls through to `dequeueMockTurn`'s
+    // "no scripted turn" sentinel and the turn reports a normal
+    // `stopReason:"stop"` instead of the induced fault — pi-ai never sees a
+    // failure because, from its side, exactly one `fetch()` call was made
+    // and it returned what looks like an ordinary successful stream.
+    // Confirmed by instrumenting `options.fetch`: with a WARMED shared
+    // origin, `fetch()` is called once by the SDK but the server logs TWO
+    // requests for that one call; against a never-touched origin (this
+    // test's dedicated server) there is exactly one request and pi-ai
+    // correctly reports `stopReason:"error"`. This is a Bun runtime fetch
+    // behavior, not a pi-ai or mock-LLM defect — pi-ai has no visibility
+    // into a retry the runtime performs underneath its own single fetch
+    // call, so the fix has to remove the shared, pre-warmed origin instead
+    // of trying to out-race or detect it from userland.
+    const { server: connServer, baseUrl: connBaseUrl } = startMockLlmServer();
+    try {
+      setMockScript("itest-conn", [{ fault: { kind: "connection" } }]);
+      const model = resolveModelObject("ezcorp-mock", "mock:itest-conn", connBaseUrl);
+      const msg = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
+      expect(msg.stopReason).toBe("error");
+      expect(msg.content.filter((b) => b.type === "text")).toHaveLength(0);
+    } finally {
+      connServer.stop(true);
+    }
   });
 
   test("a [fault, success] script fails then recovers on the retry (failover)", async () => {
