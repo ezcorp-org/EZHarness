@@ -38,11 +38,17 @@ source "$SCRIPT_DIR/lib/test-file-sets.sh"
 # for the full incident writeup and parameter justification.
 # shellcheck source=scripts/lib/watchdog.sh
 source "$SCRIPT_DIR/lib/watchdog.sh"
-# shellcheck source=scripts/lib/bun-version-check.sh
-source "$SCRIPT_DIR/lib/bun-version-check.sh"
 # A wrong bun here corrupts the results, not just the timing — see
 # lib/bun-version-check.sh. Runs before anything else; `set -e` above stops
-# the whole pool on a minor/major skew.
+# the whole pool on a minor/major skew. No-op fallback defined FIRST, then
+# overridden by sourcing the real helper only if it exists — this script's
+# own checkout always ships it, but the pattern stays identical to the two
+# git hooks (which get exercised against a minimal fixture repo in
+# src/__tests__/git-hooks.test.ts) so the guard can't drift into "present
+# here, absent there".
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$SCRIPT_DIR/lib/bun-version-check.sh" ] && source "$SCRIPT_DIR/lib/bun-version-check.sh"
 check_bun_version_skew
 
 # Default pool width: min(nproc, 6) — see default_parallel in

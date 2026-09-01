@@ -34,8 +34,16 @@ cd "$ROOT" || exit 0
 # caught instead of surfacing as a mystery test failure later. Warns
 # (non-blocking) on a patch-level gap, fails on minor/major — see that file's
 # header for the reasoning.
+#
+# Define a no-op FIRST, then override it by sourcing the real helper only if
+# it exists: a repo tree that reuses this hook file without the rest of
+# scripts/ (a minimal fixture, or a stale worktree predating this check) must
+# never turn "the checker itself is missing" into a blocked commit — see
+# scripts/lib/bun-version-check.sh's REGRESSION note and
+# src/__tests__/git-hooks.test.ts.
+check_bun_version_skew() { return 0; }
 # shellcheck source=scripts/lib/bun-version-check.sh
-. "$ROOT/scripts/lib/bun-version-check.sh"
+[ -f "$ROOT/scripts/lib/bun-version-check.sh" ] && . "$ROOT/scripts/lib/bun-version-check.sh"
 if ! check_bun_version_skew; then
   fail "bun version skew (see message above)" \
     "bun upgrade --to \$(cat .bun-version)"
