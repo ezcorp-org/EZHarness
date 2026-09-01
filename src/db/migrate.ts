@@ -2969,4 +2969,27 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Same lazy-import rationale as the two backfills above.
   const { repairDaemonBrickedWorkflowRuns } = await import("./queries/workflow-runs");
   await repairDaemonBrickedWorkflowRuns(db);
+
+  // tool-call-persist-losses (defect 2): `tool_calls.id` used to be pinned
+  // verbatim to the built-in path's `event.toolCallId` — the LLM provider's
+  // OWN wire id — so a card and its DB-hydrated row could share one key.
+  // That collided the instant two conversations' providers reused an id
+  // (the mock LLM defaults an unset id to positional `call_0`, and so do
+  // plenty of real OpenAI-compatible local servers): the SECOND insert hit
+  // the PK and was silently dropped by `persistToolCall`'s never-throw
+  // contract, so that tool call — and its card, on reload — never existed.
+  //
+  // Purely additive: `id` keeps being a host-generated surrogate (already
+  // true for every existing row's write-time intent; only the built-in path
+  // ever violated it), so no backfill and no data risk. `provider_tool_
+  // call_id` carries the wire id going forward for client-side correlation
+  // (`toolCallRowToSummary` reads it, falling back to `id`), and is left
+  // NULL on old rows — the fallback already reproduces their historical
+  // `id`-as-wire-id value, so backfilling would be a no-op.
+  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS provider_tool_call_id TEXT`);
+  // Serves the fallback lookup (`getToolCallConversationById`, the
+  // `/api/tool-calls/[id]/output` route) that fires when a built-in tool's
+  // card presents the provider wire id instead of the row's own PK — both
+  // filter on this column then `ORDER BY created_at DESC LIMIT 1`.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_provider_call ON tool_calls(provider_tool_call_id, created_at)`);
 }

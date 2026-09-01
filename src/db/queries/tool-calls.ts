@@ -1,7 +1,7 @@
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toolCalls } from "../schema";
-import { redactToolCallOutputContent } from "../../extensions/audit-redaction";
+import { redactForAudit, redactToolCallOutputContent } from "../../extensions/audit-redaction";
 import { persistableConversationId } from "../../runtime/workflow-scope-key";
 import { persistError } from "./error-logs";
 import type { ToolCallResult } from "../../extensions/types";
@@ -15,10 +15,32 @@ import type { ToolCallResult } from "../../extensions/types";
  * can't be silently dropped by a future refactor on one of the two sides.
  */
 export interface ToolCallRow {
-  /** Optional row id — built-in path pins it to the pi-agent toolCallId for
-   *  dedup across streaming events + DB hydration. Extension path lets the
-   *  column default kick in. */
+  /**
+   * Optional row id — an explicit, HOST-MINTED (`crypto.randomUUID()`)
+   * override for the DB-generated default. `append-message-handler.ts`
+   * uses this so it can return the id to the caller before the insert
+   * (the subprocess calls back via `ezcorp/finalize-tool-call` using it).
+   *
+   * NEVER hand this a provider-controlled value — that was the bug: the
+   * built-in path used to pin it to `event.toolCallId`, the LLM's OWN wire
+   * id, so two conversations whose provider reused an id (the mock LLM's
+   * positional `call_0` default, and plenty of real OpenAI-compatible local
+   * servers) collided on the PK and the second insert was silently
+   * dropped. A provider wire id belongs in `providerToolCallId` below,
+   * never here.
+   */
   id?: string;
+  /**
+   * The LLM provider's own wire id for this call (built-in path:
+   * `event.toolCallId`) — correlation-only, stored in the non-unique
+   * `provider_tool_call_id` column, deliberately NOT used as `id` (see
+   * above). The client-hydration path (`toolCallRowToSummary`) reads this
+   * field back — falling back to `id` — so a reload still matches an
+   * in-flight card by the same id the live stream used. Omitted by the
+   * extension path (no provider wire id at that layer) and by
+   * `append-message-handler.ts` (its `id` above already fills that role).
+   */
+  providerToolCallId?: string | null;
   conversationId: string;
   messageId: string | null;
   extensionId: string;
@@ -124,17 +146,35 @@ export async function listToolCallsByConversation(
  * without this check, a user authenticated for conv-A could fire
  * events tagged with toolCallIds from conv-B as long as both are
  * theirs.
+ *
+ * `id` here may be the row's own surrogate PK OR a built-in tool's
+ * provider wire id (a card only ever knows the client-visible id —
+ * `toolCallRowToSummary` exposes `providerToolCallId ?? id`, so a
+ * built-in row's client-visible id is the wire id, not its PK). Tries
+ * the exact PK first (cheap, unambiguous); a miss falls back to the
+ * wire-id column, most-recent-first, because that value is
+ * deliberately NOT unique (see `toolCalls.providerToolCallId`'s doc) —
+ * the caller-side conversationId cross-check that follows is what stays
+ * fail-closed if that fallback ever picks the wrong tenant's row.
  */
 // fallow-ignore-next-line unused-export
 export async function getToolCallConversationById(
   id: string,
 ): Promise<{ id: string; conversationId: string | null } | null> {
-  const rows = await getDb()
+  const db = getDb();
+  const byId = await db
     .select({ id: toolCalls.id, conversationId: toolCalls.conversationId })
     .from(toolCalls)
     .where(eq(toolCalls.id, id))
     .limit(1);
-  return rows[0] ?? null;
+  if (byId[0]) return byId[0];
+  const byWireId = await db
+    .select({ id: toolCalls.id, conversationId: toolCalls.conversationId })
+    .from(toolCalls)
+    .where(eq(toolCalls.providerToolCallId, id))
+    .orderBy(desc(toolCalls.createdAt))
+    .limit(1);
+  return byWireId[0] ?? null;
 }
 
 /**
@@ -186,6 +226,9 @@ export async function listToolCallExtensionIdsForMessage(
 export async function persistToolCall(row: ToolCallRow): Promise<void> {
   try {
     await getDb().insert(toolCalls).values({
+      // `row.id`, when set, is a HOST-MINTED uuid (see the doc above) — the
+      // DB default kicks in otherwise. Never a provider wire id; that goes
+      // in `providerToolCallId`.
       ...(row.id ? { id: row.id } : {}),
       conversationId: persistableConversationId(row.conversationId),
       messageId: row.messageId,
@@ -203,6 +246,7 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
       agentConfigId: row.agentConfigId ?? null,
       model: row.model ?? null,
       provider: row.provider ?? null,
+      providerToolCallId: row.providerToolCallId ?? null,
     });
   } catch (err) {
     // Never-throw contract preserved: a DB persistence failure must not break
@@ -212,6 +256,28 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
     // extension-identity binding the uploads route relies on. Route the caught
     // error to persistError (fire-and-forget, itself never-throw) so the
     // failure stays observable — mirroring insertAuditEntry (audit-log.ts).
+    //
+    // `String(err)` alone is NOT observable enough to diagnose from: a
+    // failure through drizzle is a `DrizzleQueryError` whose OWN `.message`
+    // is just "Failed query: <sql> params: <bound values>" — the Postgres
+    // constraint name / detail / SQLSTATE code live one level down, on
+    // `.cause`, and never surface in `String(err)` at all. Diagnosing the
+    // defect-1 FK violation (a `messageId` that didn't exist in `messages`)
+    // took four separate ad-hoc queries against a log line that already
+    // existed, purely because that line didn't carry `.cause`. Pull those
+    // three fields out explicitly so the next failure reads off one line.
+    const cause =
+      err instanceof Error && err.cause && typeof err.cause === "object"
+        ? (err.cause as { code?: unknown; constraint?: unknown; detail?: unknown; message?: unknown })
+        : undefined;
+    // `String(err)` also EMBEDS THE BOUND PARAMS verbatim (drizzle renders
+    // "Failed query: <sql> params: <values>") — and those values are this
+    // row's `input`/`output`, which can carry whatever the tool call itself
+    // carried (credentials an extension echoed, file contents, etc.). Never
+    // widen that leak into `error_logs`: run it through the same
+    // credential-redaction boundary every other audit-adjacent write uses
+    // (`redactForAudit` — the house helper for exactly this threat model),
+    // rather than storing the raw string.
     await persistError({
       level: "warn",
       message: "tool-call-persist-failed: tool_calls",
@@ -221,7 +287,21 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
         messageId: row.messageId,
         extensionId: row.extensionId,
         toolName: row.toolName,
-        error: String(err),
+        // Postgres SQLSTATE (e.g. "23503" = foreign_key_violation) — see
+        // https://www.postgresql.org/docs/current/errcodes-appendix.html.
+        code: typeof cause?.code === "string" ? cause.code : null,
+        // The violated constraint's name (e.g. "tool_calls_message_id_fkey"),
+        // when Postgres reported one.
+        constraint: typeof cause?.constraint === "string" ? cause.constraint : null,
+        // Postgres's own DETAIL line (e.g. "Key (message_id)=(…) is not
+        // present in table \"messages\"."). Redacted defensively — it only
+        // ever echoes id/column values for this table, never tool payload,
+        // but costs nothing to run through the same boundary.
+        detail:
+          typeof cause?.detail === "string"
+            ? redactForAudit(cause.detail, { truncate: false }).redacted
+            : null,
+        error: redactForAudit(String(err)).redacted,
       },
     });
   }

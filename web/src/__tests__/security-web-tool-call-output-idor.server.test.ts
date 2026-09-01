@@ -20,7 +20,14 @@ vi.mock("$server/db/connection", () => ({
   }),
 }));
 vi.mock("$server/db/schema", () => ({
-  toolCalls: { id: "id", output: "output", userId: "user_id", conversationId: "conversation_id" },
+  toolCalls: {
+    id: "id",
+    output: "output",
+    userId: "user_id",
+    conversationId: "conversation_id",
+    providerToolCallId: "provider_tool_call_id",
+    createdAt: "created_at",
+  },
 }));
 vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(),
@@ -39,8 +46,24 @@ function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   });
 }
 
+// The route now tries an exact `id` match first, then falls back to
+// `providerToolCallId` (most-recent-first via `.orderBy().limit(1)`) — see
+// the FK-collision fix on `toolCalls.id`. Every step of the chain is
+// forgiving of extra calls so the SAME mocked row set answers whichever
+// query the route happens to run.
 function chainReturning(rows: unknown[]) {
-  return { from: () => ({ where: async () => rows }) };
+  const chain: {
+    from: () => typeof chain;
+    where: () => typeof chain;
+    orderBy: () => typeof chain;
+    limit: () => Promise<unknown[]>;
+  } = {
+    from: () => chain,
+    where: () => chain,
+    orderBy: () => chain,
+    limit: async () => rows,
+  };
+  return chain;
 }
 
 const OWNER = { user: { id: "owner-1", email: "o@x", name: "o", role: "member" } };
@@ -121,5 +144,80 @@ describe("IDOR: GET /api/tool-calls/[id]/output — conversation-less rows", () 
 
     const res = await GET(makeEvent({ locals: ADMIN }));
     expect(res.status).toBe(200);
+  });
+});
+
+// The FK-collision fix on toolCalls.id (tool-call-persist-losses) means a
+// built-in tool's card presents the provider WIRE id, not the row's own PK —
+// so the route's exact-`id` lookup misses and it falls back to
+// `providerToolCallId`. That fallback is deliberately NOT unique (the same
+// wire id can recur across conversations/turns), so the ownership gate below
+// is what keeps it from becoming a NEW IDOR: the wire-id resolution itself
+// makes no ownership claim, and the same fail-closed check that already runs
+// on the exact-id path is proven here to also apply on the fallback path.
+describe("IDOR: GET /api/tool-calls/[id]/output — providerToolCallId fallback path", () => {
+  beforeEach(() => {
+    selectMock.mockReset();
+    vi.mocked(resolveRootConversationForOwnership).mockReset();
+  });
+
+  test("exact id misses, wire-id fallback resolves a row the caller does NOT own → 404, output never disclosed", async () => {
+    // First .select() (exact id) → empty; second (providerToolCallId) →
+    // resolves to a row belonging to someone else.
+    selectMock
+      .mockReturnValueOnce(chainReturning([]))
+      .mockReturnValueOnce(
+        chainReturning([{ userId: "owner-1", conversationId: "conv-a", output: { secret: "shell-out" } }]),
+      );
+    vi.mocked(resolveRootConversationForOwnership).mockResolvedValue(null);
+
+    const res = await GET(makeEvent({ locals: ATTACKER, id: "call_0" }));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(JSON.stringify(body)).not.toContain("shell-out");
+    // The fallback-resolved row's OWN conversationId is what gets checked —
+    // proves the ownership gate runs on the fallback-resolved row, not on
+    // something derived from the (unowned) wire id itself.
+    expect(vi.mocked(resolveRootConversationForOwnership)).toHaveBeenCalledWith(
+      "conv-a",
+      ATTACKER.user,
+    );
+    expect(selectMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("exact id misses, wire-id fallback resolves the caller's OWN row → 200 with output", async () => {
+    selectMock
+      .mockReturnValueOnce(chainReturning([]))
+      .mockReturnValueOnce(
+        chainReturning([{ userId: "owner-1", conversationId: "conv-a", output: { foo: "bar" } }]),
+      );
+    vi.mocked(resolveRootConversationForOwnership).mockResolvedValue({ conv: {}, root: {} } as any);
+
+    const res = await GET(makeEvent({ locals: OWNER, id: "call_0" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { output?: unknown };
+    expect(body.output).toEqual({ foo: "bar" });
+    expect(selectMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("exact id HITS → fallback query never runs (PK match short-circuits)", async () => {
+    selectMock.mockReturnValueOnce(
+      chainReturning([{ userId: "owner-1", conversationId: "conv-a", output: { foo: "bar" } }]),
+    );
+    vi.mocked(resolveRootConversationForOwnership).mockResolvedValue({ conv: {}, root: {} } as any);
+
+    const res = await GET(makeEvent({ locals: OWNER, id: "real-pk-uuid" }));
+    expect(res.status).toBe(200);
+    expect(selectMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("neither the exact id nor the wire id resolves anything → 404", async () => {
+    selectMock.mockReturnValueOnce(chainReturning([])).mockReturnValueOnce(chainReturning([]));
+
+    const res = await GET(makeEvent({ locals: ATTACKER, id: "nowhere" }));
+    expect(res.status).toBe(404);
+    expect(selectMock).toHaveBeenCalledTimes(2);
+    // No row was ever resolved, so the ownership walk must never run.
+    expect(vi.mocked(resolveRootConversationForOwnership)).not.toHaveBeenCalled();
   });
 });

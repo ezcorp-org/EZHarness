@@ -289,7 +289,12 @@ export async function wireOrchestrationToolsForTurn(
         },
         toolExec,
         conversationId,
-        runId,
+        // `run.id` is not a `messages.id` — the current turn's assistant
+        // message doesn't exist yet at wire time. `null` lands cleanly and
+        // subscribe-bridge.ts's turn_end anchor re-parents it once the
+        // message is created (see the `messageId` doc on
+        // extensionToAgentTool for the FK-violation history).
+        null,
         undefined,
         { conversationId },
       ),
@@ -328,7 +333,8 @@ export async function wireOrchestrationToolsForTurn(
         },
         toolExec,
         conversationId,
-        runId,
+        // See the collect_agent_result wiring above — `null`, not `runId`.
+        null,
         undefined,
         sendMetadata,
       ),
@@ -414,7 +420,8 @@ export async function wireOrchestrationToolsForTurn(
       },
       toolExec,
       conversationId,
-      runId,
+      // See the collect_agent_result wiring above — `null`, not `runId`.
+      null,
       schemaOverride,
       invocationMetadata,
     ),
