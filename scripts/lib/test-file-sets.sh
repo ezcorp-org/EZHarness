@@ -735,11 +735,25 @@ summary_count() {
 # subshell writes neither file, and `continue`-ing past it silently green-lit
 # a killed shard. It is recorded as CODE=1 with reason
 # "no result recorded (killed?)" so it is always counted and listed.
+#
+# A caller that runs files through ez_watchdog_run_file (scripts/lib/
+# watchdog.sh — currently only test.sh) may ALSO leave a $TMPDIR/watchdog_$i
+# file for an index the per-worker CPU-progress watchdog had to kill. When
+# present it is shown INSTEAD of the generic output-tail fallback below: a
+# watchdog kill already carries its own attributable diagnostic (file, pid,
+# stall duration, cpu-tick evidence), and printing that beats guessing from
+# whatever partial/empty stdout a SIGKILLed process happened to flush. The
+# fail/pass tally itself is untouched — CODE is already non-zero for a killed
+# worker (bun's own exit code for a killed process), so it was already
+# counted as a failure before this file is even consulted. A caller that
+# never uses the watchdog (test-web.sh) never has this file, so this is a
+# pure no-op addition for it.
 collect_pool_results() {
   local -n _cp_files=$1
-  local i OUTFILE OUTPUT CODE PASS FAIL DETAIL
+  local i OUTFILE WDFILE OUTPUT CODE PASS FAIL DETAIL
   for ((i=0; i<${#_cp_files[@]}; i++)); do
     OUTFILE="$TMPDIR/result_$i"
+    WDFILE="$TMPDIR/watchdog_$i"
     if [ -f "$OUTFILE" ]; then
       OUTPUT=$(cat "$OUTFILE")
       CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
@@ -763,15 +777,19 @@ collect_pool_results() {
     if [ "$CODE" != "0" ] || [ "${FAIL:-0}" != "0" ]; then
       FAILED_FILES+=("${_cp_files[$i]}")
       echo "--- FAIL: ${_cp_files[$i]} ---"
-      DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
-      if [ -n "$DETAIL" ]; then
-        echo "$DETAIL"
+      if [ -f "$WDFILE" ]; then
+        cat "$WDFILE"
       else
-        # No per-test "(fail)" line — the file errored at load or was killed.
-        # Surface the tail of its output so CI failures are diagnosable instead
-        # of printing an empty header (the historical false-positive symptom).
-        echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
-        echo "$OUTPUT" | tail -20 | sed 's/^/  /'
+        DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
+        if [ -n "$DETAIL" ]; then
+          echo "$DETAIL"
+        else
+          # No per-test "(fail)" line — the file errored at load or was killed.
+          # Surface the tail of its output so CI failures are diagnosable instead
+          # of printing an empty header (the historical false-positive symptom).
+          echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
+          echo "$OUTPUT" | tail -20 | sed 's/^/  /'
+        fi
       fi
       echo ""
     fi

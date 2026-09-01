@@ -33,6 +33,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
+# Per-worker CPU-progress watchdog — kills a wedged (not merely slow) worker
+# so it can't take the shared machine down with it. See scripts/lib/watchdog.sh
+# for the full incident writeup and parameter justification.
+# shellcheck source=scripts/lib/watchdog.sh
+source "$SCRIPT_DIR/lib/watchdog.sh"
 
 # Default pool width: min(nproc, 6) — see default_parallel in
 # lib/test-file-sets.sh. Explicit PARALLEL still overrides.
@@ -96,6 +101,17 @@ elif [ -n "$CRITICAL_ONLY" ]; then
     echo "::error::critical set has only ${#FILES[@]} files (< 25 floor; 33 expected) — pattern rot in critical_backend_files()? Check scripts/lib/test-file-sets.sh." >&2
     exit 1
   fi
+elif [ -n "$HOST_FILES_OVERRIDE" ] && [ -z "$CI" ]; then
+  # Dev-only escape hatch, mirroring scripts/test-coverage.sh's identically-
+  # named HOST_FILES_OVERRIDE: run an explicit file list (one repo-relative
+  # path per line) instead of the real pass/fail set P. Lets the pool
+  # machinery itself — parallelism, per-file isolation, and the per-worker
+  # watchdog (scripts/lib/watchdog.sh) — be exercised against a tiny synthetic
+  # set (e.g. a deliberately wedged fixture) without running the full backend
+  # pool. INERT IN CI: GitHub Actions always sets CI, so this can never
+  # replace the real gate there.
+  mapfile -t FILES < "$HOST_FILES_OVERRIDE"
+  echo "== dev-only override (HOST_FILES_OVERRIDE): ${#FILES[@]} file(s) =="
 else
   mapfile -t FILES < <(passfail_files)
 fi
@@ -110,10 +126,11 @@ IDX=0
 for f in "${FILES[@]}"; do
   OUTFILE="$TMPDIR/result_$IDX"
   CODEFILE="$TMPDIR/code_$IDX"
+  WDFILE="$TMPDIR/watchdog_$IDX"
   (
     # set +e (scoped to this subshell): the script runs under `set -e`, so a
-    # FAILING `bun test` makes the `OUTPUT=$(...)` command-substitution
-    # assignment abort the subshell BEFORE the exit-code/output files are
+    # FAILING worker (via the `wait "$bun_pid"` inside ez_watchdog_run_file)
+    # would otherwise abort the subshell BEFORE the exit-code/output files are
     # written. That file then leaves no result_$IDX, the collection loop below
     # `continue`s past the missing file, its failure is never tallied, and
     # test.sh exits 0 on a genuinely red file — silently swallowing the failure
@@ -124,15 +141,17 @@ for f in "${FILES[@]}"; do
     set +e
     # --timeout 30000: DB-heavy suites share the host with PARALLEL-1 sibling
     # PGlite processes; bun's 5s default per-test ceiling is contention-bound,
-    # not correctness-bound, in this pool. A genuine hang still fails at 30s.
-    OUTPUT=$(bun test --timeout 30000 "./$f" 2>&1)
-    # Record bun's per-shard exit code — the authoritative pass/fail signal.
-    # Scraping the summary alone is unreliable: a file that errors at module
-    # load prints "N fail" with no "(fail)" lines, and a file killed (SIGKILL/
-    # OOM) under parallel load may print no summary at all. The exit code is
-    # the only signal that survives both, so we never silently pass a crash.
-    echo "$?" > "$CODEFILE"
-    echo "$OUTPUT" > "$OUTFILE"
+    # not correctness-bound, in this pool. A genuine hang still fails at 30s —
+    # PROVIDED the process is healthy enough for that in-process timer to run
+    # at all. ez_watchdog_run_file (scripts/lib/watchdog.sh) adds the backstop
+    # for the case that timer structurally cannot see: a worker that has
+    # stopped executing altogether (module-load hang, indefinite blocking
+    # call, IO/swap wedge). It writes $OUTFILE/$CODEFILE exactly like a plain
+    # `bun test` would, plus $WDFILE with a self-describing diagnostic IFF it
+    # had to kill the worker — collect_pool_results surfaces that instead of
+    # its normal fallback tail so a watchdog kill reads as what it is, never
+    # as an ordinary assertion failure to go debug.
+    ez_watchdog_run_file "$f" "$OUTFILE" "$CODEFILE" "$WDFILE"
   ) &
   IDX=$((IDX + 1))
   RUNNING=$((RUNNING + 1))
