@@ -32,10 +32,10 @@
     "lint:fix": "bun run lint --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.9",
+    "@biomejs/biome": "2.5.10",
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.3.0",
     "drizzle-kit": "^0.31.9"
   },
   "peerDependencies": {
