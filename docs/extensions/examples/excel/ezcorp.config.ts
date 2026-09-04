@@ -1,13 +1,13 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "excel",
   version: "0.1.0",
   description:
     "Read Excel (.xlsx) workbooks attached to chat. Provides a `read-spreadsheet` tool that returns a sheet manifest, range reads in A1 notation, or full sheets rendered as markdown tables. Operates on attachment handles — no separate disk path required.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   acceptedAttachmentMimes: [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ],

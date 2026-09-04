@@ -1,7 +1,7 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "openai-image-gen-2",
   version: "1.2.0",
   description:
@@ -13,7 +13,7 @@ export default defineExtension({
     "modify a prior turn's image. Uses your subscription OAuth token via the " +
     "Codex Responses API when available, or a classic sk-… API key against the Images API.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "generate",

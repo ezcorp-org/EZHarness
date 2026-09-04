@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // System prompt for the Daily Cash Recovery Agent. Kept inline so the
 // manifest is the single source of truth for agent behavior — no
@@ -61,13 +61,13 @@ Final output format (Markdown):
 Close with a one-line executive punchline restating total dollars found.`;
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "cash-recovery-agent",
   version: "1.0.0",
   description:
     "Daily Cash Recovery Agent: autonomously finds unbilled change orders, underbilled jobs, releasable retainage, and overdue receivables across a construction portfolio.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   tools: [
     {

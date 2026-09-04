@@ -4,16 +4,16 @@
 // terminal capture loop needs: an LLM provider, storage (the run store),
 // and a filesystem path for the artifact mirror.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "sample-loop",
   version: "1.0.0",
   description:
     "Reference Loop SDK example — summarizes each completed chat run in one line and mirrors it to an artifact, built on defineLoop.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Examples",
   tags: ["loop", "example", "reference"],
   // Event-only loop — stay resident so run:complete isn't dropped on idle.

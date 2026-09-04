@@ -1,13 +1,13 @@
-import { defineExtension } from "@ezcorp/sdk";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "ai-kit",
   version: "0.1.0",
   description:
     "In-EZCorp orchestration extension — lets agents start chats, fan out to sibling conversations, spawn teams, assign tasks, and drive the full EZCorp API surface from inside the app.",
   author: { name: "EZCorp" },
-  entrypoint: "./src/mcp/server.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   category: "Orchestration",
   tags: ["orchestration", "agents", "teams", "tasks", "chat", "fan-out"],
@@ -352,12 +352,32 @@ export default defineExtension({
   },
 
   permissions: {
-    // The extension calls the local EZCorp HTTP API — localhost only.
-    // When EZCorp is hosted remotely the user must declare the host
-    // explicitly in their project-level permissions override.
-    network: ["localhost"],
-    filesystem: ["$CWD"],
-    env: ["EZCORP_BASE_URL", "EZCORP_API_KEY", "EZCORP_SESSION_COOKIE"],
+    hostApi: {
+      events: true,
+      routes: [
+        { method: "GET", path: "/api/health" },
+        { method: "GET", path: "/api/auth/me" },
+        { method: "GET", path: "/api/projects" },
+        { method: "GET", path: "/api/projects/:id" },
+        { method: "POST", path: "/api/projects" },
+        { method: "GET", path: "/api/conversations" },
+        { method: "POST", path: "/api/conversations" },
+        { method: "GET", path: "/api/conversations/:id" },
+        { method: "GET", path: "/api/conversations/:id/messages" },
+        { method: "POST", path: "/api/conversations/:id/messages" },
+        { method: "POST", path: "/api/conversations/:id/active-run" },
+        { method: "GET", path: "/api/conversations/:id/sub-conversations" },
+        { method: "GET", path: "/api/conversations/:id/tasks" },
+        { method: "POST", path: "/api/conversations/:id/tasks/:taskId/assign" },
+        { method: "POST", path: "/api/conversations/:id/tasks/:taskId/assignments/:assignmentId/start" },
+        { method: "GET", path: "/api/agent-configs" },
+        { method: "POST", path: "/api/agent-configs" },
+        { method: "POST", path: "/api/agent-configs/generate" },
+        { method: "GET", path: "/api/mentions/search" },
+        { method: "GET", path: "/api/models" },
+        { method: "GET", path: "/api/extensions" },
+      ],
+    },
     storage: false,
   },
 });

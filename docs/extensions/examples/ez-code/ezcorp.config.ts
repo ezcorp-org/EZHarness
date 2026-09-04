@@ -1,13 +1,13 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "ez-code",
   version: "0.1.0",
   description:
     "Warren-style control plane for ephemeral coding-agent runs: dispatch / steer / cancel / list runs from a live Hub dashboard, with cron triggers, branch→PR automation, and persistent agent memory + task queue — operating on the active EZCorp project.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Development",
   tags: ["hub", "pages", "orchestration", "agents", "control-plane"],
 
@@ -163,7 +163,7 @@ export default defineExtension({
     // throwaway worktree carrying the run's changes; never the repo root).
     shell: true,
     // gh pr create reaches the GitHub API (and git push over https).
-    network: ["api.github.com"],
+    network: ["github.com", "api.github.com"],
     // Cron triggers (Warren's triggers.yaml analog). Each fire reads
     // .ezcorp/extension-data/ez-code/triggers.json and dispatches the run(s)
     // configured for the firing cron. The host refuses any cron not listed

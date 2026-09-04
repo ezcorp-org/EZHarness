@@ -1,12 +1,12 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "todo-tracker",
   version: "1.0.0",
   description: "Scan project files for TODO, FIXME, and HACK comments",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "scan-todos",

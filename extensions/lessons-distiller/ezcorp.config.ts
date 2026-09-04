@@ -14,16 +14,16 @@
 // No `filesystem` grant, by design: the lesson row in the DB is the only
 // source of truth, so the extension writes no files.
 
-import { defineExtension } from "../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "lessons-distiller",
   version: "1.0.0",
   description:
     "Distills durable lessons from completed runs (auto on run:complete and via the manual !EZ:distill action).",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   // Phase 53.6 — event-only extension; idle-out would silently drop run:complete after 5min
   persistent: true,
 

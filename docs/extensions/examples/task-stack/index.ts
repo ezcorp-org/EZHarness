@@ -7,6 +7,7 @@
 // every IO through the `ezcorp/fs.*` reverse-RPC.
 
 import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "@ezcorp/sdk";
+import { getToolContext } from "@ezcorp/sdk/runtime";
 import {
   fsRead,
   fsWrite,
@@ -68,7 +69,7 @@ interface Store {
 /** Walk up from `from` to locate a `.git` directory. Falls back to `from` when none is found. */
 export function resolveProjectRoot(from: string = process.cwd()): string {
   // (1) Host-injected — production fast path.
-  const fromEnv = process.env.EZCORP_PROJECT_ROOT;
+  const fromEnv = getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
   if (fromEnv && fromEnv.length > 0) return fromEnv;
 
   // (2) Lazy fs walk — only reached in test / CLI contexts where the

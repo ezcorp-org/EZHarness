@@ -110,16 +110,16 @@
 //      for CONSOLE BUTTONS (`ctx.rbac.check`), which resolve the
 //      extension from the subprocess identity, not from a conversation.
 
-import { defineExtension } from "../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "ez-factory",
   version: "0.1.0",
   description:
     "A job console for workflows — saved job definitions over the shipped factory templates, run by hand or from chat, with real approval gates and links out to core run traces.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
 
   // Two of the three-page Hub budget. `factory` multiplexes its sub-views
   // through `?view=`; `job` is the single-job editor. The approvals inbox

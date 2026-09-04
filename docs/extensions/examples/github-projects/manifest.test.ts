@@ -13,7 +13,7 @@ import config from "./ezcorp.config";
 describe("github-projects manifest", () => {
   test("identity + bootSpawn", () => {
     expect(config.name).toBe("github-projects");
-    expect(config.schemaVersion).toBe(2);
+    expect(config.schemaVersion).toBe(4);
     expect(config.bootSpawn).toBe(true);
     expect(config.entrypoint).toBeTruthy();
   });

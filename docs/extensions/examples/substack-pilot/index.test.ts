@@ -4,11 +4,11 @@
 
 import { test, expect, describe } from "bun:test";
 import manifest from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 describe("substack-pilot — manifest shape", () => {
   test("required fields are set", () => {
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(4);
     expect(manifest.name).toBe("substack-pilot");
     expect(manifest.version).toBe("1.0.0");
     expect(manifest.author.name).toBe("EZCorp");
@@ -16,7 +16,7 @@ describe("substack-pilot — manifest shape", () => {
   });
 
   test("entrypoint is the dispatcher", () => {
-    expect(manifest.entrypoint).toBe("./index.ts");
+    expect(manifest.entrypoint).toBe("./extension.ts");
   });
 
   test("declares the two bespoke (non-CRUD) tools by name", () => {
@@ -131,16 +131,8 @@ describe("substack-pilot — manifest shape", () => {
 });
 
 describe("substack-pilot — host validator", () => {
-  test("validateManifestV2 accepts the manifest with no errors", () => {
-    const result = validateManifestV2(manifest);
-    if (!result.valid) {
-      // Surface the actual errors in the assertion message so a future
-      // failure points at the offending field directly.
-      throw new Error(
-        `validateManifestV2 rejected manifest:\n  ${result.errors.join("\n  ")}`,
-      );
-    }
-    expect(result.valid).toBe(true);
-    expect(result.errors).toEqual([]);
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(manifest)).not.toThrow();
+
   });
 });

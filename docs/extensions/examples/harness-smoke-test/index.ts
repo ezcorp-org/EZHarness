@@ -12,6 +12,8 @@
 // internals on first `process.stdout.write`.
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { getChannel } from "@ezcorp/sdk/runtime";
+import { unwrapToolResponse } from "@ezcorp/sdk/v4";
 
 export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
   if (req.method === "tools/call") {
@@ -50,31 +52,14 @@ export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
   };
 }
 
-async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  const decoder = new TextDecoder();
-  const stdoutWriter = Bun.stdout.writer();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = handleRequest(req);
-        stdoutWriter.write(JSON.stringify(res) + "\n");
-        await stdoutWriter.flush();
-      } catch {
-        // Ignore malformed lines.
-      }
-    }
-  }
+export function start(): void {
+  const channel = getChannel();
+  channel.onRequest("tools/call", async (params) => unwrapToolResponse(await handleRequest({
+    jsonrpc: "2.0", id: 0, method: "tools/call", params: params as Record<string, unknown>,
+  })));
 }
+
+export const main = start;
 
 // Only run the stdio server when launched as the entrypoint.
 if (import.meta.main) {

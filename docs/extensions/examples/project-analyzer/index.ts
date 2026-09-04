@@ -2,10 +2,11 @@
 // project-analyzer - Read and list project files
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
-import { fsRead } from "@ezcorp/sdk/runtime";
+import { getChannel } from "@ezcorp/sdk/runtime";
+import { unwrapToolResponse } from "@ezcorp/sdk/v4";
+import { fsList, fsRead } from "@ezcorp/sdk/runtime";
 import { resolve, normalize } from "node:path";
 
-const decoder = new TextDecoder();
 
 const cwd = process.cwd();
 
@@ -16,12 +17,6 @@ const cwd = process.cwd();
 // is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
 // its writer survives the sandbox. Cached lazily so we don't pay
 // the writer-creation cost on every JSON-RPC frame.
-let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
-function writeStdout(s: string): void {
-  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
-  stdoutWriter.write(s);
-  void stdoutWriter.flush();
-}
 
 // Path validation
 function isUnderCwd(filePath: string): boolean {
@@ -41,8 +36,11 @@ function successResponse(id: number | string, text: string): JsonRpcResponse {
 async function handleListFiles(id: number | string, args: Record<string, unknown>): Promise<JsonRpcResponse> {
   const pattern = (args.pattern as string) ?? "*";
   try {
-    const result = await Bun.$`ls -1 ${pattern}`.cwd(cwd).text();
-    return successResponse(id, result.trim());
+    const directory = typeof args.path === "string" ? resolve(cwd, args.path) : cwd;
+    if (!isUnderCwd(directory)) return errorResponse(id, -32000, "Path is outside project directory");
+    const matcher = new Bun.Glob(pattern);
+    const entries = await fsList(directory);
+    return successResponse(id, entries.filter((entry) => matcher.match(entry.name)).map((entry) => entry.name).sort().join("\n"));
   } catch (err) {
     return errorResponse(id, -32000, `Failed to list files: ${(err as Error).message}`);
   }
@@ -84,30 +82,14 @@ async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> {
 // would lock stdin's reader the moment anything imported this file, hanging
 // `index.test.ts` on a read that never resolves. Same shape as file-refactor
 // / todo-tracker.
-export async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = await handleRequest(req);
-        writeStdout(JSON.stringify(res) + "\n");
-      } catch {
-        // Ignore malformed lines
-      }
-    }
-  }
+export function start(): void {
+  const channel = getChannel();
+  channel.onRequest("tools/call", async (params) => unwrapToolResponse(await handleRequest({
+    jsonrpc: "2.0", id: 0, method: "tools/call", params: params as Record<string, unknown>,
+  })));
 }
+
+export const main = start;
 
 /** Exported for `index.test.ts` — driven directly with a stubbed host
  *  channel, mirroring file-refactor's `_internals` convention. */

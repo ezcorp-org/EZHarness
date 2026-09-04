@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 import type { EntityDeclaration } from "@ezcorp/sdk/entities";
 
 // Entities are declared as a separately-typed `const` so their
@@ -161,7 +161,7 @@ const entities: EntityDeclaration[] = [
 //  - appendMessages — reserved for future "your queue has N drafts" nudges
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "substack-engagement",
   version: "1.0.0",
   description:
@@ -169,7 +169,7 @@ export default defineExtension({
     "follow-up sequences, and targeted Notes commenting — every message is " +
     "queued for human review before it sends.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
 
   // ── Persistent voice + draft-only operating rules ───────────────
   agent: {

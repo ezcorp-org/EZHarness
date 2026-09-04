@@ -30,7 +30,7 @@ import {
   type NotifyInput,
 } from "./index";
 import config from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 afterEach(() => {
   _setGitHeadForTests(null);
@@ -319,15 +319,8 @@ describe("registration + manifest", () => {
     expect(() => defineRepoActivityNotifyLoop()).not.toThrow();
   });
 
-  test("the manifest passes validateManifestV2 (snake_case settings keys)", () => {
-    // The host validates every manifest through validateManifestV2 at load
-    // time; a camelCase settings key (repoPath / conversationId) FAILS
-    // SETTINGS_KEY_REGEX so the extension would never load — the unit suite
-    // above exercises the config readers directly and would NOT catch it.
-    const result = validateManifestV2(config);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
-    // The keys the readers depend on are the snake_case ones.
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(config)).not.toThrow();
     expect(Object.keys(config.settings ?? {})).toEqual(
       expect.arrayContaining(["enabled", "repo_path", "conversation_id"]),
     );

@@ -1533,9 +1533,11 @@ export { unsatisfiedDeps, isBlocked, detectCycle };
 
 // Production wiring — gated on `import.meta.main` so test imports don't
 // open stdin. See scratchpad/index.ts for the canonical pattern.
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   registerEventHandler("task:assignment_update", handleAssignmentUpdate);
   ch.start();
 }
+
+if (import.meta.main) start();

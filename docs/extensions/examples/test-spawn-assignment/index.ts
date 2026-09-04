@@ -71,8 +71,10 @@ export const tools: Record<string, ToolHandler> = {
   drain_updates: drain,
 };
 
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+if (import.meta.main) start();

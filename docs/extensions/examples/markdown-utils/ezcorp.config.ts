@@ -1,14 +1,14 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "markdown-utils",
   version: "1.0.0",
   description: "Markdown formatting tools, style guidelines, and an editing assistant in one package",
   author: {
     name: "EZCorp",
   },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   tools: [
     {
@@ -53,7 +53,7 @@ export default defineExtension({
     {
       name: "markdown-style",
       description: "Guidelines for writing clean, consistent markdown",
-      content: "# Markdown Style Guide\n\n- Use ATX-style headings (# not underlines)\n- One sentence per line for better diffs\n- Blank line before and after headings, lists, and code blocks\n- Use fenced code blocks with language identifiers\n- Prefer reference-style links for repeated URLs\n- Tables: align pipes, use header separator row\n- Lists: consistent marker (- not mixed with *)\n- Maximum line length: 120 characters for prose",
+      prompt: "# Markdown Style Guide\n\n- Use ATX-style headings (# not underlines)\n- One sentence per line for better diffs\n- Blank line before and after headings, lists, and code blocks\n- Use fenced code blocks with language identifiers\n- Prefer reference-style links for repeated URLs\n- Tables: align pipes, use header separator row\n- Lists: consistent marker (- not mixed with *)\n- Maximum line length: 120 characters for prose",
     },
   ],
   agent: {

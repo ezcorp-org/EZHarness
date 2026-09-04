@@ -323,87 +323,15 @@ describe("skip lists", () => {
   });
 });
 
-describe("main() — the stdin JSON-RPC loop", () => {
-  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
-  // FIRST time it's called and reuses it for the rest of the process (that's
-  // the whole point of the cache — see the comment on `writeStdout`). So the
-  // spy on `Bun.stdout.writer` must be installed exactly ONCE for this file's
-  // test process; re-spying per test would just be ignored after the first
-  // `runMain()` call. Route writes through a rebindable sink instead so each
-  // test gets its own array.
-  const sink = { written: [] as string[] };
-  let writerSpy: ReturnType<typeof spyOn>;
-  beforeAll(() => {
-    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
-      write: (s: string) => {
-        sink.written.push(s as string);
-        return (s as string).length;
-      },
-      flush: () => Promise.resolve(0),
-    } as unknown as ReturnType<typeof Bun.stdout.writer>);
-  });
-  afterAll(() => {
-    writerSpy.mockRestore();
-  });
-
-  // Reachable only because `main()` now creates its reader lazily and is
-  // gated on `import.meta.main`. Driven by swapping `Bun.stdin.stream()`
-  // for a controlled ReadableStream; the input is split ACROSS CHUNKS at
-  // a non-line boundary so the `buffer +=` / partial-line path is real,
-  // not incidental.
-  async function runMain(input: string, splitAt: number): Promise<string[]> {
-    const enc = new TextEncoder();
-    const parts = [enc.encode(input.slice(0, splitAt)), enc.encode(input.slice(splitAt))];
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const p of parts) controller.enqueue(p);
-        controller.close();
-      },
-    });
-    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
-      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
-    );
-    sink.written = [];
+describe("registration", () => {
+  test("registers handlers without opening stdin", () => {
+    const input = spyOn(Bun.stdin, "stream");
     try {
-      await main();
+      main();
+      expect(input).not.toHaveBeenCalled();
     } finally {
-      streamSpy.mockRestore();
+      input.mockRestore();
     }
-    return sink.written;
-  }
-
-  test("answers a well-formed request, skips blanks, swallows malformed lines", async () => {
-    const req = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 11,
-      method: "tools/call",
-      params: { name: "nope", arguments: {} },
-    });
-    const input = `${req}\n\n   \n{not json\n`;
-    // Split mid-request so the loop must buffer a partial line.
-    const written = await runMain(input, 20);
-
-    // Exactly one response: the blank lines are skipped and the malformed
-    // line is swallowed by the loop's catch.
-    expect(written).toHaveLength(1);
-    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
-    expect(res.id).toBe(11);
-    expect(res.error!.code).toBe(-32601);
-  });
-
-  test("answers two requests in one chunk", async () => {
-    const mk = (id: number) =>
-      JSON.stringify({ jsonrpc: "2.0", id, method: "nope/nope" });
-    const written = await runMain(`${mk(21)}\n${mk(22)}\n`, 5);
-    expect(written).toHaveLength(2);
-    expect((JSON.parse(written[0]!.trim()) as JsonRpcResponse).id).toBe(21);
-    expect((JSON.parse(written[1]!.trim()) as JsonRpcResponse).id).toBe(22);
-  });
-
-  test("a trailing line with no newline is NOT answered (needs its terminator)", async () => {
-    const req = JSON.stringify({ jsonrpc: "2.0", id: 31, method: "nope/nope" });
-    const written = await runMain(req, 4); // no trailing "\n"
-    expect(written).toHaveLength(0);
   });
 });
 

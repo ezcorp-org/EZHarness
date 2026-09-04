@@ -65,7 +65,7 @@ import {
   type ShellRunner,
 } from "./index";
 import config from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 afterEach(() => {
   _setGitHeadForTests(null);
@@ -941,14 +941,11 @@ describe("shell resolution", () => {
 // ── manifest ────────────────────────────────────────────────────────
 
 describe("manifest", () => {
-  test("passes validateManifestV2 (snake_case settings keys)", () => {
-    const result = validateManifestV2(config);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(config)).not.toThrow();
     expect(Object.keys(config.settings ?? {})).toEqual(
       expect.arrayContaining(["enabled", "repo_path", "agent_name", "write_paths", "auto_merge"]),
     );
-    // SF-6: the dead `base_branch` knob was dropped (never wired).
     expect(Object.keys(config.settings ?? {})).not.toContain("base_branch");
   });
   test("declares the loop grants (spawnAgents, loopEvents, page-action events)", () => {

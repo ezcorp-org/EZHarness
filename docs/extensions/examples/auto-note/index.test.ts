@@ -1305,10 +1305,10 @@ describe("E2E: concurrent captures", () => {
 describe("manifest", () => {
   test("has required fields", async () => {
     const manifest = (await import("./ezcorp.config")).default;
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(4);
     expect(manifest.name).toBe("auto-note");
     expect(manifest.version).toBe("1.0.0");
-    expect(manifest.entrypoint).toBe("./index.ts");
+    expect(manifest.entrypoint).toBe("./extension.ts");
     expect(manifest.persistent).toBe(true);
   });
 

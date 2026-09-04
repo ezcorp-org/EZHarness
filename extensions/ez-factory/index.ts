@@ -954,7 +954,7 @@ export function registerPages(): void {
     [JOB_RUN_EVENT]: handleJobRun,
   };
   definePage({ id: FACTORY_PAGE_ID, render: renderFactoryPage, actions });
-  definePage({ id: JOB_PAGE_ID, render: renderJobPage, actions });
+  definePage({ id: JOB_PAGE_ID, render: renderJobPage, actions: {} });
 }
 
 /**

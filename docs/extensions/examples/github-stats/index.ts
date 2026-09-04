@@ -10,6 +10,7 @@ import {
   toolError,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
+import { getGrantedEnv, getInvocationContext } from "@ezcorp/sdk/v4";
 
 // GitHub API helper — uses fetchPermitted so the host-granted network
 // allowlist (`permissions.network: ["api.github.com"]` in ezcorp.config.ts)
@@ -17,7 +18,7 @@ import {
 // not present in `EZCORP_PERMITTED_HOSTS`.
 async function githubFetch(path: string): Promise<{ ok: boolean; status: number; data: unknown }> {
   const headers: Record<string, string> = { "User-Agent": "github-stats-ext" };
-  const token = process.env.GITHUB_TOKEN;
+  const token = getInvocationContext() ? await getGrantedEnv("GITHUB_TOKEN") : process.env.GITHUB_TOKEN;
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetchPermitted(`https://api.github.com${path}`, { headers });
@@ -82,8 +83,10 @@ const tools: Record<string, ToolHandler> = {
 // `createToolDispatcher(tools)` supplies the handlers; `ch.start()` then
 // kicks off the stdin read loop.
 
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+if (import.meta.main) start();

@@ -10,16 +10,16 @@
 // manual tool the dashboard button fires, and the `ping-loop:run` page-action
 // event the button dispatches.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "ping-loop",
   version: "1.0.0",
   description:
     "Watchable Loop SDK demo — click 'Ping now' on the Hub dashboard to fire a deterministic, LLM-free loop and watch 'done' run rows appear, built on defineLoop.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Examples",
   tags: ["loop", "example", "demo"],
   // Manual/page-action loop — must stay resident to receive `ping-loop:run`

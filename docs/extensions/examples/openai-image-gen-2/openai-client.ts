@@ -7,6 +7,7 @@
 // cannot authenticate to `api.openai.com/v1/images/*`.
 
 import { fetchPermitted } from "@ezcorp/sdk/runtime";
+import { getGrantedEnv, getInvocationContext } from "@ezcorp/sdk/v4";
 import {
   ACCEPTED_IMAGE_REF_HELP,
   isAcceptedImageRef,
@@ -84,6 +85,10 @@ export function resolveAuth(env: AuthEnv = process.env as AuthEnv): { token: str
     "auth",
     "OPENAI_API_KEY must be set for the Images API path. Set a classic sk-… key in admin settings.",
   );
+}
+
+async function resolveRuntimeAuth(env?: AuthEnv): Promise<{ token: string; source: "api_key" }> {
+  return resolveAuth(env ?? (getInvocationContext() ? { OPENAI_API_KEY: await getGrantedEnv("OPENAI_API_KEY") ?? undefined } : undefined));
 }
 
 // ── Validation ───────────────────────────────────────────────────────
@@ -262,7 +267,7 @@ export async function generate(
   opts: { fetcher?: Fetcher; env?: AuthEnv } = {},
 ): Promise<GeneratedImage[]> {
   const valid = validateGenerateParams(p);
-  const { token } = resolveAuth(opts.env);
+  const { token } = await resolveRuntimeAuth(opts.env);
   const fetcher = opts.fetcher ?? fetchPermitted;
   const body: Record<string, unknown> = {
     model: valid.model,
@@ -297,7 +302,7 @@ export async function edit(
   opts: { fetcher?: Fetcher; env?: AuthEnv } = {},
 ): Promise<GeneratedImage[]> {
   const valid = validateEditParams(p);
-  const { token } = resolveAuth(opts.env);
+  const { token } = await resolveRuntimeAuth(opts.env);
   const fetcher = opts.fetcher ?? fetchPermitted;
 
   const form = new FormData();

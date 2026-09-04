@@ -94,7 +94,7 @@ test("extract-headings returns empty for no headings", () => {
 // Manifest tests
 test("manifest has multi-component structure", async () => {
   const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
-  expect(manifest.schemaVersion).toBe(2);
+  expect(manifest.schemaVersion).toBe(4);
   expect(manifest.persistent).toBe(true);
   expect(manifest.tools).toHaveLength(2);
   expect(manifest.skills).toHaveLength(1);
@@ -102,11 +102,11 @@ test("manifest has multi-component structure", async () => {
   expect(manifest.agent.category).toBe("Writing");
 });
 
-test("manifest skill has content", async () => {
+test("manifest skill has a host-readable prompt", async () => {
   const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
   const skill = manifest.skills[0];
   expect(skill.name).toBe("markdown-style");
-  expect(skill.content).toContain("ATX-style");
+  expect(skill.prompt).toContain("ATX-style");
 });
 
 describe("dispatch: extract-headings", () => {
@@ -149,66 +149,14 @@ describe("dispatch: format-table validation", () => {
   });
 });
 
-describe("main() — the stdin JSON-RPC loop", () => {
-  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
-  // FIRST time it's called and reuses it for the rest of the process — see
-  // the comment on `writeStdout`. The spy is therefore installed exactly
-  // ONCE for this file's test process; writes are routed through a
-  // rebindable sink so each test gets its own array.
-  const sink = { written: [] as string[] };
-  let writerSpy: ReturnType<typeof spyOn>;
-  beforeAll(() => {
-    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
-      write: (s: string) => {
-        sink.written.push(s as string);
-        return (s as string).length;
-      },
-      flush: () => Promise.resolve(0),
-    } as unknown as ReturnType<typeof Bun.stdout.writer>);
-  });
-  afterAll(() => {
-    writerSpy.mockRestore();
-  });
-
-  async function runMain(input: string): Promise<string[]> {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(input));
-        controller.close();
-      },
-    });
-    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
-      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
-    );
-    sink.written = [];
+describe("registration", () => {
+  test("registers handlers without opening stdin", () => {
+    const input = spyOn(Bun.stdin, "stream");
     try {
-      await main();
+      main();
+      expect(input).not.toHaveBeenCalled();
     } finally {
-      streamSpy.mockRestore();
+      input.mockRestore();
     }
-    return sink.written;
-  }
-
-  test("answers a format-table request end-to-end through the real reader loop", async () => {
-    const req: JsonRpcRequest = {
-      jsonrpc: "2.0",
-      id: 7,
-      method: "tools/call",
-      params: { name: "format-table", arguments: { headers: ["A"], rows: [["1"]] } },
-    };
-    const written = await runMain(JSON.stringify(req) + "\n");
-    expect(written).toHaveLength(1);
-    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
-    expect(res.id).toBe(7);
-    const content = (res.result as { content: { type: string; text: string }[] }).content;
-    expect(content[0]!.text).toContain("A");
-  });
-
-  test("an unknown method still answers through the loop", async () => {
-    const req: JsonRpcRequest = { jsonrpc: "2.0", id: 8, method: "nope/nope" };
-    const written = await runMain(JSON.stringify(req) + "\n");
-    expect(written).toHaveLength(1);
-    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
-    expect(res.error!.code).toBe(-32601);
   });
 });

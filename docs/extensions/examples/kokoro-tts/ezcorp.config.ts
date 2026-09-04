@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // kokoro-tts — bundled extension that contributes a speaker icon to the
 // per-message action toolbar via the `messageToolbar` extension point.
@@ -23,13 +23,13 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 // returns 404 for the event POST — same footgun as canvas-cards.
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "kokoro-tts",
   version: "1.0.0",
   description:
     "In-browser Kokoro-TTS. Adds a speaker icon to message toolbars.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   // Subprocess is short-lived: each `:speak`/`:save` event is independent
   // and there's no per-process state to retain. Setting `persistent:
   // false` lets the host reap the subprocess between bursts.

@@ -1,52 +1,10 @@
-#!/usr/bin/env bun
-// code-quality - Static quality analysis via JSON-RPC
+import type { ToolCallResult } from "@ezcorp/sdk";
+import { createToolDispatcher, getChannel, invoke, toolError, toolResult, type ToolHandler } from "@ezcorp/sdk/runtime";
 
-import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
-
-const decoder = new TextDecoder();
-
-const pendingInvokes = new Map<
-  number | string,
-  { resolve: (res: JsonRpcResponse) => void }
->();
-let nextInvokeId = 3000;
-
-// `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
-// WriteStream constructor for stdio init. Phase 3 sandbox-preload
-// poisons fs module property access, so the very first stdout write
-// would throw `Extension sandbox: 'fs module' blocked`. `Bun.stdout`
-// is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
-// its writer survives the sandbox. Cached lazily so we don't pay
-// the writer-creation cost on every JSON-RPC frame.
-let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
-function writeStdout(s: string): void {
-  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
-  stdoutWriter.write(s);
-  void stdoutWriter.flush();
+function extractText(result: ToolCallResult): string {
+  return result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
 }
 
-// Cross-extension invocation via ezcorp/invoke reverse RPC
-function invoke(tool: string, args: Record<string, unknown>): Promise<JsonRpcResponse> {
-  const invokeId = nextInvokeId++;
-  const invokeReq: JsonRpcRequest = {
-    jsonrpc: "2.0",
-    id: invokeId,
-    method: "ezcorp/invoke",
-    params: { tool, arguments: args },
-  };
-  writeStdout(JSON.stringify(invokeReq) + "\n");
-
-  return new Promise<JsonRpcResponse>((resolve) => {
-    pendingInvokes.set(invokeId, { resolve });
-  });
-}
-
-function extractText(res: JsonRpcResponse): string {
-  const result = res.result as { content: Array<{ type: string; text: string }> };
-  return result?.content?.[0]?.text ?? "";
-}
-
-// Quality analysis logic
 interface QualityIssue {
   line?: number;
   rule: string;
@@ -88,162 +46,39 @@ function analyzeContent(content: string, _filePath: string): QualityIssue[] {
   return issues;
 }
 
-// Tool handlers
-async function handleAnalyzeFile(req: JsonRpcRequest, filePath: string): Promise<void> {
-  // Use project-analyzer to read the file
-  const readRes = await invoke("project-analyzer.readFile", { path: filePath });
-
-  if (readRes.error) {
-    const errorRes: JsonRpcResponse = { jsonrpc: "2.0", id: req.id, error: readRes.error };
-    writeStdout(JSON.stringify(errorRes) + "\n");
-    return;
-  }
-
-  const content = extractText(readRes);
-  const issues = analyzeContent(content, filePath);
-
-  const report = {
-    filePath,
-    issueCount: issues.length,
-    issues,
-    summary: issues.length === 0
-      ? "No quality issues found"
-      : `Found ${issues.length} issue(s): ${issues.filter(i => i.severity === "error").length} errors, ${issues.filter(i => i.severity === "warning").length} warnings, ${issues.filter(i => i.severity === "info").length} info`,
-  };
-
-  const res: JsonRpcResponse = {
-    jsonrpc: "2.0",
-    id: req.id,
-    result: {
-      content: [{ type: "text", text: JSON.stringify(report) }],
-      isError: false,
-    },
-  };
-  writeStdout(JSON.stringify(res) + "\n");
-}
-
-async function handleAnalyzeDirectory(req: JsonRpcRequest, dirPath: string, extensions: string): Promise<void> {
-  // Use project-analyzer to list files
-  const listRes = await invoke("project-analyzer.listFiles", { path: dirPath });
-
-  if (listRes.error) {
-    const errorRes: JsonRpcResponse = { jsonrpc: "2.0", id: req.id, error: listRes.error };
-    writeStdout(JSON.stringify(errorRes) + "\n");
-    return;
-  }
-
-  const fileList = extractText(listRes);
-  const allowedExts = (extensions || "ts,js,tsx,jsx").split(",").map(e => `.${e.trim()}`);
-  const files = fileList.split("\n").filter(f => allowedExts.some(ext => f.endsWith(ext)));
-
-  const report = {
-    dirPath,
-    filesAnalyzed: files.length,
-    summary: `Found ${files.length} source file(s) to analyze`,
-  };
-
-  const res: JsonRpcResponse = {
-    jsonrpc: "2.0",
-    id: req.id,
-    result: {
-      content: [{ type: "text", text: JSON.stringify(report) }],
-      isError: false,
-    },
-  };
-  writeStdout(JSON.stringify(res) + "\n");
-}
-
-function handleRequest(req: JsonRpcRequest): void {
-  if (req.method === "tools/call") {
-    const toolName = (req.params?.name as string) ?? "";
-    const args = (req.params?.arguments as Record<string, unknown>) ?? {};
-
-    if (toolName === "analyzeFile") {
-      handleAnalyzeFile(req, String(args.filePath ?? ""));
-      return;
-    }
-
-    if (toolName === "analyzeDirectory") {
-      handleAnalyzeDirectory(req, String(args.dirPath ?? ""), String(args.extensions ?? ""));
-      return;
-    }
-
-    const errorRes: JsonRpcResponse = {
-      jsonrpc: "2.0",
-      id: req.id,
-      error: { code: -32601, message: `Unknown tool: ${toolName}` },
-    };
-    writeStdout(JSON.stringify(errorRes) + "\n");
-    return;
-  }
-
-  const errorRes: JsonRpcResponse = {
-    jsonrpc: "2.0",
-    id: req.id,
-    error: { code: -32601, message: `Unknown method: ${req.method}` },
-  };
-  writeStdout(JSON.stringify(errorRes) + "\n");
-}
-
-/** Route one decoded stdin line: a JSON-RPC response to a pending
- *  `ezcorp/invoke` resolves the waiting promise; anything else dispatches
- *  as an inbound request. Extracted out of `main()`'s loop so tests can
- *  drive the invoke round-trip directly, without a real stdin stream. */
-function handleLine(line: string): void {
+const analyzeFile: ToolHandler = async (args) => {
+  const filePath = String(args.filePath ?? "");
   try {
-    const msg = JSON.parse(line);
-
-    // Check if this is a response to a pending invoke
-    if (msg.id !== undefined && !msg.method && pendingInvokes.has(msg.id)) {
-      const pending = pendingInvokes.get(msg.id)!;
-      pendingInvokes.delete(msg.id);
-      pending.resolve(msg as JsonRpcResponse);
-      return;
-    }
-
-    handleRequest(msg as JsonRpcRequest);
-  } catch {
-    // Ignore malformed lines
+    const result = await invoke<ToolCallResult>("project-analyzer.readFile", { path: filePath });
+    if (result.isError) return result;
+    const issues = analyzeContent(extractText(result), filePath);
+    return toolResult(JSON.stringify({
+      filePath, issueCount: issues.length, issues,
+      summary: issues.length === 0 ? "No quality issues found"
+        : `Found ${issues.length} issue(s): ${issues.filter((issue) => issue.severity === "error").length} errors, ${issues.filter((issue) => issue.severity === "warning").length} warnings, ${issues.filter((issue) => issue.severity === "info").length} info`,
+    }));
+  } catch (error) {
+    return toolError(error instanceof Error ? error.message : String(error));
   }
-}
-
-// --- Production wiring ---
-//
-// The stdin reader is grabbed INSIDE `main()`, gated on `import.meta.main`:
-// at module scope, opening it eagerly (and calling `main()` unconditionally)
-// would lock stdin's reader the moment anything imported this file, hanging
-// `index.test.ts` on a read that never resolves. Same shape as file-refactor
-// / todo-tracker.
-export async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-      handleLine(line);
-    }
-  }
-}
-
-/** Exported for `index.test.ts`, mirroring file-refactor's `_internals`
- *  convention. `pendingInvokes` lets a test resolve an outbound
- *  `ezcorp/invoke` call directly, without round-tripping through a real
- *  stdin stream. */
-export const _internals = {
-  handleRequest,
-  handleAnalyzeFile,
-  handleAnalyzeDirectory,
-  handleLine,
-  invoke,
-  pendingInvokes,
-  analyzeContent,
 };
 
-if (import.meta.main) void main();
+const analyzeDirectory: ToolHandler = async (args) => {
+  const dirPath = String(args.dirPath ?? "");
+  try {
+    const result = await invoke<ToolCallResult>("project-analyzer.listFiles", { path: dirPath });
+    if (result.isError) return result;
+    const allowed = String(args.extensions || "ts,js,tsx,jsx").split(",").map((extension) => `.${extension.trim()}`);
+    const files = extractText(result).split("\n").filter((file) => allowed.some((extension) => file.endsWith(extension)));
+    return toolResult(JSON.stringify({ dirPath, filesAnalyzed: files.length, summary: `Found ${files.length} source file(s) to analyze` }));
+  } catch (error) {
+    return toolError(error instanceof Error ? error.message : String(error));
+  }
+};
+
+export const tools: Record<string, ToolHandler> = { analyzeFile, analyzeDirectory };
+export const _internals = { analyzeContent };
+
+export function start(): void {
+  getChannel();
+  createToolDispatcher(tools);
+}

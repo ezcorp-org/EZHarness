@@ -1,28 +1,16 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "multi-agent-orchestrator",
   version: "1.0.0",
-  description: "Orchestrate sub-agents to complete complex development tasks (forward-looking manifest shape)",
+  description: "Plan and coordinate complex development tasks with the installed orchestration tools",
   author: {
     name: "EZCorp",
   },
   agent: {
-    prompt: "You orchestrate sub-agents to complete complex development tasks.",
+    prompt: "You orchestrate sub-agents to complete complex development tasks. Plan ordered steps after inspecting the project with project-analyzer.listFiles. Delegate implementation through the installed orchestration tools, then verify each change with project-analyzer.readFile and code-quality.analyzeFile. Planner instructions: break down complex tasks into ordered steps and analyze the project structure before proposing changes. Executor instructions: execute implementation steps precisely and verify code quality after each change.",
     category: "Development",
   },
-  subAgents: [
-    {
-      name: "planner",
-      prompt: "Break down complex tasks into ordered steps. Analyze the project structure before proposing changes.",
-      tools: ["project-analyzer.listFiles"],
-    },
-    {
-      name: "executor",
-      prompt: "Execute implementation steps precisely. Verify code quality after each change.",
-      tools: ["code-quality.analyzeFile", "project-analyzer.readFile"],
-    },
-  ],
   permissions: {},
 });

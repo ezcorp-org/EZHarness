@@ -43,13 +43,12 @@
 // finalize/discard `gh` steps are skip-not-fail on `gh` absence (exit 127).
 
 import { normalize } from "node:path";
+import { getToolContext } from "@ezcorp/sdk/runtime";
 import {
   approveRun,
-  createToolDispatcher,
   declineRun,
   defineLoop,
   getChannel,
-  getLoopTools,
   PageBuilder,
   type ActResult,
   type CheckResult,
@@ -258,7 +257,7 @@ export function _setCommitSubjectsForTests(fn: CommitSubjectsReader | null): voi
 // (not an inline lambda) so the single default body is covered on both the
 // initial binding and the test-reset path.
 const defaultProjectRoot: () => string | undefined = () =>
-  process.env.EZCORP_PROJECT_ROOT;
+  getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
 let projectRootImpl: () => string | undefined = defaultProjectRoot;
 /** @internal test-only — substitute the project-root resolver. */
 export function _setProjectRootForTests(
@@ -1085,7 +1084,6 @@ export function defineDocsUpdaterLoop(): void {
  */
 export function start(): void {
   defineDocsUpdaterLoop();
-  createToolDispatcher({ ...getLoopTools() });
   getChannel().start();
 }
 

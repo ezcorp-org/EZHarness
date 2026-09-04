@@ -30,16 +30,16 @@
 // approval nudges), the approve/decline page-action events, a daily cron, and
 // one Hub page. NO spawnAgents (the review is a single in-process llm call).
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "seo-watcher",
   version: "1.0.0",
   description:
     "Flagship 'plug in your data source' loop: fetch a structured JSON endpoint (rankings / prices / ticket counts), threshold-compare a numeric metric against a durable baseline, and — only when it moves — dispatch an LLM review that drafts a recommendation for human approval. Approve publishes the recommendation artifact; decline discards it. Recommend-and-approve only: no consequential external action.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Development",
   tags: ["loop", "approval", "artifact", "seo", "monitoring", "flagship"],
   // Cron + manual loop — stay resident so the daily fire isn't dropped on idle
