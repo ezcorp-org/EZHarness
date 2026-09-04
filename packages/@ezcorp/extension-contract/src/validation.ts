@@ -97,6 +97,15 @@ export function validateWorkspaceFiles(value: unknown): WorkspaceFiles {
 }
 
 const schemaKeywords = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "anyOf", "oneOf", "allOf", "not", "description", "title", "default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "minProperties", "maxProperties", "pattern", "$ref", "$defs", "definitions"]);
+const annotations = new Set(["x-options", "x-shared"]);
+const presentationFormats = new Set(["combo-box", "tag-input", "file-path", "search"]);
+const formats: Record<string, (value: string) => boolean> = {
+  date: value => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value,
+  "date-time": value => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/i.test(value) && Number.isFinite(Date.parse(value)),
+  uri: value => { try { return Boolean(new URL(value).protocol); } catch { return false; } },
+  email: value => value.length <= 254 && RE2JS.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$").matcher(value).find(),
+  uuid: value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
+};
 
 export function compileValueSchema(value: unknown): (input: unknown) => void {
   assertJson(value, 64 * 1024);
@@ -106,7 +115,10 @@ export function compileValueSchema(value: unknown): (input: unknown) => void {
     if (typeof entry === "boolean") return;
     if (!entry || Array.isArray(entry) || typeof entry !== "object") throw new ContractError("INVALID_SCHEMA", "Expected JSON Schema object");
     for (const [key, child] of Object.entries(entry)) {
-      if (!schemaKeywords.has(key)) throw new ContractError("UNSUPPORTED_SCHEMA", `Unsupported JSON Schema keyword: ${key}`);
+      if (!schemaKeywords.has(key) && !annotations.has(key) && key !== "format") throw new ContractError("UNSUPPORTED_SCHEMA", `Unsupported JSON Schema keyword: ${key}`);
+      if (key === "format" && (typeof child !== "string" || (!Object.hasOwn(formats, child) && !presentationFormats.has(child)))) throw new ContractError("UNSUPPORTED_SCHEMA", "Unsupported schema format");
+      if (key === "x-shared" && typeof child !== "string") throw new ContractError("INVALID_SCHEMA", "Shared context annotation must be a name");
+      if (key === "x-options" && (!child || typeof child !== "object" || Array.isArray(child))) throw new ContractError("INVALID_SCHEMA", "UI options must be an object");
       if (["properties", "$defs", "definitions"].includes(key)) {
         if (!child || Array.isArray(child) || typeof child !== "object") throw new ContractError("INVALID_SCHEMA", "Invalid properties");
         for (const field of Object.values(child)) check(field, depth + 1);
@@ -141,7 +153,7 @@ export function compileValueSchema(value: unknown): (input: unknown) => void {
       const siblings = Object.fromEntries(Object.entries(record).filter(([key]) => key !== "$ref"));
       return { allOf: [expand(target, next, depth + 1), expand(siblings, next, depth + 1)] };
     }
-    return Object.fromEntries(Object.entries(record).filter(([key]) => !["$defs", "definitions"].includes(key)).map(([key, child]) => {
+    return Object.fromEntries(Object.entries(record).filter(([key, child]) => !["$defs", "definitions"].includes(key) && !annotations.has(key) && !(key === "format" && presentationFormats.has(String(child)))).map(([key, child]) => {
       if (key === "properties") return [key, Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, expand(property, visited, depth + 1)]))];
       return [key, ["items", "additionalProperties", "not", "anyOf", "oneOf", "allOf"].includes(key) ? expand(child, visited, depth + 1) : child];
     }));
@@ -152,7 +164,7 @@ export function compileValueSchema(value: unknown): (input: unknown) => void {
     const compiled = RE2JS.compile(pattern);
     return { test: (input: string) => compiled.matcher(input).find() };
   }, { code: "RE2JS.compile" });
-  const engine = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false, code: { regExp: linearRegex } });
+  const engine = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: true, formats, code: { regExp: linearRegex } });
   let validate: ReturnType<Ajv["compile"]>;
   try { validate = engine.compile(expanded as ValueSchema); } catch { throw new ContractError("INVALID_SCHEMA", "Invalid JSON Schema"); }
   return (input: unknown) => {
@@ -181,6 +193,11 @@ export function validateManifest(value: unknown): ExtensionManifestV4 {
     compileValueSchema(method.outputSchema);
   }
   if (methodNames.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
+  if (manifest.dataSchema) {
+    const data = manifest.dataSchema;
+    if (![data.version, ...data.readableVersions].every(version => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(version)) || data.readableVersions.length > 64 || new Set(data.readableVersions).size !== data.readableVersions.length || !data.readableVersions.includes(data.version)) throw new ContractError("INVALID_MANIFEST", "Invalid data schema compatibility declaration");
+    if (data.migrateMethod && !methodNames.has(data.migrateMethod)) throw new ContractError("INVALID_MANIFEST", "Data migration must reference a declared runtime method");
+  }
   for (const route of manifest.permissions.hostApi?.routes ?? []) {
     if (!/^\/api\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*)(?:\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*))*$/.test(route.path)) throw new ContractError("INVALID_MANIFEST", "Host API routes must be fixed /api paths with named parameters");
   }
@@ -209,7 +226,7 @@ export function validateResourceLimits(value: unknown): WireData["limits"] {
 
 export function validateInvocationContext(value: unknown): WireData["invocationContext"] {
   const context = validateWire("invocationContext", value);
-  for (const [key, entry] of Object.entries(context)) if (key !== "deadline" && (typeof entry !== "string" || !entry.length || entry.length > 4096)) throw new ContractError("INVALID_CONTEXT", `Invalid context field: ${key}`);
+  for (const [key, entry] of Object.entries(context)) if (!["deadline", "metadata"].includes(key) && (typeof entry !== "string" || !entry.length || entry.length > 4096)) throw new ContractError("INVALID_CONTEXT", `Invalid context field: ${key}`);
   if (!Number.isSafeInteger(context.deadline) || context.deadline <= 0) throw new ContractError("INVALID_CONTEXT", "Invalid invocation deadline");
   return context;
 }

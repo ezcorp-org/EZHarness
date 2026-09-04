@@ -10,8 +10,11 @@ export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVe
   schemaVersion: 4;
   tools?: ToolDefinitionV4[];
   methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema }[];
+  bootSpawn?: boolean;
+  dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {
     hostApi?: { routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[]; events: boolean };
+    custom?: Record<string, JsonValue>;
   };
 }
 export interface Diagnostic {
@@ -121,6 +124,7 @@ export interface InvocationContext {
   scopeId: string;
   token: string;
   deadline: number;
+  metadata?: Record<string, JsonValue>;
 }
 export interface BuildRequest {
   operationId: string;

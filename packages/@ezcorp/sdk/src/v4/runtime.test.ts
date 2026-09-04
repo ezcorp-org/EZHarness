@@ -12,7 +12,7 @@ test("runtime vocabulary uses invocation-bound host calls without starting legac
     manifest: { schemaVersion: 4, name: "runtime", version: "1.0.0", description: "Runtime", author: { name: "Test" }, permissions: { storage: true }, tools: [{ name: "read", description: "Read", inputSchema: { type: "object" } }] },
     register() {
       getChannel().start();
-      createToolDispatcher({ read: async () => ({ content: [{ type: "text", text: await getChannel().request<string>("ezcorp/storage-get", { key: "greeting" }) }] }) });
+      createToolDispatcher({ read: async () => ({ content: [{ type: "text", text: await getChannel().request<string>("ezcorp/storage-get", { key: "greeting" }) }], isError: false }) });
       getChannel().onRequest("page/render", () => ({ title: "Page" }));
     },
   });

@@ -514,6 +514,9 @@
           ],
           "type": "object"
         },
+        "bootSpawn": {
+          "type": "boolean"
+        },
         "category": {
           "type": "string"
         },
@@ -522,6 +525,28 @@
         },
         "checksum": {
           "type": "string"
+        },
+        "dataSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "migrateMethod": {
+              "type": "string"
+            },
+            "readableVersions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "readableVersions"
+          ],
+          "type": "object"
         },
         "dependencies": {
           "additionalProperties": {
@@ -661,6 +686,12 @@
               "required": [
                 "excludedDefault"
               ],
+              "type": "object"
+            },
+            "custom": {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
               "type": "object"
             },
             "env": {
@@ -1257,6 +1288,12 @@
         "invocationId": {
           "type": "string"
         },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
         "principalId": {
           "type": "string"
         },
@@ -1433,6 +1470,34 @@
         "type"
       ],
       "type": "object"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
     },
     "McpServerDefinition": {
       "anyOf": [

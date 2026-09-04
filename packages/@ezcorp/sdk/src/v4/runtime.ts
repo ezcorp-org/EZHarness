@@ -68,14 +68,17 @@ export async function createRuntimeExtension(options: { manifest: Record<string,
     for (const tool of manifest.tools ?? []) {
       const handler = handlers.get("tools/call");
       if (!handler) throw new ContractError("MISSING_HANDLER", "Runtime tool dispatcher was not registered");
-      tools[tool.name] = (input, invocation) => scoped(handler, { name: tool.name, arguments: input }, invocation, tool.name);
+      tools[tool.name] = (input, invocation) => scoped(handler, { name: tool.name, arguments: input, _meta: { ...invocation.invocation.metadata, ezCallId: invocation.invocation.token, ezOnBehalfOf: invocation.invocation.principalId, ezConversationId: invocation.invocation.scopeId } }, invocation, tool.name);
     }
     const methods: Record<string, MethodHandler> = {};
     for (const [name, handler] of handlers) {
       if (["tools/call", "tools/list", "initialize"].includes(name)) continue;
       const inputSchema = {};
       const outputSchema = {};
-      methods[name] = { inputSchema, outputSchema, handle: (input, invocation) => scoped(handler, input, invocation) };
+      methods[name] = { inputSchema, outputSchema, handle: async (input, invocation) => {
+        const result = await scoped(handler, input, invocation);
+        return result === undefined ? null : result;
+      } };
     }
     const declared = Object.entries(methods).map(([name, method]) => ({ name, inputSchema: method.inputSchema, outputSchema: method.outputSchema }));
     return defineExtension({ manifest: { ...manifest, ...(declared.length ? { methods: declared } : {}) }, tools, methods });
