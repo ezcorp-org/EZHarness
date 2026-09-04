@@ -1,0 +1,231 @@
+import Ajv from "ajv";
+import { RE2JS } from "re2js";
+import schema from "./wire-schema.json";
+import type { ExtensionManifestV4, JsonValue, ValueSchema, WireData, WorkspaceFiles } from "./types";
+
+export const PROTOCOL_VERSION = 4;
+export const VALIDATOR_VERSION = "4.0.0";
+export const MAX_FRAME_BYTES = 1024 * 1024;
+export const MAX_JSON_DEPTH = 32;
+const encoder = new TextEncoder();
+const forbidden = new Set(["__proto__", "prototype", "constructor"]);
+const ajv = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false });
+ajv.addSchema(schema, "wire");
+
+export class ContractError extends Error {
+  readonly code: string;
+  readonly path: string;
+  constructor(code: string, message: string, path = "$") {
+    super(message);
+    this.name = "ContractError";
+    this.code = code;
+    this.path = path;
+  }
+}
+
+export function assertJson(value: unknown, maxBytes = MAX_FRAME_BYTES): asserts value is JsonValue {
+  const seen = new Set<object>();
+  let nodes = 0;
+  function visit(entry: unknown, depth: number): void {
+    if (++nodes > 100_000 || depth > MAX_JSON_DEPTH) throw new ContractError("DATA_LIMIT", "JSON structure exceeds limits");
+    if (entry === null || typeof entry === "string" || typeof entry === "boolean") return;
+    if (typeof entry === "number" && Number.isFinite(entry)) return;
+    if (typeof entry !== "object" || !entry) throw new ContractError("INVALID_JSON", "Only JSON data is accepted");
+    if (seen.has(entry)) throw new ContractError("INVALID_JSON", "Cyclic data is forbidden");
+    seen.add(entry);
+    if (Array.isArray(entry)) {
+      for (let index = 0; index < entry.length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(entry, String(index));
+        if (!descriptor || !("value" in descriptor)) throw new ContractError("INVALID_JSON", "Sparse arrays and accessors are forbidden");
+        visit(descriptor.value, depth + 1);
+      }
+      if (Reflect.ownKeys(entry).length !== entry.length + 1) throw new ContractError("INVALID_JSON", "Array properties are forbidden");
+    } else {
+      const prototype = Object.getPrototypeOf(entry);
+      if (prototype !== Object.prototype && prototype !== null) throw new ContractError("INVALID_JSON", "Only plain objects are accepted");
+      for (const key of Reflect.ownKeys(entry)) {
+        if (typeof key !== "string" || forbidden.has(key)) throw new ContractError("INVALID_JSON", "Unsafe object key");
+        const descriptor = Object.getOwnPropertyDescriptor(entry, key);
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw new ContractError("INVALID_JSON", "Accessors and hidden fields are forbidden");
+        visit(descriptor.value, depth + 1);
+      }
+    }
+    seen.delete(entry);
+  }
+  visit(value, 0);
+  if (encoder.encode(JSON.stringify(value)).byteLength > maxBytes) throw new ContractError("DATA_LIMIT", "JSON bytes exceed limit");
+}
+
+export function parseJson(text: string, maxBytes = MAX_FRAME_BYTES): JsonValue {
+  if (encoder.encode(text).byteLength > maxBytes) throw new ContractError("DATA_LIMIT", "Frame exceeds limit");
+  let value: unknown;
+  try { value = JSON.parse(text); } catch { throw new ContractError("INVALID_JSON", "Invalid JSON frame"); }
+  assertJson(value, maxBytes);
+  return value;
+}
+
+export function validateWire<Key extends keyof WireData>(kind: Key, value: unknown): WireData[Key] {
+  assertJson(value, kind === "buildRequest" ? 128 * 1024 * 1024 : MAX_FRAME_BYTES);
+  const validator = ajv.getSchema(`wire#/definitions/WireData/properties/${kind}`);
+  if (!validator?.(value)) {
+    const issue = validator?.errors?.[0];
+    throw new ContractError("INVALID_CONTRACT", `${kind}: ${issue?.message ?? "unsupported schema"}`, issue?.instancePath);
+  }
+  return value as unknown as WireData[Key];
+}
+
+export function validateWorkspacePath(path: string): void {
+  if (!path || path.length > 240 || path.startsWith("/") || path.includes("\\") || path.includes(":") || Array.from(path).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new ContractError("INVALID_PATH", "Expected a bounded relative file path");
+  if (path.split("/").some(part => !part || part === "." || part === ".." || forbidden.has(part) || part === "node_modules" || part === ".git")) throw new ContractError("INVALID_PATH", "Unsafe file path");
+}
+
+export function validateWorkspaceFiles(value: unknown): WorkspaceFiles {
+  assertJson(value, 128 * 1024 * 1024);
+  if (!value || Array.isArray(value) || typeof value !== "object") throw new ContractError("INVALID_FILES", "Expected file map");
+  const entries = Object.entries(value);
+  if (entries.length > 2000) throw new ContractError("DATA_LIMIT", "Workspace exceeds 2000 files");
+  let totalBytes = 0;
+  for (const [path, content] of entries) {
+    validateWorkspacePath(path);
+    if (typeof content !== "string") throw new ContractError("INVALID_FILES", "File must be text", path);
+    totalBytes += encoder.encode(content).byteLength;
+    if (totalBytes > 20 * 1024 * 1024) throw new ContractError("DATA_LIMIT", "Workspace exceeds 20 MiB", path);
+    const parts = path.split("/");
+    for (let count = 1; count < parts.length; count++) if (Object.hasOwn(value, parts.slice(0, count).join("/"))) throw new ContractError("INVALID_PATH", "File conflicts with directory", path);
+  }
+  return value as WorkspaceFiles;
+}
+
+const schemaKeywords = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "const", "anyOf", "oneOf", "allOf", "not", "description", "title", "default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "minItems", "maxItems", "uniqueItems", "minProperties", "maxProperties", "pattern", "$ref", "$defs", "definitions"]);
+
+export function compileValueSchema(value: unknown): (input: unknown) => void {
+  assertJson(value, 64 * 1024);
+  let nodes = 0;
+  function check(entry: unknown, depth: number): void {
+    if (++nodes > 256 || depth > 12) throw new ContractError("SCHEMA_LIMIT", "Schema exceeds complexity limit");
+    if (typeof entry === "boolean") return;
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") throw new ContractError("INVALID_SCHEMA", "Expected JSON Schema object");
+    for (const [key, child] of Object.entries(entry)) {
+      if (!schemaKeywords.has(key)) throw new ContractError("UNSUPPORTED_SCHEMA", `Unsupported JSON Schema keyword: ${key}`);
+      if (["properties", "$defs", "definitions"].includes(key)) {
+        if (!child || Array.isArray(child) || typeof child !== "object") throw new ContractError("INVALID_SCHEMA", "Invalid properties");
+        for (const field of Object.values(child)) check(field, depth + 1);
+      } else if (["items", "additionalProperties", "not"].includes(key)) check(child, depth + 1);
+      else if (["anyOf", "oneOf", "allOf"].includes(key)) {
+        if (!Array.isArray(child) || child.length > 16) throw new ContractError("INVALID_SCHEMA", "Invalid schema alternatives");
+        for (const alternative of child) check(alternative, depth + 1);
+      }
+      if (key === "$ref") {
+        if (typeof child !== "string" || !/^#\/(?:definitions|\$defs)\/[a-zA-Z0-9_-]+$/.test(child)) throw new ContractError("UNSUPPORTED_SCHEMA", "Only local named schema references are supported");
+      }
+      if (key === "pattern") {
+        if (typeof child !== "string" || child.length > 256) throw new ContractError("SCHEMA_LIMIT", "Pattern exceeds limit");
+        try { RE2JS.compile(child); } catch { throw new ContractError("UNSUPPORTED_SCHEMA", "Pattern must use supported RE2 syntax"); }
+      }
+    }
+  }
+  check(value, 0);
+  let expandedNodes = 0;
+  function expand(entry: unknown, visited: Set<string>, depth: number): unknown {
+    if (++expandedNodes > 1024 || depth > 16) throw new ContractError("SCHEMA_LIMIT", "Schema reference expansion exceeds limit");
+    if (!entry || typeof entry !== "object") return entry;
+    if (Array.isArray(entry)) return entry.map(child => expand(child, visited, depth + 1));
+    const record = entry as Record<string, unknown>;
+    if (typeof record.$ref === "string") {
+      if (visited.has(record.$ref)) throw new ContractError("UNSUPPORTED_SCHEMA", "Recursive schemas are not supported");
+      const [group, name] = record.$ref.slice(2).split("/");
+      const root = value as Record<string, Record<string, unknown>>;
+      const target = root[group!]?.[name!];
+      if (!target) throw new ContractError("INVALID_SCHEMA", "Unknown local reference");
+      const next = new Set(visited).add(record.$ref);
+      const siblings = Object.fromEntries(Object.entries(record).filter(([key]) => key !== "$ref"));
+      return { allOf: [expand(target, next, depth + 1), expand(siblings, next, depth + 1)] };
+    }
+    return Object.fromEntries(Object.entries(record).filter(([key]) => !["$defs", "definitions"].includes(key)).map(([key, child]) => {
+      if (key === "properties") return [key, Object.fromEntries(Object.entries(child as Record<string, unknown>).map(([name, property]) => [name, expand(property, visited, depth + 1)]))];
+      return [key, ["items", "additionalProperties", "not", "anyOf", "oneOf", "allOf"].includes(key) ? expand(child, visited, depth + 1) : child];
+    }));
+  }
+  const expanded = expand(value, new Set(), 0);
+  assertJson(expanded, 128 * 1024);
+  const linearRegex = Object.assign((pattern: string) => {
+    const compiled = RE2JS.compile(pattern);
+    return { test: (input: string) => compiled.matcher(input).find() };
+  }, { code: "RE2JS.compile" });
+  const engine = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false, code: { regExp: linearRegex } });
+  let validate: ReturnType<Ajv["compile"]>;
+  try { validate = engine.compile(expanded as ValueSchema); } catch { throw new ContractError("INVALID_SCHEMA", "Invalid JSON Schema"); }
+  return (input: unknown) => {
+    assertJson(input);
+    if (!validate(input)) throw new ContractError("SCHEMA_MISMATCH", validate.errors?.[0]?.message ?? "Value does not match schema", validate.errors?.[0]?.instancePath);
+  };
+}
+
+export function validateManifest(value: unknown): ExtensionManifestV4 {
+  const manifest = validateWire("manifest", value);
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(manifest.name) || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) throw new ContractError("INVALID_MANIFEST", "Invalid extension name or version");
+  if (manifest.entrypoint) validateWorkspacePath(manifest.entrypoint.replace(/^\.\//, ""));
+  const names = new Set<string>();
+  for (const tool of manifest.tools ?? []) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(tool.name) || names.has(tool.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate tool name");
+    names.add(tool.name);
+    compileValueSchema(tool.inputSchema);
+    compileValueSchema(tool.outputSchema);
+  }
+  if (names.size > 128) throw new ContractError("DATA_LIMIT", "Too many tools");
+  const methodNames = new Set<string>();
+  for (const method of manifest.methods ?? []) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_./:-]{0,127}$/.test(method.name) || method.name.startsWith("extension/") || methodNames.has(method.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate runtime method");
+    methodNames.add(method.name);
+    compileValueSchema(method.inputSchema);
+    compileValueSchema(method.outputSchema);
+  }
+  if (methodNames.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
+  for (const route of manifest.permissions.hostApi?.routes ?? []) {
+    if (!/^\/api\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*)(?:\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*))*$/.test(route.path)) throw new ContractError("INVALID_MANIFEST", "Host API routes must be fixed /api paths with named parameters");
+  }
+  for (const preprocessor of manifest.preprocessors ?? []) if (!names.has(preprocessor.tool) || preprocessor.accepts.length === 0) throw new ContractError("INVALID_MANIFEST", "Preprocessor must reference a declared tool and MIME types");
+  if (manifest.smokeTest && !names.has(manifest.smokeTest.tool)) throw new ContractError("INVALID_MANIFEST", "Smoke test must reference a declared tool");
+  for (const contributions of [manifest.skills, manifest.pages, manifest.entities, manifest.messageToolbar, manifest.mcpServers]) {
+    const identities = new Set<string>();
+    for (const item of contributions ?? []) {
+      const record = item as unknown as Record<string, unknown>;
+      const identity = String(record.name ?? record.id ?? record.type);
+      if (!identity || identities.has(identity)) throw new ContractError("INVALID_MANIFEST", "Duplicate contribution identity");
+      identities.add(identity);
+    }
+  }
+  const subscriptions = manifest.permissions.eventSubscriptions;
+  const events = Array.isArray(subscriptions) ? subscriptions : subscriptions?.events ?? [];
+  for (const item of manifest.messageToolbar ?? []) if (!item.event.startsWith(`${manifest.name}:`) || !events.includes(item.event)) throw new ContractError("INVALID_MANIFEST", "Toolbar event must be declared in extension namespace");
+  return manifest;
+}
+
+export function validateResourceLimits(value: unknown): WireData["limits"] {
+  const limits = validateWire("limits", value);
+  for (const [key, limit] of Object.entries(limits)) if (!Number.isSafeInteger(limit) || limit <= 0) throw new ContractError("INVALID_LIMITS", `Invalid resource limit: ${key}`);
+  return limits;
+}
+
+export function validateInvocationContext(value: unknown): WireData["invocationContext"] {
+  const context = validateWire("invocationContext", value);
+  for (const [key, entry] of Object.entries(context)) if (key !== "deadline" && (typeof entry !== "string" || !entry.length || entry.length > 4096)) throw new ContractError("INVALID_CONTEXT", `Invalid context field: ${key}`);
+  if (!Number.isSafeInteger(context.deadline) || context.deadline <= 0) throw new ContractError("INVALID_CONTEXT", "Invalid invocation deadline");
+  return context;
+}
+
+export function canonicalJson(value: unknown): string {
+  assertJson(value, 192 * 1024 * 1024);
+  function encode(entry: JsonValue): string {
+    if (entry === null || typeof entry !== "object") return JSON.stringify(entry);
+    if (Array.isArray(entry)) return `[${entry.map(encode).join(",")}]`;
+    return `{${Object.keys(entry).sort().map(key => `${JSON.stringify(key)}:${encode(entry[key]!)}`).join(",")}}`;
+  }
+  return encode(value);
+}
+
+export async function sha256(value: string | Uint8Array): Promise<string> {
+  const bytes = typeof value === "string" ? encoder.encode(value) : new Uint8Array(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}

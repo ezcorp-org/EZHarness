@@ -31,6 +31,11 @@
     "CHANGELOG.md"
   ],
   "exports": {
+    "./v4": {
+      "bun": "./src/v4/index.ts",
+      "types": "./dist/v4/index.d.ts",
+      "import": "./dist/v4/index.js"
+    },
     ".": {
       "bun": "./src/index.ts",
       "types": "./dist/index.d.ts",
@@ -58,6 +63,7 @@
     "prepublishOnly": "bun run build",
     "test": "bun test"
   },
+  "dependencies": { "@ezcorp/extension-contract": "workspace:*" },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^26.2.0"

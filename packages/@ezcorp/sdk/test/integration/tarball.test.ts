@@ -63,6 +63,10 @@ beforeAll(async () => {
     throw new Error(`no .tgz produced in ${packDir}: ${readdirSync(packDir).join(", ")}`);
   }
   tarballPath = join(packDir, tgz);
+  const contractPack = await run([process.execPath, "pm", "pack", "--destination", packDir], { cwd: join(SDK_DIR, "../extension-contract") });
+  if (contractPack.exitCode !== 0) throw new Error(`Contract pack failed: ${contractPack.stderr}`);
+  const contractTarball = readdirSync(packDir).find(file => file.startsWith("ezcorp-extension-contract-") && file.endsWith(".tgz"));
+  if (!contractTarball) throw new Error("Contract tarball was not produced");
 
   // Scaffold fixture: minimal package.json + one Bun test asserting imports.
   await Bun.write(
@@ -73,6 +77,7 @@ beforeAll(async () => {
         version: "0.0.0",
         type: "module",
         private: true,
+        overrides: { "@ezcorp/extension-contract": `file:${join(packDir, contractTarball)}` },
       },
       null,
       2,
@@ -85,6 +90,7 @@ beforeAll(async () => {
 import { defineExtension } from "@ezcorp/sdk";
 import * as sdkRuntime from "@ezcorp/sdk/runtime";
 import * as sdkTest from "@ezcorp/sdk/test";
+import * as sdkV4 from "@ezcorp/sdk/v4";
 
 test("@ezcorp/sdk: defineExtension is callable identity fn", () => {
   expect(typeof defineExtension).toBe("function");
@@ -107,13 +113,18 @@ test("@ezcorp/sdk/runtime: public helpers import", () => {
 test("@ezcorp/sdk/test: barrel import resolves", () => {
   expect(sdkTest).toBeDefined();
 });
+test("@ezcorp/sdk/v4: contract and runtime import from packed dependencies", () => {
+  expect(typeof sdkV4.defineExtension).toBe("function");
+  expect(typeof sdkV4.createRuntimeExtension).toBe("function");
+  expect(sdkV4.validateManifest({schemaVersion:4,name:"fixture",version:"1.0.0",description:"Fixture",author:{name:"Test"},permissions:{}}).name).toBe("fixture");
+});
 `,
   );
 
   // Install tarball into fixture. Empty HOME/XDG_CACHE to avoid writing to the
   // user's global bun install state; use a scratch dir instead.
   const installCacheDir = mkdtempSync(join(tmpdir(), "phase3-tarball-cache-"));
-  const install = await run(["bun", "add", `file:${tarballPath}`], {
+  const install = await run([process.execPath, "add", `file:${join(packDir, contractTarball)}`, `file:${tarballPath}`], {
     cwd: fixtureDir,
     env: {
       BUN_INSTALL_CACHE_DIR: installCacheDir,
