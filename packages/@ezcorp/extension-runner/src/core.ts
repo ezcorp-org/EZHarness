@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Diagnostic, ResourceLimits, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { canonicalJson } from "@ezcorp/extension-contract";
 
 export class RunnerError extends Error {
   constructor(public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false) {
@@ -41,7 +42,7 @@ export function validateFiles(files: WorkspaceFiles, maximumBytes = 20 * 1024 **
 }
 
 export function sha256(value: string | Uint8Array): string { return createHash("sha256").update(value).digest("hex"); }
-export function filesDigest(files: WorkspaceFiles): string { return sha256(JSON.stringify(Object.fromEntries(Object.entries(files).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)))); }
+export function filesDigest(files: WorkspaceFiles): string { return sha256(canonicalJson(files)); }
 export function identifier(value: string): string {
   if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw new RunnerError("invalid_id", "Invalid runner identifier");
   return value;

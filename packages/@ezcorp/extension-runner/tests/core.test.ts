@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, validateFiles } from "../src/core";
+import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles } from "../src/core";
 
 test("workspace and command inputs reject path and resource escapes", () => {
   expect(relativePath("nested/file.ts")).toBe("nested/file.ts");
@@ -16,6 +16,7 @@ test("workspace and command inputs reject path and resource escapes", () => {
   expect(() => validateFiles([] as unknown as Record<string, string>)).toThrow();
   expect(() => validateFiles({ "a.ts": 1 } as unknown as Record<string, string>)).toThrow();
   expect(filesDigest({ b: "2", a: "1" })).toBe(filesDigest({ a: "1", b: "2" }));
+  expect(filesDigest({ "2": "two", "10": "ten" })).toBe(sha256('{"10":"ten","2":"two"}'));
   expect(new RunnerError("denied", "Denied", "build", true).diagnostic()).toEqual({ code: "denied", message: "Denied", stage: "build", retryable: true });
 });
 
