@@ -45,6 +45,8 @@ export interface LifecycleDependencies {
   authorize(actor: LifecycleActor, action: "workspace" | "build" | "approve" | "activate" | "disable" | "uninstall", release?: LifecycleRelease, grants?: string[]): Promise<void>;
   authorizeAccess?(actor: LifecycleActor, installation: InstallationRecord): Promise<void>;
   verifyCandidate(release: LifecycleRelease, artifacts: WorkspaceFiles): Promise<void>;
+  prepareActivation?(installation: InstallationRecord, previous: LifecycleRelease | null, release: LifecycleRelease, operation: LifecycleOperation): Promise<void>;
+  abortActivation?(installationId: string, operation: LifecycleOperation): Promise<void>;
   publish(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void>;
   now?: () => number;
   leaseMs?: number;

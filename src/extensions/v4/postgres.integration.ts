@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { SQL } from "bun";
+import { drizzle } from "drizzle-orm/bun-sql";
+import { up } from "../../db/migrations/add-extension-releases";
+import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
+import { ExtensionDeliveryQueue } from "./deliveries";
+import { ExtensionDataMigrations } from "./data-migrations";
+import type { OperationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
+
+const url = process.env.EXTENSION_TEST_POSTGRES_URL;
+if (!url) throw new Error("EXTENSION_TEST_POSTGRES_URL must identify a disposable PostgreSQL database.");
+const client = new SQL(url, { max: 1 });
+const schema = `extension_validation_${randomUUID().replaceAll("-", "")}`;
+try {
+  await client.unsafe(`CREATE SCHEMA ${schema}`);
+  await client.unsafe(`SET search_path TO ${schema}`);
+  await client.unsafe("CREATE TABLE extension_storage (id TEXT PRIMARY KEY, extension_id TEXT NOT NULL, scope TEXT NOT NULL, scope_id TEXT, key TEXT NOT NULL, value JSONB NOT NULL, encrypted BOOLEAN NOT NULL DEFAULT FALSE, size_bytes INTEGER NOT NULL, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  const driver = drizzle(client);
+  await up(driver);
+  await up(driver);
+  const repository = new DatabaseLifecycleRepository(driver);
+  const installation = { id: randomUUID(), ownerId: "owner", scope: "global", activeReleaseId: "release-one", generation: 1, enabled: true, uninstalled: false, status: "active" as const, grants: [], acknowledgedGeneration: 1 };
+  const operation: OperationRecord = { id: randomUUID(), kind: "activate", state: "activating", idempotencyKey: "pg", inputDigest: "a".repeat(64), diagnostics: [], events: [], lease: { holder: randomUUID(), until: Date.now() + 60_000, fence: 1 }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const previous: ReleaseRecord = { id: "release-one", installationId: installation.id, workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "a".repeat(64), artifactDigest: "b".repeat(64), imageDigest: "image", runnerProfile: "podman", policyDigest: "c".repeat(64), releaseDigest: "d".repeat(64), createdAt: new Date().toISOString(), evidence: { protocolVersion: 4, validatorVersion: "test", discoveryDigest: "e".repeat(64), tests: [{ name: "test", passed: true }] }, manifest: { schemaVersion: 4, name: "fixture", version: "1.0.0", author: { name: "Test" }, description: "Test", permissions: {}, dataSchema: { version: "1", readableVersions: ["1"] } } };
+  const release: ReleaseRecord = { ...previous, id: "release-two", manifest: { ...previous.manifest, dataSchema: { version: "2", readableVersions: ["2"], migrateMethod: "migrate" } } };
+  await repository.create({ installation, workspaces: {}, revisions: {}, releases: { [previous.id]: previous, [release.id]: release }, operations: { [operation.id]: operation }, approvals: {} });
+  assert.deepEqual((await repository.read(installation.id))?.releases[previous.id], previous);
+  const competing = await Promise.allSettled([1, 2].map(() => repository.transact(installation.id, (state) => { if (state.installation.generation !== 1) throw new Error("conflict"); state.installation.generation = 2; })));
+  assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1);
+  await assert.rejects(repository.transact(installation.id, (state) => { state.installation.generation = 3; throw new Error("rollback"); }));
+  assert.equal((await repository.read(installation.id))?.installation.generation, 2);
+  await client.unsafe("INSERT INTO extension_storage (id,extension_id,scope,scope_id,key,value,size_bytes) VALUES ($1,$2,'user','owner','data',($3::text)::jsonb,1)", [randomUUID(), installation.id, JSON.stringify({ quote: "a\"b", nested: [1, true, null] })]);
+  const migrations = new ExtensionDataMigrations(driver, async (input) => ({ values: { data: { migrated: input.values.data } } }));
+  await migrations.prepare(installation, previous, release, operation);
+  await assert.rejects(client.unsafe("UPDATE extension_storage SET value='{}' WHERE extension_id=$1", [installation.id]));
+  await repository.transact(installation.id, (state) => { state.installation.activeReleaseId = release.id; state.operations[operation.id]!.state = "reconciling"; });
+  await migrations.finalize(installation.id);
+  const stored = await client.unsafe("SELECT value FROM extension_storage WHERE extension_id=$1", [installation.id]);
+  assert.deepEqual(stored[0].value, { migrated: { quote: "a\"b", nested: [1, true, null] } });
+  const queue = new ExtensionDeliveryQueue(driver);
+  const delivery = await queue.enqueue({ installationId: installation.id, releaseId: release.id, generation: 2, principalId: "owner", scope: "global", deduplicationId: randomUUID(), kind: "event", input: { event: "example" } });
+  const claimed = await queue.claim();
+  assert.equal(claimed?.id, delivery.id);
+  await repository.transact(installation.id, (state) => { state.installation.enabled = false; state.installation.generation += 1; });
+  assert.equal((await queue.inspect(installation.id, delivery.id))?.state, "cancelled");
+  console.log("PostgreSQL lifecycle validation passed: JSON fidelity, competing writes, rollback, storage migration gate, and delivery fencing.");
+} finally {
+  await client.unsafe("SET search_path TO public");
+  await client.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+  await client.close();
+}

@@ -3,10 +3,12 @@ import { isAbsolute, join } from "node:path";
 import { canonicalJson, compileValueSchema, validateManifest, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, executionLimits, RunnerClient } from "@ezcorp/extension-runner";
 import { eq, sql } from "drizzle-orm";
-import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
 import { ExtensionControl, requestedReleaseGrants } from "./extension-control";
 import { ExtensionLifecycle, FileBlobStore, LifecycleError, type LifecycleActor, type LifecycleDependencies, type LifecycleRelease } from "./v4";
+import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
+import { ExtensionDeliveryQueue } from "./v4/deliveries";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -82,7 +84,22 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
   } finally { await worker.close(); }
 }
 
-interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository }
+export async function runStorageMigration(runner: Runner, input: StorageMigrationInput): Promise<unknown> {
+  const method = input.release.manifest.methods?.find((candidate) => candidate.name === input.method);
+  if (!method) throw new LifecycleError("migration_method_missing", "Storage migration method is not declared.");
+  const workerId = randomUUID();
+  const context = { invocationId: randomUUID(), workerId, releaseId: input.release.id, principalId: input.principalId, scopeId: `data-migration:${input.scope}`, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs };
+  const worker = await runner.start({ workerId, artifactDigest: input.release.artifactDigest, context, limits: executionLimits }, async () => { throw new LifecycleError("migration_effect_denied", "Storage migrations cannot access host capabilities."); });
+  try {
+    const payload = { fromVersion: input.fromVersion, toVersion: input.toVersion, values: input.values };
+    compileValueSchema(method.inputSchema)(payload);
+    const result = await worker.request("extension/dispatch", { method: input.method, input: payload, context });
+    compileValueSchema(method.outputSchema)(result);
+    return result;
+  } finally { await worker.close(); }
+}
+
+interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations }
 let services: Promise<LifecycleServices> | undefined;
 
 async function initialize(): Promise<LifecycleServices> {
@@ -95,12 +112,14 @@ async function initialize(): Promise<LifecycleServices> {
   const { getExtension, getExtensionByName } = await import("../db/queries/extensions");
   const { getProjectMembership } = await import("../db/queries/project-members");
   const repository = new DatabaseLifecycleRepository(getDb());
+  const migrations = new ExtensionDataMigrations(getDb(), (input) => runStorageMigration(runner, input));
+  const deliveries = new ExtensionDeliveryQueue(getDb());
   const { configureReleaseRuntime } = await import("./release-process");
   configureReleaseRuntime({
     runner: async () => runner,
-    resolve: async (id) => {
+    resolve: async (id: string) => {
       const state = await repository.read(id);
-      if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled) return null;
+      if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id)) return null;
       const release = state.releases[state.installation.activeReleaseId];
       return release ? { release, installation: state.installation, limits: executionLimits } : null;
     },
@@ -114,9 +133,11 @@ async function initialize(): Promise<LifecycleServices> {
     validatorVersion: "runner-v4.1", buildLimits,
     ...authorization,
     verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
-    publish: publishExtensionGeneration,
+    prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
+    abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
+    publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release); },
   });
-  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository };
+  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations };
 }
 
 function getServices(): Promise<LifecycleServices> {
@@ -127,6 +148,7 @@ function getServices(): Promise<LifecycleServices> {
 export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { return (await getServices()).lifecycle; }
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
+export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
 
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void> {
   const { getDb } = await import("../db/connection");
@@ -136,7 +158,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
   const { ExtensionRegistry } = await import("./registry");
   await getDb().transaction(async (transaction: import("../db/connection").DbTransaction) => {
     const result = await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
-    const rows: { payload: string }[] = Array.isArray(result) ? result : result.rows;
+    const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
     if (!release || !installation.enabled) {
@@ -152,13 +174,13 @@ export async function publishExtensionGeneration(installation: InstallationRecor
 }
 
 export async function recoverExtensionLifecycle(): Promise<void> {
-  const { lifecycle } = await getServices();
+  const { lifecycle, migrations } = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
-  const rows: { payload: string }[] = Array.isArray(result) ? result : result.rows;
+  const rows = releaseRows<{ payload: string }>(result);
   for (const row of rows) {
     const installation: InstallationRecord = JSON.parse(row.payload);
-    try { await lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id); }
+    try { await migrations.recover(installation.id); await lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id); }
     catch (error) { log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" }); throw error; }
   }
 }

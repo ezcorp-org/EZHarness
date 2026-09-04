@@ -30,6 +30,7 @@ import { askLine } from "../ui/prompt";
  *  except the `grantedAt` timestamp map). Kept explicit so `stampGrantedAt`
  *  never accidentally stamps `grantedAt` itself. */
 const GRANT_PERMISSION_KEYS = [
+  "hostApi",
   "network",
   "filesystem",
   "shell",
@@ -150,6 +151,7 @@ export function manifestRequestedGrant(
 ): Partial<ExtensionPermissions> {
   const p = manifest.permissions ?? {};
   const requested: Partial<ExtensionPermissions> = {};
+  if (p.hostApi) requested.hostApi = p.hostApi;
   if (p.network) requested.network = p.network;
   if (p.filesystem) requested.filesystem = p.filesystem;
   if (p.shell !== undefined) requested.shell = p.shell;

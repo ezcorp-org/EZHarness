@@ -524,6 +524,7 @@ export interface ExtensionManifestV2 {
 
   // Package-level metadata
   permissions: {
+    hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
     network?: string[];
     filesystem?: string[];
     shell?: boolean;
@@ -978,6 +979,7 @@ export interface JsonRpcNotification {
 // ── Permissions (granted at install time) ────────────────────────
 
 export interface ExtensionPermissions {
+  hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
   network?: string[];
   filesystem?: string[];
   shell?: boolean;

@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { chmod, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { up } from "../../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
@@ -31,6 +32,7 @@ beforeAll(async () => {
 afterAll(async () => { await database.close(); await rm(root, { recursive: true, force: true }); });
 
 function harness(overrides: Partial<LifecycleDependencies> = {}) {
+  const extensionName = `fixture-${randomUUID()}`;
   const collected = new Map<string, WorkspaceFiles>();
   const builds: WorkspaceFiles[] = [];
   const published: number[] = [];
@@ -43,7 +45,7 @@ function harness(overrides: Partial<LifecycleDependencies> = {}) {
         const artifacts = { "extension.js": request.files[request.entrypoint]! };
         const artifactDigest = digestObject(artifacts);
         collected.set(artifactDigest, artifacts);
-        const manifest = { schemaVersion: 4 as const, name: "fixture", version: "1.0.0", description: "fixture", author: { name: "Test" }, entrypoint: "extension.js", permissions: {} };
+        const manifest = { schemaVersion: 4 as const, name: extensionName, version: "1.0.0", description: "fixture", author: { name: "Test" }, entrypoint: "extension.js", permissions: {} };
         return { operationId: request.operationId, state: "succeeded", sourceDigest: request.sourceDigest, artifactDigest, imageDigest: `sha256:${"a".repeat(64)}`, manifest, evidence: { protocolVersion: 4, validatorVersion: "host-v1", discoveryDigest: digestObject(manifest), tests: [{ name: "host-protocol", passed: true }] }, diagnostics: [] } satisfies BuildResult;
       },
       async collectArtifacts(digest) { const files = collected.get(digest); if (!files) throw new Error("missing artifact"); return files; },
@@ -232,7 +234,7 @@ describe("durable extension lifecycle", () => {
   });
 
   test("an explicit host access policy permits admin approval without changing owner binding", async () => {
-    const setup = await releaseFixture(harness({ async authorizeAccess(candidate) { if (candidate.principalId !== "admin") throw new LifecycleError("not_found", "Installation not found."); } }));
+    const setup = await releaseFixture(harness({ async authorizeAccess(candidate) { if (!["owner", "admin"].includes(candidate.principalId)) throw new LifecycleError("not_found", "Installation not found."); } }));
     const approval = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: [], expectedActiveReleaseId: null });
     const result = await setup.lifecycle.approve({ principalId: "admin", scope: "global", kind: "human" }, setup.installation.id, approval.id, true);
     expect(result.principalId).toBe("owner");

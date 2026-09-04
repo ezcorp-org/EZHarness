@@ -20,8 +20,8 @@ export class ExtensionLifecycle {
   private buildInput(workspaceId: string, revision: number, entrypoint: string) { return { workspaceId, revision, entrypoint, policyDigest: this.policyDigest() }; }
 
   private async checkOwner(actor: LifecycleActor, state: InstallationState): Promise<void> {
-    if (actor.principalId && actor.principalId === state.installation.ownerId && actor.scope === state.installation.scope) return;
     if (this.dependencies.authorizeAccess) return this.dependencies.authorizeAccess(actor, state.installation);
+    if (actor.principalId && actor.principalId === state.installation.ownerId && actor.scope === state.installation.scope) return;
     throw new LifecycleError("not_found", "Installation not found.");
   }
 
@@ -68,6 +68,7 @@ export class ExtensionLifecycle {
   }
 
   async list(actor: LifecycleActor): Promise<InstallationRecord[]> {
+    await this.dependencies.authorize(actor, "workspace");
     return this.dependencies.repository.list(actor.principalId, actor.scope);
   }
 
@@ -250,8 +251,9 @@ export class ExtensionLifecycle {
     });
   }
 
-  async activate(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string }): Promise<LifecycleOperation> {
-    const candidate = this.newOperation("activate", input.idempotencyKey, { approvalId: input.approvalId });
+  async activate(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string; rollback?: boolean }): Promise<LifecycleOperation> {
+    const candidate = this.newOperation("activate", input.idempotencyKey, { approvalId: input.approvalId, rollback: input.rollback === true });
+    candidate.rollback = input.rollback === true;
     const operation = await this.transaction(actor, input.installationId, (state) => {
       const previous = this.previousOperation(state, candidate);
       if (previous) return previous;
@@ -274,6 +276,8 @@ export class ExtensionLifecycle {
       const artifacts = await getFiles(this.dependencies.blobs, release.artifactDigest);
       await this.dependencies.verifyCandidate(release, artifacts);
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
+      await this.dependencies.prepareActivation?.(snapshot.installation, snapshot.installation.activeReleaseId ? this.release(snapshot, snapshot.installation.activeReleaseId) : null, release, claimed.operation);
+      await this.dependencies.authorize(actor, "activate", release, approval.grants);
       await this.transaction(actor, input.installationId, (state) => {
         const current = this.operation(state, operation.id);
         this.assertLease(current, holder, fence);
@@ -288,7 +292,11 @@ export class ExtensionLifecycle {
         this.transition(current, "reconciling");
       });
       await this.reconcile(actor, input.installationId);
-    } catch (error) { await this.failure(actor, input.installationId, operation.id, holder, fence, error); }
+    } catch (error) {
+      const current = this.operation(await this.inspect(actor, input.installationId), operation.id);
+      if (!["reconciling", "active"].includes(current.state)) await this.dependencies.abortActivation?.(input.installationId, claimed.operation);
+      await this.failure(actor, input.installationId, operation.id, holder, fence, error);
+    }
     return this.operation(await this.inspect(actor, input.installationId), operation.id);
   }
 
@@ -345,7 +353,7 @@ export class ExtensionLifecycle {
 
   async disable(actor: LifecycleActor, installationId: string): Promise<InstallationRecord> { return this.stop(actor, installationId, false); }
   async uninstall(actor: LifecycleActor, installationId: string): Promise<InstallationRecord> { return this.stop(actor, installationId, true); }
-  async rollback(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string }): Promise<LifecycleOperation> { return this.activate(actor, input); }
+  async rollback(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string }): Promise<LifecycleOperation> { return this.activate(actor, { ...input, rollback: true }); }
 
   async recover(actor: LifecycleActor, installationId: string): Promise<void> {
     await this.reconcile(actor, installationId);
@@ -354,7 +362,7 @@ export class ExtensionLifecycle {
     for (const operation of Object.values(state.operations)) {
       if (operation.lease && operation.lease.until > this.now()) continue;
       if (operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)) await this.runBuild(actor, installationId, operation.id);
-      if (operation.kind === "activate" && ["awaiting_approval", "activating"].includes(operation.state)) await this.activate(actor, { installationId, approvalId: operation.approvalId!, idempotencyKey: operation.idempotencyKey });
+      if (operation.kind === "activate" && ["awaiting_approval", "activating"].includes(operation.state)) await this.activate(actor, { installationId, approvalId: operation.approvalId!, idempotencyKey: operation.idempotencyKey, rollback: operation.rollback });
     }
   }
 }
