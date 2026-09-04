@@ -42,7 +42,7 @@ import {
 } from "node:fs";
 import { spyOn } from "bun:test";
 import { getChannel, JsonRpcError } from "@ezcorp/sdk/runtime";
-import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
+import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
 /** Minimal structural view of `ExtensionProcess` — avoids a value import. */
 interface RequestWirable {
