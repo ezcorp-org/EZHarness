@@ -1,11 +1,11 @@
-import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
+import type { ExtensionProcess, ExtensionProcessOptions } from "./subprocess";
+import { ReleaseProcess } from "./release-process";
+import { validateManifest as validateReleaseManifest } from "@ezcorp/extension-contract";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
 import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
-import { verifyPackageChecksums } from "./checksum";
-import { denyAndDisable } from "./security";
 import { listExtensions, updateExtension, rehydrateMcpServerSecrets } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
@@ -337,7 +337,6 @@ export class ExtensionRegistry {
   /** callerExtId -> depPackageName -> resolvedExtId */
   private depRoutes = new Map<string, Map<string, string>>();
   /** Extensions verified this session (cleared on reload) */
-  private verifiedSessions = new Set<string>();
   /** extension-NAME (not id) -> env map to inject at spawn time. Populated
    *  by the web layer for bundled extensions that need loopback-only
    *  internal credentials (e.g. ai-kit's ezkint_ API key + EZCORP_BASE_URL).
@@ -442,7 +441,9 @@ export class ExtensionRegistry {
       // declaration, so an install-time-only derivation would be erased by the
       // first "Refresh tools" click. Non-MCP manifests are returned by
       // reference, untouched.
-      const manifest = normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
+      const manifest = (ext.manifest as { schemaVersion?: number }).schemaVersion === 4
+        ? validateReleaseManifest(ext.manifest) as unknown as ExtensionManifestV2
+        : normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
       this.manifests.set(ext.id, manifest);
       const isBundled = (ext as { isBundled?: boolean }).isBundled === true;
       // Bundled rows store `install_path` PROJECT-ROOT-RELATIVE (portability
@@ -467,7 +468,7 @@ export class ExtensionRegistry {
       // spawn with the same actionable message. Applies to bundled AND
       // non-bundled; resolution is anchored at the extension's (resolved)
       // install dir.
-      if (manifest.npmDependencies && resolvedInstallPath) {
+      if ((manifest.schemaVersion as number) !== 4 && manifest.npmDependencies && resolvedInstallPath) {
         const check = verifyNpmDependencies(manifest.npmDependencies, resolvedInstallPath);
         if (!check.ok) {
           log.error("extension npm dependencies unresolvable", {
@@ -682,95 +683,17 @@ export class ExtensionRegistry {
   }
 
   /** Get or create an ExtensionProcess for the given extension ID. */
-  async getProcess(extensionId: string, options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
-    let proc = this.processes.get(extensionId);
-    if (proc?.isRunning) {
-      return proc;
-    }
-
+  async getProcess(extensionId: string, _options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
     const manifest = this.manifests.get(extensionId);
-    const installPath = this.installPaths.get(extensionId);
-    if (!manifest || !installPath) {
-      throw new Error(`Extension ${extensionId} not found in registry`);
+    if ((manifest?.schemaVersion as number | undefined) !== 4) {
+      throw new Error("Extension requires migration to an approved v4 release");
     }
-
-    // Verify package integrity on first load per session. Bundled
-    // extensions (those in src/extensions/bundled.ts) are skipped: their
-    // source lives in this repo and changes legitimately with every pull,
-    // so a file-level integrity check against install-time checksums
-    // would wedge the whole server after any commit that touched the
-    // extension's directory. Trust is rooted elsewhere for bundled
-    // extensions (code review on the repo, signed commits, etc.).
-    // Audit finding #2 fix: bundled trust comes from the DB row's
-    // `isBundled` flag, not from matching `manifest.name` against the
-    // hardcoded list. Prevents an attacker-installed extension named
-    // "ai-kit" (or any other bundled name) from inheriting the
-    // integrity-check skip.
-    const isBundled = this.bundledFlags.get(extensionId) === true;
-    if (
-      !isBundled &&
-      !this.verifiedSessions.has(extensionId) &&
-      manifest.packageChecksums
-    ) {
-      const result = await verifyPackageChecksums(installPath, manifest.packageChecksums, manifest.packageChecksumsAlgo);
-      if (!result.valid) {
-        await denyAndDisable(extensionId, "Integrity check failed: files modified since install", installPath);
-        this.processes.delete(extensionId);
-        this.manifests.delete(extensionId);
-        this.installPaths.delete(extensionId);
-        this.grantedPerms.delete(extensionId);
-        throw new Error(`Extension ${extensionId} failed integrity check: ${result.mismatched.join(", ")}`);
-      }
-      this.verifiedSessions.add(extensionId);
-    }
-
-    if (!manifest.entrypoint) {
-      throw new Error(`Extension ${extensionId} has no entrypoint defined`);
-    }
-    const entrypoint = `${installPath}/${manifest.entrypoint.replace(/^\.\//, "")}`;
-    const granted = this.grantedPerms.get(extensionId) ?? { grantedAt: {} };
-    const resolver = this.envResolversByName.get(manifest.name);
-    let injected = this.injectedEnvByName.get(manifest.name);
-    if (resolver) {
-      try {
-        injected = await resolver();
-      } catch {
-        // Resolver failed (upstream unreachable, no configured credential).
-        // Spawn with no injected env — the extension surfaces a clean
-        // error to the caller rather than stalling the whole run.
-        injected = undefined;
-      }
-    }
-    const allowedEnv = buildAllowedEnv(manifest, granted, extensionId, injected);
-
-    const memOpt = manifest.resources?.memory;
-    const memoryLimitBytes = memOpt ? parseMemoryLimit(memOpt) : undefined;
-    // Manifest-declared per-call timeout. Extensions that make slow
-    // upstream calls (e.g. image generation) declare a higher value so
-    // the subprocess dispatcher doesn't cut them off at the 30s default.
-    const callTimeoutMs =
-      typeof manifest.resources?.callTimeoutMs === "number" && manifest.resources.callTimeoutMs > 0
-        ? manifest.resources.callTimeoutMs
-        : undefined;
-
-    proc = new ExtensionProcess(extensionId, entrypoint, allowedEnv, {
-      persistent: manifest.persistent,
-      memoryLimitBytes,
-      callTimeoutMs,
-      networkAllowed: (granted.network?.length ?? 0) > 0,
-      shellAllowed: granted.shell === true,
-      // Verify the manifest's third-party npm deps before spawn — an
-      // unresolvable dep throws an actionable error instead of crash-
-      // looping the subprocess into auto-disable. See npm-deps.ts. The
-      // name rides along so the pre-check error names the extension, not
-      // its UUID.
-      npmDependencies: manifest.npmDependencies,
-      extensionName: manifest.name,
-      ...options,
-    });
-
-    this.processes.set(extensionId, proc);
-    return proc;
+    const existing = this.processes.get(extensionId);
+    if (existing?.isRunning) return existing;
+    const process = new ReleaseProcess(extensionId);
+    process.ensureRunning();
+    this.processes.set(extensionId, process);
+    return process;
   }
 
   /** Get all registered tool definitions. */
@@ -973,7 +896,6 @@ export class ExtensionRegistry {
     for (const extId of this.mcpProxies.keys()) trackSignature(extId);
     for (const extId of this.mcpClients.keys()) trackSignature(extId);
 
-    this.verifiedSessions.clear();
     await this.loadFromDb();
 
     // After loadFromDb, `this.manifests` reflects the post-reload set.

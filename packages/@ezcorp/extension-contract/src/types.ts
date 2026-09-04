@@ -75,6 +75,7 @@ export interface OperationRecord {
   sourceDigest?: string;
   entrypoint?: string;
   approvalId?: string;
+  rollback?: boolean;
   diagnostics: Diagnostic[];
   releaseId?: string;
   events: { sequence: number; state: OperationRecord["state"]; at: string }[];

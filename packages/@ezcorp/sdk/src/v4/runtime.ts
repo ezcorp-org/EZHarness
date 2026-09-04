@@ -63,12 +63,13 @@ export async function createRuntimeExtension(options: { manifest: Record<string,
     const manifest = defineRuntimeManifest(options.manifest);
     const tools: Record<string, ExtensionHandler> = {};
     function scoped(handler: (params: unknown) => unknown, input: unknown, invocation: ExtensionContext, toolName?: string): Promise<unknown> {
-      return context.run(invocation, () => withToolContext({ callId: invocation.invocation.token, conversationId: invocation.invocation.scopeId, ...(toolName ? { toolName } : {}) }, () => handler(input)));
+      const conversationId = invocation.invocation.metadata?.ezConversationId;
+      return context.run(invocation, () => withToolContext({ callId: invocation.invocation.token, conversationId: typeof conversationId === "string" ? conversationId : "", ...(toolName ? { toolName } : {}) }, () => handler(input)));
     }
     for (const tool of manifest.tools ?? []) {
       const handler = handlers.get("tools/call");
       if (!handler) throw new ContractError("MISSING_HANDLER", "Runtime tool dispatcher was not registered");
-      tools[tool.name] = (input, invocation) => scoped(handler, { name: tool.name, arguments: input, _meta: { ...invocation.invocation.metadata, ezCallId: invocation.invocation.token, ezOnBehalfOf: invocation.invocation.principalId, ezConversationId: invocation.invocation.scopeId } }, invocation, tool.name);
+      tools[tool.name] = (input, invocation) => scoped(handler, { name: tool.name, arguments: input, _meta: { ...invocation.invocation.metadata, ezCallId: invocation.invocation.token, ezOnBehalfOf: invocation.invocation.principalId } }, invocation, tool.name);
     }
     const methods: Record<string, MethodHandler> = {};
     for (const [name, handler] of handlers) {

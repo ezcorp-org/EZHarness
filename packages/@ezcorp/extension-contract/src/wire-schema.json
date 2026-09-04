@@ -1735,6 +1735,9 @@
         "releaseId": {
           "type": "string"
         },
+        "rollback": {
+          "type": "boolean"
+        },
         "sourceDigest": {
           "type": "string"
         },
