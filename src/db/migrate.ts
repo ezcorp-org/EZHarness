@@ -2992,4 +2992,11 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // card presents the provider wire id instead of the row's own PK — both
   // filter on this column then `ORDER BY created_at DESC LIMIT 1`.
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_provider_call ON tool_calls(provider_tool_call_id, created_at)`);
+  const { up: addExtensionReleases } = await import("./migrations/add-extension-releases");
+  await addExtensionReleases(db);
+  const { extensionControlTools } = await import("../extensions/extension-control");
+  for (const tool of extensionControlTools) {
+    await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);
+  }
+  await db.execute(sql`UPDATE modes SET allowed_tools = array_remove(array_remove(allowed_tools, 'extension-author/create_extension'), 'extension-author__create_extension') WHERE slug = 'ez'`);
 }

@@ -152,7 +152,7 @@ export async function rehydrateMcpServerSecrets(
 //     `granted.search` reads back `undefined` and the capability looks
 //     disabled. So on bun-sql we pass the PLAIN OBJECT and let the driver
 //     serialize it; only PGlite gets the explicit text+cast.
-function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
+export function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
   const out: Record<string, unknown> = { ...data };
   // `getPglite()` is non-null ⟺ PGlite; null ⟺ bun-sql (external Postgres).
   const onPglite = getPglite() !== null;

@@ -91,6 +91,7 @@ passfail_files() {
     # env-dependent future suite must be excluded HERE by name, with its
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
+    find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
     # lessons-distiller index) ran in no CI job at all. Deterministic under
@@ -267,6 +268,7 @@ coverage_host_files() {
     find src -name "*.test.ts" \
       ! \( -path "src/extensions/__tests__/*" -name "*integration*" \) \
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \)
+    find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
     # hard-gates these inside the coverage shards.
@@ -312,7 +314,7 @@ suggest_leg_files() {
 sdk_leg_files() {
   {
     set +e
-    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ -name "*.test.ts"
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 

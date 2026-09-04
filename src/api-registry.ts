@@ -55,6 +55,8 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
+  { method: "POST", path: "/api/extensions/control", description: "Manage versioned extension workspaces, builds and releases", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  { method: "POST", path: "/api/extensions/releases/:installationId/approve", description: "Approve or reject an exact extension release from a human session", category: "extensions", scope: "session" },
   // Auth
   { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", scope: "public", schemaKey: "loginSchema" },
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },

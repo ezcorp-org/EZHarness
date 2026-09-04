@@ -88,6 +88,7 @@ export type OnBlocked = (info: {
 }) => void;
 
 export interface GuardedFetchOptions {
+  authorizeUrl?: (url: URL) => Promise<void>;
   mode: EgressMode;
   /** For `mode:"backend"`: the exact set of hostnames the configured
    *  provider chain may reach (SearXNG URL host ∪ DDG hosts ∪ selected
@@ -345,6 +346,7 @@ export async function guardedFetch(
     }
 
     const host = normalizeHost(parsed.hostname);
+    await opts.authorizeUrl?.(parsed);
 
     // `mode:"backend"` — allowlist the host. The configured SearXNG
     // internal host is sanctioned here (it's in `allowedHosts`), but the

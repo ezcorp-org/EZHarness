@@ -938,6 +938,9 @@ export async function handlePiFinalizeToolCall(
  * `FsRpcResponse` return (the table casts them at the call site, as before).
  */
 export interface ReverseRpcDispatch {
+  handlePiHostApi(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiProjectPullRequest(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiNetworkBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiInvoke(callerExtId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFsRead(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse>;
@@ -977,6 +980,11 @@ type RouteFn = (
 ) => Promise<JsonRpcResponse>;
 
 export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
+  "ezcorp/api.request": (self, extensionId, request) => self.handlePiHostApi(extensionId, request),
+  "ezcorp/api.events": (self, extensionId, request) => self.handlePiHostApi(extensionId, request),
+  "ezcorp/project.openPr": (self, extensionId, request) => self.handlePiProjectPullRequest(extensionId, request),
+  "ezcorp/network.fetch": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
+  "ezcorp/network.read": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/invoke": (s, e, r) => s.handlePiInvoke(e, r),
   // Phase 3: per-operation fs.* handlers come BEFORE the legacy path-check
   // `ezcorp/fs` shim. Method strings are exact-match (no fallthrough).
@@ -998,7 +1006,7 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/queue-agent-message": (s, e, r) => s.handlePiQueueAgentMessage(e, r),
   "ezcorp/append-message": (s, e, r) => s.handlePiAppendMessage(e, r),
   "ezcorp/finalize-tool-call": (s, e, r) => s.handlePiFinalizeToolCall(e, r),
-  "ezcorp/network.internal": (s, e, r) => s.handlePiNetworkInternal(e, r),
+  "ezcorp/network.internal": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/storage": (s, e, r) => s.handlePiStorage(e, r),
   "ezcorp/llm-complete": (s, e, r) => s.handlePiLlmComplete(e, r),
   "ezcorp/memory": (s, e, r) => s.handlePiMemory(e, r),

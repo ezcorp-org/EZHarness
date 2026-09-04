@@ -1,213 +1,40 @@
-/**
- * Direct test for `+page.server.ts`'s `load()` export. Auditor flagged
- * the prior page-logic test as skipping `load()` ("would require a
- * SvelteKit-aware harness"). SvelteKit's `load` is a plain function —
- * we mock `locals: { user }` and `url: new URL(...)` and call it
- * directly. Covers:
- *
- *   - missing `?prefill`              → throws error(400)
- *   - invalid draftId shape           → throws error(400)
- *   - missing / expired / wrong-owner → throws error(404)
- *   - non-extension draft kind        → throws error(400)
- *   - happy path returns { draft, files } with files read fresh from disk
- *   - fresh-from-disk: mutate a file, call load again, change reflected
- *
- * Spec ref: auditor must-fix gap (B2).
- */
+import { beforeEach, expect, test, vi } from "vitest";
 
-import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn() }));
+vi.mock("$server/auth/middleware", () => ({ requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
+vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => mocks }));
+import { load } from "../routes/(app)/extensions/author/+page.server";
 
-const draftStore = new Map<string, { userId: string; kind: string; payload: unknown; consumedAt: Date | null }>();
-
-vi.mock("$server/auth/middleware", () => ({
-  requireAuth: vi.fn((locals: { user?: { id: string } }) => {
-    if (!locals.user) throw new Response("unauth", { status: 401 });
-    return locals.user;
-  }),
-}));
-
-vi.mock("$server/db/queries/ez-drafts", async () => {
-  const { join } = await import("node:path");
-  return {
-    getDraft: vi.fn(async (id: string, userId: string) => {
-      const r = draftStore.get(id);
-      if (!r) return undefined;
-      if (r.userId !== userId) return undefined;
-      return {
-        id,
-        userId,
-        kind: r.kind,
-        payload: r.payload,
-        createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 60_000),
-        consumedAt: r.consumedAt,
-      };
-    }),
-    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) =>
-      join(DRAFT_ROOT, userId, id),
-    ),
-  };
-});
-
-import { load, _readDraftFiles } from "../routes/(app)/extensions/author/+page.server";
-
-let TMP: string;
-let DRAFT_ROOT: string;
-const USER = { id: "user-x", email: "x@x", name: "X", role: "member" };
-
-function seedDraft(id: string, userId: string, files: Record<string, string>): void {
-  const dir = join(DRAFT_ROOT, userId, id);
-  draftStore.set(id, {
-    userId,
-    kind: "extension",
-    payload: { name: "weather", type: "tool", mode: "author", draftDir: dir },
-    consumedAt: null,
-  });
-  mkdirSync(dir, { recursive: true });
-  for (const [n, c] of Object.entries(files)) {
-    writeFileSync(join(dir, n), c, "utf8");
-  }
+function event(query = "", authenticated = true) {
+  return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
 }
 
-/**
- * Build a `LoadEvent`-ish fixture. The real type has many fields
- * but `load()` here only reads `url`, `locals`. Anything else can be
- * `never`-typed.
- */
-function makeEvent(opts: {
-  prefill?: string | null;
-  user?: typeof USER | null;
-}): never {
-  const url = new URL("http://x/extensions/author");
-  if (opts.prefill !== undefined && opts.prefill !== null) {
-    url.searchParams.set("prefill", opts.prefill);
-  }
-  return {
-    url,
-    locals: opts.user === null ? {} : { user: opts.user ?? USER },
-    params: {},
-    route: { id: "/(app)/extensions/author" },
-    fetch: globalThis.fetch,
-    setHeaders: () => {},
-    parent: async () => ({}),
-    depends: () => {},
-    untrack: <T>(fn: () => T) => fn(),
-  } as never;
-}
+beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); });
 
-beforeEach(() => {
-  TMP = join(tmpdir(), `ext-author-load-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-  mkdirSync(join(TMP, ".git"), { recursive: true });
-  DRAFT_ROOT = join(TMP, ".ezcorp/extension-data/extension-author/drafts");
-  mkdirSync(DRAFT_ROOT, { recursive: true });
-  process.chdir(TMP);
-  draftStore.clear();
+test("requires authentication before listing workspaces", async () => {
+  await expect(load(event("", false))).rejects.toMatchObject({ status: 401 });
+  expect(mocks.list).not.toHaveBeenCalled();
 });
 
-afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+test("empty route lists only the current actor's workspaces", async () => {
+  expect(await load(event())).toMatchObject({ state: null, files: {}, canApprove: true });
+  expect(mocks.list).toHaveBeenCalledWith({ principalId: "owner", scope: "global", kind: "human" });
 });
 
-describe("+page.server.ts load() — 400 path", () => {
-  test("missing ?prefill → throws error(400)", async () => {
-    await expect(load(makeEvent({}))).rejects.toMatchObject({ status: 400 });
-  });
-
-  test("invalid draftId shape (path-traversal) → throws error(400)", async () => {
-    await expect(load(makeEvent({ prefill: "../escape" }))).rejects.toMatchObject({ status: 400 });
-  });
-
-  test("invalid draftId shape (slash) → throws error(400)", async () => {
-    await expect(load(makeEvent({ prefill: "a/b" }))).rejects.toMatchObject({ status: 400 });
-  });
-
-  test("non-extension kind draft → throws error(400)", async () => {
-    draftStore.set("bad-kind", {
-      userId: USER.id,
-      kind: "agent",
-      payload: {},
-      consumedAt: null,
-    });
-    await expect(load(makeEvent({ prefill: "bad-kind" }))).rejects.toMatchObject({ status: 400 });
-  });
+test("legacy draft URLs do not execute or install source", async () => {
+  await expect(load(event("?prefill=old"))).rejects.toMatchObject({ status: 410 });
+  expect(mocks.inspect).not.toHaveBeenCalled();
 });
 
-describe("+page.server.ts load() — 404 path (opaque)", () => {
-  test("missing draftId → throws error(404)", async () => {
-    await expect(load(makeEvent({ prefill: "nonexistent" }))).rejects.toMatchObject({ status: 404 });
-  });
-
-  test("wrong-owner draftId → throws error(404) (same as missing, opaque)", async () => {
-    seedDraft("d-other", "other-user", { "README.md": "x" });
-    await expect(load(makeEvent({ prefill: "d-other" }))).rejects.toMatchObject({ status: 404 });
-  });
+test("loads the selected immutable workspace through owner-scoped lifecycle", async () => {
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation" }, workspaces: {} });
+  mocks.readWorkspace.mockResolvedValue({ workspace: { id: "workspace", revision: 2 }, files: { "nested/file.ts": "source" } });
+  expect(await load(event("?installation=installation&workspace=workspace"))).toMatchObject({ workspace: { revision: 2 }, files: { "nested/file.ts": "source" } });
+  expect(mocks.readWorkspace).toHaveBeenCalledWith({ principalId: "owner", scope: "global", kind: "human" }, "installation", "workspace");
 });
 
-describe("+page.server.ts load() — happy path", () => {
-  test("returns { draft, files } with files read fresh from disk", async () => {
-    seedDraft("happy", USER.id, {
-      "ezcorp.config.ts": "// stub manifest",
-      "README.md": "# Happy",
-    });
-    const result = await load(makeEvent({ prefill: "happy" })) as {
-      draft: { id: string; kind: string };
-      files: Record<string, string>;
-    };
-    expect(result.draft.id).toBe("happy");
-    expect(result.draft.kind).toBe("extension");
-    expect(result.files["ezcorp.config.ts"]).toBe("// stub manifest");
-    expect(result.files["README.md"]).toBe("# Happy");
-  });
-
-  test("file mutation reflected on subsequent load (fresh-read, not cached)", async () => {
-    seedDraft("fresh", USER.id, { "README.md": "original" });
-    const r1 = await load(makeEvent({ prefill: "fresh" })) as { files: Record<string, string> };
-    expect(r1.files["README.md"]).toBe("original");
-
-    // Mutate the file on disk WITHOUT going through the API. The next
-    // load() must see the new content — proves the loader doesn't
-    // cache.
-    writeFileSync(join(DRAFT_ROOT, USER.id, "fresh", "README.md"), "edited", "utf8");
-
-    const r2 = await load(makeEvent({ prefill: "fresh" })) as { files: Record<string, string> };
-    expect(r2.files["README.md"]).toBe("edited");
-  });
-
-  test("files outside ALLOWED_FILES are excluded", async () => {
-    seedDraft("filt", USER.id, {
-      "ezcorp.config.ts": "// stub",
-    });
-    // Drop a non-allowlisted file directly on disk.
-    writeFileSync(join(DRAFT_ROOT, USER.id, "filt", "secret.key"), "shhh", "utf8");
-
-    const result = await load(makeEvent({ prefill: "filt" })) as { files: Record<string, string> };
-    expect(result.files["ezcorp.config.ts"]).toBe("// stub");
-    expect("secret.key" in result.files).toBe(false);
-  });
-  // The loader now surfaces files it could NOT read instead of dropping
-  // them silently — an author editing a short file list and installing
-  // it is how content gets lost.
-  test("unreadable files are reported to the page, not silently skipped", async () => {
-    seedDraft("unread", USER.id, { "ezcorp.config.ts": "// stub" });
-    // A directory where a file is expected — readFileSync throws EISDIR
-    // for every user, root included.
-    mkdirSync(join(DRAFT_ROOT, USER.id, "unread", "README.md"), { recursive: true });
-
-    const result = (await load(makeEvent({ prefill: "unread" }))) as {
-      files: Record<string, string>;
-      unreadable: Array<{ name: string; error: string }>;
-    };
-    expect(result.files["ezcorp.config.ts"]).toBe("// stub");
-    expect(result.unreadable.map((u) => u.name)).toEqual(["README.md"]);
-  });
-
-  test("_readDraftFiles (test-only export) returns just the file map", () => {
-    seedDraft("direct", USER.id, { "README.md": "hello" });
-    expect(_readDraftFiles(join(DRAFT_ROOT, USER.id, "direct"))).toEqual({
-      "README.md": "hello",
-    });
-  });
+test("foreign installations are not disclosed", async () => {
+  mocks.inspect.mockRejectedValue({ code: "forbidden" });
+  await expect(load(event("?installation=foreign"))).rejects.toMatchObject({ status: 404 });
+  expect(mocks.readWorkspace).not.toHaveBeenCalled();
 });

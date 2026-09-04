@@ -29,6 +29,12 @@ describe("SseDataBuffer", () => {
   });
 });
 
+test("extension control exposes the shared lifecycle without a key-based approval method", async () => {
+  const input = { action: "create", name: "test" };
+  expect(await client().extensionControl("extensions_workspace", input)).toEqual({ tool: "extensions_workspace", input });
+  expect(await client().extensionControl("extensions_describe")).toEqual({ tool: "extensions_describe", input: {} });
+});
+
 describe("event-name parity with the app", () => {
   test("package list === app list (no drift)", () => {
     expect([...RUNTIME_EVENT_NAMES]).toEqual([...APP_EVENT_NAMES]);
@@ -67,6 +73,7 @@ beforeAll(() => {
       lastAuth = req.headers.get("authorization");
       lastUrl = req.url;
       const p = url.pathname;
+      if (req.method === "POST" && p === "/api/extensions/control") return Response.json(await req.json());
       if (req.method === "POST" && p === "/api/conversations") {
         lastConversationBody = (await req.json()) as Record<string, unknown>;
         return Response.json({ id: "c1" });

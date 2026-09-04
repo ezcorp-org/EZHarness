@@ -42,6 +42,9 @@ import {
   wireMaxToolCallsCounter,
 } from "./limits";
 import { dispatchReverseRpcWithTimeout } from "./reverse-rpc-timeout";
+import { handleHostApi } from "../host-api-broker";
+import { handleProjectPullRequest } from "../project-pr-broker";
+import { handleNetworkBroker } from "../network-broker";
 import { PermissionDeniedError, type ArgsResolver, type ToolExecutorOptions } from "./errors";
 import { resolveReverseRpcMeta as provResolveReverseRpcMeta } from "./provenance";
 import {
@@ -1271,6 +1274,18 @@ export class ToolExecutor {
     req: JsonRpcRequest,
   ): Promise<JsonRpcResponse> {
     return rpcHandlePiGithubProjects(this.rpcDeps(), extensionId, req);
+  }
+
+  async handlePiHostApi(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleHostApi(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiProjectPullRequest(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleProjectPullRequest(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiNetworkBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleNetworkBroker(this.rpcDeps(), extensionId, request);
   }
 
   /** `ezcorp/RbacCheck` reverse-RPC — see {@link rpcHandlePiRbacCheck}. */

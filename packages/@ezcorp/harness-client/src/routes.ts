@@ -25,6 +25,7 @@ export interface HarnessRoute {
 }
 
 export const HARNESS_ROUTES = {
+  extensionControl: { httpMethod: "POST", pathTemplate: "/api/extensions/control" },
   // Configure
   getSetting: { httpMethod: "GET", pathTemplate: "/api/settings/:key" },
   setSetting: { httpMethod: "PUT", pathTemplate: "/api/settings/:key" },
