@@ -98,6 +98,26 @@ test("service storage uses real SQL and rejects conversation or user buckets", a
   });
 });
 
+test("a target release replacement during admission invalidates its captured binding", async () => {
+  const { release, proof } = await fixture();
+  const target = structuredClone(release.snapshot);
+  target.installation.id = "target";
+  target.release.installationId = "target";
+  let targetReads = 0;
+  configureReleaseRuntime({ runner: async () => release.runner, resolve: async id => {
+    if (id === "installation") return release.snapshot;
+    if (id !== "target") return null;
+    targetReads++;
+    if (targetReads === 2) {
+      target.installation.generation++;
+      target.installation.acknowledgedGeneration = target.installation.generation;
+    }
+    return target;
+  } });
+  await expect(assertServiceCapabilities(proof, "target", [], { toolName: "write" })).rejects.toThrow("changed");
+  expect(targetReads).toBe(2);
+});
+
 test("storage consent is checked in the exact mutation transaction and failure rolls back", async () => {
   const { db, proof, engine, manifest, granted } = await fixture();
   let guarded = false;
@@ -159,7 +179,52 @@ test("service project files use the host-bound project and stop after membership
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test.each(["tool-closure", "rbac-scope"] as const)("a waiting worker loses %s before any reverse storage effect", async mutation => {
+test("service reverse requests cannot supply a missing host guard", async () => {
+  const { proof } = await fixture();
+  const token = registerCallProvenance({ onBehalfOf: null, conversationId: null, runId: "run", parentCallId: null, actorExtensionId: "installation", kind: "tool", ownerless: false, serviceInvocation: proof });
+  let effects = 0;
+  const dispatch = { handlePiStorage: async () => { effects++; return { jsonrpc: "2.0", id: "write", result: {} }; } } as unknown as import("../extensions/tool-executor/rpc-handlers").ReverseRpcDispatch;
+  try {
+    const result = await routeReverseRpc(dispatch, "installation", { jsonrpc: "2.0", id: "write", method: "ezcorp/storage", params: { action: "set", key: "spoof", value: true, invocationGuard: "allow", serviceInvocation: { serviceId: "service" }, _meta: { ezCallId: token } } });
+    expect(result.error).toMatchObject({ code: -32106, message: "Service tool authority is unavailable" });
+    expect(effects).toBe(0);
+  } finally { releaseCallProvenance(token); proof.close(); }
+});
+
+test("service project files fail closed when the host project has no root", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "service-missing-project-"));
+  try {
+    const { db, proof, engine, registry } = await fixture(directory);
+    await db.update(projects).set({ path: "" }).where(eq(projects.id, "project"));
+    const result = await handleVirtualFilesystemRpc("write", { jsonrpc: "2.0", id: "write", method: "ezcorp/fs.write", params: { path: "/project/denied", content: "denied" } }, { extensionId: "installation", userId: "unknown", conversationId: "unknown", serviceInvocation: proof, engine, registry });
+    expect(result.error?.message).toBe("Filesystem request was denied or could not be completed.");
+    await expect(readFile(join(directory, "denied"))).rejects.toThrow();
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("nested service invocation retains the exact host proof and guard, not child claims", async () => {
+  const { proof, registry } = await fixture();
+  const { handlePiInvoke } = await import("../extensions/tool-executor/invoke");
+  const controller = new AbortController();
+  const guard = async () => proof.assertActive();
+  Object.assign(registry, { resolveDepTool: () => ({ name: "write", extensionId: "installation" }) });
+  let calls = 0;
+  const host: import("../extensions/tool-executor/invoke").InvokeHost = {
+    registry, eventDriven: false, currentConversationId: "workflow:run", currentUserId: undefined,
+    executeToolCall: async (_name, _input, _conversation, _message, options) => {
+      calls++;
+      expect(options?.serviceInvocation).toBe(proof);
+      expect(options?.invocationGuard).toBe(guard);
+      expect(options?.signal).toBe(controller.signal);
+      return { content: [{ type: "text", text: "bounded" }], isError: false };
+    },
+  };
+  const result = await withRuntimeToolContext({ serviceInvocation: proof, invocationGuard: guard, signal: controller.signal }, () => handlePiInvoke(host, "installation", { jsonrpc: "2.0", id: "nested", method: "ezcorp/invoke", params: { tool: "dependency__write", serviceInvocation: { serviceId: "foreign" }, invocationGuard: "allow" } }));
+  expect(result.error).toBeUndefined();
+  expect(calls).toBe(1);
+});
+
+test.each(["tool-closure", "rbac-scope", "expected-binding"] as const)("a worker cannot write after %s denial", async mutation => {
   const { db, release, proof, engine, manifest, registry } = await fixture();
   const tool = { name: "write", description: "Write", rbacScope: "write", inputSchema: { type: "object" as const }, outputSchema: { type: "object" as const } };
   manifest.tools = [tool];
@@ -183,8 +248,13 @@ test.each(["tool-closure", "rbac-scope"] as const)("a waiting worker loses %s be
   const process = new ReleaseProcess("installation");
   Object.assign(registry, { getRegisteredTool: () => ({ ...tool, extensionId: "installation", originalName: "write" }), getProcess: async () => process });
   const executor = new ToolExecutor(registry, engine);
-  const pending = executor.executeToolCall("write", {}, workflowScopeKey("run"), null, { serviceInvocation: proof });
+  const pending = executor.executeToolCall("write", {}, workflowScopeKey("run"), null, { serviceInvocation: proof, ...(mutation === "expected-binding" ? { expectedReleaseBinding: "f".repeat(64) } : {}) });
   try {
+    if (mutation === "expected-binding") {
+      await expect(pending).rejects.toThrow("Service target does not match the expected release");
+      expect(reverseAttempts).toBe(0);
+      return;
+    }
     await entered.promise;
     if (mutation === "rbac-scope") await db.update(serviceAccounts).set({ scopes: [] }).where(eq(serviceAccounts.id, "service"));
     else await db.update(workflowDelegations).set({ capabilitySet: [{ kind: "storage", value: null }] }).where(eq(workflowDelegations.id, "delegation"));
