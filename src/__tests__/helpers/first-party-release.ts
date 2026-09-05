@@ -78,7 +78,7 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
         const engine = createStubPermissionEngine("allow-all");
         const authorize = engine.authorize;
         const denyNetwork = typeof options.denyNetwork === "function" ? options.denyNetwork : () => options.denyNetwork === true;
-        if (options.networkHosts || options.denyNetwork) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && (denyNetwork() || !capability.value || !options.networkHosts?.includes(capability.value))) ? { decision: "deny", reason: "fixture_network_policy", auditId: "fixture-network-policy" } : authorize(context, capabilities);
+        if (options.networkHosts || options.denyNetwork) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && (denyNetwork() || (options.networkHosts !== undefined && (!capability.value || !options.networkHosts.includes(capability.value))))) ? { decision: "deny", reason: "fixture_network_policy", auditId: "fixture-network-policy" } : authorize(context, capabilities);
         const deps = { registry, engine, resolveExtensionScopeGrant: async () => true };
         let starts = 0;
         const failures: string[] = [];
