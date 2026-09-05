@@ -3010,6 +3010,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionRuntimeLocks(db);
   const { up: addExtensionBrowserRequests } = await import("./migrations/add-extension-browser-requests");
   await addExtensionBrowserRequests(db);
+  const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
+  await addWorkflowDelegationRelease(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

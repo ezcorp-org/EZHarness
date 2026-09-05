@@ -122,7 +122,7 @@ import {
 import type { WorkflowDefinition, WorkflowRunStatus } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
 import { canRunWorkflow, workflowExtensionLiveness } from "../runtime/workflow-authz";
-import { workflowReleaseCanAccess } from "../runtime/workflow-release-assets";
+import { workflowReleaseCanExecute } from "../runtime/workflow-release-assets";
 import { listWorkflowRunsForCaller, RUN_STATUS_FILTERS } from "../runtime/workflow-run-trace";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { formatGateRelay } from "../runtime/workflow-approval-relay";
@@ -1475,7 +1475,7 @@ async function runForDelegation(
   //     fire-time answer that disagreed with the consent-time one either
   //     grants authority the human never saw or stales every fire of a
   //     delegation nobody can fix.
-  const authz = authorizeDelegationConsent(entries, row.workflowName, ownerKind, ownerId);
+  const authz = authorizeDelegationConsent(entries, row.workflowName, ownerKind, ownerId, row.extensionReleaseBinding);
   if (!authz.ok) {
     if (authz.code === DELEGATION_CONSENT_DENIALS.NOT_FOUND) {
       return denyAs("DELEGATION_WORKFLOW_NOT_FOUND", authz.message, -32602);
@@ -1495,7 +1495,7 @@ async function runForDelegation(
   if (!live.allowed) {
     return lostAccess(denyAs, row, live.reason);
   }
-  if (authz.entry.extensionRelease && !await workflowReleaseCanAccess(authz.entry, ownerId, row.projectId)) return lostAccess(denyAs, row, "Workflow release is not available to this principal.");
+  if (!await workflowReleaseCanExecute(authz.entry, { userId: ownerKind === "user" ? ownerId : null, projectId: row.projectId, delegationId: row.id, runAsKind: ownerKind, runAs: ownerId })) return lostAccess(denyAs, row, "Workflow release is not available to this principal. Re-consent to the current release.");
   const definition = authz.entry.definition;
 
   // D6. The consent record, recomputed from LIVE state and reconciled.
@@ -1531,7 +1531,7 @@ async function runForDelegation(
     projectId: row.projectId,
     runAs: { kind: ownerKind, id: ownerId },
     trigger: { kind: row.triggerKind, spec: row.triggerSpec },
-    principal: delegationPrincipal(ownerKind, ownerId),
+    principal: delegationPrincipal(ownerKind, ownerId, row.extensionReleaseBinding),
     entries,
     agents,
   });

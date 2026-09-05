@@ -732,6 +732,7 @@ export const workflowDelegations = pgTable("workflow_delegations", {
   // which routes that row through the widening test on its first fire and
   // heals it there.
   definitionHash: text("definition_hash"),
+  extensionReleaseBinding: text("extension_release_binding"),
   // The capability set as consented, kept alongside the hash so the
   // re-consent dialog can render a DIFF rather than "something changed" —
   // and so the fire-time widening test has something to compare against.

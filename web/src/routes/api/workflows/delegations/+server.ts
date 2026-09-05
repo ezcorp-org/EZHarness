@@ -135,7 +135,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // This does NOT replace the fire-time re-ask: visibility is mutable, so
   // the ladder asks again on every fire and refuses with its own distinct
   // code. This exists so the HUMAN learns immediately.
-  const resolved = await resolveDelegationConsentOr(body.workflowName, body.ownerKind, ownerId, body.projectId ?? null);
+  const resolved = await resolveDelegationConsentOr(body.workflowName, body.ownerKind, ownerId, body.projectId ?? null, user.id);
   if (resolved instanceof Response) return resolved;
 
   const consent = await buildDelegationConsent({
@@ -145,6 +145,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     projectId: body.projectId ?? null,
     ownerKind: body.ownerKind,
     ownerId,
+    consenterId: user.id,
     trigger: { kind: body.triggerKind, spec: body.triggerSpec ?? null },
   });
   if (consent instanceof Response) return consent;
@@ -161,6 +162,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     triggerSpec: body.triggerSpec ?? null,
     consentHash: consent.consentHash,
     definitionHash: consent.definitionHash,
+    extensionReleaseBinding: consent.extensionReleaseBinding,
     capabilitySet: consent.capabilitySet,
     maxTokensPerRun: body.maxTokensPerRun,
     maxRunsPerDay: body.maxRunsPerDay,

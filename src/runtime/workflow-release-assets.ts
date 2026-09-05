@@ -2,9 +2,42 @@ import { canonicalJson, sha256, validateArtifactFiles } from "@ezcorp/extension-
 import { getReleaseRuntime, releaseBinding, resolveActiveRelease, type ReleaseRuntimeDependencies } from "../extensions/release-process";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { loadExtensionWorkflowFiles } from "./workflow-extension-loader";
-import type { CachedWorkflow } from "./workflow-scope";
-import { getUserById } from "../db/queries/users";
-import { getProjectMembership } from "../db/queries/project-members";
+import { workflowDelegationReleaseAllows, type CachedWorkflow } from "./workflow-scope";
+export { workflowDelegationReleaseBinding } from "./workflow-scope";
+import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership } from "../db/queries/workflow-authority";
+import { getWorkflowDelegation } from "../db/queries/workflow-delegations";
+import { findLiveServiceAccount } from "../db/queries/service-accounts";
+import type { MigrationDb } from "../db/migrations/types";
+import { sql } from "drizzle-orm";
+import { releaseRows } from "../db/queries/extension-releases";
+
+export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
+  if (entry.source !== "extension") return true;
+  if (!entry.extensionRelease || consenterId !== entry.extensionRelease.ownerId) return false;
+  const service = database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : await findLiveServiceAccount(serviceId);
+  if (!service || (service.projectId !== null && service.projectId !== projectId)) return false;
+  return workflowReleaseCanAccess(entry, consenterId, projectId, database);
+}
+
+export interface WorkflowExecutionAuthority {
+  userId?: string | null;
+  projectId?: string | null;
+  delegationId?: string | null;
+  runAsKind?: string | null;
+  runAs?: string | null;
+}
+
+export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
+  if (entry.source !== "extension") return true;
+  if (authority.runAsKind !== "service") return workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database);
+  if (!entry.extensionRelease || authority.userId || !authority.delegationId || !authority.runAs) return false;
+  const readDelegation = async () => database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowDelegation>>>, "id" | "enabled" | "revokedAt" | "ownerKind" | "ownerServiceAccountId" | "workflowName" | "projectId" | "extensionId" | "extensionReleaseBinding" | "consentedByUserId">>(await database.execute(sql`SELECT id, enabled, revoked_at AS "revokedAt", owner_kind AS "ownerKind", owner_service_account_id AS "ownerServiceAccountId", workflow_name AS "workflowName", project_id AS "projectId", extension_id AS "extensionId", extension_release_binding AS "extensionReleaseBinding", consented_by_user_id AS "consentedByUserId" FROM workflow_delegations WHERE id=${authority.delegationId} FOR SHARE`))[0] : await getWorkflowDelegation(authority.delegationId!);
+  const delegation = await readDelegation();
+  if (!delegation || !delegation.enabled || delegation.revokedAt || delegation.ownerKind !== "service" || delegation.ownerServiceAccountId !== authority.runAs || delegation.projectId !== (authority.projectId ?? null) || delegation.extensionId !== entry.extensionRelease.installationId || !workflowDelegationReleaseAllows(entry, delegation.extensionReleaseBinding)) return false;
+  if (!await workflowReleaseCanConsentService(entry, authority.runAs, delegation.consentedByUserId, authority.projectId, database)) return false;
+  const current = await readDelegation();
+  return Boolean(current?.enabled && !current.revokedAt && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.ownerServiceAccountId === delegation.ownerServiceAccountId && await workflowReleaseIsCurrent(entry, undefined, database));
+}
 
 async function readReleaseArtifacts(installationId: string, releaseId: string) {
   const { getExtensionReleaseArtifacts } = await import("../extensions/extension-lifecycle-service");
@@ -37,29 +70,29 @@ export async function loadReleaseWorkflowEntries(registry: Pick<ExtensionRegistr
   return entries;
 }
 
-export async function workflowReleaseIsCurrent(entry: CachedWorkflow, runtime?: ReleaseRuntimeDependencies): Promise<boolean> {
+export async function workflowReleaseIsCurrent(entry: CachedWorkflow, runtime?: ReleaseRuntimeDependencies, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
   const bound = entry.extensionRelease;
   if (!bound) return false;
   try {
-    const snapshot = await resolveActiveRelease(bound.installationId, runtime ?? getReleaseRuntime());
+    const snapshot = await resolveActiveRelease(bound.installationId, runtime ?? getReleaseRuntime(), database);
     return releaseBinding(snapshot) === bound.binding && snapshot.installation.ownerId === bound.ownerId && snapshot.installation.scope === bound.scope;
   } catch {
     return false;
   }
 }
 
-export async function workflowReleaseCanAccess(entry: CachedWorkflow, principalId: string | null, projectId?: string | null): Promise<boolean> {
+export async function workflowReleaseCanAccess(entry: CachedWorkflow, principalId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
   if (!entry.extensionRelease) return entry.source !== "extension";
-  if (!principalId || !await workflowReleaseIsCurrent(entry)) return false;
+  if (!principalId || !await workflowReleaseIsCurrent(entry, undefined, database)) return false;
   const bound = entry.extensionRelease;
-  const [owner, caller] = await Promise.all([getUserById(bound.ownerId), getUserById(principalId)]);
+  const [owner, caller] = await Promise.all([readWorkflowAuthorityUser(bound.ownerId, database), readWorkflowAuthorityUser(principalId, database)]);
   if (owner?.status !== "active" || caller?.status !== "active" || (caller.id !== owner.id && caller.role !== "admin")) return false;
-  if (bound.scope === "global") return workflowReleaseIsCurrent(entry);
+  if (bound.scope === "global") return workflowReleaseIsCurrent(entry, undefined, database);
   if (!bound.scope.startsWith("project:") || bound.scope.slice(8) !== projectId) return false;
-  if (owner.role !== "admin" && !await getProjectMembership(owner.id, projectId!)) return false;
-  if (caller.role !== "admin" && !await getProjectMembership(caller.id, projectId!)) return false;
-  return workflowReleaseIsCurrent(entry);
+  if (owner.role !== "admin" && !await readWorkflowAuthorityMembership(owner.id, projectId!, database)) return false;
+  if (caller.role !== "admin" && !await readWorkflowAuthorityMembership(caller.id, projectId!, database)) return false;
+  return workflowReleaseIsCurrent(entry, undefined, database);
 }
 
 export async function filterAccessibleWorkflowEntries(entries: readonly CachedWorkflow[], principalId: string | null, projectId?: string | null): Promise<CachedWorkflow[]> {

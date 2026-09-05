@@ -17,7 +17,7 @@
  */
 import { errorJson } from "$lib/server/http-errors";
 import { getCachedWorkflows } from "$lib/server/context";
-import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess } from "$server/runtime/workflow-release-assets";
+import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess, workflowReleaseCanConsentService, workflowDelegationReleaseBinding } from "$server/runtime/workflow-release-assets";
 import {
   authorizeWorkflow,
   callerFromUser,
@@ -199,13 +199,17 @@ export async function resolveDelegationConsentOr(
   ownerKind: DelegationOwnerKind,
   ownerUserId: string | null,
   projectId: string | null = null,
+  consenterId: string | null = null,
 ): Promise<{ entry: CachedWorkflow } | Response> {
-  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), ownerKind === "user" ? ownerUserId : null, projectId);
+  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), ownerKind === "user" ? ownerUserId : consenterId, projectId);
+  const candidate = entries.find(entry => entry.definition.name === workflowName);
+  const binding = ownerKind === "service" && ownerUserId && candidate && await workflowReleaseCanConsentService(candidate, ownerUserId, consenterId, projectId) ? workflowDelegationReleaseBinding(candidate) : null;
   const result = authorizeDelegationConsent(
     entries,
     workflowName,
     ownerKind,
     ownerUserId,
+    binding,
   );
   if (!result.ok) {
     return errorJson(

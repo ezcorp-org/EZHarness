@@ -44,7 +44,7 @@ import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
-import { workflowReleaseCanAccess } from "./workflow-release-assets";
+import { workflowReleaseCanExecute, type WorkflowExecutionAuthority } from "./workflow-release-assets";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
@@ -795,7 +795,7 @@ export class WorkflowExecutor {
       steps: [],
     };
     const entry = executionEntry(workflow);
-    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, userId ?? null, projectId))) {
+    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }))) {
       throw new Error("Workflow release authority is no longer available");
     }
 
@@ -890,7 +890,7 @@ export class WorkflowExecutor {
       return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
     }
 
-    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
+    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId })) {
       return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
     }
     return this.executeFrom({
@@ -903,6 +903,8 @@ export class WorkflowExecutor {
       // A fresh run starts at batch 0 with nothing completed and no
       // `$prev` — the same shape a resume supplies from its cursor.
       cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
+      releaseEntry: entry,
+      releasePrincipal: { ...opts, userId, projectId },
       stepResults: new Map(),
       skippedSteps: new Map(),
       depth: opts?.depth ?? 0,
@@ -965,6 +967,8 @@ export class WorkflowExecutor {
        * able to exploit.
        */
       delegationId?: string | null;
+      runAsKind?: DelegationOwnerKind | null;
+      runAs?: string | null;
     },
     signal?: AbortSignal,
     opts?: ResumeWorkflowOptions,
@@ -1112,7 +1116,7 @@ export class WorkflowExecutor {
     // Drift. Until definitions are versioned this hash is the only guard,
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
-    if (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, row.userId ?? null, row.projectId)) {
+    if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row)) {
       return refuseTransient("not-resumable", "Workflow release authority is no longer available");
     }
     const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
@@ -1138,7 +1142,7 @@ export class WorkflowExecutor {
     }
 
     const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
-    if (!await workflowReleaseCanAccess(entry, row.userId ?? null, row.projectId)) {
+    if (!await workflowReleaseCanExecute(entry, row)) {
       return refuseTransient("not-resumable", "Workflow release authority is no longer available");
     }
     return this.executeFrom({
@@ -1149,6 +1153,8 @@ export class WorkflowExecutor {
       userId,
       signal,
       cursor: row.cursor ?? { batchIndex: 0, completedSteps: [], prevStepName: null },
+      releaseEntry: entry,
+      releasePrincipal: row,
       stepResults: loaded.stepResults,
       // Rehydrated, not recomputed. A step skipped in an EARLIER batch is
       // never re-visited, so without this the resumed half of the run would
@@ -1176,6 +1182,8 @@ export class WorkflowExecutor {
    * `workflow:start`, which would prepend a second card for one job.
    */
   private async executeFrom(ctx: {
+    releaseEntry: CachedWorkflow;
+    releasePrincipal: WorkflowExecutionAuthority;
     workflow: WorkflowDefinition;
     input: Record<string, unknown>;
     workflowRun: WorkflowRun;
@@ -2862,6 +2870,8 @@ export function resumeArgsFromRow(row: {
   parentRunId?: string | null;
   claimedBy?: string | null;
   delegationId?: string | null;
+  runAsKind?: DelegationOwnerKind | null;
+  runAs?: string | null;
 }): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
   return {
     id: row.id,
@@ -2888,6 +2898,8 @@ export function resumeArgsFromRow(row: {
     // exists so that is one line in one place rather than a thing each
     // resume caller has to remember.
     delegationId: row.delegationId,
+    runAsKind: row.runAsKind,
+    runAs: row.runAs,
   };
 }
 
@@ -2956,7 +2968,7 @@ export async function resumeClaimedRun(
   }
 
   if (!captured || captured.definition !== workflow ||
-      !await workflowReleaseCanAccess(captured, row.userId, row.projectId)) {
+      !await workflowReleaseCanExecute(captured, row)) {
     await releaseWorkflowRunClaim(runId, claimedBy);
     return {
       id: runId,
