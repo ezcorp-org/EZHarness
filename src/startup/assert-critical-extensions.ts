@@ -1,6 +1,7 @@
 import { getCriticalBundledExtensions } from "../extensions/bundled";
 import { getExtensionByName } from "../db/queries/extensions";
 import { logger } from "../logger";
+import { consequenceFor } from "../extensions/critical-consequence";
 
 const log = logger.child("startup/assert-critical-extensions");
 
@@ -24,7 +25,8 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
         result.violations.push(entry.name);
         result.unremediated.push(entry.name);
       }
-      log.warn("Critical extension awaits a verified, human-approved release", { name: entry.name });
+      const reason = extension?.disabledByUser ? "disabled by the user" : "awaits a verified, human-approved release";
+      log.warn(`Critical extension ${entry.name} ${reason}: ${consequenceFor(entry.name)}`, { name: entry.name });
     } catch (error) {
       result.violations.push(entry.name);
       result.unremediated.push(entry.name);

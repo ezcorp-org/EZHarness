@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 
 export interface FirstPartyExtensionSource {
   name: string;
@@ -49,25 +49,28 @@ export async function snapshotFirstPartyExtension(projectRoot: string, sourceNam
 
 export async function snapshotExtensionSource(projectRoot: string, source: FirstPartyExtensionSource): Promise<SourceSnapshot> {
   const root = await realpath(projectRoot);
-  const sourceRoot = await realpath(join(root, source.directory));
+  const sourceRoot = resolve(root, source.directory);
   if (!sourceRoot.startsWith(root + sep)) throw new Error("Extension source escaped project root");
   const files: Record<string, string> = Object.create(null);
   let bytes = 0;
   const decoder = new TextDecoder("utf-8", { fatal: true });
+  let directories = 0;
 
-  async function collect(directory: string): Promise<void> {
-    for (const entry of (await readdir(directory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+  async function collect(directory: Awaited<ReturnType<typeof open>>, prefix = "", depth = 0): Promise<void> {
+    if (depth > 128 || ++directories > MAX_FILES) throw new Error("Extension source directory limit exceeded");
+    const anchoredDirectory = `/proc/self/fd/${directory.fd}`;
+    for (const entry of (await readdir(anchoredDirectory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
       if (EXCLUDED_DIRECTORIES.has(entry.name) || entry.name === ".env" || entry.name.startsWith(".env.")) continue;
-      const path = join(directory, entry.name);
-      const filePath = relative(sourceRoot, path).split(sep).join("/");
+      const path = join(anchoredDirectory, entry.name);
+      const filePath = prefix + entry.name;
       if (entry.isSymbolicLink()) throw new Error(`Source links are not permitted: ${filePath}`);
       if (entry.isDirectory()) {
-        if (!(await realpath(path)).startsWith(sourceRoot + sep)) throw new Error(`Source directory escaped: ${filePath}`);
-        await collect(path);
+        const child = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+        try { await collect(child, `${filePath}/`, depth + 1); } finally { await child.close(); }
         continue;
       }
       if (!entry.isFile()) throw new Error(`Source must contain regular files only: ${filePath}`);
-      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       try {
         const stat = await handle.stat();
         if (!stat.isFile() || stat.size > MAX_FILE_BYTES) throw new Error(`Invalid source file or file limit exceeded: ${filePath}`);
@@ -91,7 +94,15 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
     }
   }
 
-  await collect(sourceRoot);
+  let sourceDirectory = await open(sep, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    for (const component of sourceRoot.split(sep).filter(Boolean)) {
+      const child = await open(`/proc/self/fd/${sourceDirectory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      await sourceDirectory.close();
+      sourceDirectory = child;
+    }
+    await collect(sourceDirectory);
+  } finally { await sourceDirectory.close(); }
   if (!files[source.entrypoint]) throw new Error(`Missing v4 entrypoint: ${source.directory}/${source.entrypoint}`);
   return { source, files, bytes };
 }

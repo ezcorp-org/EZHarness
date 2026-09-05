@@ -21,6 +21,7 @@ interface Row {
   id: string;
   name: string;
   enabled: boolean;
+  source: string;
   disabledByUser?: boolean;
 }
 const auditEntries: Array<{ action: string; target?: string }> = [];
@@ -74,7 +75,7 @@ const CRITICAL = getCriticalBundledExtensions().map((c) => c.name);
 
 function seedAll(enabled: boolean): void {
   for (const name of CRITICAL) {
-    rows.set(name, { id: `id-${name}`, name, enabled });
+    rows.set(name, { id: `id-${name}`, name, enabled, source: "release-v4" });
   }
 }
 
@@ -95,7 +96,7 @@ describe("assertCriticalExtensions", () => {
     expect(r.checked.sort()).toEqual([...CRITICAL].sort());
   }, 20_000);
 
-  test("disabled critical + within-ceiling perms ⇒ one-time re-enabled + audit", async () => {
+  test("disabled critical stays disabled pending human approval even within a legacy ceiling", async () => {
     seedAll(true);
     // Disable ask-user (its real on-disk perms are within ceiling).
     rows.get("ask-user")!.enabled = false;
@@ -103,20 +104,21 @@ describe("assertCriticalExtensions", () => {
     const r = await assertCriticalExtensions();
 
     expect(r.violations).toContain("ask-user");
-    expect(r.remediated).toContain("ask-user");
-    expect(rows.get("ask-user")!.enabled).toBe(true);
+    expect(r.remediated).toEqual([]);
+    expect(r.unremediated).toContain("ask-user");
+    expect(rows.get("ask-user")!.enabled).toBe(false);
     expect(
       updateCalls.some(
         (c) => c.id === "id-ask-user" && c.patch.enabled === true,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       auditEntries.some(
         (a) =>
           a.action === "ext:bundled:critical-auto-reapproved" &&
           a.target === "id-ask-user",
       ),
-    ).toBe(true);
+    ).toBe(false);
   }, 20_000);
 
   test("missing critical extension ⇒ violation + unremediated, no crash", async () => {
@@ -244,8 +246,8 @@ describe("assertCriticalExtensions — user opt-out", () => {
     const r = await assertCriticalExtensions();
 
     expect(rows.get("ask-user")!.enabled).toBe(false);
-    expect(rows.get("task-tracking")!.enabled).toBe(true);
+    expect(rows.get("task-tracking")!.enabled).toBe(false);
     expect(r.userDisabled).toEqual(["ask-user"]);
-    expect(r.remediated).toContain("task-tracking");
+    expect(r.unremediated).toContain("task-tracking");
   }, 20_000);
 });
