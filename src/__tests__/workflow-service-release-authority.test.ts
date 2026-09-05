@@ -144,8 +144,10 @@ test("persisted child resumes after registry restart only while its exact parent
   _resetWorkflowRuntimeForTests();
   expect(await workflowReleaseCanExecute(child, childAuthority)).toBe(false);
   register();
+  const { claimWorkflowRun } = await import("../db/queries/workflow-runs");
+  expect(await claimWorkflowRun({ workflowRunId: "child", claimedBy: "service-resume", now: new Date() })).toBe(true);
   const row = await getWorkflowRunRow("child");
-  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child });
+  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child, resumedBy: "service-resume" });
   expect(resumed.result?.error).toBeUndefined();
   expect(resumed.status).toBe("success");
   expect((await getWorkflowRunRow("child"))?.userId).toBeNull();
@@ -181,8 +183,10 @@ test("a resumed YAML child restores its durable parent guard before the next eff
   await db.insert(workflowRuns).values({ id: "child", workflowName: child.definition.name, status: "suspended", startedAt: new Date(), input: {}, definitionHash: workflowExecutionHash(child.definition), parentRunId: "parent", userId: null, delegationId: childAuthority.delegationId, runAsKind: "service", runAs: childAuthority.runAs });
   const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
   const { resumeArgsFromRow } = await import("../runtime/workflow-executor");
+  const { claimWorkflowRun } = await import("../db/queries/workflow-runs");
+  expect(await claimWorkflowRun({ workflowRunId: "child", claimedBy: "service-resume", now: new Date() })).toBe(true);
   const row = await getWorkflowRunRow("child");
-  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child });
+  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child, resumedBy: "service-resume" });
   expect(resumed.status).toBe("error");
   expect(effects).toEqual(["first"]);
   expect((await getWorkflowRunRow("child"))?.status).toBe("error");
