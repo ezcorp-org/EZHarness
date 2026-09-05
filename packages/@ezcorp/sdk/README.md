@@ -5,81 +5,75 @@ shared manifest types, a `defineExtension` helper, and the runtime helpers used
 by published extensions (fs, lock, rpc, channel, plus the Phase 2 wrappers for
 http, invoke, panel, lifecycle, and storage).
 
-## Install
+## Version 4 authoring
 
-```sh
-bun add @ezcorp/sdk
-```
-
-Bun is the only supported runtime. The package ships `"type": "module"` and a
-`"bun"` export condition so in-repo development resolves source directly; npm
-consumers import from the compiled `dist/` output.
-
-## Quick start
-
-Create `index.ts` in your extension directory:
+Generate a complete tool, skill, agent, or combined extension:
 
 ```ts
-#!/usr/bin/env bun
-import { defineExtension } from "@ezcorp/sdk";
-import {
-  createToolDispatcher,
-  getChannel,
-  toolResult,
-  type ToolHandler,
-} from "@ezcorp/sdk/runtime";
+import { scaffoldExtension } from "@ezcorp/sdk";
 
-const greet: ToolHandler = async ({ name }) =>
-  toolResult(`Hello, ${name ?? "world"}.`);
-
-getChannel().start();
-createToolDispatcher({ greet });
-
-export default defineExtension({
-  schemaVersion: 2,
-  name: "hello",
-  version: "0.1.0",
-  description: "Minimal extension showing tool dispatch.",
-  author: { name: "Your Name" },
-  tools: [
-    {
-      name: "greet",
-      description: "Greet someone by name.",
-      inputSchema: {
-        type: "object",
-        properties: { name: { type: "string" } },
-      },
-    },
-  ],
+const { files } = scaffoldExtension({
+  name: "my-extension",
+  type: "tool",
+  description: "My extension",
 });
 ```
 
-Run the extension host with your extension registered. Every request routed to
-`greet` will land in the dispatcher and reply via `toolResult` / `toolError`.
+Write the returned files into a new directory. Every template includes a data-only
+`ezcorp.config.ts`, an `extension.ts` SDK transport entrypoint, and executable
+`extension.test.ts` tests. Tools declare input and output schemas and a smoke test.
+Skills and agents also provide isolated metadata discovery.
+
+For the same small echo workspace used by the harness authoring screen, use
+`scaffoldWorkspace({ name: "my-extension", description: "My extension" })`
+from `@ezcorp/sdk/scaffold`. It returns the same `{ files }` shape, with
+`extension.ts`, `src/echo.ts`, `src/echo.test.ts`, and `README.md`.
+The echo tool accepts `{ text: string }` and returns `{ text: string }`.
+Run `ezcorp ext verify ./my-extension` to build and test either scaffold in
+the configured isolated runner. This does not approve or activate a release.
+
+The generated package has an exact SDK peer dependency for local editing. The
+harness supplies its trusted SDK inside the build runner; do not add SDK or
+contract packages to runtime dependencies. Use the matching SDK version locally
+and run `bun test`.
+
+Import the directory through **Extensions → Import Source**. The runner compiles,
+type-checks, tests, and discovers the candidate in isolation. Review the results
+and exact permissions, then obtain human approval before activation. A successful
+local test does not approve a release.
+
+Version 2/3 host-loaded configuration and manual stdin transports are not supported
+by the active lifecycle. The legacy root `defineExtension` metadata helper is not
+the version 4 runtime API: new entrypoints use `defineExtension` and `serve` from
+`@ezcorp/sdk/v4`, as shown in the generated source.
 
 ## Exports map
 
-The package exposes four entry points:
+Main public entry points:
 
 | Specifier | Purpose |
 |---|---|
+| `@ezcorp/sdk/v4` | Validated definitions, `serve`, invocation context/cancellation, MCP adapters, and capability-bound network helpers. |
 | `@ezcorp/sdk` | Manifest types (`ExtensionManifestV2`, `ToolDefinition`, `SkillDefinition`, …) and the `defineExtension` helper. |
 | `@ezcorp/sdk/runtime` | Runtime helpers that speak the host protocol: fs (`atomicRead`, `atomicWrite`, `loadJSON`, `saveJSON`, `findProjectRoot`, `getExtensionDataDir`), lock (`withLock`, `createMutex`), rpc (`createToolDispatcher`, `toolResult`, `toolError`), channel (`getChannel`, `JsonRpcError`), plus Phase 2 wrappers `fetchPermitted`, `invoke`, `PanelBuilder`, `registerLifecycleHook`, and `Storage`. |
 | `@ezcorp/sdk/entities` | Declarative-entity toolkit: the `EntityDeclaration` type, slug helpers (`isValidSlug`, `assertValidSlug`), record validation (`validateRecord`, `assertRecord`), KV-backed storage (`readEntityRecord`, `writeEntityRecord`, `listEntityRecords`), and tool builders (`buildEntityToolDefinitions`, `buildEntityToolHandlers`). |
-| `@ezcorp/sdk/test` | Reserved for a test-harness barrel. Empty today; populated in a follow-up release — import from `@ezcorp/sdk/runtime` for now. |
+| `@ezcorp/sdk/test` | Filesystem test harness, runtime reset helpers, mock restoration, and isolated entrypoint registration assertions. Test helpers do not approve releases. |
+| `@ezcorp/sdk/scaffold` | Pure source generators: `scaffoldExtension` for contribution presets and `scaffoldWorkspace` for the host's echo workspace. |
 
 ## Persistent extension data
 
-Extensions store user-visible state under
-`<projectRoot>/.ezcorp/extension-data/<extension-name>/`. Use
-`getExtensionDataDir()` from `@ezcorp/sdk/runtime` to resolve that path
-portably. See [docs/extensions/data-storage.md](../../../docs/extensions/data-storage.md).
+Version 4 extensions use host-brokered virtual paths: `/data` for their own
+persistent data and `/project` for explicitly granted project files. Use
+`getExtensionDataDir()` and the SDK filesystem helpers; do not open host paths
+or write the immutable release directory. Loop artifacts live under
+`/data/loops/<loop-id>`. Each request is checked against the active invocation,
+release grants, and project binding. See [version 4 imports](../../../docs/extensions/v4-imports.md).
 
 ## Documentation
 
 - [Getting started](../../../docs/extensions/getting-started.md) — walkthrough from zero to a working extension.
 - [API reference](../../../docs/extensions/api-reference.md) — every exported symbol with type signatures.
-- [Manifest schema](../../../docs/extensions/manifest-schema.md) — the v2 manifest format and validation rules.
+- [Version 4 lifecycle plan](../../../docs/extension-system-v4-plan.md) — isolated builds, immutable releases, and approval rules.
 - [Data storage convention](../../../docs/extensions/data-storage.md) — where and how extensions persist state.
 
 ## License

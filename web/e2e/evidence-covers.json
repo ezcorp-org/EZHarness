@@ -1,4 +1,36 @@
 {
+  "web/e2e/real-auth/workflow-service-release-flow.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/real-auth/extension-browser-scanner.spec.ts": [
+    "web/src/lib/components/extensions/ExtensionBrowser.svelte",
+    "web/src/routes/(app)/extensions/[id]/preview/**",
+    "docs/extensions/examples/graded-card-scanner/**"
+  ],
+  "web/e2e/real-auth/extension-source-import.spec.ts": [
+    "web/src/routes/(app)/extensions/import-source/**",
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/real-auth/extension-release-gate.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/ChatThread.svelte"
+  ],
+  "web/e2e/real-auth/extension-project-authority.spec.ts": [
+    "web/src/routes/(app)/extensions/author/**",
+    "web/src/routes/(app)/extensions/project-proposals/**"
+  ],
+  "web/e2e/real-auth/extension-author-flow.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/extensions/UninstallDialog.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/hub.spec.ts": [
+    "web/src/lib/components/hub/HubPageView.svelte"
+  ],
+  "web/e2e/real-auth/extension-binary-assets.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/routes/api/extensions/control/+server.ts"
+  ],
   "web/e2e/admin-routing-cost.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ],

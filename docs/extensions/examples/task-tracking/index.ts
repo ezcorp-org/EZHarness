@@ -3,8 +3,8 @@
 //
 // Converted from the built-in tool formerly at
 // src/runtime/tools/task-tracking.ts during Phase 3. Storage is
-// conversation-scoped and written via the SDK's `Storage("conversation")`
-// helper on every mutation — no process-local cache layered on top. The
+// conversation-scoped. TaskEvents commits each snapshot and event batch
+// together with a host revision check. Storage reads have no value cache. The
 // host forces `_meta.conversationId` through every reverse RPC so the
 // extension never has to plumb the conversation id itself.
 //
@@ -36,6 +36,7 @@ import {
   type SpawnAssignmentHandle,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
+import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import {
   detectCycle,
   isBlocked,
@@ -111,7 +112,7 @@ interface StorageLike {
 }
 
 interface TaskEventsLike {
-  emitSnapshot(tasks: TrackedTask[], activeTaskId?: string): Promise<void>;
+  emitSnapshot(tasks: TrackedTask[], activeTaskId?: string, options?: { assignments?: { taskId: string; assignment: TaskAssignment }[]; expectedRevision?: string }): Promise<void>;
   emitAssignmentUpdate(taskId: string, assignment: TaskAssignment): Promise<void>;
 }
 
@@ -171,28 +172,45 @@ function emptySnapshot(): PersistedSnapshot {
   return { tasks: [], schemaVersion: 1 };
 }
 
+const snapshotRevisions = new WeakMap<PersistedSnapshot, string>();
+
 async function loadSnapshot(): Promise<PersistedSnapshot> {
   const row = await storage.get<PersistedSnapshot | { tasks: TrackedTask[]; activeTaskId?: string }>(STORAGE_KEY);
-  if (!row.exists || !row.value) return emptySnapshot();
+  if (!row.exists || !row.value) {
+    const snapshot = emptySnapshot();
+    snapshotRevisions.set(snapshot, await sha256(canonicalJson(null)));
+    return snapshot;
+  }
   const v = row.value as PersistedSnapshot & { tasks?: TrackedTask[]; activeTaskId?: string };
   const result: PersistedSnapshot = {
     tasks: Array.isArray(v.tasks) ? v.tasks : [],
     schemaVersion: 1,
   };
   if (v.activeTaskId !== undefined) result.activeTaskId = v.activeTaskId;
+  snapshotRevisions.set(result, await sha256(canonicalJson(row.value)));
   return result;
 }
 
-async function saveSnapshot(snap: PersistedSnapshot): Promise<void> {
-  await storage.set<PersistedSnapshot>(STORAGE_KEY, {
+async function saveSnapshot(snap: PersistedSnapshot, assignments?: { taskId: string; assignment: TaskAssignment }[]): Promise<void> {
+  const expectedRevision = snapshotRevisions.get(snap);
+  if (!expectedRevision) throw new Error("Task snapshot must be read before mutation");
+  const value: PersistedSnapshot = JSON.parse(JSON.stringify({
     tasks: snap.tasks,
     ...(snap.activeTaskId !== undefined ? { activeTaskId: snap.activeTaskId } : {}),
     schemaVersion: 1,
-  });
+  }));
+  await taskEvents.emitSnapshot(value.tasks, value.activeTaskId, { expectedRevision, ...(assignments ? { assignments: JSON.parse(JSON.stringify(assignments)) } : {}) });
+  snapshotRevisions.set(snap, await sha256(canonicalJson(value)));
 }
 
-async function emitState(snap: PersistedSnapshot): Promise<void> {
-  await taskEvents.emitSnapshot(snap.tasks, snap.activeTaskId);
+async function refreshHostAssignment(snap: PersistedSnapshot, taskId: string, assignmentId: string, runId: string): Promise<boolean> {
+  const latest = await loadSnapshot();
+  const task = latest.tasks.find(candidate => candidate.id === taskId);
+  const assignment = task?.assignments.find(candidate => candidate.id === assignmentId) ?? task?.subtasks.flatMap(subtask => subtask.assignments ?? []).find(candidate => candidate.id === assignmentId);
+  if (assignment?.agentRunId !== runId) return false;
+  Object.assign(snap, latest);
+  snapshotRevisions.set(snap, snapshotRevisions.get(latest)!);
+  return true;
 }
 
 function genId(): string {
@@ -336,9 +354,7 @@ async function recordAssignmentFailure(
     task.failureReason = errorMessage;
     if (snap.activeTaskId === task.id) snap.activeTaskId = undefined;
   }
-  await saveSnapshot(snap);
-  await emitState(snap);
-  await taskEvents.emitAssignmentUpdate(taskId, assignment);
+  await saveSnapshot(snap, [{ taskId: taskId, assignment }]);
 }
 
 /** Short human-readable sentence describing a spawn outcome for the LLM. */
@@ -408,9 +424,7 @@ async function runSpawnForAssignment(
     assignment.startedAt = new Date().toISOString();
     assignment.subConversationId = outcome.handle.subConversationId;
     assignment.agentRunId = outcome.handle.agentRunId;
-    await saveSnapshot(snap);
-    await emitState(snap);
-    await taskEvents.emitAssignmentUpdate(task.id, assignment);
+    if (!await refreshHostAssignment(snap, task.id, assignment.id, outcome.handle.agentRunId)) await saveSnapshot(snap, [{ taskId: task.id, assignment }]);
     return outcome;
   }
   if (outcome.status === "invalid" || outcome.status === "dispatch-failed" || outcome.status === "unknown-error") {
@@ -579,7 +593,6 @@ const planHandler: ToolHandler = async (args) => {
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   // Spawn every `assigned` resolved assignment whose task is unblocked.
   // Blocked tasks get a deferred note — commit-4's task:assignment_update
@@ -733,7 +746,6 @@ const addHandler: ToolHandler = async (args) => {
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   // Spawn if we have an assignment + auto-start was requested.
   let spawnMsg = "";
@@ -803,7 +815,6 @@ const subtaskToggleHandler: ToolHandler = async (args) => {
 
   subtask.completed = completed;
   await saveSnapshot(snap);
-  await emitState(snap);
   return toolResult(`${completed ? "Checked" : "Unchecked"}: ${subtask.title}`);
 };
 
@@ -848,7 +859,6 @@ const startHandler: ToolHandler = async (args) => {
   task.startedAt = new Date().toISOString();
   snap.activeTaskId = task.id;
   await saveSnapshot(snap);
-  await emitState(snap);
   return toolResult(`Started task: ${task.title}`);
 };
 
@@ -881,7 +891,6 @@ const completeHandler: ToolHandler = async (args) => {
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   const remaining = snap.tasks.filter(
     (t) => t.status === "pending" || t.status === "active",
@@ -917,7 +926,6 @@ const failHandler: ToolHandler = async (args) => {
   task.failureReason = reason;
   if (snap.activeTaskId === task.id) snap.activeTaskId = undefined;
   await saveSnapshot(snap);
-  await emitState(snap);
   return toolResult(`Failed task: ${task.title}\nReason: ${reason}`);
 };
 
@@ -962,7 +970,6 @@ const updateHandler: ToolHandler = async (args) => {
   if (status !== undefined) task.status = status;
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   const warningMsg = depWarnings.length > 0 ? ` Warnings: ${depWarnings.join("; ")}.` : "";
   return toolResult(`Updated task: ${task.title}.${warningMsg}`);
@@ -1000,7 +1007,6 @@ const setDepsHandler: ToolHandler = async (args) => {
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   const warningMsg = warnings.length > 0 ? ` Warnings: ${warnings.join("; ")}.` : "";
   const depTitles = resolved.map((id) => snap.tasks.find((t) => t.id === id)?.title ?? id);
@@ -1029,7 +1035,6 @@ const unassignHandler: ToolHandler = async (args) => {
     }
     task.assignments.splice(idx, 1);
     await saveSnapshot(snap);
-    await emitState(snap);
     return toolResult(`Unassigned @${target.agentName} from task: ${task.title}`);
   }
 
@@ -1045,7 +1050,6 @@ const unassignHandler: ToolHandler = async (args) => {
       }
       subtask.assignments.splice(idx, 1);
       await saveSnapshot(snap);
-      await emitState(snap);
       return toolResult(`Unassigned @${target.agentName} from subtask: ${subtask.title}`);
     }
   }
@@ -1100,7 +1104,6 @@ const assignHandler: ToolHandler = async (args) => {
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   const wantedAutoStart = autoStart !== false;
   let spawnMsg: string;
@@ -1146,7 +1149,7 @@ const stopHandler: ToolHandler = async (args) => {
     return toolError("task_stop requires 'taskId' and 'assignmentId'");
   }
   const snap = await loadSnapshot();
-  const task = snap.tasks.find((t) => t.id === taskId);
+  let task = snap.tasks.find((t) => t.id === taskId);
   if (!task) return toolError(notFoundError(snap, taskId));
 
   // Find assignment at task level or subtask level.
@@ -1166,6 +1169,7 @@ const stopHandler: ToolHandler = async (args) => {
     return toolError(`Assignment has no agentRunId — cannot cancel an unmaterialized run`);
   }
 
+  const cancelledRunId = assignment.agentRunId;
   // Ask the host to cancel. Ownership check happens host-side.
   try {
     const result = await cancel(assignment.agentRunId);
@@ -1187,6 +1191,13 @@ const stopHandler: ToolHandler = async (args) => {
     return toolError(`Cancel failed: ${msg}`);
   }
 
+  const latest = await loadSnapshot();
+  Object.assign(snap, latest);
+  snapshotRevisions.set(snap, snapshotRevisions.get(latest)!);
+  task = snap.tasks.find(candidate => candidate.id === taskId);
+  if (!task) return toolError("Task changed during cancellation; reload before retrying.");
+  assignment = task.assignments.find(candidate => candidate.id === assignmentId) ?? task.subtasks.flatMap(subtask => subtask.assignments ?? []).find(candidate => candidate.id === assignmentId);
+  if (!assignment || (assignment.agentRunId && assignment.agentRunId !== cancelledRunId)) return toolError("Assignment changed during cancellation; reload before retrying.");
   // Reset state. Preserve subConversationId for resume.
   assignment.status = "assigned";
   delete assignment.agentRunId;
@@ -1200,9 +1211,7 @@ const stopHandler: ToolHandler = async (args) => {
     if (snap.activeTaskId === task.id) snap.activeTaskId = undefined;
   }
 
-  await saveSnapshot(snap);
-  await emitState(snap);
-  await taskEvents.emitAssignmentUpdate(taskId, assignment);
+  await saveSnapshot(snap, [{ taskId: taskId, assignment }]);
 
   const reasonLine = reason ? `\nReason: ${reason}` : "";
   return toolResult(
@@ -1227,7 +1236,7 @@ const resumeHandler: ToolHandler = async (args) => {
     return toolError("task_resume requires 'taskId' and 'assignmentId'");
   }
   const snap = await loadSnapshot();
-  const task = snap.tasks.find((t) => t.id === taskId);
+  let task = snap.tasks.find((t) => t.id === taskId);
   if (!task) return toolError(notFoundError(snap, taskId));
 
   let assignment: TaskAssignment | undefined = task.assignments.find((a) => a.id === assignmentId);
@@ -1282,15 +1291,19 @@ const resumeHandler: ToolHandler = async (args) => {
   // subConversationId is preserved; the host confirms reuse via the handle.
   assignment.subConversationId = outcome.handle.subConversationId;
 
-  if (task.status === "pending") {
+  const refreshed = await refreshHostAssignment(snap, taskId, assignmentId, outcome.handle.agentRunId);
+  if (refreshed) {
+    task = snap.tasks.find(candidate => candidate.id === taskId)!;
+    assignment = task.assignments.find(candidate => candidate.id === assignmentId) ?? task.subtasks.flatMap(subtask => subtask.assignments ?? []).find(candidate => candidate.id === assignmentId)!;
+  }
+  const activate = task.status === "pending";
+  if (activate) {
     task.status = "active";
     if (!task.startedAt) task.startedAt = new Date().toISOString();
     snap.activeTaskId = task.id;
   }
 
-  await saveSnapshot(snap);
-  await emitState(snap);
-  await taskEvents.emitAssignmentUpdate(taskId, assignment);
+  if (!refreshed || activate) await saveSnapshot(snap, refreshed ? undefined : [{ taskId, assignment }]);
 
   return toolResult(
     `Resumed assignment "${assignment.agentName}" on task "${task.title}". Sub-agent sees full prior context (subConversationId ${assignment.subConversationId}).`,
@@ -1455,7 +1468,7 @@ async function applyAssignmentUpdate(
     console.warn(
       `[task-tracking] assignment update for unknown taskId: ${payload.taskId} (assignmentId=${incoming.id}, status=${incoming.status}); known tasks=${snap.tasks.length}`,
     );
-    await emitState(snap);
+    await saveSnapshot(snap);
     return;
   }
   const existing = task.assignments.find((a) => a.id === incoming.id);
@@ -1468,7 +1481,6 @@ async function applyAssignmentUpdate(
         if (sa.status === "completed" || sa.status === "failed") return;
         Object.assign(sa, incoming);
         await saveSnapshot(snap);
-        await emitState(snap);
         return;
       }
     }
@@ -1477,14 +1489,14 @@ async function applyAssignmentUpdate(
     console.warn(
       `[task-tracking] assignment update for unknown assignmentId: ${incoming.id} on task ${task.id} (status=${incoming.status})`,
     );
-    await emitState(snap);
+    await saveSnapshot(snap);
     return;
   }
   // Idempotency guard: skip self-echo and already-terminal transitions.
   // After this early return `existing.status` is narrowed to the
   // non-terminal subset, so any incoming terminal status is a real
   // transition (no extra prev-status check needed below).
-  if (existing.status === "completed" || existing.status === "failed") return;
+  if ((existing.status === "completed" || existing.status === "failed") && (existing.status !== incoming.status || task.status === "completed" || task.status === "failed")) return;
   Object.assign(existing, incoming);
 
   if (incoming.status === "completed") {
@@ -1499,7 +1511,6 @@ async function applyAssignmentUpdate(
   }
 
   await saveSnapshot(snap);
-  await emitState(snap);
 
   // After a completion we may have newly-unblocked dependents to spawn.
   if (incoming.status === "completed") {
@@ -1512,7 +1523,7 @@ async function applyAssignmentUpdate(
 export const _internals = {
   loadSnapshot,
   saveSnapshot,
-  emitState,
+  emitState: saveSnapshot,
   getNextPendingTask,
   notFoundError,
   STORAGE_KEY,
@@ -1533,9 +1544,11 @@ export { unsatisfiedDeps, isBlocked, detectCycle };
 
 // Production wiring — gated on `import.meta.main` so test imports don't
 // open stdin. See scratchpad/index.ts for the canonical pattern.
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   registerEventHandler("task:assignment_update", handleAssignmentUpdate);
   ch.start();
 }
+
+if (import.meta.main) start();

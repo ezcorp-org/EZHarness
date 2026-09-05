@@ -79,3 +79,15 @@ TESTENV
 **/*.test.ts
 **/*.spec.ts
 **/__tests__
+!extensions/**/*.test.ts
+!extensions/**/*.spec.ts
+!extensions/**/__tests__
+!extensions/**/__tests__/**
+!docs/extensions/examples/**/*.test.ts
+!docs/extensions/examples/**/*.spec.ts
+!docs/extensions/examples/**/__tests__
+!docs/extensions/examples/**/__tests__/**
+!packages/@ezcorp/ai-kit/**/*.test.ts
+!packages/@ezcorp/ai-kit/**/*.spec.ts
+!packages/@ezcorp/ai-kit/**/__tests__
+!packages/@ezcorp/ai-kit/**/__tests__/**

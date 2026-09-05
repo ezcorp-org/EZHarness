@@ -14,6 +14,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { captureEvidence } from "./fixtures/evidence";
 
 const proj = makeProject({ id: "proj-1" });
 
@@ -334,10 +335,10 @@ test.describe("Hub", () => {
 		expect(renders).toBe(2);
 	});
 
-	test("action failure (429 {error}) surfaces a toast; the tree stays unchanged", async ({
+	test("action failure (429 {error}) surfaces a toast without replay; the tree stays unchanged @evidence", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		await mockApi({ projects: [proj] });
 		// Confirm-free button so the POST dispatches straight from the click.
 		const tree = {
@@ -348,17 +349,19 @@ test.describe("Hub", () => {
 			],
 		};
 		let renders = 0;
+		let actionPosts = 0;
 		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: listing }));
 		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}`, (route) => {
 			renders++;
 			return route.fulfill({ json: { page: tree, renderedAt: Date.now() } });
 		});
-		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/run-now`, (route) =>
-			route.fulfill({
+		await page.route(`**/api/hub/pages/${encodeURIComponent(CORE_ID)}/actions/run-now`, (route) => {
+			actionPosts++;
+			return route.fulfill({
 				status: 429,
 				json: { error: "Briefing was already run recently — try again later", retryAfter: 290 },
-			}),
-		);
+			});
+		});
 
 		await page.goto(`/hub/${encodeURIComponent(CORE_ID)}`);
 		await page.getByTestId("hub-node-button").click();
@@ -370,6 +373,9 @@ test.describe("Hub", () => {
 		// Tree unchanged; a FAILED action must not trigger a re-pull.
 		await expect(page.getByTestId("hub-node-status")).toContainText("Last run delivered");
 		expect(renders).toBe(1);
+		expect(actionPosts).toBe(1);
+		await expect(page.getByTestId("hub-node-button")).toBeEnabled();
+		await captureEvidence(page, testInfo, "hub-action-failure-preserves-page", { fullPage: true });
 	});
 
 	test("stale:true render shows the refreshing… indicator", async ({ page, mockApi }) => {

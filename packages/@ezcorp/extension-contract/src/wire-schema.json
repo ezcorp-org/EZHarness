@@ -1,0 +1,2485 @@
+{
+  "$ref": "#/definitions/WireData",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AgentComponentDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "category": {
+          "type": "string"
+        },
+        "exampleConversations": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "messages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "messages"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "inputSchema": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "maxTokens": {
+          "type": "number"
+        },
+        "modelRequirements": {
+          "additionalProperties": false,
+          "properties": {
+            "contextWindow": {
+              "type": "number"
+            },
+            "tier": {
+              "enum": [
+                "fast",
+                "balanced",
+                "powerful",
+                "reasoning"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tier"
+          ],
+          "type": "object"
+        },
+        "outputFormat": {
+          "enum": [
+            "text",
+            "json"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "ApprovalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "approvedBy": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "expectedActiveReleaseId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expectedGeneration": {
+          "type": "number"
+        },
+        "grants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "installationId": {
+          "type": "string"
+        },
+        "principalId": {
+          "type": "string"
+        },
+        "releaseDigest": {
+          "type": "string"
+        },
+        "releaseId": {
+          "type": "string"
+        },
+        "runnerProfile": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "consumed",
+            "revoked"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "installationId",
+        "releaseId",
+        "releaseDigest",
+        "principalId",
+        "scope",
+        "grants",
+        "runnerProfile",
+        "expectedActiveReleaseId",
+        "expectedGeneration",
+        "status",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "BuildEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "discoveryDigest": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 4,
+          "type": "number"
+        },
+        "tests": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "passed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "passed"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "validatorVersion": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "validatorVersion",
+        "tests",
+        "discoveryDigest"
+      ],
+      "type": "object"
+    },
+    "BuildRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "entrypoint": {
+          "type": "string"
+        },
+        "files": {
+          "$ref": "#/definitions/WorkspaceFiles"
+        },
+        "limits": {
+          "$ref": "#/definitions/ResourceLimits"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "sourceDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "sourceDigest",
+        "files",
+        "entrypoint",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "BuildResult": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/definitions/BuildEvidence"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/definitions/ExtensionManifestV4"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "state",
+        "sourceDigest",
+        "imageDigest",
+        "diagnostics",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "CandidateVerificationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "calls": {
+                "type": "number"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "tested",
+                  "denied",
+                  "unexercised"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "capability",
+              "state",
+              "calls"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "catalog": {
+          "const": "verified",
+          "type": "string"
+        },
+        "smoke": {
+          "enum": [
+            "passed",
+            "not_declared"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog",
+        "smoke",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "CapabilityDeclaration": {
+      "additionalProperties": false,
+      "description": "Per-tool capability declaration (Phase 1, manifest schemaVersion 3).\n\nTools opt into specific runtime capabilities here; the host's PDP intersects the declaration with the extension-wide grant at every tool call. v2 manifests auto-promote via `migrateManifestV2ToV3`: each tool inherits the extension-wide ceiling, and the result is flagged `_inheritedFromV2: true` so the audit log can distinguish authored vs inherited declarations.\n\n`custom` accepts namespaced capability names (e.g. `ezcorp:chat:append`) for caps that don't fit the network/fs/shell/env/storage primitives.",
+      "properties": {
+        "custom": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "env": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "filesystem": {
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "items": {
+                "enum": [
+                  "read",
+                  "write"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "paths",
+            "mode"
+          ],
+          "type": "object"
+        },
+        "network": {
+          "additionalProperties": false,
+          "properties": {
+            "hosts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "hosts"
+          ],
+          "type": "object"
+        },
+        "shell": {
+          "type": "boolean"
+        },
+        "storage": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "DependencySpec": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Diagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "stage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "stage",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "EncodedWorkspaceFile": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "encoding": {
+          "const": "base64",
+          "type": "string"
+        },
+        "executable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "encoding",
+        "data",
+        "executable"
+      ],
+      "type": "object"
+    },
+    "EntityDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "cascadeOnUninstall": {
+          "description": "When `true`, records are deleted on uninstall. Default `false` — user data is sacred and an uninstall preserves it for re-install.",
+          "type": "boolean"
+        },
+        "label": {
+          "description": "Singular human label, e.g. \"Post Type\".",
+          "type": "string"
+        },
+        "pluralLabel": {
+          "description": "Plural human label, e.g. \"Post Types\". Drives tool naming.",
+          "type": "string"
+        },
+        "preview": {
+          "description": "Optional template for LLM/UI preview. Tokens of the form `{name}`, `{slug}`, `{some.nested}` interpolate from the record. Unknown tokens render as the literal `{token}` text (v1).",
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/definitions/JsonSchemaObject",
+          "description": "JSON Schema for record bodies. Limited to the subset enumerated in this file; richer schemas are rejected at manifest validation."
+        },
+        "scope": {
+          "$ref": "#/definitions/EntityScope",
+          "description": "Storage scope. Default `\"user\"`."
+        },
+        "seed": {
+          "description": "Records to insert on first install. Re-install is a no-op for any slug already present in the index.",
+          "items": {
+            "$ref": "#/definitions/EntitySeedSpec"
+          },
+          "type": "array"
+        },
+        "type": {
+          "description": "Sub-type slug within the extension's namespace. Must match `^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$` — same rules as record slugs because the type segment is part of the storage key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "pluralLabel",
+        "schema"
+      ],
+      "type": "object"
+    },
+    "EntityScope": {
+      "enum": [
+        "user",
+        "project",
+        "conversation"
+      ],
+      "type": "string"
+    },
+    "EntitySeedSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": {},
+          "description": "The record body. String values containing `{file:./path}` are resolved against the extension's source dir at install time; see `seed.ts` host-side wiring.",
+          "type": "object"
+        },
+        "slug": {
+          "description": "Must match the slug regex; rejected at install time otherwise.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slug",
+        "data"
+      ],
+      "type": "object"
+    },
+    "ExtensionManifestV4": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptedAttachmentMimes": {
+          "description": "MIME types this extension can ingest as user-uploaded attachments.\n\nWhen the extension is wired into a conversation (via `!ext:<name>` or auto-attach), these MIMEs are unioned into the chat composer's accept list and a generic \"extension-handle-only\" delivery strategy is used: the LLM sees a `<file handle=\"ez-attachment://<id>\" />` reference rather than the file body, and the extension's own tools read the bytes on demand by passing the handle (the runtime substitutes it to a `data:` URI before tool dispatch).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "acceptsCallerCaps": {
+          "description": "When `true`, this extension's tools accept caller capabilities via `ezcorp/invoke` and run with `intersect(callerCaps, ownCaps)`. Default `false` — pre-Phase-4 behavior, callee runs with its own caps as-is. Bundled \"deputy\" extensions (e.g. ai-kit) opt in; the install-time UI surfaces the elevated-trust nature.\n\nThe runtime check is `=== true` — v2 manifests that don't carry this field are treated as opted-out.\n\nGranted at install time on the `extensions.grantedPermissions` blob — the runtime consults the GRANT, not the manifest. A manifest declaring `acceptsCallerCaps: true` without user consent is treated as if the flag were absent.",
+          "type": "boolean"
+        },
+        "agent": {
+          "$ref": "#/definitions/AgentComponentDefinition"
+        },
+        "author": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "bootSpawn": {
+          "type": "boolean"
+        },
+        "category": {
+          "type": "string"
+        },
+        "changelog": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "dataSchema": {
+          "additionalProperties": false,
+          "properties": {
+            "migrateMethod": {
+              "type": "string"
+            },
+            "readableVersions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "version",
+            "readableVersions"
+          ],
+          "type": "object"
+        },
+        "dependencies": {
+          "additionalProperties": {
+            "$ref": "#/definitions/DependencySpec"
+          },
+          "type": "object"
+        },
+        "description": {
+          "type": "string"
+        },
+        "entities": {
+          "description": "User-managed entity types declared by the extension. The host auto-generates 5 CRUD tools per declaration (`list_<plural>`, `get_<sing>`, `create_<sing>`, `update_<sing>`, `delete_<sing>`), validates writes against the JSON Schema, and renders an auto-table on the extension detail page. Records live in the reserved storage namespace `__entity:<type>:<slug>` plus an index at `__entity-index:<type>` — extensions may not write those keys directly. See `@ezcorp/sdk/entities` for the `EntityDeclaration` shape.",
+          "items": {
+            "$ref": "#/definitions/EntityDeclaration"
+          },
+          "type": "array"
+        },
+        "entrypoint": {
+          "type": "string"
+        },
+        "escalateChildCaps": {
+          "description": "When `true`, this extension's `ezcorp/spawn-assignment` calls do NOT cap the child conversation by parent capabilities. The child runs with its own agent-config-declared caps (still intersected with the child manifest's declared permissions). Default `false` — child caps are clipped by `intersect(parentGrants, childManifestPerms)`. Only orchestration extensions whose entire purpose is delegation should set this; the install-time UI requires explicit consent.\n\nLike `acceptsCallerCaps`, the runtime consults the GRANT (not the manifest) so a manifest without user consent is treated as opted-out.",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "local",
+            "mcp"
+          ],
+          "type": "string"
+        },
+        "lifecycleHooks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mcpServers": {
+          "items": {
+            "$ref": "#/definitions/McpServerDefinition"
+          },
+          "type": "array"
+        },
+        "messageToolbar": {
+          "description": "Per-turn action icons contributed to `MessageToolbar`. Each item must declare an event that is also present in `permissions.eventSubscriptions` (the same dispatcher allowlist used by canvas-card events). See `MessageToolbarItem`.",
+          "items": {
+            "$ref": "#/definitions/MessageToolbarItem"
+          },
+          "type": "array"
+        },
+        "methods": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "inputSchema": {
+                "$ref": "#/definitions/ValueSchema"
+              },
+              "name": {
+                "type": "string"
+              },
+              "outputSchema": {
+                "$ref": "#/definitions/ValueSchema"
+              }
+            },
+            "required": [
+              "name",
+              "inputSchema",
+              "outputSchema"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "npmDependencies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Third-party npm packages this extension imports at runtime — npm REGISTRY package name → semver RANGE. Distinct from `dependencies` (which are OTHER EZCorp extensions): these are ordinary npm modules resolved from the host app's `node_modules` (or vendored under the extension dir) at spawn time. NOT auto-installed in v1 — only VERIFIED at install/activate/boot/spawn; the packages must already exist in the deployment.",
+          "type": "object"
+        },
+        "packageChecksums": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "packageChecksumsAlgo": {
+          "description": "Algorithm version the `packageChecksums` baseline was recorded with (`\"v2\"` = dotfiles hashed). Absent on pre-versioning installs, which are verified in legacy (no-dotfile) mode.",
+          "type": "string"
+        },
+        "pages": {
+          "description": "Hub pages contributed by this extension (max 3). See `ExtensionPageDeclaration`.",
+          "items": {
+            "$ref": "#/definitions/ExtensionPageDeclaration"
+          },
+          "type": "array"
+        },
+        "panel": {
+          "additionalProperties": false,
+          "properties": {
+            "defaultCollapsed": {
+              "type": "boolean"
+            },
+            "position": {
+              "const": "bottom",
+              "type": "string"
+            },
+            "stateSchema": {
+              "additionalProperties": {},
+              "type": "object"
+            }
+          },
+          "required": [
+            "position"
+          ],
+          "type": "object"
+        },
+        "permissions": {
+          "additionalProperties": false,
+          "properties": {
+            "agentConfig": {
+              "const": "read",
+              "description": "Read-only access to the caller's agent configs via ezcorp/agent-configs.",
+              "type": "string"
+            },
+            "appendMessages": {
+              "additionalProperties": false,
+              "description": "Author turns directly via the `ezcorp/append-message` reverse RPC. Conversation scope is forced by the host (the extension cannot target another conversation). The host always forces the new message's `excluded` flag to `true` regardless of what the extension passes in `excludedDefault`; the field is reserved for a future opt-in tier. Pairs naturally with `messageToolbar` (toolbar click → subprocess gets event → calls append-message).",
+              "properties": {
+                "excludedDefault": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "excludedDefault"
+              ],
+              "type": "object"
+            },
+            "custom": {
+              "additionalProperties": {
+                "$ref": "#/definitions/JsonValue"
+              },
+              "type": "object"
+            },
+            "env": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "eventSubscriptions": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "events": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "includeFullPayload": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "events"
+                  ],
+                  "type": "object"
+                }
+              ],
+              "description": "Subscribe to server→extension bus-event notifications (Phase 2c). Each string names a bus event type from the 13 direct-carrier events — delivery is conversation-scoped to the `conversation_extensions` wiring. Unknown names are filtered at clamp time.\n\nPhase 51.4 added the object form `{events: string[], includeFullPayload?: boolean}`. When `includeFullPayload: true`, the dispatcher does NOT strip the heavy `input`/`output` blobs from `tool:start` / `tool:complete` payloads. Default false."
+            },
+            "filesystem": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hostApi": {
+              "$ref": "#/definitions/HostApiPermission"
+            },
+            "lessons": {
+              "additionalProperties": false,
+              "description": "Read/write access to the lessons corpus via `ctx.lessons`. `maxVisibility` is clamped to user|project (no global). Slug uniqueness composite includes the author extension so two extensions can share a slug for the same user.",
+              "properties": {
+                "access": {
+                  "enum": [
+                    "read",
+                    "write"
+                  ],
+                  "type": "string"
+                },
+                "maxVisibility": {
+                  "enum": [
+                    "user",
+                    "project"
+                  ],
+                  "type": "string"
+                },
+                "maxWritesPerDay": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "access"
+              ],
+              "type": "object"
+            },
+            "lifecycleHooks": {
+              "type": "boolean"
+            },
+            "llm": {
+              "additionalProperties": false,
+              "description": "Brokered LLM access via `ctx.llm.complete()`. The token NEVER crosses the JSON-RPC boundary in either direction — the host resolves credentials and calls the provider directly, returning ONLY the result.",
+              "properties": {
+                "allowedModels": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object"
+                },
+                "maxCallsPerDay": {
+                  "type": "number"
+                },
+                "maxCallsPerHour": {
+                  "type": "number"
+                },
+                "maxCostCentsPerDay": {
+                  "type": "number"
+                },
+                "maxTimeoutMs": {
+                  "type": "number"
+                },
+                "maxTokensPerCall": {
+                  "type": "number"
+                },
+                "maxTokensPerDay": {
+                  "type": "number"
+                },
+                "providers": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "providers"
+              ],
+              "type": "object"
+            },
+            "loopEvents": {
+              "description": "Emit the content-free loop-approval nudges (loops:approval_pending / loops:approval_resolved / loops:auto_disabled) via ezcorp/emit-loop-event (Loops EZ Mode Phase 2). Distinct from taskEvents: loop nudges fire ownerless and may broadcast globally, so they carry their own least-privilege gate. The host stamps the wire loopId with the emitting extension's id so an extension can only emit for its own loops.",
+              "type": "boolean"
+            },
+            "mcpInvoke": {
+              "type": "boolean"
+            },
+            "memory": {
+              "additionalProperties": false,
+              "description": "Read/write access to the user's memory store via `ctx.memory`. Extension-authored memories are stamped with provenance and default to `injectionEligible: false` so they don't auto-inject into LLM system prompts. `selfOnly: true` (the default) keeps reads scoped to memories this extension itself authored.",
+              "properties": {
+                "access": {
+                  "enum": [
+                    "read",
+                    "write"
+                  ],
+                  "type": "string"
+                },
+                "categories": {
+                  "items": {
+                    "enum": [
+                      "preferences",
+                      "biographical",
+                      "technical",
+                      "decisions_goals"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "maxWritesPerDay": {
+                  "type": "number"
+                },
+                "selfOnly": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "access"
+              ],
+              "type": "object"
+            },
+            "network": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "networkTcp": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "rbacScopes": {
+              "description": "Custom RBAC scopes this extension DECLARES (extension-RBAC layer, user→extension axis). Declarations, NOT privileges: each entry names a per-extension scope that (a) appears as a grantable option in the host's grant UI and (b) your extension code can query at runtime via `ctx.rbac.check(name)` (the `Rbac` helper in `@ezcorp/sdk/runtime`, brokered over the `ezcorp/rbac-check` reverse-RPC). A user only HOLDS a scope when an instance admin / manager explicitly grants it — declaring one confers nothing by itself.\n\nRules (host-validated at admit time; a bad declaration rejects the manifest):   - `name` matches `/^[a-z][a-z0-9-]*$/` and is implicitly     namespaced to this extension   - `name` must NOT collide with the built-in core verbs     (`use` / `configure` / `secrets` / `approve-runs` / `manage`     — those are checkable on every extension without declaring)   - names must be unique; `description` is required (it is the     text the grant UI shows the granting admin)   - max 16 entries\n\nAdditive to schemaVersion 2 — no schema bump.",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "description": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "description"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "schedule": {
+              "additionalProperties": false,
+              "description": "Persistent cron schedules via `ctx.schedule`. All crons are declared in the manifest (max 8, min 5-min interval). The daemon enforces `maxRunsPerDay`, `maxRunDurationMs`, and the missed-run policy. `at-most-once` delivery is the default — extensions opt into at-least-once via `maxRetries > 0`.",
+              "properties": {
+                "crons": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "maxRetries": {
+                  "type": "number"
+                },
+                "maxRunDurationMs": {
+                  "type": "number"
+                },
+                "maxRunsPerDay": {
+                  "type": "number"
+                },
+                "missedRunPolicy": {
+                  "enum": [
+                    "skip",
+                    "fire-once",
+                    "fire-all"
+                  ],
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "crons"
+              ],
+              "type": "object"
+            },
+            "search": {
+              "anyOf": [
+                {
+                  "const": "inherit",
+                  "type": "string"
+                },
+                {
+                  "const": false,
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "maxResults": {
+                      "type": "number"
+                    },
+                    "providers": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "const": "inherit",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "quota": {
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "description": "Brokered web search + URL read via `ctx.search` (shared-search Phase 1). The provider chain + SSRF guard run host-side. A bundled extension may declare `\"inherit\"` (full grant, tracks instance defaults), `false` (opt out), or an object of per-field upper bounds the resolver clamps against — the §3.1 three-state shape."
+            },
+            "secretRead": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "shell": {
+              "type": "boolean"
+            },
+            "spawnAgents": {
+              "additionalProperties": false,
+              "description": "Spawn sub-agent runs via ezcorp/spawn-assignment. Requires both fields when declared; credentials inherit from the parent conversation.",
+              "properties": {
+                "maxConcurrent": {
+                  "type": "number"
+                },
+                "maxPerHour": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "maxPerHour"
+              ],
+              "type": "object"
+            },
+            "storage": {
+              "type": "boolean"
+            },
+            "taskEvents": {
+              "description": "Emit task-panel bus events via ezcorp/emit-task-event. The host forces conversationId — extensions cannot target other conversations.",
+              "type": "boolean"
+            },
+            "triggers": {
+              "additionalProperties": false,
+              "description": "Envelope for DYNAMIC cron + webhook triggers created at runtime via `ctx.triggers` (C2). Deliberately a SEPARATE key from `webhooks` above, which is a bare `string[]` of fixed author-chosen slugs — the two coexist, and an extension may declare both.\n\nThe extension never chooses a dynamic slug: it supplies a `key` and the host mints `<webhookPrefix><digest>` from the registry-resolved extension name, so collision and forgery are inexpressible rather than merely denied. `webhookPrefix` is therefore a NAMESPACE CLAIM and is taken from the manifest only — never widened by the submitted grant, which would let a user hand one extension another's namespace.\n\n`maxRunsPerDay` is an extension-wide fire ENVELOPE, not a per-job allowance; the host additionally derives a per-key cap so one busy job cannot starve its siblings.",
+              "properties": {
+                "maxCron": {
+                  "type": "number"
+                },
+                "maxRunsPerDay": {
+                  "type": "number"
+                },
+                "maxWebhooks": {
+                  "type": "number"
+                },
+                "webhookPrefix": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "webhooks": {
+              "description": "Receive inbound HTTP webhook deliveries (Loops EZ Mode Phase 4). Each string is a hook `slug`; the host mints a per-hook secret at install and routes an authenticated `POST /api/hooks/:extensionId/:slug` onto the loop delivery queue only for declared slugs. Webhook bodies are attacker-controllable, so a webhook-triggered loop is permanently `untrusted-input`. Undeclared slugs are dropped at install.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "workflows": {
+              "additionalProperties": false,
+              "description": "Trigger runs of workflows THIS extension ships, via `ctx.workflows` (the `Workflows` helper in `@ezcorp/sdk/runtime`). Ship the definitions as `*.workflow.yaml` files at the root of your extension directory; the host loads them under `<extensionName>:<name>` and lists them alongside its own. Each `names` entry is the BARE name from one of those files — the host applies the namespace prefix itself, so you can never address another extension's (or the host's) workflow. `maxRunsPerHour` is optional here; the host's clamp always supplies one (default 20, ceiling 500) because a run can fan out into agent steps that cost real LLM spend. Undeclared names are dropped at install.\n\n`allowDelegated` (C3) additionally opts you into `ctx.workflows.runFor` — firing a workflow you do NOT ship, as the human who created a delegation for it. It is independent of `names`: an extension that only ever fires user-authored workflows declares `{names: [], allowDelegated: true}`, which is the one shape in which an empty `names` list is accepted. The flag by itself authorizes no job — every delegated fire is bound by a delegation record a human created for one named workflow, which the host re-reads on every call and which is revocable independently of this grant.",
+              "properties": {
+                "allowDelegated": {
+                  "type": "boolean"
+                },
+                "maxRunsPerHour": {
+                  "type": "number"
+                },
+                "names": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "names"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "persistent": {
+          "type": "boolean"
+        },
+        "preprocessors": {
+          "description": "Deterministic attachment preprocessors. Each entry names a declared tool the host runs automatically on matching attachments before the assistant turn — see  {@link  PreprocessorDecl }  for the full contract.",
+          "items": {
+            "$ref": "#/definitions/PreprocessorDecl"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "additionalProperties": false,
+          "properties": {
+            "callTimeoutMs": {
+              "description": "Per-tool-call timeout in ms. Default: 30_000 (30s). Raise for long-running upstream calls — e.g. image generation typically takes 30-120s, well past the default.",
+              "type": "number"
+            },
+            "memory": {
+              "type": "string"
+            },
+            "storage": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "routing": {
+          "additionalProperties": false,
+          "description": "Quality-tier routing (pi-caching/routing integration). Declares the model tier this extension's work needs — a `powerful`-declaring extension wired into a conversation nudges the heuristic tier classifier up so its turns route to a strong model (and vice-versa for `fast`). OPTIONAL: absent = the extension expresses no tier preference and the length/tools heuristic decides. The declaration only takes effect when the conversation has NO established model yet (routing is tier-stable within a thread to protect the prompt cache).",
+          "properties": {
+            "tier": {
+              "enum": [
+                "fast",
+                "balanced",
+                "powerful"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "tier"
+          ],
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": 4,
+          "type": "number"
+        },
+        "scripts": {
+          "$ref": "#/definitions/ScriptDefinition"
+        },
+        "settings": {
+          "$ref": "#/definitions/SettingsSchema",
+          "description": "User-editable configuration declared by the extension. The host renders a form on the extension detail page, persists per-user + global values, and injects the resolved map into tool calls. Keys must be filesystem-safe identifiers; field declarations are validated at admit time."
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/definitions/SkillDefinition"
+          },
+          "type": "array"
+        },
+        "smokeTest": {
+          "additionalProperties": false,
+          "description": "Deterministic acceptance smoke test. OPTIONAL in the base validator; REQUIRED via the author path for `tool`/`multi`. `ezcorp ext verify` spins the extension up in a sandbox, calls `tool` with `input`, and asserts the result against `expect`. `tool` must be a declared tool.",
+          "properties": {
+            "expect": {
+              "additionalProperties": false,
+              "properties": {
+                "isError": {
+                  "type": "boolean"
+                },
+                "textIncludes": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "input": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "tool": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool",
+            "input",
+            "expect"
+          ],
+          "type": "object"
+        },
+        "suggestExamples": {
+          "description": "Example user phrasings that should surface this EXTENSION as a whole in the composer suggestion popover — for intent that spans the extension rather than any single tool (e.g. \"help me clean up my downloads folder\"). Same phrasing guidance and caps as the per-tool `ToolDefinition.suggestExamples` (≤ 5 entries, 1..120 chars trimmed, no duplicates). NEVER shown to the LLM.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/ToolDefinitionV4"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "author",
+        "description",
+        "name",
+        "permissions",
+        "schemaVersion",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ExtensionPageDeclaration": {
+      "additionalProperties": false,
+      "description": "Hub page contributed by an extension. Each declared page becomes a tab at `/hub/ext:<name>:<id>`, served by a `definePage({id, render, actions})` registration (see `@ezcorp/sdk/runtime`'s `definePage` / `PageBuilder` / `pushPage`). Declaring a page IS the grant — no separate permission key. Page actions reuse `permissions.eventSubscriptions`.",
+      "properties": {
+        "description": {
+          "description": "≤ 200 chars.",
+          "type": "string"
+        },
+        "icon": {
+          "description": "lucide-svelte icon name, e.g. \"Clock\". Unknown names fall back.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique id within the extension. /^[a-z0-9][a-z0-9-]{0,31}$/",
+          "type": "string"
+        },
+        "perProject": {
+          "description": "Opt into project-aware renders: on `/project/<id>/hub/...` the page's `render` receives `{ project }`; on the global hub it receives `{ projects }` (the full list) for an overview/home view. See `PageRenderContext` in `runtime/page.ts`.",
+          "type": "boolean"
+        },
+        "title": {
+          "description": "Tab label. ≤ 50 chars.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "type": "object"
+    },
+    "HostApiPermission": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "type": "boolean"
+        },
+        "routes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "routes",
+        "events"
+      ],
+      "type": "object"
+    },
+    "InstallationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "acknowledgedGeneration": {
+          "type": "number"
+        },
+        "activeReleaseId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "generation": {
+          "type": "number"
+        },
+        "grants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "ownerId": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "disabled",
+            "active",
+            "reconciling"
+          ],
+          "type": "string"
+        },
+        "uninstalled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "scope",
+        "activeReleaseId",
+        "generation",
+        "enabled",
+        "uninstalled",
+        "status",
+        "grants",
+        "acknowledgedGeneration"
+      ],
+      "type": "object"
+    },
+    "InvocationContext": {
+      "additionalProperties": false,
+      "properties": {
+        "deadline": {
+          "type": "number"
+        },
+        "invocationId": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "principalId": {
+          "type": "string"
+        },
+        "releaseId": {
+          "type": "string"
+        },
+        "scopeId": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "workerId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "invocationId",
+        "workerId",
+        "releaseId",
+        "principalId",
+        "scopeId",
+        "token",
+        "deadline"
+      ],
+      "type": "object"
+    },
+    "JsonSchema": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonSchemaString"
+        },
+        {
+          "$ref": "#/definitions/JsonSchemaNumber"
+        },
+        {
+          "$ref": "#/definitions/JsonSchemaBoolean"
+        },
+        {
+          "$ref": "#/definitions/JsonSchemaArray"
+        },
+        {
+          "$ref": "#/definitions/JsonSchemaObject"
+        }
+      ]
+    },
+    "JsonSchemaArray": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/definitions/JsonSchema"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "number"
+        },
+        "type": {
+          "const": "array",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "JsonSchemaBoolean": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "type": {
+          "const": "boolean",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "JsonSchemaNumber": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "integer": {
+          "description": "When true, only integers are accepted.",
+          "type": "boolean"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "type": {
+          "const": "number",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "JsonSchemaObject": {
+      "additionalProperties": false,
+      "properties": {
+        "additionalProperties": {
+          "description": "v1 default treats this as `false` (extra keys rejected on write).",
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonSchema"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "object",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "JsonSchemaString": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "pattern": {
+          "description": "ECMAScript regex source. Compiled per-validation.",
+          "type": "string"
+        },
+        "type": {
+          "const": "string",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "McpServerDefinition": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/McpServerStdio"
+        },
+        {
+          "$ref": "#/definitions/McpServerHttp"
+        },
+        {
+          "$ref": "#/definitions/McpServerSse"
+        }
+      ]
+    },
+    "McpServerHttp": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "const": "http",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "name",
+        "url"
+      ],
+      "type": "object"
+    },
+    "McpServerSse": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "const": "sse",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "name",
+        "url"
+      ],
+      "type": "object"
+    },
+    "McpServerStdio": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "transport": {
+          "const": "stdio",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transport",
+        "name",
+        "command"
+      ],
+      "type": "object"
+    },
+    "MessageToolbarItem": {
+      "additionalProperties": false,
+      "description": "Per-turn action icon contributed by an extension. Rendered in `MessageToolbar.svelte` between the exclude and save-to-memory buttons.\n\nClick handler in the host posts to the existing extension event route (`/api/extensions/<name>/events/<event>`) with `{ messageId, conversationId, content, selection }`. The selection is captured via `window.getSelection()` and clamped to the source row's DOM (so highlighting in another row doesn't leak).\n\n`event` MUST be prefixed with the extension's `name:`, AND the extension MUST also list this event under `permissions.eventSubscriptions` — toolbar contributions are gated by the same allowlist as canvas-card events.",
+      "properties": {
+        "appliesTo": {
+          "description": "Which message roles this icon should appear on. Default `\"both\"`.",
+          "enum": [
+            "user",
+            "assistant",
+            "both"
+          ],
+          "type": "string"
+        },
+        "appliesToSelection": {
+          "description": "Whether this contribution participates in the multi-select bulk action bar in addition to / instead of the per-message hover toolbar.\n\n  - `\"single\"` (default) — appears only on the per-message hover     toolbar. Click POSTs `{ conversationId, messageId, content,     selection }`.   - `\"bulk\"`  — appears only in the multi-select bar. Click POSTs     `{ conversationId, messageIds: string[], content }` where     `content` is the concatenated content of the selected turns     (no `selection` — bulk has no single highlight).   - `\"both\"`  — appears in both. Single-row clicks send the     single-id payload; bulk clicks send the array payload.\n\nThe host route accepts EITHER `messageId` OR `messageIds[]` for messageToolbar events, so an extension only needs to handle whichever shapes match the `appliesToSelection` modes it opts into. Default `\"single\"` preserves the original behavior for existing manifests.",
+          "enum": [
+            "single",
+            "bulk",
+            "both"
+          ],
+          "type": "string"
+        },
+        "event": {
+          "description": "Event name in this extension's namespace, e.g. \"kokoro-tts:speak\".",
+          "type": "string"
+        },
+        "icon": {
+          "description": "lucide-svelte icon name, e.g. \"Volume2\".",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique id within the extension. Lowercase letters, digits, hyphens.",
+          "type": "string"
+        },
+        "tooltip": {
+          "description": "Tooltip text shown on hover.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "icon",
+        "tooltip",
+        "event"
+      ],
+      "type": "object"
+    },
+    "OperationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          },
+          "type": "array"
+        },
+        "entrypoint": {
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "type": "string"
+              },
+              "sequence": {
+                "type": "number"
+              },
+              "state": {
+                "$ref": "#/definitions/OperationRecord"
+              }
+            },
+            "required": [
+              "sequence",
+              "state",
+              "at"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "inputDigest": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "build",
+            "activate"
+          ],
+          "type": "string"
+        },
+        "lease": {
+          "additionalProperties": false,
+          "properties": {
+            "fence": {
+              "type": "number"
+            },
+            "holder": {
+              "type": "string"
+            },
+            "until": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "holder",
+            "until",
+            "fence"
+          ],
+          "type": "object"
+        },
+        "releaseId": {
+          "type": "string"
+        },
+        "rollback": {
+          "type": "boolean"
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "building",
+            "verifying",
+            "verified",
+            "awaiting_approval",
+            "activating",
+            "active",
+            "failed",
+            "cancelled",
+            "reconciling"
+          ],
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "workspaceRevision": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "idempotencyKey",
+        "inputDigest",
+        "diagnostics",
+        "events",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    },
+    "PreprocessorDecl": {
+      "additionalProperties": false,
+      "description": "Deterministic attachment preprocessor declaration (top-level manifest field, schemaVersion 2 AND 3).\n\nWhen a user message carries attachments and this extension is wired to the conversation (mention or prior wiring), the host invokes `tool` deterministically — no LLM decision — once per matching attachment BEFORE the assistant turn, with input `{ attachment: \"ez-attachment://<id>\", filename, mimeType }` (the handle resolves to a `data:<mime>;base64,` URI through the same resolver LLM tool calls use). Results persist as `preprocess-result` message rows and ground the LLM via a per-result system note.\n\n`tool` MUST name a tool declared in this manifest's `tools[]` — validated at admit time. `accepts` is a non-empty list of exact MIME strings or `type/*` globs (e.g. `image/*`). No new permission axis: the referenced tool runs under the extension's EXISTING granted permissions and the host's PDP still gates every call.",
+      "properties": {
+        "accepts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "accepts"
+      ],
+      "type": "object"
+    },
+    "PublishedExtensionRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "$ref": "#/definitions/BuildResult"
+        },
+        "packageChecksums": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "releaseDigest": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 4,
+          "type": "number"
+        },
+        "sourceFiles": {
+          "$ref": "#/definitions/WorkspaceFiles"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "build",
+        "sourceFiles",
+        "packageChecksums",
+        "releaseDigest"
+      ],
+      "type": "object"
+    },
+    "ReleaseRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/definitions/BuildEvidence"
+        },
+        "id": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "installationId": {
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/definitions/ExtensionManifestV4"
+        },
+        "policyDigest": {
+          "type": "string"
+        },
+        "releaseDigest": {
+          "type": "string"
+        },
+        "runnerProfile": {
+          "type": "string"
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "verification": {
+          "$ref": "#/definitions/CandidateVerificationReport"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "workspaceRevision": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "installationId",
+        "workspaceId",
+        "workspaceRevision",
+        "sourceDigest",
+        "artifactDigest",
+        "imageDigest",
+        "manifest",
+        "evidence",
+        "runnerProfile",
+        "releaseDigest",
+        "policyDigest",
+        "createdAt"
+      ],
+      "type": "object"
+    },
+    "ResourceLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "cpuMillis": {
+          "type": "number"
+        },
+        "memoryBytes": {
+          "type": "number"
+        },
+        "outputBytes": {
+          "type": "number"
+        },
+        "pids": {
+          "type": "number"
+        },
+        "timeoutMs": {
+          "type": "number"
+        },
+        "tmpBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "memoryBytes",
+        "cpuMillis",
+        "pids",
+        "tmpBytes",
+        "outputBytes",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "RunnerInspection": {
+      "additionalProperties": false,
+      "properties": {
+        "diagnostics": {
+          "items": {
+            "$ref": "#/definitions/Diagnostic"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "building",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "unknown"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "diagnostics"
+      ],
+      "type": "object"
+    },
+    "ScriptDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "entrypoint": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "entrypoint"
+            ],
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "postinstall": {
+          "type": "string"
+        },
+        "preuninstall": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SettingsField": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SettingsFieldSelect"
+        },
+        {
+          "$ref": "#/definitions/SettingsFieldText"
+        },
+        {
+          "$ref": "#/definitions/SettingsFieldNumber"
+        },
+        {
+          "$ref": "#/definitions/SettingsFieldBoolean"
+        },
+        {
+          "$ref": "#/definitions/SettingsFieldSecret"
+        }
+      ]
+    },
+    "SettingsFieldBoolean": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "const": "boolean",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SettingsFieldNumber": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string"
+        },
+        "integer": {
+          "description": "When true, only integers are accepted.",
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string"
+        },
+        "max": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        },
+        "step": {
+          "type": "number"
+        },
+        "type": {
+          "const": "number",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SettingsFieldSecret": {
+      "additionalProperties": false,
+      "description": "Write-only secret (API token, credential). The value is NEVER stored in the settings JSON blob — the host encrypts it (same cipher path as the storage RPC's `encrypted: true`) and writes it to extension storage at `(extensionId, scope: \"user\", scopeId: <saving user>, key: storageKey)`, so your extension reads it through its existing SDK Storage surface (`new Storage(\"user\")` + `storage.get(storageKey)`). Implicitly PER-USER; no `default` (secrets have none).",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "storageKey": {
+          "description": "Extension-storage key the encrypted value is written to. Must match /^[a-z0-9][a-z0-9_.-]{0,63}$/ with no trailing dot (the storage RPC rejects dot-terminated keys on read). REQUIRED (and forbidden on all other field types).",
+          "type": "string"
+        },
+        "type": {
+          "const": "secret",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "storageKey"
+      ],
+      "type": "object"
+    },
+    "SettingsFieldSelect": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "label"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "select",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label",
+        "options"
+      ],
+      "type": "object"
+    },
+    "SettingsFieldText": {
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "pattern": {
+          "description": "ECMAScript regex source. Validated server-side at admit time.",
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label"
+      ],
+      "type": "object"
+    },
+    "SettingsSchema": {
+      "additionalProperties": {
+        "$ref": "#/definitions/SettingsField"
+      },
+      "description": "Map of setting key → field declaration. Keys must match /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier).",
+      "type": "object"
+    },
+    "SkillDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "type": "object"
+    },
+    "StartRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactDigest": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/definitions/InvocationContext"
+        },
+        "limits": {
+          "$ref": "#/definitions/ResourceLimits"
+        },
+        "workerId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "workerId",
+        "artifactDigest",
+        "context",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "ToolDefinitionV4": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/definitions/CapabilityDeclaration",
+          "description": "Per-tool capability declaration (Phase 1, manifest v3 only).\n\nOptional on v2 manifests — `migrateManifestV2ToV3` synthesizes a declaration from the extension-wide `permissions` block when this field is absent. The PDP uses the FINAL post-migration value."
+        },
+        "cardLayout": {
+          "description": "Where the chat UI should render this tool's card when the call completes.   \"inline\" (default) — render inside the message bubble, same as today.   \"dock\"             — render in the floating right-side `DockHost` panel,                        and replace the in-message slot with a navigable                        \"Canvas open ↗\" pill. Only honored for                        `status === \"complete\"`; running calls always                        render inline (streaming-precedence rule). Unknown values are tolerated and normalized to `\"inline\"` at the host — the warning surfaces in the registry log without breaking install.",
+          "enum": [
+            "inline",
+            "dock"
+          ],
+          "type": "string"
+        },
+        "cardType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "mcpOutputSchema": {
+          "$ref": "#/definitions/ValueSchema"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputSchema": {
+          "$ref": "#/definitions/ValueSchema"
+        },
+        "rbacScope": {
+          "description": "Extension-RBAC scope (user→extension axis) REQUIRED to invoke this tool. When set, the host enforces it at dispatch: the acting user must hold the scope (an explicit grant, or the admin role) at the calling conversation's project, else the call is DENIED before the subprocess runs. This is the ENFORCEMENT counterpart to the advisory `ctx.rbac.check(scope)` — declaring it here means the host guarantees the check, so extension code cannot bypass a denied scope.\n\nMust be a core verb (use / configure / secrets / approve-runs / manage) or a custom scope declared in `permissions.rbacScopes`.",
+          "type": "string"
+        },
+        "requiresUserInput": {
+          "description": "When `true`, the host treats this tool as human-in-the-loop: the subprocess JSON-RPC timeout race is skipped, and the watchdog defers the idle kill for the duration of the call. Use only for tools that explicitly block on a user reply (e.g. `ask_user_question`). Default `false`.",
+          "type": "boolean"
+        },
+        "suggestExamples": {
+          "description": "Example user phrasings that should surface THIS tool in the composer suggestion popover. Phrase each entry the way a user would ask — do NOT restate `description`. Entries are embedded verbatim and matched query↔example against the live draft, so authored examples improve retrieval immediately and also seed the offline training export. Caps: at most 5 entries, each 1..120 chars after trimming, no duplicates. NEVER shown to the LLM (stripped before the tool spec is built).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "description",
+        "inputSchema",
+        "name",
+        "outputSchema"
+      ],
+      "type": "object"
+    },
+    "ValueSchema": {
+      "additionalProperties": {},
+      "type": "object"
+    },
+    "WireData": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/definitions/ApprovalRecord"
+        },
+        "buildRequest": {
+          "$ref": "#/definitions/BuildRequest"
+        },
+        "buildResult": {
+          "$ref": "#/definitions/BuildResult"
+        },
+        "inspection": {
+          "$ref": "#/definitions/RunnerInspection"
+        },
+        "installation": {
+          "$ref": "#/definitions/InstallationRecord"
+        },
+        "invocationContext": {
+          "$ref": "#/definitions/InvocationContext"
+        },
+        "limits": {
+          "$ref": "#/definitions/ResourceLimits"
+        },
+        "manifest": {
+          "$ref": "#/definitions/ExtensionManifestV4"
+        },
+        "operation": {
+          "$ref": "#/definitions/OperationRecord"
+        },
+        "publishedRelease": {
+          "$ref": "#/definitions/PublishedExtensionRelease"
+        },
+        "release": {
+          "$ref": "#/definitions/ReleaseRecord"
+        },
+        "startRequest": {
+          "$ref": "#/definitions/StartRequest"
+        },
+        "workspace": {
+          "$ref": "#/definitions/WorkspaceRecord"
+        }
+      },
+      "required": [
+        "publishedRelease",
+        "manifest",
+        "buildRequest",
+        "startRequest",
+        "buildResult",
+        "invocationContext",
+        "limits",
+        "release",
+        "operation",
+        "approval",
+        "inspection",
+        "workspace",
+        "installation"
+      ],
+      "type": "object"
+    },
+    "WorkspaceFile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/EncodedWorkspaceFile"
+        }
+      ]
+    },
+    "WorkspaceFiles": {
+      "additionalProperties": {
+        "$ref": "#/definitions/WorkspaceFile"
+      },
+      "type": "object"
+    },
+    "WorkspaceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "installationId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "number"
+        },
+        "sourceDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "installationId",
+        "revision",
+        "sourceDigest",
+        "createdAt"
+      ],
+      "type": "object"
+    }
+  }
+}

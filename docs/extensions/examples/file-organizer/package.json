@@ -5,7 +5,7 @@
   "type": "module",
   "description": "100%-local, secure file-organization bundled extension for EZCorp.",
   "main": "./index.ts",
-  "dependencies": {
-    "@ezcorp/sdk": "workspace:*"
+  "peerDependencies": {
+    "@ezcorp/sdk": "*"
   }
 }

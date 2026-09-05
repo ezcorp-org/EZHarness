@@ -247,7 +247,7 @@ run_legs() {
   (
     set +e
     bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
-      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ \
+      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ ./packages/@ezcorp/sdk/src/browser/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
   ) &
@@ -353,6 +353,36 @@ run_legs() {
   (
   set +e
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
+      src/__tests__/bounded-json.server.test.ts \
+      src/__tests__/api-tool-invoke.server.test.ts \
+      src/__tests__/api-conversations-id-active-run.server.test.ts \
+      src/__tests__/api-marketplace-id-install.server.test.ts \
+      src/__tests__/api-marketplace-export-v4.server.test.ts \
+      src/__tests__/task-helpers-load-snapshot.server.test.ts \
+      src/__tests__/task-helpers-write-and-broadcast.server.test.ts \
+      src/__tests__/task-helpers-find-assignment.server.test.ts \
+      src/__tests__/task-helpers-pick-spawn-agent-config.server.test.ts \
+      src/__tests__/task-helpers-broadcast-assignment-update.server.test.ts \
+      src/__tests__/extension-author-page-server-load.server.test.ts \
+      src/__tests__/extension-author-page.component.test.ts \
+      src/lib/components/extensions/ExtensionBrowser.component.test.ts \
+      'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
+      src/__tests__/extension-control-routes.server.test.ts \
+      src/__tests__/extension-project-binding.server.test.ts \
+      src/__tests__/project-proposal-fixture.server.test.ts \
+      src/__tests__/marketplace-release-fixture.server.test.ts \
+      src/__tests__/project-proposal-review.server.test.ts \
+      src/__tests__/project-proposal-review.component.test.ts \
+      src/__tests__/extension-review-location.server.test.ts \
+      src/__tests__/mcp-control-request.server.test.ts \
+      src/__tests__/mcp-staging-client.unit.test.ts \
+      src/__tests__/extension-credential-resolver.server.test.ts \
+      src/__tests__/extension-host-api-transport.server.test.ts \
+      src/__tests__/extension-legacy-cutover.server.test.ts \
+      src/__tests__/extension-source-import.server.test.ts \
+      src/__tests__/extension-source-import-page.server.test.ts \
+      src/__tests__/extension-source-import-page.component.test.ts \
+      src/__tests__/extension-control-actor.server.test.ts \
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
@@ -449,7 +479,6 @@ run_legs() {
       src/__tests__/RunPayload.component.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
-      "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
       src/__tests__/api-users.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
@@ -571,6 +600,7 @@ run_legs() {
       src/__tests__/api-ez-actions-distill.server.test.ts \
       src/__tests__/api-ez-actions-generic.server.test.ts \
       src/__tests__/api-audit.server.test.ts \
+      src/__tests__/api-extensions-id-audit.server.test.ts \
       src/__tests__/api-extensions-id-audit-stats.server.test.ts \
       src/__tests__/api-extensions-id-confirm.server.test.ts \
       src/__tests__/extensions-reapprove-route.server.test.ts \
@@ -602,6 +632,25 @@ run_legs() {
       src/__tests__/api-conversations-id-agent-chat.server.test.ts \
       src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+      --coverage.include='src/lib/server/security/bounded-json.ts' \
+      --coverage.include='src/lib/server/security/payload.ts' \
+      --coverage.include='src/lib/server/task-helpers.ts' \
+      --coverage.include='src/routes/api/tool-invoke/+server.ts' \
+      --coverage.include='**/api/marketplace/*/install/+server.ts' \
+      --coverage.include='**/api/marketplace/export/*/+server.ts' \
+      --coverage.include='src/lib/server/extensions/*.ts' \
+      --coverage.include='**/extensions/author/+page.svelte' \
+      --coverage.include='**/extensions/author/+page.server.ts' \
+      --coverage.include='**/extensions/project-proposals/**/+page.server.ts' \
+      --coverage.include='**/extensions/project-proposals/**/+page.svelte' \
+      --coverage.include='**/extensions/import-source/+page.server.ts' \
+      --coverage.include='**/extensions/import-source/+page.svelte' \
+      --coverage.include='**/api/extensions/*/audit/+server.ts' \
+      --coverage.include='src/routes/api/__test/project-proposal/+server.ts' \
+      --coverage.include='src/routes/api/__test/marketplace-release/+server.ts' \
+      --coverage.include='src/routes/api/extensions/control/+server.ts' \
+      --coverage.include='src/routes/api/extensions/releases/**/+server.ts' \
+      --coverage.include='src/routes/api/extensions/import-source/+server.ts' \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
       --coverage.include='src/lib/hub.ts' \
@@ -802,6 +851,14 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegations/preview/+server.ts' \
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
+      --coverage.include='src/lib/extensions/canvas-bridge.ts' \
+      --coverage.include='src/lib/extensions/browser-invocation.ts' \
+      --coverage.include='src/lib/server/extension-browser.ts' \
+      --coverage.include='src/lib/server/extension-document.ts' \
+      --coverage.include='src/lib/components/extensions/ExtensionBrowser.svelte' \
+      --coverage.include='src/routes/api/extensions/[[]name]/preview/+server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.svelte' \
       --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \

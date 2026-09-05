@@ -1,122 +1,34 @@
-# src/extensions/ — extension host
+# Extension host
 
-The authoring surface is `@ezcorp/sdk` (`defineExtension` + runtime helpers,
-`packages/@ezcorp/sdk`). Bundled first-party extensions live in top-level
-`extensions/` (registered in `bundled.ts`); reference extensions in
-`docs/extensions/examples/*/`.
+Use the v4 lifecycle for all extension creation, source import, build, approval, activation, update, and uninstall. Read [Authoring](../../docs/extensions/AUTHORING.md) before changing harness authoring behavior, and [Security](../../docs/extensions/security.md) before changing execution or authority.
 
-- **Sandbox & isolation** — tiered sandboxes (bwrap › landlock › advisory);
-  the SDK poisons `node:fs`/`Bun.file` at load, so ALL extension IO goes
-  through host-mediated reverse-RPC handlers (`*-handler.ts` in this dir).
-  Invariant: `.ezcorp/data` (PGlite DB + JWT secret) is never reachable from a
-  sandbox ·
-  [sandbox-and-isolation.md](../../docs/features/extensions/sandbox-and-isolation.md)
-- **Permissions & ceilings** — `clamp-permissions.ts`, `permission-engine.ts`,
-  install-time grants; `bundled-ceiling.ts` hard-caps bundled extensions.
-- **Scheduling, loops & webhooks** — cron/schedule daemons, `defineLoop`
-  (approvals, provenance-checked registration, global kill switch),
-  `WebhookDeliveryDaemon` behind public `POST /api/hooks/:extensionId/:slug` ·
-  [scheduling-and-loops.md](../../docs/features/extensions/scheduling-and-loops.md)
-- **Hub pages** — extensions push live dashboards (`pushPage` →
-  `page-schema.ts` / `panel-validator.ts` / `page-cache.ts`,
-  `web/src/lib/server/hub-extension-pages.ts`).
-- **Install/registry/manifest** — `installer.ts`, `registry.ts`, `manifest.ts`,
-  `bundled.ts` (the `BUNDLED_EXTENSIONS` registry + `ensureBundledExtensions()`
-  reconcile engine), `dependency-resolver.ts`.
-- **Install roots (binding)** — `install-roots.ts` owns the two path literals
-  (`data/extensions`, `<root>/.ezcorp/extensions`) AND the rule for which
-  directories `removeExtension` may `rm -rf` inside of. Spell those paths
-  through it — never inline them. `<root>` is NOT always `getProjectRoot()`:
-  `POST /api/import/commit` installs under the selected project's
-  `projects.path`, so the containment check takes the registered project
-  paths as an argument. An install path outside every root is unregistered
-  but never deleted (a bundled extension's row points at its git-tracked
-  source tree).
-- **Install-path portability (binding)** — a BUNDLED extension's
-  `extensions.install_path` is stored PROJECT-ROOT-RELATIVE (the same
-  string as its `BundledExtension.path` in `bundled.ts`), never absolute.
-  `installFromLocal`'s `persistPath` option (`installer.ts`) is what
-  bundled installs use to persist that relative form while still reading
-  the real files from the absolute `localPath`; `registry.ts`'s
-  `loadFromDb` resolves it back to absolute via `resolveInstallPath()`
-  (`install-roots.ts`), against THIS process's own `getProjectRoot()` —
-  never trust `ext.installPath` read directly off a bundled row without
-  going through that resolver. This is what lets the same database be
-  served by a containerised app (root `/app`) and a host-side process
-  (root = the checkout) without one baking in a path the other can't
-  read. `src/db/migrations/relativize-bundled-install-paths.ts` carries
-  pre-existing absolute rows into the relative shape. Every genuinely
-  external install (GitHub/git/authored/imported) is unaffected —
-  `resolveInstallPath()` is a no-op on an already-absolute path.
-  Companion invariant: `ExtensionProcess.ensureRunning()`
-  (`subprocess.ts`) treats an unresolvable install path (the entrypoint
-  file doesn't exist on disk) as an ENVIRONMENT failure — it throws
-  before `Bun.spawn`, so it never increments `consecutive_failures` or
-  auto-disables the extension the way a genuine crash-loop does.
-- **Project-root resolution** — `project-root.ts` owns `getProjectRoot()` /
-  `resolveProjectRoot()` (env → `import.meta` → `.git` walk-up → cwd, cached
-  per process). `bundled.ts` re-exports them so pre-existing importers needed
-  no edit, but **new code imports `./project-root` directly**. Keep that
-  module's dependencies to `../logger` + node builtins — pinned by the
-  "static import closure" test in `__tests__/project-root.test.ts`. It sat
-  inside `bundled.ts` until 2026-08, and because `bundled.ts` reaches
-  `db/queries/extensions.ts → db/connection.ts → migrate.ts`, both
-  `src/db/migrate.ts` and `src/startup/background-timers.ts` had to fetch
-  `getProjectRoot` by dynamic `import()` to keep that cycle open. Adding a
-  DB/registry import here brings the workaround back.
-  Note for anyone reading the resolution order: **step 4 (the `process.cwd()`
-  fallback) is the path the shipped container takes on every boot**, so its
-  WARN is expected output, not an incident. Steps 1–3 are dev/test/vitest
-  paths. Details + the image-level evidence:
-  [platform/projects.md](../../docs/features/platform/projects.md).
+## Boundaries
 
-## Extension data (binding)
+- `extension-control.ts` owns the five shared harness control tools. Keep CLI, HTTP, and harness callers on that contract; do not add a second installer.
+- `v4/` owns immutable revisions, operations, releases, approval, activation, and delivery state. Database transitions and their audit or event records must commit together.
+- `packages/@ezcorp/extension-contract` owns wire schemas and types. Reuse its validators; do not duplicate manifest or transport rules.
+- `packages/@ezcorp/sdk` owns scaffolding and runtime registration. Extension authors must not implement framing or inspect host directories.
+- `packages/@ezcorp/extension-runner` owns isolated build and execution. Missing isolation fails closed. Never import extension config, run extension postinstall code, or fall back to a host process.
+- `release-process.ts` binds workers and reverse calls to the exact live invocation. Recheck authority before effects; payload identity cannot grant access.
 
-Every extension — bundled (`extensions/*`) or example
-(`docs/extensions/examples/*/`) — stores its persistent user-visible state
-under `<projectRoot>/.ezcorp/extension-data/<extension-name>/`. When reading or
-writing extension-managed files (task stores, note vaults, config json, etc.),
-always use that path. The `.ezcorp/` directory is gitignored. See
-[../../docs/extensions/data-storage.md](../../docs/extensions/data-storage.md).
+## Feature changes
 
-## Storage read-modify-write (binding)
+Register contributions from a verified, acknowledged active release. First-party code follows the same human approval boundary. A source lock is integrity evidence, not approval.
 
-An extension that does `storage.get(key)` → mutate → `storage.set(key)` MUST
-run that critical section inside `withLock(key, …)` (`@ezcorp/sdk/runtime`).
-The subprocess channel dispatches inbound frames fire-and-forget
-(`void handleIncoming(msg)` in `packages/@ezcorp/sdk/src/runtime/channel.ts`),
-so two `tools/call` frames — or a `tools/call` racing an
-`ezcorp/event/*` notification — interleave, and the second `set` silently
-discards the first's mutation. Symptom: state that "lags behind" or reverts,
-never an error. Precedents: `task-tracking`, `ez-code`, `ez-code-factory`.
+Use host storage and virtual `/project` or `/data` paths. Read [Storage](../../docs/extensions/data-storage.md) before changing persistence or concurrency. A local mutex cannot protect state shared by separate workers.
 
-> **`ez-code-factory` no longer ships.** That reference extension
-> (`docs/extensions/examples/ez-code-factory/**` — a local `git push gate`
-> pipeline) was **retired 2026-08-03** in phase 9, superseded by the bundled
-> `extensions/ez-factory` job console, once every security invariant it carried
-> had a mutation-proven home in `extensions/ez-factory/**` or `src/**`. It is
-> readable in git history. Comments across `src/`, `web/src/`, `packages/` and
-> the e2e suite still cite it by name as the **provenance of a control** —
-> "ez-code-factory drive-3", "ez-code-factory's `init_gate`", "ez-code-factory's
-> mutating-git spawn site", "ez-code-factory's gate repos". Those are historical
-> anecdotes recording a real observed defect, deliberately kept: the bug is why
-> the control exists. None of them names a path that still resolves, and none
-> implies the extension is installed. Some test fixtures also use the string as
-> an arbitrary extension id; those are fixtures, not references.
-> See [../../docs/features/extensions/ez-factory.md](../../docs/features/extensions/ez-factory.md).
-Host-side writers to the same row need their own lock —
-`src/runtime/task-snapshot-lock.ts` is the pattern.
+Keep page caches principal-scoped and recheck live authority. Page pushes are invalidations, not global private content. Panel SSE must use the host-issued principal.
 
-## Extension logging (binding)
+Durable source changes publish subscriber events in the same transaction, then notify the UI after commit. Accepted HTTP actions use bounded owner-scoped receipts. Do not turn queue failure into successful acknowledgment or automatically retry uncertain external effects.
 
-Host-side extension code (integration daemons, reverse-RPC handlers, spawn
-bridges) MUST get its logger from `extensionLogger(name, component?)` in
-`src/logger.ts` (repo root, i.e. `../logger.ts`) — never `logger.child(...)`
-directly — so every extension log
-lands under the `ext.<name>[.<component>]` subsystem namespace. That lets an
-operator raise debug for one extension via `EZCORP_DEBUG=ext.<name>` (or all
-extensions via `EZCORP_DEBUG=ext`, everything via `EZCORP_DEBUG=1`) without the
-global `LOG_LEVEL=debug` firehose. Default-visible `info` should carry
-once-per-cycle summaries; `debug` carries per-item detail; never log
-secret/token plaintext. See
-[../../docs/extensions/logging.md](../../docs/extensions/logging.md).
+For source import and migration, read [Imports](../../docs/extensions/v4-imports.md). Preserve exact installation ownership and data. Uninstall does not implicitly purge files or history.
+
+## Host utilities
+
+Import `getProjectRoot` from `project-root.ts`. Keep that module free of database and registry dependencies. Host installation paths are not worker authority.
+
+Use `extensionLogger(name, component?)` for new host extension logs. Keep secrets and invocation tokens out of logs. See [Logging](../../docs/extensions/logging.md).
+
+## Proof
+
+Follow the root coverage, worktree, and test gates. Add real runner and broker tests for isolation or capability changes; add real browser evidence for user-facing changes. Exercise denial, cross-user access, revocation, crash recovery, and a failed update retaining the active release. Do not replace an unmet parity requirement with a mock-only test or a weaker gate.

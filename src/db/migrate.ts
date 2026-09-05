@@ -1,4 +1,6 @@
 import { sql } from "drizzle-orm";
+import { up as upMarketplaceReleases } from "./migrations/add-marketplace-releases";
+import { up as upMcpWorkspaceCredentials } from "./migrations/add-mcp-workspace-credentials";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
@@ -2992,4 +2994,27 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // card presents the provider wire id instead of the row's own PK — both
   // filter on this column then `ORDER BY created_at DESC LIMIT 1`.
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_provider_call ON tool_calls(provider_tool_call_id, created_at)`);
+  await upMarketplaceReleases(db);
+  await upMcpWorkspaceCredentials(db);
+  const { up: addExtensionReleases } = await import("./migrations/add-extension-releases");
+  await addExtensionReleases(db);
+  const { up: addExtensionEventReceipts } = await import("./migrations/add-extension-event-receipts");
+  await addExtensionEventReceipts(db);
+  const { up: addExtensionProjectAuthority } = await import("./migrations/add-extension-project-authority");
+  await addExtensionProjectAuthority(db);
+  const { up: addManagedExtensionAgents } = await import("./migrations/add-managed-extension-agents");
+  await addManagedExtensionAgents(db);
+  const { up: addRunDomainEventIntents } = await import("./migrations/add-run-domain-event-intents");
+  await addRunDomainEventIntents(db);
+  const { up: addExtensionRuntimeLocks } = await import("./migrations/add-extension-runtime-locks");
+  await addExtensionRuntimeLocks(db);
+  const { up: addExtensionBrowserRequests } = await import("./migrations/add-extension-browser-requests");
+  await addExtensionBrowserRequests(db);
+  const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
+  await addWorkflowDelegationRelease(db);
+  const { extensionControlTools } = await import("../extensions/extension-control");
+  for (const tool of extensionControlTools) {
+    await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);
+  }
+  await db.execute(sql`UPDATE modes SET allowed_tools = array_remove(array_remove(allowed_tools, 'extension-author/create_extension'), 'extension-author__create_extension') WHERE slug = 'ez'`);
 }

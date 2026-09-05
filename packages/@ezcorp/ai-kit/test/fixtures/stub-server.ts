@@ -52,6 +52,10 @@ export interface StubServer {
   emit: (event: unknown) => void;
 }
 
+const fixtureRoutes = new Map<string, (request: Request) => Promise<Response>>();
+let originalFetch: typeof fetch | undefined;
+let fixtureFetch: typeof fetch | undefined;
+
 export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
   const state: State = {
     projects: [{ id: "global", name: "Global", path: "/" }],
@@ -80,9 +84,8 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
   const uuid = () =>
     (globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-" + Date.now().toString(16).padStart(12, "0"));
 
-  const server = Bun.serve({
-    port: 0,
-    async fetch(req) {
+  const origin = `http://fixture-${crypto.randomUUID()}.invalid`;
+  const handler = async (req: Request): Promise<Response> => {
       const url = new URL(req.url);
       const p = url.pathname;
 
@@ -282,7 +285,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
         }
         req.signal.addEventListener("abort", () => {
           state.sseClients.delete(writer);
-          writer.close().catch(() => {});
+          writer.abort(req.signal.reason).catch(() => {});
         });
         return new Response(readable, {
           headers: {
@@ -294,8 +297,24 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
       }
 
       return new Response("not found", { status: 404 });
-    },
-  });
+  };
+  fixtureRoutes.set(origin, handler);
+  if (!originalFetch) {
+    originalFetch = globalThis.fetch;
+    fixtureFetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
+      const request = typeof input === "string" || input instanceof URL ? new Request(String(input), init) : new Request(input, init);
+      request.signal.throwIfAborted();
+      const route = fixtureRoutes.get(new URL(request.url).origin);
+      if (!route) return originalFetch!(input, init);
+      const response = await route(request);
+      if (response.status >= 300 && response.status < 400 && response.headers.has("location")) {
+        if (request.redirect === "error") throw new TypeError("Redirect refused");
+        if (request.redirect === "follow") return route(new Request(new URL(response.headers.get("location")!, request.url).href, request));
+      }
+      return response;
+    }, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    globalThis.fetch = fixtureFetch;
+  }
 
   function emit(event: unknown) {
     state.runEvents.push(event);
@@ -306,13 +325,18 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
   }
 
   return {
-    port: server.port!,
-    url: `http://localhost:${server.port}`,
+    port: 0,
+    url: origin,
     state,
     stop: () => {
       for (const w of state.sseClients) w.close().catch(() => {});
       state.sseClients.clear();
-      server.stop(true);
+      fixtureRoutes.delete(origin);
+      if (fixtureRoutes.size === 0 && originalFetch) {
+        if (globalThis.fetch === fixtureFetch) globalThis.fetch = originalFetch;
+        originalFetch = undefined;
+        fixtureFetch = undefined;
+      }
     },
     emit,
   };

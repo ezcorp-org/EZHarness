@@ -11,8 +11,7 @@ import { resolveRootConversationForOwnership } from "$lib/server/conversation-ow
 import { getExtension } from "$server/db/queries/extensions";
 import { canWireExtension } from "$server/auth/extension-wire-authz";
 import type { RequestHandler } from "./$types";
-
-const MAX_RETRIES = 2;
+import type { InvocationGuard } from "$server/extensions/runtime-locks";
 
 // Boundary validation. POST invokes a registered extension tool by
 // `extensionName__toolName`; `input` is forwarded to the tool whose
@@ -28,9 +27,13 @@ const postBodySchema = z.object({
   conversationId: z.string().optional(),
   invocationId: z.string().optional(),
   messageId: z.string().optional(),
+  expectedReleaseBinding: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = event => _invokeWithControl(event);
+
+export async function _invokeWithControl({ request, locals }: Parameters<RequestHandler>[0], control?: { signal?: AbortSignal; invocationGuard?: InvocationGuard }) {
+  const invocationSignal = control?.signal ? AbortSignal.any([request.signal, control.signal]) : request.signal;
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -47,7 +50,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!parsed.success) {
     return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
   }
-  const { extensionName, toolName, input, conversationId, invocationId, messageId } = parsed.data;
+  const { extensionName, toolName, input, conversationId, invocationId, messageId, expectedReleaseBinding } = parsed.data;
   if (!extensionName || !toolName || !conversationId || !invocationId) {
     return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
   }
@@ -159,76 +162,27 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // acting user, so storage is keyed to their bucket (no cross-user exposure).
   toolExecutor.setCurrentUserId(user.id);
   const metadata = { invocationId, source: 'inline' as const };
-  let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };
-  let retryCount = 0;
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      const result = await toolExecutor.executeToolCall(
-        namespacedTool, input ?? {}, conversationId, messageId ?? null,
-        { metadata },
-      );
-
-      if (!result.isError) {
-        return json({
-          success: true,
-          output: result.content.map(c => c.text).join("\n"),
-          retryCount: attempt,
-          durationMs: Date.now() - startTime,
-          toolCallId: invocationId,
-        });
-      }
-
-      lastResult = result;
-      retryCount = attempt;
-    } catch (err) {
-      // An authorization denial is DETERMINISTIC — retrying it cannot change
-      // the answer. Two things went wrong when it fell through to the generic
-      // handler below:
-      //
-      //   1. It was retried MAX_RETRIES times, so ONE denied tool call wrote
-      //      THREE `ext:perm:denied` audit rows and counted as three denials
-      //      in the /audit stats strip.
-      //   2. It surfaced as 500, which reads as "the server broke" to every
-      //      client and integrator. It is a refusal, and the refusal is the
-      //      correct behaviour — 403 says so.
-      //
-      // Matched on `name` rather than `instanceof`: the tool-executor module
-      // is mocked at the alias boundary in route tests, so the imported class
-      // identity is not guaranteed to be the one the throw site used. The
-      // constructor sets `name` explicitly (`tool-executor/errors.ts`).
-      if (err instanceof Error && err.name === "PermissionDeniedError") {
-        return json({
-          success: false,
-          // Name the extension, not its UUID. The raw message embeds
-          // `extensionId`, which is meaningless to whoever reads this.
-          error: `Permission denied for tool "${toolName}" from extension "${extensionName}"${
-            (err as { reason?: string }).reason ? ` — ${(err as { reason?: string }).reason}` : ""
-          }`,
-          retryCount: attempt,
-          durationMs: Date.now() - startTime,
-          toolCallId: invocationId,
-        }, { status: 403 });
-      }
-      // Retry on process/registry errors (extension may have crashed and needs restart)
-      if (attempt < MAX_RETRIES) {
-        continue;
-      }
+  const responseMetadata = () => ({ retryCount: 0, durationMs: Date.now() - startTime, toolCallId: invocationId });
+  try {
+    invocationSignal.throwIfAborted();
+    const result = await toolExecutor.executeToolCall(
+      namespacedTool, input ?? {}, conversationId, messageId ?? null,
+      { metadata, signal: invocationSignal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
+    );
+    invocationSignal.throwIfAborted();
+    const output = result.content.map(content => content.text).join("\n");
+    return json({ success: !result.isError, ...(result.isError ? { error: output } : { output }), ...responseMetadata() });
+  } catch (error) {
+    if (invocationSignal.aborted) return json({ success: false, error: "Invocation cancelled; admitted effects may already have completed", ...responseMetadata() }, { status: 499 });
+    if (error instanceof Error && error.name === "PermissionDeniedError") {
       return json({
         success: false,
-        error: err instanceof Error ? err.message : String(err),
-        retryCount: attempt,
-        durationMs: Date.now() - startTime,
-        toolCallId: invocationId,
-      }, { status: 500 });
+        error: `Permission denied for tool "${toolName}" from extension "${extensionName}"${
+          (error as { reason?: string }).reason ? ` — ${(error as { reason?: string }).reason}` : ""
+        }`,
+        ...responseMetadata(),
+      }, { status: 403 });
     }
+    return json({ success: false, error: error instanceof Error ? error.message : String(error), ...responseMetadata() }, { status: 500 });
   }
-
-  return json({
-    success: false,
-    error: lastResult.content.map(c => c.text).join("\n"),
-    retryCount,
-    durationMs: Date.now() - startTime,
-    toolCallId: invocationId,
-  });
-};
+}

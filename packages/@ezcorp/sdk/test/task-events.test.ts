@@ -67,6 +67,15 @@ function sampleAssignment(id = "a-1"): TaskAssignment {
 // ── Wire format ─────────────────────────────────────────────────
 
 describe("TaskEvents — wire format", () => {
+  test("snapshot carries an atomic assignment batch and revision without undefined fields", async () => {
+    const { calls } = stubRequest(async () => ({ ok: true }));
+    const assignments = [{ taskId: "t-1", assignment: sampleAssignment() }];
+    const expectedRevision = "a".repeat(64);
+    await new TaskEvents().emitSnapshot([], undefined, { assignments, expectedRevision });
+    expect(paramsOf(calls[0]).payload).toEqual({ tasks: [], assignments, expectedRevision });
+    await new TaskEvents().emitSnapshot([], undefined, {});
+    expect(paramsOf(calls[1]).payload).toEqual({ tasks: [] });
+  });
   test("emitSnapshot sends { v:1, type:'snapshot', payload:{tasks} } to ezcorp/emit-task-event", async () => {
     const { calls } = stubRequest(async () => ({ ok: true }));
     await new TaskEvents().emitSnapshot([sampleTask()]);

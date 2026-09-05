@@ -25,7 +25,7 @@ import {
   _setTaskStoreForTests,
   _setUserStoreForTests,
 } from "./index";
-import type { ToolCallResult } from "../../../../src/extensions/types";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
 function parse(result: ToolCallResult): { runs: Array<{ id: string; title: string; agentName: string; status: string }> } {
   const text = result.content.find((c) => c.type === "text") as { text: string } | undefined;

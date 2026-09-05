@@ -68,7 +68,7 @@ async function ensureInit(): Promise<void> {
 // itself sequential, but explicit serialization documents the intent
 // and guards against future re-entrancy.
 
-const lock = createMutex();
+const lock = createMutex("auto-note:vault");
 
 // Wrap a tool body with: (a) mutex, (b) lazy init, (c) per-call vaultRoot.
 function guard<A extends Record<string, unknown>>(

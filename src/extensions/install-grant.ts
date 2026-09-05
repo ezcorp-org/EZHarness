@@ -30,13 +30,19 @@ import { askLine } from "../ui/prompt";
  *  except the `grantedAt` timestamp map). Kept explicit so `stampGrantedAt`
  *  never accidentally stamps `grantedAt` itself. */
 const GRANT_PERMISSION_KEYS = [
+  "hostApi",
   "network",
+  "networkTcp",
+  "secretRead",
   "filesystem",
   "shell",
   "env",
   "storage",
   "mcpInvoke",
   "taskEvents",
+  "loopEvents",
+  "webhooks",
+  "appendMessages",
   "spawnAgents",
   "agentConfig",
   "eventSubscriptions",
@@ -150,7 +156,10 @@ export function manifestRequestedGrant(
 ): Partial<ExtensionPermissions> {
   const p = manifest.permissions ?? {};
   const requested: Partial<ExtensionPermissions> = {};
+  if (p.hostApi) requested.hostApi = p.hostApi;
   if (p.network) requested.network = p.network;
+  if (p.networkTcp) requested.networkTcp = p.networkTcp;
+  if (p.secretRead) requested.secretRead = p.secretRead;
   if (p.filesystem) requested.filesystem = p.filesystem;
   if (p.shell !== undefined) requested.shell = p.shell;
   if (p.env) requested.env = p.env;
@@ -162,6 +171,9 @@ export function manifestRequestedGrant(
   // tool is denied.
   if (p.mcpInvoke !== undefined) requested.mcpInvoke = p.mcpInvoke;
   if (p.taskEvents !== undefined) requested.taskEvents = p.taskEvents;
+  if (p.loopEvents !== undefined) requested.loopEvents = p.loopEvents;
+  if (p.webhooks !== undefined) requested.webhooks = p.webhooks;
+  if (p.appendMessages !== undefined) requested.appendMessages = p.appendMessages;
   if (p.spawnAgents) requested.spawnAgents = p.spawnAgents;
   if (p.agentConfig) requested.agentConfig = p.agentConfig;
   if (p.eventSubscriptions !== undefined) {

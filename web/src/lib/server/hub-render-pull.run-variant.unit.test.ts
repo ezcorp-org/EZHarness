@@ -33,6 +33,7 @@ function makeDeps(over: { perProject?: boolean } = {}) {
 	const scopes: Array<PageRenderScope | undefined> = [];
 	const cache = new ExtensionPageCache();
 	const deps: Partial<RenderPullDeps> = {
+		authorize: async () => "approved-release",
 		findPage: async () => ({
 			extension: EXT,
 			page: { id: "dashboard", title: "ez-code-factory", perProject: over.perProject ?? true },

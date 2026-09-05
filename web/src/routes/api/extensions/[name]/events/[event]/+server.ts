@@ -2,12 +2,16 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
 import { getBus, getExecutor } from "$lib/server/context";
-import { requireAuth } from "$server/auth/middleware";
+import { checkProjectRole, requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isRegisteredExtensionEvent } from "$server/runtime/sse-conversation-filter";
 import { getConversation, getOrCreateExtServiceConversation } from "$server/db/queries/conversations";
-import { getProjectByPath } from "$server/db/queries/projects";
+import { getProject } from "$server/db/queries/projects";
+import { getExtensionProjectBinding } from "$server/extensions/project-binding";
+import { validateEventActionKey } from "$server/db/queries/extension-event-receipts";
+import { LifecycleError } from "$server/extensions/v4/types";
+import { admitConversationExtensionAction } from "$server/extensions/domain-event-outbox";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import {
@@ -28,6 +32,9 @@ import type { ExtensionPermissions } from "$server/extensions/types";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { readManifestPages } from "$lib/server/hub-extension-pages";
 import { logger } from "$server/logger";
+import { authorizeExtensionBrowser } from "$lib/server/extension-browser";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { buildFullGrantFromManifest } from "$server/extensions/install-grant";
 
 const log = logger.child("ext-events");
 
@@ -189,6 +196,9 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
 
   // ── Hub page action branch (Extension Pages Hub §2.4) ───────────
   if (raw != null && typeof raw === "object" && (raw as Record<string, unknown>).source === "hub") {
+    let idempotencyKey: string;
+    try { idempotencyKey = validateEventActionKey(request.headers.get("Idempotency-Key")); }
+    catch { return errorJson(400, "A bounded Idempotency-Key is required for Hub actions."); }
     const hubParsed = hubEventBodySchema.safeParse(raw);
     if (!hubParsed.success) return errorJson(400, "Invalid body");
     const { pageId, payload } = hubParsed.data;
@@ -231,6 +241,25 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         "$server/extensions/file-organizer-events"
       );
       if (IN_PROCESS_EVENTS.has(event)) {
+        try {
+          const authority = await authorizeExtensionBrowser(name, user.id);
+          const binding = await getExtensionProjectBinding(ext.id);
+          const declaredEvents = authority.active.release.manifest.permissions.eventSubscriptions;
+          const declaredGrants = buildFullGrantFromManifest(authority.active.release.manifest);
+          if (authority.extension.id !== ext.id || authority.active.installation.ownerId !== authority.user.id
+            || authority.active.release.manifest.name !== name
+            || !authority.active.release.manifest.pages?.some(page => page.id === pageId)
+            || !declaredGrants.eventSubscriptions?.includes(fullEventName)
+            || !authority.active.installation.grants.includes(canonicalJson(["eventSubscriptions", declaredEvents]))
+            || !authority.extension.grantedPermissions.eventSubscriptions?.includes(fullEventName)
+            || !binding || binding.ownerId !== authority.user.id
+            || binding.releaseId !== authority.active.release.id || binding.generation !== authority.active.installation.generation
+            || authority.active.installation.scope !== "global" && authority.active.installation.scope !== `project:${binding.projectId}`
+            || await checkProjectRole({ user: authority.user }, binding.projectId, "member") instanceof Response
+            || !await getProject(binding.projectId)) return errorJson(404, "Not found");
+        } catch {
+          return errorJson(404, "Not found");
+        }
         const { getProjectRoot } = await import("$server/extensions/bundled");
         const { join } = await import("node:path");
         const dataDir = join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer");
@@ -281,49 +310,16 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       }
       await wirer.ensureSubprocessRpcWired(ext.id, proc);
 
-      // ── Gate-push service-conversation owner (ECF control plane, L1) ──
-      //
-      // A gate push carries `payload.projectRoot`. A push-fired agent spawn's
-      // reverse-RPC must resolve to a REAL conversation that carries the
-      // project's id (the spawn handler derives the parent project from the
-      // conversation) AND has the extension wired — otherwise the spawn fails
-      // `-32602 "Conversation scope unavailable"`. Resolve the (shape-
-      // validated) root to a REGISTERED project (the host-side trust
-      // boundary), then find-or-create the persistent per-(project, extension)
-      // service conversation owned by the gate-key user and wire the extension
-      // into it. FAIL-CLOSED: an unregistered root / any resolution error
-      // leaves `conversationId: null` exactly as before, so the spawn keeps
-      // rejecting — we NEVER borrow ambient scope. Plain hub button clicks
-      // (no `projectRoot`) are unaffected.
       let serviceConversationId: string | null = null;
-      const projectRoot =
-        typeof payload?.projectRoot === "string" && payload.projectRoot.trim()
-          ? payload.projectRoot
-          : undefined;
-      if (projectRoot) {
-        try {
-          const project = await getProjectByPath(projectRoot);
-          if (project) {
-            const serviceConv = await getOrCreateExtServiceConversation({
-              extensionName: name,
-              projectId: project.id,
-              userId: user.id,
-              title: `${name} gate — ${project.name}`,
-            });
-            // Wiring gate parity (spawn-assignment-handler.ts:212): the gate
-            // extension must be wired into the service conversation. Idempotent.
-            const alreadyWired = await getConversationExtensionIds(serviceConv.id);
-            if (!alreadyWired.includes(ext.id)) {
-              await addConversationExtensions(serviceConv.id, [{ extensionId: ext.id }]);
-            }
-            serviceConversationId = serviceConv.id;
-          }
-        } catch (err) {
-          log.warn(
-            "gate-push service-conversation resolution failed — failing closed to null scope (spawn will reject)",
-            { extensionId: ext.id, name, error: err instanceof Error ? err.message : String(err) },
-          );
-        }
+      const binding = await getExtensionProjectBinding(ext.id);
+      if (binding) {
+        if (binding.ownerId !== user.id || await checkProjectRole({ user }, binding.projectId, "member") instanceof Response) return errorJson(404, "Not found");
+        const project = await getProject(binding.projectId);
+        if (!project) return errorJson(404, "Not found");
+        const serviceConv = await getOrCreateExtServiceConversation({ extensionName: name, projectId: project.id, userId: user.id, title: `${name} gate — ${project.name}` });
+        const alreadyWired = await getConversationExtensionIds(serviceConv.id);
+        if (!alreadyWired.includes(ext.id)) await addConversationExtensions(serviceConv.id, [{ extensionId: ext.id }]);
+        serviceConversationId = serviceConv.id;
       }
 
       // Mint a per-fire reverse-RPC provenance token (onBehalfOf = the
@@ -343,29 +339,13 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         kind: "event",
         ownerless: false,
       }, { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS });
-      const delivered = proc.sendNotification(`ezcorp/event/${fullEventName}`, {
-        source: "hub",
-        pageId,
-        userId: user.id,
-        ...(payload !== undefined ? { payload } : {}),
-        _meta: { ezCallId },
-      });
-      // A dropped notification USED TO BE REPORTED AS SUCCESS. The action
-      // vanished, this route answered `{ok:true}` with a 200, and the Hub
-      // showed no error — so an operator's save was silently lost and the
-      // only way to notice was that the page never changed. `delivered`
-      // is the whole reason `sendNotification` returns a boolean; not
-      // checking it here would leave the silence exactly where it was.
-      if (!delivered) {
-        releaseCallProvenance(ezCallId);
-        log.warn("hub action notification was not delivered to the subprocess", {
-          extensionId: ext.id,
-          name,
-          event,
-          pageId,
+      try {
+        await proc.sendNotification(`ezcorp/event/${fullEventName}`, {
+          source: "hub", pageId, userId: user.id,
+          ...(payload !== undefined ? { payload } : {}),
+          _meta: { ezCallId, idempotencyKey },
         });
-        return errorJson(503, "Extension is not accepting actions right now — try again");
-      }
+      } finally { releaseCallProvenance(ezCallId); }
     } catch (err) {
       log.warn("hub action subprocess dispatch failed", {
         extensionId: ext.id,
@@ -373,6 +353,9 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         event,
         error: err instanceof Error ? err.message : String(err),
       });
+      if (err instanceof LifecycleError && err.code === "event_conflict") return errorJson(409, "This action key was already used for a different payload.");
+      if (err instanceof LifecycleError && err.code === "event_admission_full") return errorJson(503, "Event admission capacity is full.");
+      if (err instanceof LifecycleError && err.code === "delivery_unavailable") return errorJson(503, "Extension is not accepting actions right now — try again");
       return errorJson(500, "Extension is unavailable");
     }
 
@@ -658,7 +641,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       // .planning/phases/54-security-backbone-hardening-cc1-cc5-claim-1/54-03-PLAN.md
       engine: getPermissionEngine(),
     };
-    const response = await handleAppendMessageRpc(ext.id, rpcReq, ctx);
+    const response = await handleAppendMessageRpc(ext.id, rpcReq, { ...ctx, bus: getBus() });
     const respHasError = "error" in response && response.error;
     if (respHasError) {
       recordStage("[messageToolbar] append-message response", {
@@ -684,17 +667,6 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     // recognises the synthetic `ext:` runId and calls
     // `loadMessages()` to fetch the new row + its tool-card.
     const runId = `ext:${ext.id}:${result.messageId}`;
-    getBus().emit("run:turn_saved", {
-      runId,
-      conversationId,
-      messageId: result.messageId,
-      parentMessageId: messageId,
-      content: headerContent,
-      // Extension-authored turns are one-shot and route through
-      // handleExtensionTurnSaved on the client, not the streaming
-      // placeholder path.
-      final: true,
-    });
     recordStage("[messageToolbar] run:turn_saved emitted", {
       runId,
       messageId: result.messageId,
@@ -761,11 +733,22 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // `conversation_extensions` wiring + per-extension rate limit).
   // The SSE filter treats this event as a direct carrier because
   // `isRegisteredExtensionEvent` returned true.
-  getBus().emit(fullEventName as never, {
-    ...(typeof toolCallId === "string" ? { toolCallId } : {}),
-    conversationId,
-    ...userData,
-  } as never);
+  try {
+    const key = validateEventActionKey(request.headers.get("Idempotency-Key"));
+    await admitConversationExtensionAction(user.id, name, fullEventName, key, {
+      ...userData,
+      ...(typeof toolCallId === "string" ? { toolCallId } : {}),
+      conversationId,
+    }, getBus());
+  } catch (error) {
+    if (error instanceof LifecycleError) {
+      if (error.code === "invalid_event_key" || error.code === "event_payload_limit") return errorJson(400, error.message);
+      if (error.code === "event_not_found") return errorJson(404, "Not found");
+      if (error.code === "event_conflict") return errorJson(409, error.message);
+      if (error.code === "event_admission_full" || error.code === "event_queue_full") return errorJson(503, error.message);
+    }
+    throw error;
+  }
 
   return json({ ok: true });
 };

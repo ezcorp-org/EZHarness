@@ -20,7 +20,7 @@
 //
 // `restoreModuleMocks()` in `afterAll` hands the real module back.
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import * as realRuntime from "@ezcorp/sdk/runtime";
 
 afterAll(() => {

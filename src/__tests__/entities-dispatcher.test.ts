@@ -21,7 +21,7 @@ import {
 mockDbConnection();
 
 import { eq } from "drizzle-orm";
-import { extensions, extensionStorage, users } from "../db/schema";
+import { extensions, extensionStorage, users, conversations, messages, projects, toolCalls } from "../db/schema";
 import {
   _resetToolCallsCounterForTests,
   ToolExecutor,
@@ -67,6 +67,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await setupTestDb();
   const db = getTestDb();
   await db.delete(extensions);
   await db.delete(users);
@@ -98,6 +99,9 @@ beforeEach(async () => {
     })
     .returning();
   extId = e!.id;
+  const [project] = await db.insert(projects).values({ name: "Entity dispatch", path: "/tmp/entity-dispatch" }).returning();
+  await db.insert(conversations).values({ id: "conv-1", userId, projectId: project!.id });
+  await db.insert(messages).values([1, 2, 3, 4].map(index => ({ id: `msg-${index}`, conversationId: "conv-1", role: "assistant" as const, content: "" })));
 });
 
 /**
@@ -143,6 +147,7 @@ describe("ToolExecutor — entity tools dispatch SDK-served", () => {
       data: { name: string; cadence: string };
     };
     expect(out.slug).toBe("weekly");
+    expect(await getTestDb().select().from(toolCalls)).toHaveLength(1);
 
     const db = getTestDb();
     const rows = await db

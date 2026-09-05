@@ -5,6 +5,7 @@ afterAll(() => restoreModuleMocks());
 import type { ToolDefinition, } from "../extensions/types";
 import { ExtensionRegistry, type RegisteredTool } from "../extensions/registry";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
+import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
 
 // ── Mock DB layer (registry.loadFromDb calls listExtensions) ─────
 mock.module("../db/queries/extensions", () => ({
@@ -358,11 +359,19 @@ describe("ToolExecutor setStateMediator wiring", () => {
 				method: "ezcorp/state",
 				params: { count: 42 },
 			});
+			expect(events.find(event => event.name === "ext:state")).toBeUndefined();
+			const token = registerCallProvenance({ onBehalfOf: "state-owner", conversationId: "conv-1", runId: null, parentCallId: null, actorExtensionId: "ext-mediator", kind: "render", ownerless: false });
+			try {
+				capturedNotifHandler!({ jsonrpc: "2.0", method: "ezcorp/state", params: { count: 42, _meta: { ezCallId: token } } });
+			} finally {
+				releaseCallProvenance(token);
+			}
 
 			// The mediator should have routed it to the bus as ext:state
 			const stateEvent = events.find(e => e.name === "ext:state");
 			expect(stateEvent).toBeDefined();
 			expect(stateEvent!.data.extensionId).toBe("ext-mediator");
+			expect(stateEvent!.data.userId).toBe("state-owner");
 			expect(stateEvent!.data.state).toEqual({ count: 42 });
 		} finally {
 			registry.getProcess = originalGetProcess;
@@ -385,3 +394,5 @@ describe("ToolExecutor setStateMediator wiring", () => {
 		expect(() => executor.setStateMediator(mediator)).not.toThrow();
 	});
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

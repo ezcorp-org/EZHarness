@@ -2,10 +2,11 @@
 // log-analyzer - Search and filter log files
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { getChannel } from "@ezcorp/sdk/runtime";
+import { unwrapToolResponse } from "@ezcorp/sdk/v4";
 import { fsRead } from "@ezcorp/sdk/runtime";
 import { resolve, normalize } from "node:path";
 
-const decoder = new TextDecoder();
 const cwd = process.cwd();
 
 // `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
@@ -15,12 +16,6 @@ const cwd = process.cwd();
 // is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
 // its writer survives the sandbox. Cached lazily so we don't pay
 // the writer-creation cost on every JSON-RPC frame.
-let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
-function writeStdout(s: string): void {
-  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
-  stdoutWriter.write(s);
-  void stdoutWriter.flush();
-}
 
 function isUnderCwd(filePath: string): boolean {
   const resolved = resolve(cwd, normalize(filePath));
@@ -138,26 +133,14 @@ async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> {
 // would lock stdin's reader the moment anything imported this file, hanging
 // `index.test.ts` on a read that never resolves. Same shape as file-refactor
 // / todo-tracker.
-export async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, idx).trim();
-      buffer = buffer.slice(idx + 1);
-      if (!line) continue;
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = await handleRequest(req);
-        writeStdout(JSON.stringify(res) + "\n");
-      } catch { /* ignore malformed */ }
-    }
-  }
+export function start(): void {
+  const channel = getChannel();
+  channel.onRequest("tools/call", async (params) => unwrapToolResponse(await handleRequest({
+    jsonrpc: "2.0", id: 0, method: "tools/call", params: params as Record<string, unknown>,
+  })));
 }
+
+export const main = start;
 
 /** Exported for `index.test.ts`, mirroring file-refactor's `_internals`
  *  convention. */

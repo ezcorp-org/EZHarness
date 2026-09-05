@@ -22,6 +22,7 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import type { AgentEvents, WorkflowDefinition, WorkflowRun } from "../types";
 import type { WorkflowRuntime } from "../runtime/workflow/runtime-registry";
+import { systemCachedWorkflow } from "../runtime/workflow-scope";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -275,6 +276,17 @@ function runner(
 }
 
 describe("claim is a CAS, so exactly one racer wins", () => {
+  test("the daemon releases an extension claim when release authority is missing", async () => {
+    await parkedRun("release-denied");
+    const { runtime, resumed } = fakeRuntime();
+    runtime.getCachedWorkflows = () => [systemCachedWorkflow(definition, "extension")];
+    const daemon = runner(runtime);
+    await daemon.tick();
+    await daemon.drain();
+    expect(resumed).toEqual([]);
+    expect((await getWorkflowRunRow("release-denied"))?.status).toBe("suspended");
+  });
+
   test("the winner takes the run to running under lease; the loser gets false", async () => {
     await parkedRun("r1");
 
@@ -1170,6 +1182,8 @@ describe("resumeArgsFromRow", () => {
       definitionHash: null,
       projectId: "proj-9",
       userId: null,
+      runAsKind: null,
+      runAs: null,
       startedAt: row!.startedAt,
       // C7. A resumed run re-derives its nesting depth by walking this
       // pointer, so a projection that dropped it would resume a nested run
@@ -1187,5 +1201,9 @@ describe("resumeArgsFromRow", () => {
       // queries, and look perfectly healthy.
       delegationId: null,
     });
+    const serviceArgs = resumeArgsFromRow({ ...row!, runAsKind: "service", runAs: "service-account" });
+    expect(serviceArgs.runAsKind).toBe("service");
+    expect(serviceArgs.runAs).toBe("service-account");
+    expect(serviceArgs.userId).toBeNull();
   });
 });

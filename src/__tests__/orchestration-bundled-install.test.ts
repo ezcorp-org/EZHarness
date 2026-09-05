@@ -1,93 +1,7 @@
-/**
- * Tests the bundled install path for the `orchestration` extension —
- * Phase 4 commit-4a promoted the extension scaffold (shipped in commit 3)
- * into BUNDLED_EXTENSIONS so `ensureBundledExtensions()` creates its DB
- * row on first boot. Dual-wired at that point: the executor's legacy
- * invoke-agent path was still live through commit-4a, so installing
- * the extension row was a no-op for LLM turns until commit 5 flipped
- * the wiring.
- *
- * Pattern mirrors scratchpad-bundled-install + task-tracking-bundled-
- * install: in-memory `store` mock of `db/queries/extensions`, no real DB.
- * Covers: entry shape, permissions block parity with the plan, idempotent
- * install, `isBundled=true` provenance, no storage-row touch (the
- * extension has no persistent state), and the mention-picker surface.
- */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-
-// insertAuditEntry is mocked to a no-op because the store-level mocks
-// below don't initialize a real DB; the audit-write path would otherwise
-// blow up on the missing getDb().
-mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async () => {},
-  listAuditLog: async () => [],
-  listAuditForExtension: async () => [],
-}));
-
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
-// Track writes to extension_storage so we can assert the extension
-// creates zero rows. The orchestration extension has no persistent
-// state; any write would be an error.
-let storageWrites: Array<{ extId: string; key: string }> = [];
-
-mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: extStore.getExtensionByName,
-  createExtension: extStore.createExtension,
-  listExtensions: extStore.listExtensions,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  incrementFailures: async () => 0,
-  resetFailures: async () => undefined,
-  disableExtension: async () => undefined,
-}));
-
-// Observe any storage writes so the "no state" invariant is testable.
-mock.module("../db/queries/extension-storage", () => ({
-  getStorageValue: async () => null,
-  setStorageValue: async (extId: string, _scope: string, _scopeId: string, key: string) => {
-    storageWrites.push({ extId, key });
-    return { ok: true };
-  },
-  deleteStorageValue: async () => true,
-}));
-
-// Task-tracking's migration runs in ensureBundledExtensions — stub it to
-// avoid pulling in the real PGlite driver.
-mock.module("../extensions/migrations/task-tracking-storage", () => ({
-  migrateBuiltinTaskStorage: async () => {},
-}));
-
-// Phase 5's bundled-lock check verifies the on-disk manifest's tools
-// hash against `manifest.lock.json` and disables the extension on
-// drift. This integration-style test exercises the install + idempotency
-// path; the lock semantics live in `manifest-tamper.test.ts`. The
-// bundled extension manifests on this branch have legitimate tool
-// list updates that postdate the committed lockfile, so we stub the
-// verifier to always-ok here. A separate maintenance commit
-// regenerates `manifest.lock.json` to bring the on-disk file back in
-// sync with the manifests.
-mock.module("../extensions/bundled-lock", () => ({
-  verifyManifestAgainstLock: async () => ({ ok: true }),
-  canonicalizeAndHash: () => "sha256-stub",
-  loadManifestLock: async () => ({ schemaVersion: 1, generatedAt: "", extensions: {} }),
-}));
-
-afterAll(() => restoreModuleMocks());
-
-import {
-  ensureBundledExtensions,
-  resolveBundledExtensions,
-  isBundledExtensionName,
-} from "../extensions/bundled";
-
-beforeEach(() => {
-  extStore.reset();
-  storageWrites = [];
-});
+import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { getProjectRoot, resolveBundledExtensions, isBundledExtensionName } from "../extensions/bundled";
+import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
 
 describe("resolveBundledExtensions — orchestration entry", () => {
   test("includes orchestration by default with no opt-out flag", () => {
@@ -130,67 +44,17 @@ describe("resolveBundledExtensions — orchestration entry", () => {
 });
 
 describe("isBundledExtensionName — orchestration is recognized", () => {
-  test("returns true so the integrity check is skipped on spawn", () => {
+  test("recognizes the reviewed bundled source", () => {
     expect(isBundledExtensionName("orchestration")).toBe(true);
   });
 });
 
-describe("ensureBundledExtensions — first-boot install", () => {
-  test("creates an orchestration row with enabled=true and all permissions granted", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("orchestration");
-    expect(row).toBeDefined();
-    expect(row!.name).toBe("orchestration");
-    expect(row!.enabled).toBe(true);
-    const granted = row!.grantedPermissions as {
-      agentConfig?: string;
-      spawnAgents?: unknown;
-      eventSubscriptions?: unknown;
-    };
-    expect(granted.agentConfig).toBe("read");
-    expect(granted.spawnAgents).toEqual({ maxPerHour: 500, maxConcurrent: 25 });
-    expect(granted.eventSubscriptions).toEqual([
-      "task:assignment_update",
-    ]);
-  });
 
-  test("manifest declares invoke_agent + collect_agent_result + send_to_agent — ask_human moved to the `ask-user` extension", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("orchestration")!;
-    const manifest = row.manifest as { tools?: Array<{ name: string }>; version?: string };
-    const names = (manifest.tools ?? []).map((t) => t.name).sort();
-    // ask_human is gone (ask-user migration); Phase B2 added the background
-    // sub-agent collector and B3 the steering/continuation tool alongside
-    // invoke_agent.
-    expect(names).toEqual(["collect_agent_result", "invoke_agent", "send_to_agent"]);
-    // Version bumped when ask_human shipped (1.1.0); the ask-user
-    // migration may bump it again, so just assert the major+minor are
-    // ≥ 1.1 rather than pin a specific point release.
-    expect(manifest.version?.startsWith("1.")).toBe(true);
-  });
-
-  test("re-running ensureBundledExtensions is idempotent — same row, still enabled", async () => {
-    await ensureBundledExtensions();
-    const rowId1 = store.get("orchestration")!.id;
-    await ensureBundledExtensions();
-    const rowId2 = store.get("orchestration")!.id;
-    expect(rowId2).toBe(rowId1);
-    expect(store.get("orchestration")!.enabled).toBe(true);
-  });
-
-  test("sets isBundled=true on the DB row so the integrity-check skip applies", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("orchestration")!;
-    expect(row.isBundled).toBe(true);
-  });
-
-  test("creates no extension_storage rows — the orchestration extension has no persistent state", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("orchestration")!;
-    // Filter to just this extension's writes; task-tracking may write
-    // schema-version markers if the migration ran against a real DB,
-    // but our stub is a no-op — still, belt-and-suspenders.
-    const ownWrites = storageWrites.filter((w) => w.extId === row.id);
-    expect(ownWrites).toHaveLength(0);
-  });
+test("orchestration actual v4 worker preserves its complete tool catalog and declared capabilities", async () => {
+  const manifest = await discoverFirstPartyManifest(join(getProjectRoot(), "docs/extensions/examples/orchestration"));
+  expect((manifest.tools ?? []).map((tool) => tool.name).sort()).toEqual(["collect_agent_result","invoke_agent","send_to_agent"]);
+  const entry = resolveBundledExtensions({}).find((candidate) => candidate.name === "orchestration")!;
+  const { grantedAt, ...capabilities } = entry.permissions;
+  expect(manifest.permissions as unknown).toEqual(capabilities);
+  expect(manifest.version.startsWith("1.")).toBe(true);
 });

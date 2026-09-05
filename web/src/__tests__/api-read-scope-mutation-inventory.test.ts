@@ -37,12 +37,6 @@
  * broken shape fails the build instead of silently shrinking the inventory.
  *
  * ── WHAT THIS METHOD CANNOT SEE (stated, not hidden) ───────────────────────
- *  1. Gates in an IMPORTED helper. Verified empirically to be a non-issue
- *     TODAY: the only cross-file `requireScope` caller in `web/src` is
- *     `authGithubRoute` (`routes/api/integrations/github-projects/_shared.ts:46`,
- *     scope `extensions`, not `read`). `crossFileGatingHelpers` below re-derives
- *     that set on every run, so if a SECOND one ever appears the test fails and
- *     forces this comment to be re-verified.
  *  2. Dynamically computed scopes (`requireScope(locals, someVar)`). None exist;
  *     asserted below.
  *  3. Gate ORDER. It reports the scopes a handler can require, not which fires
@@ -397,11 +391,10 @@ describe("the detection method itself (this is what the audit got wrong)", () =>
     expect(scopesIn(closureSource(topLevelDecls(src), "POST"))).toEqual(["read"]);
   });
 
-  test("the only cross-file scope gate is authGithubRoute (extensions)", () => {
-    // The one gate this file-local scan would otherwise be blind to. Frozen so
-    // that a SECOND cross-file gate cannot appear without forcing a re-read of
-    // this module's "what it cannot see" contract.
+  test("cross-file gates remain limited to extension admission and GitHub authorization", () => {
     expect([...crossFileGatingHelpers()]).toEqual([
+      ["hooks.server.ts:handleApp", ["extensions"]],
+      ["hooks.server.ts:handle", ["extensions"]],
       ["routes/api/integrations/github-projects/_shared.ts:authGithubRoute", ["extensions"]],
     ]);
   });

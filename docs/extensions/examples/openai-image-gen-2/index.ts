@@ -11,6 +11,7 @@ import {
   toolResult,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
+import { getGrantedEnv, getInvocationContext } from "@ezcorp/sdk/v4";
 
 import { augmentPrompt, fieldsFromInput } from "./prompt-augment";
 import {
@@ -110,7 +111,10 @@ export function makeGenerateHandler(): ToolHandler {
     const finalPrompt = augmentPrompt(prompt, augment, fields);
     const n = clampN(input.n);
 
-    const authPath = resolveAuthPath();
+    const authPath = resolveAuthPath(getInvocationContext() ? {
+      OPENAI_ACCESS_TOKEN: await getGrantedEnv("OPENAI_ACCESS_TOKEN") ?? undefined,
+      OPENAI_API_KEY: await getGrantedEnv("OPENAI_API_KEY") ?? undefined,
+    } : undefined);
     if (!authPath) {
       return toolError(
         "Authentication error: connect OpenAI via the platform's OpenAI sign-in (preferred, uses your subscription) or set an sk-… key in admin settings. Neither OPENAI_ACCESS_TOKEN nor OPENAI_API_KEY was injected.",

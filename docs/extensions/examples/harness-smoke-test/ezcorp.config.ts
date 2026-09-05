@@ -1,5 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
-import { handleRequest } from "./index";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Canonical regression fixture for the deterministic & loop-proof
 // extension builder. This is the EXACT extension an in-app agent built
@@ -15,13 +14,13 @@ import { handleRequest } from "./index";
 // so the spec-locked `expect.textIncludes` (`"ok": true`, with the
 // post-colon space) is a literal substring of the round-tripped output.
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "harness-smoke-test",
   version: "1.0.0",
   description:
     "Canonical loop-incident regression fixture: a minimal ping tool wired to the deterministic smokeTest acceptance gate.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "ping",
@@ -36,7 +35,6 @@ export default defineExtension({
           },
         },
       },
-      handler: handleRequest,
     },
   ],
   // Deterministic acceptance contract (spec §Phase E, verbatim).

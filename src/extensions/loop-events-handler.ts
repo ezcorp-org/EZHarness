@@ -1,61 +1,26 @@
 /**
- * Handles the `ezcorp/emit-loop-event` reverse RPC (Loops EZ Mode Phase 2).
- *
- * Lets a loop primitive (running in an isolated extension subprocess) emit the
- * three CONTENT-FREE approval nudges onto the SAME host `AgentEvents` bus every
- * other platform event uses — the reverse RPC is only the transport, NOT a
- * parallel bus:
- *
- *   - `approval_pending`  → emits `loops:approval_pending`
- *   - `approval_resolved` → emits `loops:approval_resolved`
- *   - `auto_disabled`     → emits `loops:auto_disabled` (user-visible notice
- *                           when a loop auto-disables — never a silent stop)
- *
- * This is deliberately SEPARATE from `ezcorp/emit-task-event`: task events are
- * FORCED to the host's `currentConversationId` and rejected when the context is
- * unbound, but loops fire ownerless (cron) and may be global-scope, so their
- * nudge must be emittable WITHOUT a conversation. It brings the emit-task-event
- * SECURITY posture across, adapted for the ownerless / global-broadcast shape:
- *
- *   1. Kill-switch: the capability tier's `EZCORP_DISABLE_CAPABILITY_TOOLS`
- *      env flag disables loop-event emission along with the rest of the tier.
- *   2. Permission gate: `loopEvents` (PDP cap `ezcorp:loops:emit`), the
- *      least-privilege analog of emit-task-event's `taskEvents`. A larger
- *      blast radius (global broadcast) earns its OWN gate rather than riding
- *      the conversation-forced `taskEvents` grant.
- *   3. loopId PROVENANCE: the wire `loopId` is STAMPED host-side as
- *      `<extensionId>:<loopId>` from the handler's own `extensionId` (never
- *      caller-supplied identity), so an extension can only emit for its own
- *      loops — it structurally cannot forge or target another extension's
- *      loop id.
- *   4. Rate limit: the same 50 ops/sec limiter the other capability-RPC
- *      handlers use bounds a leaked/looping emitter.
- *
- * AUDIT — the tamper-evident mirror. Both a successful emission
- * (`LOOP_EVENT_EMITTED`) AND every rejection (`LOOP_EVENT_REJECTED`) write an
- * audit row via the established `insertAuditEntry` path. The `approval_resolved`
- * emission is the independent, append-only MIRROR of the LOCKED per-loop
- * approval-label store (`loop-types.ts`) — the label history can be
- * cross-checked against a stream the extension cannot rewrite.
- *
- * Trust model: the payload is content-free by construction (loopId + runId,
- * + `decision` on resolve) — never the proposal body. The optional
- * `conversationId` is passed through verbatim: it only scopes SSE delivery, and
- * the SSE filter authorizes conversation delivery to the OWNER only, so a
- * forged id can at worst hand a different user a spurious "some loop changed"
- * refresh nudge (they then GET the authorized dashboard — the source of truth).
- * No data crosses.
+ * Admit loop notices, not human approval decisions or extension storage writes.
+ * Scoped notices commit receipt, audit, and subscriber outbox in one transaction.
+ * Global notices are explicitly ephemeral UI invalidations without dispatch.
  */
-
 import type { JsonRpcRequest, JsonRpcResponse, ExtensionPermissions } from "./types";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { PermissionEngine } from "./permission-engine";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
-import { insertAuditEntry } from "../db/queries/audit-log";
+import { insertAuditEntry, insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { rpcError, rpcResult } from "./json-rpc";
+import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
+import { sql } from "drizzle-orm";
+import { getDb } from "../db/connection";
+import { admitEventInTransaction } from "../db/queries/extension-event-receipts";
+import { releaseRows } from "../db/queries/extension-releases";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "./domain-event-outbox";
+import { resolveCallProvenance } from "./call-provenance";
+import { LifecycleError } from "./v4/types";
+import type { MigrationDb } from "../db/migrations/types";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -107,7 +72,7 @@ async function auditReject(
 /** Write a successful-emission audit row (the tamper-evident mirror). Never
  *  throws. Carries the host-STAMPED loopId so the row is attributable to the
  *  emitting extension's own namespace. */
-async function auditEmit(
+async function auditEphemeralNotice(
   extensionId: string,
   userId: string | null,
   type: string,
@@ -125,6 +90,34 @@ async function auditEmit(
     });
   } catch {
     // The mirror is best-effort at the write; the emission already happened.
+  }
+}
+
+async function acceptNotice(extensionId: string, req: JsonRpcRequest, ctx: LoopEventsContext, type: "approval_pending" | "approval_resolved" | "auto_disabled", payload: Record<string, unknown>, identity: string | undefined): Promise<JsonRpcResponse> {
+  const conversationId = typeof payload.conversationId === "string" ? payload.conversationId : undefined;
+  const userId = ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null;
+  if (!conversationId) {
+    await auditEphemeralNotice(extensionId, userId, type, String(payload.loopId), { ...payload, durable: false, approvalAuthority: false });
+    ctx.bus?.emit(`loops:${type}`, payload as AgentEvents[`loops:${typeof type}`]);
+    return rpcResult(req.id, { ok: true, durable: false });
+  }
+  if (!userId || !identity) return rpcError(req.id, -32602, "A host-bound principal and run identity are required for scoped loop notices");
+  try {
+    const key = await sha256(canonicalJson([extensionId, payload.loopId, identity, type]));
+    let event: DomainExtensionEvent | undefined;
+    const admitted = await getDb().transaction(async (transaction: MigrationDb) => {
+      const owners = releaseRows<{ user_id: string }>(await transaction.execute(sql`SELECT c.user_id FROM conversations c JOIN users u ON u.id = c.user_id WHERE c.id = ${conversationId} AND c.user_id = ${userId} AND u.status = 'active' FOR SHARE OF c, u`));
+      if (owners.length !== 1) throw new LifecycleError("permission_denied", "The active principal must own the host-bound conversation");
+      return admitEventInTransaction(transaction, { principalId: userId, namespace: "loop-notice", key, scope: conversationId, payload }, async eventId => {
+        await insertTransactionalAuditEntry(transaction, eventId, userId, EXT_AUDIT_ACTIONS.LOOP_EVENT_EMITTED, extensionId, { permission: "loopEvents", newValue: type, actor: "extension", ...payload, durable: true, approvalAuthority: false });
+        event = { id: eventId, type: `loops:${type}`, conversationId, payload };
+        return publishDomainEvent(transaction, event);
+      });
+    });
+    if (admitted.accepted && event) emitPersistedDomainEvent(ctx.bus, event);
+    return rpcResult(req.id, { ok: true, durable: true, receiptId: admitted.receipt.id, duplicate: !admitted.accepted });
+  } catch (error) {
+    return rpcError(req.id, -32001, error instanceof LifecycleError ? error.message : "Loop notice admission failed; no notice was accepted");
   }
 }
 
@@ -181,7 +174,7 @@ export async function handleEmitLoopEventRpc(
     return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
   }
 
-  const type = isString(params.type) ? params.type : undefined;
+  const type = isString(params.type) && params.type.length <= 32 ? params.type : undefined;
   const payload = params.payload;
   if (!isObj(payload)) {
     await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload: not an object"] });
@@ -190,7 +183,7 @@ export async function handleEmitLoopEventRpc(
 
   const { loopId, conversationId } = payload;
   // loopId + conversationId shape are common to every event type.
-  if (!isString(loopId) || loopId.length === 0) {
+  if (!isString(loopId) || loopId.length === 0 || loopId.length > 128) {
     await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.loopId is required"] });
     return rpcError(req.id, -32602, "payload.loopId is required");
   }
@@ -198,10 +191,15 @@ export async function handleEmitLoopEventRpc(
     await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.conversationId must be a string when present"] });
     return rpcError(req.id, -32602, "payload.conversationId must be a string when present");
   }
+  const hostConversation = ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : undefined;
+  if (conversationId && conversationId !== hostConversation) {
+    await auditReject(extensionId, userIdForAudit, "scope-mismatch");
+    return rpcError(req.id, -32602, "payload.conversationId does not match the host-bound conversation");
+  }
   // Only forward a non-empty conversationId (empty → global broadcast).
   const conv =
-    isString(conversationId) && conversationId.length > 0
-      ? { conversationId }
+    hostConversation
+      ? { conversationId: hostConversation }
       : {};
 
   // loopId PROVENANCE — stamp the wire id with THIS extension's id, taken
@@ -215,34 +213,31 @@ export async function handleEmitLoopEventRpc(
   // The approval events carry a runId; the auto-disable notice does not.
   if (type === "approval_pending" || type === "approval_resolved") {
     const runId = payload.runId;
-    if (!isString(runId) || runId.length === 0) {
+    if (!isString(runId) || runId.length === 0 || runId.length > 128) {
       await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.runId is required"] });
       return rpcError(req.id, -32602, "payload.runId is required");
     }
     if (type === "approval_pending") {
-      ctx.bus?.emit("loops:approval_pending", { loopId: wireLoopId, runId, ...conv });
-      await auditEmit(extensionId, userIdForAudit, type, wireLoopId, { runId });
-      return rpcResult(req.id, { ok: true });
+      return acceptNotice(extensionId, req, ctx, type, { loopId: wireLoopId, runId, ...conv }, runId);
     }
     const decision = payload.decision;
     if (decision !== "approved" && decision !== "declined") {
       await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.decision must be 'approved' | 'declined'"] });
       return rpcError(req.id, -32602, "payload.decision must be 'approved' | 'declined'");
     }
-    ctx.bus?.emit("loops:approval_resolved", { loopId: wireLoopId, runId, decision, ...conv });
-    await auditEmit(extensionId, userIdForAudit, type, wireLoopId, { runId, decision });
-    return rpcResult(req.id, { ok: true });
+    return acceptNotice(extensionId, req, ctx, type, { loopId: wireLoopId, runId, decision, ...conv }, runId);
   }
 
   if (type === "auto_disabled") {
     const consecutiveErrors = payload.consecutiveErrors;
-    if (typeof consecutiveErrors !== "number" || !Number.isFinite(consecutiveErrors)) {
-      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.consecutiveErrors must be a finite number"] });
-      return rpcError(req.id, -32602, "payload.consecutiveErrors must be a finite number");
+    if (typeof consecutiveErrors !== "number" || !Number.isSafeInteger(consecutiveErrors) || consecutiveErrors < 0) {
+      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.consecutiveErrors must be a non-negative safe integer"] });
+      return rpcError(req.id, -32602, "payload.consecutiveErrors must be a non-negative safe integer");
     }
-    ctx.bus?.emit("loops:auto_disabled", { loopId: wireLoopId, consecutiveErrors, ...conv });
-    await auditEmit(extensionId, userIdForAudit, type, wireLoopId, { consecutiveErrors });
-    return rpcResult(req.id, { ok: true });
+    const meta = isObj(params._meta) ? params._meta : undefined;
+    const provenance = typeof meta?.ezCallId === "string" ? resolveCallProvenance(meta.ezCallId) : undefined;
+    const identity = provenance?.actorExtensionId === extensionId && !provenance.ownerless && provenance.onBehalfOf === ctx.userId && provenance.conversationId === hostConversation ? provenance.runId ?? undefined : undefined;
+    return acceptNotice(extensionId, req, ctx, type, { loopId: wireLoopId, consecutiveErrors, ...conv }, identity);
   }
 
   await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: [`type: unknown value ${String(type)}`] });

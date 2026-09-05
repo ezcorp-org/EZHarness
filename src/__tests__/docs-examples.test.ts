@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { validateManifestV2 } from "../extensions/manifest";
-import { loadManifest } from "../extensions/loader";
+import { validateManifest } from "@ezcorp/extension-contract";
+import { discoverFirstPartyManifest as loadManifest } from "./helpers/first-party-manifest";
 import { join } from "path";
 
 const EXAMPLES_DIR = join(import.meta.dir, "../../docs/extensions/examples");
@@ -31,9 +31,8 @@ describe("example manifests pass validation", () => {
   for (const name of EXAMPLES) {
     test(`${name}/ezcorp.config.ts is valid`, async () => {
       const manifest = await readManifest(name);
-      const result = validateManifestV2(manifest);
-      expect(result.errors).toEqual([]);
-      expect(result.valid).toBe(true);
+      expect(validateManifest(manifest)).toEqual(manifest);
+      expect(manifest.schemaVersion).toBe(4);
     });
   }
 });
@@ -121,10 +120,11 @@ describe("weather", () => {
 });
 
 describe("multi-agent-orchestrator", () => {
-  test("has agent, subAgents, and no entrypoint", async () => {
+  test("preserves planner and executor instructions in the supported agent contribution", async () => {
     const m = await readManifest("multi-agent-orchestrator");
     expect(m.agent).toBeDefined();
-    expect((m as any).subAgents).toBeDefined();
+    expect(m.agent?.prompt).toContain("Planner instructions:");
+    expect(m.agent?.prompt).toContain("Executor instructions:");
     expect(m.entrypoint).toBeUndefined();
   });
 });

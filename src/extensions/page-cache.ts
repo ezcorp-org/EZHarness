@@ -1,13 +1,9 @@
 /**
  * Extension Pages Hub — in-memory cache of last-validated page trees.
  *
- * Keyed by (extensionId, pageId, variant) — the variant is a project
- * id for `perProject` pages, empty for the global render. Two writers:
- *   1. The render-pull path (`web/src/lib/server/hub-render-pull.ts`)
- *      caches the subprocess's validated `ezcorp/page.render` result.
- *   2. The state mediator caches validated `ezcorp/page-state` pushes
- *      (the push IS the freshest content — extension pages are
- *      per-extension, not per-user, so the cache can serve everyone).
+ * Keyed by (extensionId, pageId, principal-and-authority variant).
+ * Only host render-pull writes validated private trees. Extension pushes
+ * invalidate entries; they never seed a shared response.
  *
  * Read policy (~60s TTL):
  *   - fresh  → serve instantly.

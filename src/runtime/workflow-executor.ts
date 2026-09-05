@@ -13,7 +13,7 @@ import type {
   WorkflowStepInputSink,
   WorkflowStepRun,
 } from "../types";
-import type { AgentExecutor } from "./executor";
+import type { AgentExecutor, AgentExecutionControl } from "./executor";
 import type { DelegationOwnerKind } from "../db/schema";
 import type { EventBus } from "./events";
 import { resumeReasonRefusal } from "./workflow-resume-reasons";
@@ -43,6 +43,11 @@ import { MAX_WORKFLOW_NESTING_DEPTH } from "./workflow-closure";
 import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
+import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
+import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
+import type { InvocationGuard } from "../extensions/runtime-locks";
+import { createHostServiceInvocation, createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
+import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
@@ -63,7 +68,8 @@ import {
   upsertWorkflowStepIteration,
   type WorkflowStepIterationUpsert,
 } from "../db/queries/workflow-step-iterations";
-import { workflowDefinitionHash } from "./workflow-definition-hash";
+import { workflowExecutionHash } from "./workflow-definition-hash";
+import { isPureWorkflowExecutor } from "./workflow-dry-run";
 import {
   getWorkflowApproval,
   hasPendingApproval,
@@ -247,6 +253,7 @@ export interface WorkflowExecutorOptions {
 /** Per-call inputs to {@link WorkflowExecutor.resumeWorkflow} that come
  *  from the CALLER rather than from the run's row. */
 export interface ResumeWorkflowOptions {
+  entry?: CachedWorkflow;
   /**
    * The caller's `claimed_by` identity, when it is resuming a run whose
    * claim it already holds.
@@ -282,7 +289,7 @@ export interface ResumeWorkflowOptions {
  */
 export type NestedWorkflowResolver = (
   name: string,
-  ctx: { userId?: string; projectId?: string },
+  ctx: { userId?: string; projectId?: string; authority?: WorkflowExecutionAuthority },
 ) => WorkflowDefinition | undefined | Promise<WorkflowDefinition | undefined>;
 
 /**
@@ -317,6 +324,7 @@ export function nestedRunKey(
  * render to and the run parks `awaiting_approval` instead of hanging.
  */
 export interface WorkflowRunOptions {
+  invocationGuard?: InvocationGuard;
   /**
    * The REAL chat conversation this run belongs to. Set ⇒ INTERACTIVE: no
    * non-interactive scope is registered, so a sensitive step's permission
@@ -435,6 +443,28 @@ export class WorkflowExecutor {
   private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
   private readonly workflowResolver?: NestedWorkflowResolver;
 
+  private createHostParentResolver(
+    workflow: WorkflowDefinition,
+    authority: WorkflowExecutionAuthority,
+  ): HostWorkflowParentResolver | undefined {
+    if (!this.workflowResolver) return undefined;
+    const captured = new Map<string, WorkflowDefinition>();
+    const keyFor = (name: string, current: WorkflowExecutionAuthority) => JSON.stringify([name, current.userId ?? null, current.projectId ?? null, current.delegationId ?? null, current.runAsKind ?? null, current.runAs ?? null]);
+    const initialKey = keyFor(workflow.name, authority);
+    captured.set(initialKey, structuredClone(workflow));
+    return async (name, authority, database) => {
+      const key = keyFor(name, authority);
+      const existing = captured.get(key);
+      if (existing) return existing;
+      if (!captured.has(key) && captured.size >= MAX_WORKFLOW_NESTING_DEPTH) return undefined;
+      const definition = await this.workflowResolver!(name, { userId: authority.userId ?? undefined, projectId: authority.projectId ?? undefined, authority });
+      if (!definition) { captured.delete(key); return undefined; }
+      const snapshot = structuredClone(definition);
+      captured.set(key, snapshot);
+      return snapshot;
+    };
+  }
+
   constructor(
     private agentExecutor: AgentExecutor,
     private bus: EventBus<AgentEvents>,
@@ -454,6 +484,18 @@ export class WorkflowExecutor {
       opts?.toolRunnerFactory ?? ((pending) => createWorkflowToolRunner(this.bus, pending));
     if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
     if (opts?.workflowResolver) this.workflowResolver = opts.workflowResolver;
+  }
+
+  async canExecuteReleaseAuthority(
+    entry: CachedWorkflow,
+    authority: WorkflowExecutionAuthority,
+  ): Promise<boolean> {
+    return workflowReleaseCanExecute(
+      entry,
+      authority,
+      undefined,
+      this.createHostParentResolver(entry.definition, authority),
+    );
   }
 
   /**
@@ -497,6 +539,22 @@ export class WorkflowExecutor {
     } catch (err) {
       throw new WorkflowCursorWriteError(what, err);
     }
+  }
+
+  private async refuseWorkflow(
+    run: WorkflowRun,
+    code: string,
+    message: string,
+    userId: string | undefined,
+    operation: string,
+    persistRefusal = true,
+  ): Promise<WorkflowRun> {
+    run.status = "error";
+    run.finishedAt = Date.now();
+    run.result = { success: false, output: null, error: { code, message } };
+    if (persistRefusal) await this.persistCritical(operation, () => finalizeWorkflowRunRow(run.id, "error", run.result));
+    this.bus.emit("workflow:error", { workflowRun: run, error: message, userId });
+    return run;
   }
 
   /**
@@ -763,6 +821,7 @@ export class WorkflowExecutor {
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a
        *  child's OWN nested steps are bounded by the same cap. */
       depth?: number;
+      parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
@@ -773,6 +832,12 @@ export class WorkflowExecutor {
       startedAt: Date.now(),
       steps: [],
     };
+    const entry = executionEntry(workflow);
+    const authority = { ...opts, userId, projectId };
+    const parentResolver = opts?.parentResolver ?? this.createHostParentResolver(workflow, authority);
+    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, authority, undefined, parentResolver))) {
+      throw new Error("Workflow release authority is no longer available");
+    }
 
     // `userId` scopes workflow:* SSE delivery to the initiating user
     // (fail-closed filter — see sse-conversation-filter.ts). CLI runs
@@ -784,7 +849,8 @@ export class WorkflowExecutor {
     // trace at all. The definition-id lookup is a name→row resolution;
     // a YAML workflow simply has no row, which is what the nullable FK
     // is for.
-    await this.persistWrite("insert", async () => {
+    const persistStart = entry.source === "extension" ? this.persistCritical : this.persistWrite;
+    const insertRun = async () => {
       const definition = await getWorkflowByName(workflow.name);
       // The version this run executes. Resolved at START, so an edit
       // landing mid-run cannot retroactively change what the run says it
@@ -795,7 +861,7 @@ export class WorkflowExecutor {
         : undefined;
       // The fingerprint of the graph THIS RUN WAS HANDED — not of the row
       // that happens to own the name.
-      const ranHash = workflowDefinitionHash(workflow);
+      const ranHash = workflowExecutionHash(workflow, entry.extensionRelease);
       // ── Only claim a version whose content is what we ran ────────────
       //
       // The lookup above is by NAME, and a name does not identify a graph:
@@ -813,7 +879,7 @@ export class WorkflowExecutor {
       // or a workflow with no row). If a trace ever needs to name the
       // snapshot for a run of a stale cache entry, resolve it BY
       // `stepsHash` — do not widen this claim back to "latest".
-      const ranVersion = version?.stepsHash === ranHash ? version : undefined;
+      const ranVersion = entry.source !== "extension" && version?.stepsHash === ranHash ? version : undefined;
       await insertWorkflowRun({
         id: workflowRun.id,
         workflowName: workflow.name,
@@ -857,8 +923,16 @@ export class WorkflowExecutor {
         runAsKind: opts?.runAsKind ?? null,
         runAs: opts?.runAs ?? null,
       });
-    });
+    };
+    try {
+      await persistStart.call(this, "insert", insertRun);
+    } catch {
+      return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
+    }
 
+    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver)) {
+      return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
+    }
     return this.executeFrom({
       workflow,
       input,
@@ -869,6 +943,10 @@ export class WorkflowExecutor {
       // A fresh run starts at batch 0 with nothing completed and no
       // `$prev` — the same shape a resume supplies from its cursor.
       cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
+      releaseEntry: entry,
+      parentResolver,
+      releasePrincipal: { ...opts, userId, projectId },
+      invocationGuard: opts?.invocationGuard,
       stepResults: new Map(),
       skippedSteps: new Map(),
       depth: opts?.depth ?? 0,
@@ -931,10 +1009,14 @@ export class WorkflowExecutor {
        * able to exploit.
        */
       delegationId?: string | null;
+      runAsKind?: DelegationOwnerKind | null;
+      runAs?: string | null;
     },
     signal?: AbortSignal,
     opts?: ResumeWorkflowOptions,
   ): Promise<WorkflowRun> {
+    const entry = opts?.entry ?? executionEntry(workflow);
+    const parentResolver = this.createHostParentResolver(workflow, row);
     const workflowRun: WorkflowRun = {
       id: row.id,
       workflowName: row.workflowName,
@@ -966,16 +1048,8 @@ export class WorkflowExecutor {
     // gate could instead destroy every approval-parked run, one direct
     // call each — strictly worse than the attack the check exists to
     // stop.
-    const refuseTerminal = async (code: string, message: string): Promise<WorkflowRun> => {
-      workflowRun.status = "error";
-      workflowRun.finishedAt = Date.now();
-      workflowRun.result = { success: false, output: null, error: { code, message } };
-      await this.persistCritical("resume-refusal", () =>
-        finalizeWorkflowRunRow(workflowRun.id, "error", workflowRun.result),
-      );
-      this.bus.emit("workflow:error", { workflowRun, error: message, userId });
-      return workflowRun;
-    };
+    const refuseTerminal = (code: string, message: string): Promise<WorkflowRun> =>
+      this.refuseWorkflow(workflowRun, code, message, userId, "resume-refusal");
 
     const refuseTransient = (code: string, message: string): WorkflowRun => {
       workflowRun.status = "suspended";
@@ -1085,7 +1159,13 @@ export class WorkflowExecutor {
     // Drift. Until definitions are versioned this hash is the only guard,
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
-    const currentHash = workflowDefinitionHash(workflow);
+    if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
+      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+    }
+    const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
+    if (entry.source === "extension" && row.definitionHash === null) {
+      return refuseTransient("not-resumable", "Workflow run has no pinned release authority");
+    }
     if (row.definitionHash !== null && row.definitionHash !== currentHash) {
       return refuseTerminal(
         "definition-changed",
@@ -1104,6 +1184,10 @@ export class WorkflowExecutor {
       return refuseTerminal("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
     }
 
+    const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
+    if (!await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
+      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+    }
     return this.executeFrom({
       workflow,
       input: row.input ?? {},
@@ -1112,6 +1196,9 @@ export class WorkflowExecutor {
       userId,
       signal,
       cursor: row.cursor ?? { batchIndex: 0, completedSteps: [], prevStepName: null },
+      releaseEntry: entry,
+      parentResolver,
+      releasePrincipal: row,
       stepResults: loaded.stepResults,
       // Rehydrated, not recomputed. A step skipped in an EARLIER batch is
       // never re-visited, so without this the resumed half of the run would
@@ -1120,7 +1207,7 @@ export class WorkflowExecutor {
       skippedSteps: loaded.skippedSteps,
       // DERIVED from the parent chain rather than defaulted to 0: resuming
       // at depth 0 would let a nested run escape the cap simply by parking.
-      depth: await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH),
+      depth,
       // Same argument, C3's ceiling: taken from the row so a resumed run
       // is bounded by the same delegation the first process was.
       delegationId: row.delegationId ?? null,
@@ -1139,6 +1226,10 @@ export class WorkflowExecutor {
    * `workflow:start`, which would prepend a second card for one job.
    */
   private async executeFrom(ctx: {
+    parentResolver?: HostWorkflowParentResolver;
+    releaseEntry: CachedWorkflow;
+    releasePrincipal: WorkflowExecutionAuthority;
+    invocationGuard?: InvocationGuard;
     workflow: WorkflowDefinition;
     input: Record<string, unknown>;
     workflowRun: WorkflowRun;
@@ -1175,6 +1266,10 @@ export class WorkflowExecutor {
     pendingPermissions?: PendingPermissionGate;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
+    const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId) ? async database => {
+      await ctx.invocationGuard?.(database);
+      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error("Workflow release authority is no longer available");
+    } : undefined;
     const stepResults = ctx.stepResults;
     const skippedSteps = ctx.skippedSteps;
     // `$prev` for the batch we are about to run. On a fresh run there is
@@ -1267,6 +1362,8 @@ export class WorkflowExecutor {
       scopeKey,
       scope: approvalScope,
       getRunner: getToolRunner,
+      signal,
+      invocationGuard,
     };
 
     const inFlightRunIds = new Set<string>();
@@ -1363,6 +1460,12 @@ export class WorkflowExecutor {
 
     try {
       if (externallyAborted) throw new WorkflowAbortError();
+      if (ctx.releasePrincipal.runAsKind === "service") {
+        if (!invocationGuard) throw new Error("Service workflow authority guard is unavailable");
+        toolCtx.serviceInvocation = ctx.releaseEntry.source === "extension" || await resolveWorkflowServiceOrigin(ctx.releasePrincipal)
+          ? await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard)
+          : await createHostServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard);
+      }
 
       const batches = this.resolveExecutionOrder(workflow.steps);
 
@@ -1378,6 +1481,7 @@ export class WorkflowExecutor {
         await this.persistCritical("in-batch", () =>
           markWorkflowRunInBatch(workflowRun.id),
         );
+        await invocationGuard?.();
 
         // Run every step in the batch concurrently. The FIRST failure
         // records `batchError` and immediately cancels the still-running
@@ -1574,7 +1678,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal },
+              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, parentResolver: ctx.parentResolver, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -1857,6 +1961,7 @@ export class WorkflowExecutor {
         this.bus.emit("workflow:error", { workflowRun, error, userId });
       }
     } finally {
+      toolCtx.serviceInvocation?.close();
       if (signal) signal.removeEventListener("abort", onAbort);
       for (const unsub of unsubs) unsub();
       // Deregister the non-interactive scope and reject anything still
@@ -1928,6 +2033,7 @@ export class WorkflowExecutor {
     inputSink: WorkflowStepInputSink,
     flow: FlowContext,
   ): Promise<AgentResult> {
+    await flow.invocationGuard?.();
     const baseCtx: RefContext = {
       input,
       stepResults,
@@ -1998,6 +2104,8 @@ export class WorkflowExecutor {
       modelBinding,
       inputSink,
       flow.skippedSteps,
+      flow.requireManagedFactoryAgent,
+      flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
     );
   }
 
@@ -2062,6 +2170,7 @@ export class WorkflowExecutor {
       );
     }
     const definition = await this.workflowResolver?.(name, {
+      authority: opts.flow.releasePrincipal,
       ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
     });
@@ -2082,6 +2191,7 @@ export class WorkflowExecutor {
     const existing = this.persist
       ? await findWorkflowRunByIdempotencyKey(name, idempotencyKey)
       : undefined;
+    await opts.flow.invocationGuard?.();
     if (existing) return nestedOutcome(step, name, existing.status, existing.result);
 
     const child = await this.runWorkflow(
@@ -2092,7 +2202,7 @@ export class WorkflowExecutor {
       // The parent's signal, so a cancel cascades into the child rather
       // than leaving an orphan run the sweep has to clean up later.
       opts.flow.signal,
-      { parentRunId: opts.parentRunId, idempotencyKey, depth },
+      { parentRunId: this.persist ? opts.parentRunId : undefined, idempotencyKey, depth, parentResolver: opts.flow.parentResolver, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
     );
     return nestedOutcome(step, name, child.status, child.result ?? null);
   }
@@ -2116,6 +2226,8 @@ export class WorkflowExecutor {
     modelBinding: WorkflowModelBinding | undefined,
     inputSink: WorkflowStepInputSink,
     skippedSteps: ReadonlyMap<string, string>,
+    requireManagedFactoryAgent?: boolean,
+    control?: AgentExecutionControl,
   ): Promise<AgentResult> {
     const refCtx: RefContext = { input, stepResults, prevResult, skippedSteps };
     const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
@@ -2137,6 +2249,8 @@ export class WorkflowExecutor {
         userId,
         modelOverride,
         inputSink,
+        requireManagedFactoryAgent,
+        control,
       );
       if (result.success) return result;
 
@@ -2157,13 +2271,21 @@ export class WorkflowExecutor {
     userId: string | undefined,
     modelOverride: ModelOverride | undefined,
     inputSink: WorkflowStepInputSink,
+    requireManagedFactoryAgent?: boolean,
+    control?: AgentExecutionControl,
   ): Promise<AgentAttemptOutcome> {
+    await control?.invocationGuard?.();
+    if (requireManagedFactoryAgent) {
+      const { assertManagedFactoryAgent } = await import("../extensions/ez-factory-release-agents");
+      assertManagedFactoryAgent(step.agent as string, this.agentExecutor.listAgents());
+    }
     const agentRun = await this.agentExecutor.runAgent(
       step.agent as string,
       resolvedInput,
       projectId,
       userId,
       modelOverride,
+      ...(control ? [control] as const : []),
     );
     stepRun.runId = agentRun.id;
     stepRun.status = agentRun.status;
@@ -2251,6 +2373,7 @@ export class WorkflowExecutor {
 
     for (let i = 1; i <= maxIterations; i++) {
       if (isAborted()) throw new WorkflowAbortError();
+      await flow.invocationGuard?.();
 
       const loopCtx = { iteration: i, last };
       const iterationStartedAt = Date.now();
@@ -2302,6 +2425,8 @@ export class WorkflowExecutor {
           userId,
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
+          flow.requireManagedFactoryAgent,
+          flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
         );
         // Written BEFORE the failure check, so a loop that dies on
         // iteration 3 still records that iterations 1 and 2 happened and
@@ -2410,6 +2535,11 @@ export class WorkflowExecutor {
  * parameters through `runStep` and `runLoop`.
  */
 interface FlowContext {
+  parentResolver?: HostWorkflowParentResolver;
+  serviceInvocation?: ServiceInvocation;
+  releasePrincipal?: WorkflowExecutionAuthority;
+  invocationGuard?: InvocationGuard;
+  requireManagedFactoryAgent?: boolean;
   /** Steps this run has skipped, name → reason. MUTABLE: `executeFrom`
    *  owns it and each skipped step records itself into it, which is what
    *  makes the skip transitive and what makes a downstream ref error say
@@ -2523,6 +2653,9 @@ function nestedOutcome(
 
 /** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
 interface ToolStepContext {
+  serviceInvocation?: ServiceInvocation;
+  invocationGuard?: InvocationGuard;
+  signal?: AbortSignal;
   /** The synthetic `conversationId` every tool call of this run uses —
    *  see {@link workflowScopeKey}. */
   scopeKey: string;
@@ -2577,7 +2710,7 @@ async function runToolStep(
     result = await toolCtx.scope.run(() =>
       toolCtx
         .getRunner()
-        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null),
+        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal, ...(toolCtx.invocationGuard ? { invocationGuard: toolCtx.invocationGuard } : {}), ...(toolCtx.serviceInvocation ? { serviceInvocation: toolCtx.serviceInvocation } : {}) }),
     );
   } catch (err) {
     // A deliberate park is not a dispatch failure and must reach the
@@ -2813,6 +2946,8 @@ export function resumeArgsFromRow(row: {
   parentRunId?: string | null;
   claimedBy?: string | null;
   delegationId?: string | null;
+  runAsKind?: DelegationOwnerKind | null;
+  runAs?: string | null;
 }): Parameters<WorkflowExecutor["resumeWorkflow"]>[1] {
   return {
     id: row.id,
@@ -2839,6 +2974,8 @@ export function resumeArgsFromRow(row: {
     // exists so that is one line in one place rather than a thing each
     // resume caller has to remember.
     delegationId: row.delegationId,
+    runAsKind: row.runAsKind,
+    runAs: row.runAs,
   };
 }
 
@@ -2878,12 +3015,17 @@ export function resumeArgsFromRow(row: {
  * there is no row left to write to.
  */
 export async function resumeClaimedRun(
-  executor: Pick<WorkflowExecutor, "resumeWorkflow">,
+  executor: Pick<WorkflowExecutor, "resumeWorkflow"> & Partial<Pick<WorkflowExecutor, "canExecuteReleaseAuthority">>,
   workflow: WorkflowDefinition,
   runId: string,
   claimedBy: string,
   signal?: AbortSignal,
+  entry?: CachedWorkflow,
 ): Promise<WorkflowRun> {
+  const runtime = getWorkflowRuntime();
+  const captured = entry ?? (runtime
+    ? workflowResumeEntry(runtime, workflow.name)
+    : systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml"));
   const row = await getWorkflowRunRow(runId);
   if (!row) {
     return {
@@ -2901,12 +3043,38 @@ export async function resumeClaimedRun(
     };
   }
 
+  const authorityAvailable = captured && (executor.canExecuteReleaseAuthority
+    ? await executor.canExecuteReleaseAuthority(captured, row)
+    : await workflowReleaseCanExecute(captured, row));
+  if (!captured || captured.definition !== workflow || !authorityAvailable) {
+    await releaseWorkflowRunClaim(runId, claimedBy);
+    return {
+      id: runId,
+      workflowName: workflow.name,
+      status: "suspended",
+      startedAt: row.startedAt.getTime(),
+      steps: [],
+      result: {
+        success: false,
+        output: null,
+        error: { code: "not-resumable", message: "Workflow release authority is no longer available" },
+      },
+    };
+  }
   const run = await executor.resumeWorkflow(workflow, resumeArgsFromRow(row), signal, {
     resumedBy: claimedBy,
+    entry: captured,
   });
 
   if (run.status === "suspended") {
     await releaseWorkflowRunClaim(runId, claimedBy);
   }
   return run;
+}
+
+function executionEntry(workflow: WorkflowDefinition): CachedWorkflow {
+  const runtime = getWorkflowRuntime();
+  const entry = runtime && workflowResumeEntry(runtime, workflow.name);
+  if (entry) return entry.source === "extension" ? entry : { ...entry, definition: workflow };
+  return systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml");
 }

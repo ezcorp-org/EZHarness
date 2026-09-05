@@ -1,5 +1,6 @@
 import { json } from "@sveltejs/kit";
-import { getExecutor, getCommandRegistry, getWorkflows } from "$lib/server/context";
+import { getExecutor, getCommandRegistry } from "$lib/server/context";
+import { listVisibleWorkflows } from "$lib/server/workflow-access";
 import { requireAuth } from "$server/auth/middleware";
 import { partitionWirableExtensionsForUser } from "$server/auth/extension-wire-authz";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -71,8 +72,8 @@ interface MentionSearchResult {
 /**
  * Merge a GLOBAL, code/cache-defined kind into the bare-`!` fallback list.
  *
- * Shared by the EZ-action and workflow merges — both are global (no project
- * scope, no DB query), both stop at MAX_RESULTS, and both want the same
+ * Shared by the EZ-action and caller-authorized workflow merges — both
+ * stop at MAX_RESULTS, and both want the same
  * "typing the kind label itself surfaces everything" behaviour.
  *
  * `kindLabel` makes typing the label (`!`, `!e`, `!ez` / `!w`, `!work`)
@@ -383,19 +384,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json(results);
 	}
 
-	// Workflow searches are mutually exclusive with other kinds — the
-	// `!workflow:` prefix's popover lists workflows from the merged
-	// in-memory cache (`getWorkflows()`: extension + YAML + DB, in that
-	// precedence order).
-	//
-	// NO project gate, unlike `feature` / `lesson`: `workflow_definitions`
-	// has no project column — workflows are global. Gating on projectId here
-	// would return [] for every global-project chat and read as a scoping
-	// control that nothing downstream enforces.
-	//
-	// Fuzzy-ranked on name + description, mirroring the `feature` branch.
 	if (type === "workflow") {
-		const workflows = getWorkflows();
+		const workflows = await listVisibleWorkflows(user, projectId);
 		const matched = q
 			? workflows
 					.map((w) => ({
@@ -597,7 +587,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (type !== "agent" && type !== "ext" && type !== "team") {
 		const { listEzActions } = await import("$server/runtime/ez-actions/registry");
 		mergeGlobalBangKind(results, listEzActions(), "ez", "EZ", lowerQ);
-		mergeGlobalBangKind(results, getWorkflows(), "workflow", "workflow", lowerQ);
+		mergeGlobalBangKind(results, await listVisibleWorkflows(user, projectId), "workflow", "workflow", lowerQ);
 	}
 
 	return json(results);

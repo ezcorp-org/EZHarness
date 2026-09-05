@@ -6,6 +6,9 @@ import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { assertMcpTargetAllowed } from "./target-guard";
 import { createMcpGuardedFetch } from "./guarded-fetch";
 import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../extensions/types";
+import { awaitMcpSignal } from "./cancellation";
+import type { InvocationGuard } from "../extensions/runtime-locks";
+export interface McpCallOptions { signal?: AbortSignal; invocationGuard?: InvocationGuard }
 
 /**
  * Phase 58 / MCP-05 — Subclass of StdioClientTransport that fires a
@@ -166,15 +169,23 @@ export class McpClient {
    * `callTool` come back through here and RECONNECT. The guard re-runs, so
    * a reconnect is authorized on the same terms as the first connect.
    */
-  async connect(): Promise<void> {
+  async connect(options: McpCallOptions = {}): Promise<void> {
+    options.signal?.throwIfAborted();
     if (this.connected) return;
     await assertMcpTargetAllowed(this.spec);
+    options.signal?.throwIfAborted();
     if (this.spent) this.client = this.newClient();
     const transport = this.buildTransport();
     // Marked BEFORE the handshake: a `Client` whose `connect()` threw has
     // still taken ownership of a transport and must not be handed another.
     this.spent = true;
-    await this.client.connect(transport);
+    try {
+      await awaitMcpSignal(this.client.connect(transport, { signal: options.signal }), options.signal);
+      options.signal?.throwIfAborted();
+    } catch (error) {
+      await this.client.close();
+      throw error;
+    }
     this.connected = true;
   }
 
@@ -188,9 +199,15 @@ export class McpClient {
     }));
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
-    if (!this.connected) await this.connect();
-    const res = await this.client.callTool({ name, arguments: args });
+  async callTool(name: string, args: Record<string, unknown>, _meta?: Record<string, unknown>, options: McpCallOptions = {}): Promise<ToolCallResult> {
+    options.signal?.throwIfAborted();
+    if (options.invocationGuard) await options.invocationGuard();
+    options.signal?.throwIfAborted();
+    if (!this.connected) await this.connect(options);
+    if (options.invocationGuard) await options.invocationGuard();
+    options.signal?.throwIfAborted();
+    const res = await this.client.callTool({ name, arguments: args }, undefined, { signal: options.signal });
+    options.signal?.throwIfAborted();
     const content = Array.isArray(res.content) ? res.content : [];
     return {
       content: content.map((c) => {

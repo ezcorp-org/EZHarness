@@ -34,6 +34,7 @@
  * sole writer and its supersede tombstones the row that rule re-reads.
  */
 import { test, expect } from "../fixtures/hydration.js";
+import { createAndActivateExtension } from "../fixtures/extension-v4";
 
 const ABSENT_DELEGATION = "e2e-no-such-delegation-0000";
 
@@ -51,6 +52,15 @@ function consentBody(extensionId: string, workflowName: string, jobRef: string) 
 }
 
 test.describe("the delegation consent surface is session-only", () => {
+  let extensionId: string;
+  test.beforeAll(async ({ browser, request, baseURL }) => {
+    test.setTimeout(300000);
+    const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+    try {
+      const { state } = await createAndActivateExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: `consent-origin-${Date.now().toString(36)}` });
+      extensionId = state.installation.id;
+    } finally { await context.close(); }
+  });
   test("no API key can mint, list or revoke a delegation", async ({ request, baseURL }) => {
     const chatKeyRes = await request.post("/api/settings/developer/api-keys", {
       data: { name: "e2e-deleg-chat", scopes: ["chat"] },
@@ -144,15 +154,7 @@ test.describe("the delegation consent surface is session-only", () => {
     });
     expect(created.status(), await created.text()).toBe(201);
 
-    // A real, registry-resolved extension id: the consent route takes the
-    // extension NAME from the registry and never from the body, so this
-    // has to be an extension the host actually has.
-    const extensionsRes = await request.get("/api/extensions");
-    expect(extensionsRes.status(), await extensionsRes.text()).toBe(200);
-    // `GET /api/extensions` serves a bare array of rows.
-    const installed = (await extensionsRes.json()) as Array<{ id: string }>;
-    const extensionId = installed[0]?.id;
-    expect(extensionId, "the real tier must bootstrap at least one extension").toBeTruthy();
+    expect(extensionId, "The origin has an exact human-approved active release.").toBeTruthy();
 
     const jobRef = `e2e-job-${Date.now()}`;
     const consent = await request.post("/api/workflows/delegations", {
@@ -231,10 +233,7 @@ test.describe("the delegation consent surface is session-only", () => {
     });
     expect(created.status(), await created.text()).toBe(201);
 
-    const extensionsRes = await request.get("/api/extensions");
-    const installed = (await extensionsRes.json()) as Array<{ id: string }>;
-    const extensionId = installed[0]?.id;
-    expect(extensionId, "the real tier must bootstrap at least one extension").toBeTruthy();
+    expect(extensionId, "The origin has an exact human-approved active release.").toBeTruthy();
 
     const jobRef = `e2e-patch-job-${Date.now()}`;
     const consent = await request.post("/api/workflows/delegations", {

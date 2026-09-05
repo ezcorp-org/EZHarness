@@ -21,16 +21,16 @@
 // deferred-completion event, loopEvents (the content-free approval nudges),
 // and one Hub page.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "docs-updater",
   version: "1.0.0",
   description:
     "Flagship proactive PR-drafter: on new merged commits it dispatches a coding agent to update README / docs, drafts a pull request, and parks it for human approval. On the /repo self-dev mount the merge stays manual on GitHub; on other targets approve can merge (settings).",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Development",
   tags: ["loop", "approval", "pr", "docs", "flagship"],
   // Cron + manual loop — stay resident so the daily fire isn't dropped on idle
@@ -108,7 +108,7 @@ export default defineExtension({
     spawnAgents: { maxPerHour: 12, maxConcurrent: 2 },
     // The artifact mirror lands under .ezcorp/extension-data/docs-updater/;
     // the `gh` pipeline reads the repo's `.git` to resolve the PR ($CWD).
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // `gh` reaches the GitHub API (and git push over https).
     network: ["api.github.com"],
     // The content-free approval nudges (loops:approval_pending / _resolved).

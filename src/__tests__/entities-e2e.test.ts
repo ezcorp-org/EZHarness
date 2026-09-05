@@ -35,8 +35,13 @@ import {
 mockDbConnection();
 
 import { eq } from "drizzle-orm";
-import { extensions, extensionStorage, users } from "../db/schema";
-import { installFromLocal } from "../extensions/installer";
+import { extensions, extensionStorage, users, projects, conversations, messages } from "../db/schema";
+import { publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
+import { up as migrateReleases } from "../db/migrations/add-extension-releases";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { validateManifest } from "@ezcorp/extension-contract";
+import fixtureManifest from "./helpers/test-entities-fixture/ezcorp.config";
 import { ExtensionRegistry } from "../extensions/registry";
 import {
   _resetToolCallsCounterForTests,
@@ -59,6 +64,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await setupTestDb();
   const db = getTestDb();
   await db.delete(extensions);
   await db.delete(users);
@@ -75,20 +81,19 @@ beforeEach(async () => {
     })
     .returning();
   userId = u!.id;
+  await db.insert(projects).values({ id: "project-1", name: "Entity test", path: "/tmp/entity-test" });
+  await db.insert(conversations).values({ id: "conv-1", projectId: "project-1", userId, title: "Entity test" });
+  await db.insert(messages).values(Array.from({ length: 6 }, (_, index) => ({ id: `msg-${index + 1}`, conversationId: "conv-1", role: "user", content: "Entity test" })));
 
-  // Install the fixture extension. `userId` is supplied so seed runs
-  // synchronously into the user's scope — matching what the
-  // user-driven install path does in production.
-  const installed = await installFromLocal(
-    FIXTURE_PATH,
-    {
-      storage: true,
-      grantedAt: { storage: Date.now() },
-    },
-    /* enabled */ true,
-    { userId },
-  );
-  extId = installed.id;
+  await migrateReleases(db);
+  extId = crypto.randomUUID();
+  const manifest = validateManifest({ ...fixtureManifest, schemaVersion: 4 });
+  const fixture = releaseRuntimeFixture(extId, manifest, { ownerId: userId });
+  const repository = new DatabaseLifecycleRepository(db);
+  await repository.create({ installation: fixture.snapshot.installation, releases: { [fixture.snapshot.release.id]: fixture.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
+  const sourceFiles = Object.fromEntries(await Promise.all(["first", "second"].map(async (name) => [`prompts/${name}.txt`, await Bun.file(join(FIXTURE_PATH, "prompts", `${name}.txt`)).text()])));
+  await publishExtensionGeneration(fixture.snapshot.installation, fixture.snapshot.release, sourceFiles);
+  fixture.configure();
 
   const registry = ExtensionRegistry.getInstance();
   await registry.loadFromDb();
@@ -103,7 +108,7 @@ function parse(text: string): unknown {
   return JSON.parse(text);
 }
 
-describe("entities — install → seed → dispatch end-to-end", () => {
+describe("entities — fenced release publication → immutable seed → dispatch", () => {
   test("seed populated 2 records under the managed namespace", async () => {
     const db = getTestDb();
     const rows = await db

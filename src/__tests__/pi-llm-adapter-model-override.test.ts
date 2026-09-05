@@ -85,6 +85,19 @@ const { configToAgent } = await import("../runtime/config-to-agent");
 
 const messages = [{ role: "user" as const, content: "hello" }];
 
+test("release authority is rechecked after model and credential waits before provider effects", async () => {
+  for (const method of ["complete", "stream"] as const) {
+    let checks = 0;
+    const adapter = createPiLlmAdapter(undefined, undefined, { beforeCall: async () => {
+      if (++checks === 2) throw new Error("release revoked during provider resolution");
+    } });
+    const pending = method === "complete" ? adapter.complete(messages) : (async () => { for await (const _event of adapter.stream(messages)) throw new Error("Unexpected provider output"); })();
+    await expect(pending).rejects.toThrow("release revoked during provider resolution");
+    expect(checks).toBe(2);
+    expect(calls).toEqual([]);
+  }
+});
+
 beforeEach(() => {
   calls.length = 0;
   resolveArgs.length = 0;

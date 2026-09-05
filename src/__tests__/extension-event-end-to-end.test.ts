@@ -23,7 +23,7 @@
  * unit suite would.
  */
 
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // ── Real SSE-filter and real EventBus — load FIRST so every other
@@ -34,6 +34,16 @@ import {
 } from "../runtime/sse-conversation-filter";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
+import * as realOutbox from "../extensions/domain-event-outbox";
+import { LifecycleError } from "../extensions/v4/types";
+const admitted: Array<{ principalId: string; name: string; type: string; key: string; payload: Record<string, unknown> }> = [];
+const admitActionPort = async (principalId: string, name: string, type: string, key: string, payload: Record<string, unknown>, targetBus: EventBus<AgentEvents>) => {
+  admitted.push({ principalId, name, type, key, payload });
+  realOutbox.emitPersistedDomainEvent(targetBus, { id: key, type: type as realOutbox.DomainExtensionEvent["type"], conversationId: String(payload.conversationId), payload, sourceExtensionName: name });
+};
+let admissionSpy: ReturnType<typeof spyOn<typeof realOutbox, "admitConversationExtensionAction">>;
+beforeEach(() => { admissionSpy = spyOn(realOutbox, "admitConversationExtensionAction").mockImplementation(admitActionPort); });
+afterEach(() => admissionSpy.mockRestore());
 
 // ── Mock the conversation/tool-call lookups the route needs.
 let mockConv: { id: string; userId: string | null } | null = null;
@@ -59,6 +69,7 @@ mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
 }));
 mock.module("$server/auth/middleware", () => ({
+  checkProjectRole: async () => true,
   requireAuth: () => ({
     id: "user-1",
     email: "u@x.com",
@@ -129,7 +140,7 @@ function makeRequest(body: unknown, name = FAKE_EXT_NAME, event = FAKE_EVENT) {
       `http://localhost/api/extensions/${name}/events/${event}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: typeof body === "string" ? body : JSON.stringify(body),
       },
     ),
@@ -165,13 +176,46 @@ function bootDispatcher() {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("extension-event end-to-end (route → bus → dispatcher → subprocess)", () => {
+describe("extension event registration and durable route admission", () => {
   beforeEach(() => {
     mockConv = null;
     mockToolCall = null;
     conversationCalls.length = 0;
+    admitted.length = 0;
     // Reset the registry state our test owns.
     unregisterExtensionEvent(FAKE_EXT_NAME, FAKE_EVENT);
+  });
+
+  test.each([
+    ["invalid_event_key", 400],
+    ["event_payload_limit", 400],
+    ["event_not_found", 404],
+    ["event_conflict", 409],
+    ["event_admission_full", 503],
+    ["event_queue_full", 503],
+  ] as const)("durable admission failure %s returns %i without emitting", async (code, status) => {
+    const { dispatcher, proc } = bootDispatcher();
+    try {
+      mockConv = { id: "conv-1", userId: "user-1" };
+      admissionSpy.mockRejectedValueOnce(new LifecycleError(code, "Admission refused"));
+      const response = await POST(makeRequest({ conversationId: "conv-1", toolCallId: "tc-1" }) as never);
+      expect(response.status).toBe(status);
+      expect(admissionSpy).toHaveBeenCalledTimes(1);
+      expect(admitted).toHaveLength(0);
+      expect(proc.calls).toHaveLength(0);
+    } finally { dispatcher.stop(); }
+  });
+
+  test("unexpected admission failures propagate without false success or bus emission", async () => {
+    const { dispatcher, proc } = bootDispatcher();
+    try {
+      mockConv = { id: "conv-1", userId: "user-1" };
+      const failure = new Error("Database unavailable");
+      admissionSpy.mockRejectedValueOnce(failure);
+      await expect(POST(makeRequest({ conversationId: "conv-1", toolCallId: "tc-1" }) as never)).rejects.toBe(failure);
+      expect(admitted).toHaveLength(0);
+      expect(proc.calls).toHaveLength(0);
+    } finally { dispatcher.stop(); }
   });
 
   test("registerExtension wires the event into the SSE-filter registry (link #4 → #5)", () => {
@@ -221,7 +265,7 @@ describe("extension-event end-to-end (route → bus → dispatcher → subproces
     }
   });
 
-  test("bus emit propagates to the subscribed subprocess via dispatcher (link #11)", async () => {
+  test("route delegates durable admission and the bus does not duplicate queued delivery", async () => {
     const { dispatcher, proc } = bootDispatcher();
     try {
       mockConv = { id: "conv-1", userId: "user-1" };
@@ -231,10 +275,10 @@ describe("extension-event end-to-end (route → bus → dispatcher → subproces
       expect(res.status).toBe(200);
       // Give the bus listener a tick to fan out.
       await new Promise((r) => setTimeout(r, 20));
-      // The dispatcher prefixes with `ezcorp/event/<eventType>`.
-      expect(proc.calls).toHaveLength(1);
-      expect(proc.calls[0]!.method).toBe(`ezcorp/event/${FAKE_FULL_EVENT}`);
-      expect(proc.calls[0]!.params).toMatchObject({
+      expect(proc.calls).toHaveLength(0);
+      expect(admitted).toHaveLength(1);
+      expect(admitted[0]).toMatchObject({ principalId: "user-1", name: FAKE_EXT_NAME, type: FAKE_FULL_EVENT });
+      expect(admitted[0]!.payload).toMatchObject({
         toolCallId: "tc-1",
         conversationId: "conv-1",
         n: 42,

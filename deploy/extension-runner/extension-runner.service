@@ -1,0 +1,23 @@
+[Unit]
+Description=EZHarness isolated extension runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ezharness
+EnvironmentFile=%h/.config/ezharness/runner.env
+Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+ExecStart=/opt/ezharness/bin/bun packages/@ezcorp/extension-runner/src/main.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+Delegate=yes
+UMask=0027
+LimitNOFILE=8192
+TasksMax=1024
+MemoryMax=8G
+
+[Install]
+WantedBy=default.target

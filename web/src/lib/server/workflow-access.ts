@@ -17,6 +17,7 @@
  */
 import { errorJson } from "$lib/server/http-errors";
 import { getCachedWorkflows } from "$lib/server/context";
+import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess, workflowReleaseCanConsentService, workflowDelegationReleaseBinding } from "$server/runtime/workflow-release-assets";
 import {
   authorizeWorkflow,
   callerFromUser,
@@ -38,6 +39,7 @@ import { listProjectIdsForUser } from "$server/db/queries/project-members";
 import type { AuthUser } from "$server/auth/types";
 import type { DelegationOwnerKind } from "$server/db/schema";
 import type { WorkflowDefinition, WorkflowVisibility } from "$server/types";
+import { validateWorkflow } from "$server/runtime/workflow-validator";
 
 /**
  * The JSON a workflow is serialized as.
@@ -131,6 +133,7 @@ export async function resolveWorkflowOr(
         : denialMessage(result.reason, action, result.visibility);
     return errorJson(status, message);
   }
+  if (result.entry.source === "extension" && !await workflowReleaseCanAccess(result.entry, user.id, projectId)) return errorJson(404, notFoundMessage ?? "Workflow not found");
   return { entry: result.entry, caller };
 }
 
@@ -189,21 +192,24 @@ export function denyVisibilityOr(
  * me, or ask an admin to make the workflow system-visible") because the
  * failure this exists to prevent is a user picking the service-account
  * arm for a forked — therefore `project`-visible — workflow and getting
- * a delegation that can never fire. There is no existence oracle to
- * protect here the way `resolveWorkflowOr` protects one: the caller is a
- * session, and the workflow they are trying to delegate is one they
- * named themselves.
+ * a delegation that can never fire.
  */
-export function resolveDelegationConsentOr(
+export async function resolveDelegationConsentOr(
   workflowName: string,
   ownerKind: DelegationOwnerKind,
   ownerUserId: string | null,
-): { entry: CachedWorkflow } | Response {
+  projectId: string | null = null,
+  consenterId: string | null = null,
+): Promise<{ entry: CachedWorkflow } | Response> {
+  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), ownerKind === "user" ? ownerUserId : consenterId, projectId);
+  const candidate = entries.find(entry => entry.definition.name === workflowName);
+  const binding = ownerKind === "service" && ownerUserId && candidate && await workflowReleaseCanConsentService(candidate, ownerUserId, consenterId, projectId) ? workflowDelegationReleaseBinding(candidate) : null;
   const result = authorizeDelegationConsent(
-    getCachedWorkflows(),
+    entries,
     workflowName,
     ownerKind,
     ownerUserId,
+    binding,
   );
   if (!result.ok) {
     return errorJson(
@@ -214,11 +220,17 @@ export function resolveDelegationConsentOr(
   return { entry: result.entry };
 }
 
+export async function validateWorkflowForCaller(user: AuthUser, definition: WorkflowDefinition, projectId?: string | null): Promise<string[]> {
+  const entries = await listVisibleWorkflows(user, projectId);
+  return validateWorkflow(definition, { resolve: name => name === definition.name ? definition : entries.find(entry => entry.name === name) });
+}
+
 /** Everything this caller may see, already serialized. */
 export async function listVisibleWorkflows(
   user: AuthUser,
   projectId?: string | null,
 ): Promise<WorkflowWire[]> {
   const caller = await callerFor(user, projectId);
-  return visibleWorkflows(getCachedWorkflows(), caller).map((entry) => toWire(entry, caller));
+  const visible = visibleWorkflows(getCachedWorkflows(), caller);
+  return (await filterAccessibleWorkflowEntries(visible, user.id, projectId)).map((entry) => toWire(entry, caller));
 }

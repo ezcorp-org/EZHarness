@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // System prompt for the Property Intelligence Agent. Kept inline so the
 // manifest is the single source of truth for agent behavior.
@@ -111,13 +111,13 @@ Output format (Markdown):
 Close with a one-line executive summary.`;
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "property-intelligence-agent",
   version: "1.0.0",
   description:
     "Property Intelligence Agent: analyzes a commercial real-estate portfolio for risk and opportunity. Surfaces expiring leases, tenant defaults, unbilled escalations, covenant pressure, CAM under-recovery, budget variances, capex, and compliance clocks — every finding quantified in dollars and backed by a tool citation.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   tools: [
     // ── Discovery ────────────────────────────────────────────
@@ -505,7 +505,7 @@ export default defineExtension({
   },
   permissions: {
     // Read the bundled CSVs in ./data and allow regenerate-data to write back.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
   },
 });

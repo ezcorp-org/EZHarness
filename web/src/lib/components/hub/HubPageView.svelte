@@ -18,6 +18,7 @@
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
 	import { formatComponentMap, getFormatComponent } from "$lib/components/ui/format-map";
 	import { addToast } from "$lib/toast.svelte.js";
+	import { userFetch } from "$lib/utils/fetch-policy";
 	import {
 		parseHubPageId,
 		buildActionRequest,
@@ -225,7 +226,7 @@
 		if (!request) return;
 		actionPending = true;
 		try {
-			const res = await fetch(request.url, {
+			const res = await userFetch(request.url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(request.body),

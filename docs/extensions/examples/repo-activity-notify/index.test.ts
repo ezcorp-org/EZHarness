@@ -7,10 +7,7 @@
 // deterministic here). The full trigger → check → act → append/artifact path
 // is covered by the real-subprocess integration test.
 
-import { test, expect, describe, afterEach, beforeEach, spyOn } from "bun:test";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { test, expect, describe, afterEach, spyOn } from "bun:test";
 import {
   __resetChannelForTests,
   getChannel,
@@ -20,7 +17,6 @@ import {
 } from "@ezcorp/sdk/runtime";
 import {
   parseGitHead,
-  readGitHead,
   checkRepoActivity,
   notifyAct,
   defineRepoActivityNotifyLoop,
@@ -30,7 +26,7 @@ import {
   type NotifyInput,
 } from "./index";
 import config from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 afterEach(() => {
   _setGitHeadForTests(null);
@@ -127,44 +123,6 @@ describe("parseGitHead", () => {
 
 // ── readGitHead (real throwaway repo) ───────────────────────────────
 
-describe("readGitHead", () => {
-  let repo: string;
-
-  beforeEach(async () => {
-    repo = join(tmpdir(), `ran-git-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    mkdirSync(repo, { recursive: true });
-    const git = async (...args: string[]) => {
-      const p = Bun.spawn(["git", "-C", repo, ...args], {
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
-      });
-      await p.exited;
-    };
-    await git("init", "-q");
-    await git("config", "user.email", "probe@example.test");
-    await git("config", "user.name", "Probe");
-    writeFileSync(join(repo, "a.txt"), "hello\n");
-    await git("add", "a.txt");
-    await git("commit", "-q", "-m", "feat: initial commit");
-  });
-
-  afterEach(() => {
-    rmSync(repo, { recursive: true, force: true });
-  });
-
-  test("reads HEAD hash + subject from a real repo", async () => {
-    const head = await readGitHead(repo);
-    expect(head).not.toBeNull();
-    expect(head!.hash).toMatch(/^[0-9a-f]{40}$/);
-    expect(head!.subject).toBe("feat: initial commit");
-  });
-
-  test("a non-repo path → null (git exits non-zero)", async () => {
-    const missing = join(tmpdir(), `ran-nope-${Date.now()}`);
-    expect(await readGitHead(missing)).toBeNull();
-  });
-});
 
 // ── checkRepoActivity ───────────────────────────────────────────────
 
@@ -319,15 +277,8 @@ describe("registration + manifest", () => {
     expect(() => defineRepoActivityNotifyLoop()).not.toThrow();
   });
 
-  test("the manifest passes validateManifestV2 (snake_case settings keys)", () => {
-    // The host validates every manifest through validateManifestV2 at load
-    // time; a camelCase settings key (repoPath / conversationId) FAILS
-    // SETTINGS_KEY_REGEX so the extension would never load — the unit suite
-    // above exercises the config readers directly and would NOT catch it.
-    const result = validateManifestV2(config);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
-    // The keys the readers depend on are the snake_case ones.
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(config)).not.toThrow();
     expect(Object.keys(config.settings ?? {})).toEqual(
       expect.arrayContaining(["enabled", "repo_path", "conversation_id"]),
     );

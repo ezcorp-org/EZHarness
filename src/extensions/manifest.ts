@@ -1633,6 +1633,10 @@ export function deriveCapsFromExtensionPerms(
   // manifests can declare either name. Internally, the PDP and audit
   // rows use the namespaced form.
   const custom: Record<string, string[] | boolean> = {};
+  const networkTcp = (perms as { networkTcp?: string[] }).networkTcp;
+  if (networkTcp?.length) custom["ezcorp:network:tcp"] = [...networkTcp];
+  const secretRead = (perms as { secretRead?: string[] }).secretRead;
+  if (secretRead?.length) custom["ezcorp:credentials:read"] = [...secretRead];
   if (mcpInvoke) {
     custom[NAMESPACE_MAP.mcpInvoke] = true;
   }

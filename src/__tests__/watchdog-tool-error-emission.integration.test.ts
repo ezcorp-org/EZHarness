@@ -29,6 +29,7 @@ afterAll(() => restoreModuleMocks());
 // ── Module mocks (must precede SUT imports) ────────────────────────────
 
 // Watchdog DB calls — no-op so persist=true doesn't hit a real DB.
+mock.module("../db/queries/runs", () => ({ finalizeRunRow: async () => 1, terminalizeOrphanedRuns: async () => 0 }));
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},

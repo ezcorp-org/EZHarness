@@ -24,8 +24,8 @@ const ORIGIN = "http://localhost:5173";
 // ── SANDBOX_FLAGS_STRICT ───────────────────────────────────────────
 
 describe("SANDBOX_FLAGS_STRICT", () => {
-  test("equals 'allow-scripts allow-same-origin'", () => {
-    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts allow-same-origin");
+  test("equals 'allow-scripts'", () => {
+    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts");
   });
 
   test("does NOT include any escape-hatch flags", () => {
@@ -54,22 +54,31 @@ describe("validateIframeSrc — happy paths", () => {
     });
   });
 
-  test("relative path starting with ./ is same-origin", () => {
-    expect(validateIframeSrc("./local.html", ORIGIN)).toEqual({ ok: true });
+  test("arbitrary app paths are refused", () => {
+    expect(validateIframeSrc("./local.html", ORIGIN).ok).toBe(false);
   });
 
   test("absolute http URL on the same origin is allowed", () => {
-    expect(validateIframeSrc(`${ORIGIN}/draft.html`, ORIGIN)).toEqual({ ok: true });
+    expect(validateIframeSrc(`${ORIGIN}/api/extensions/x/data/draft.html`, ORIGIN)).toEqual({ ok: true });
   });
 
   test("https origin works the same way", () => {
-    expect(validateIframeSrc("https://app.example.com/x", "https://app.example.com")).toEqual({
+    expect(validateIframeSrc("https://app.example.com/api/extensions/x/data/draft.html", "https://app.example.com")).toEqual({
       ok: true,
     });
   });
 });
 
 describe("validateIframeSrc — rejection paths", () => {
+  test("malformed URL is refused before path validation", () => {
+    expect(validateIframeSrc("http://[", ORIGIN)).toEqual({ ok: false, reason: "Malformed iframe URL" });
+  });
+  test("data documents are bound to their extension and cannot name app routes or encoded separators", () => {
+    for (const src of ["/api/private", "/settings", "/api/extensions/other/data/a.html", "/api/extensions/owner/data/a%2fb.html", "/api/extensions/owner/data/%", "/api/extensions/owner/data/%00.html", "/api/extensions/owner/data/a//b.html", "https://user:pass@localhost:5173/api/extensions/owner/data/a.html"]) {
+      expect(validateIframeSrc(src, ORIGIN, "owner").ok).toBe(false);
+    }
+    expect(validateIframeSrc("/api/extensions/owner/data/a%20b.html", ORIGIN, "owner")).toEqual({ ok: true });
+  });
   test("empty src → Missing iframe URL", () => {
     expect(validateIframeSrc("", ORIGIN)).toEqual({
       ok: false,
@@ -211,6 +220,6 @@ describe("validateIframeSrc — dock-mode regression", () => {
   });
 
   test("SANDBOX_FLAGS_STRICT remains the only acceptable iframe sandbox attribute", () => {
-    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts allow-same-origin");
+    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts");
   });
 });

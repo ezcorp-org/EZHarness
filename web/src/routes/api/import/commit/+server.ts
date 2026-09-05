@@ -4,9 +4,8 @@
  * Body: `{ sessionId, projectId, commands: string[], skills: string[] }`
  * (ids from `/api/import/preview`). Commands → `createUserCommand`
  * (DRY: the DB helper, not a self-HTTP). Skills → synthesize a
- * runnable tool extension and hand it to the existing
- * `installFromLocal` pipeline (installed **disabled** — the user
- * reviews + enables it via the normal extensions permission modal).
+ * runnable tool extension and stage a workspace and isolated build.
+ * Human release approval is separate from this import operation.
  * Per-item results are returned so auto-renames / failures are
  * visible. Staging is always `rm -rf`'d in `finally`.
  */
@@ -14,9 +13,11 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { errorJson } from "$lib/server/http-errors";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, requireSessionAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { discoverProjectCommands } from "$server/runtime/commands/discovery";
 import { createUserCommand } from "$server/db/queries/user-commands";
@@ -31,10 +32,10 @@ import {
   cleanupStagingDir,
   bestEffortRm,
 } from "$server/runtime/import/staging";
-import { installFromLocal } from "$server/extensions/installer";
+import { stageExtensionSourceFiles } from "$server/extensions/source-import";
+import { snapshotExtensionSource } from "../../../../../../scripts/migrate-extension-v4";
 import { authoredExtensionsDir } from "$server/extensions/install-roots";
 import { getExtensionByName } from "$server/db/queries/extensions";
-import { ExtensionRegistry } from "$server/extensions/registry";
 import { filterFrontmatter } from "../../user-commands/schema";
 import { resolveProjectRoot, slugifyCommandName, commandId } from "../common";
 
@@ -43,6 +44,8 @@ interface ItemResult {
   requested: string;
   finalName?: string;
   extId?: string;
+  operationId?: string;
+  openUrl?: string;
   status: "ok" | "error";
   message?: string;
 }
@@ -75,6 +78,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const wantSkills = new Set(
       Array.isArray(body.skills) ? body.skills.map(String) : [],
     );
+    if (wantSkills.size > 0) {
+      const sessionUser = requireSessionAuth(locals);
+      if (sessionUser instanceof Response) return sessionUser;
+      if (sessionUser.role !== "admin") return errorJson(403, "A human administrator must import extension source");
+    }
 
     const stagingDir = await resolveStagingDir(root, sessionId);
     if (!stagingDir) {
@@ -126,31 +134,28 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           ) {
             finalName = `${b.name}-${i++}`.slice(0, 64);
           }
-          const destDir = join(authoredExtensionsDir(root), finalName);
-          await synthesizeSkillExtension({ bundle: b, destDir, name: finalName });
+          const destDir = await mkdtemp(join(tmpdir(), "ez-extension-skill-"));
           try {
-            const inst = await installFromLocal(
-              destDir,
-              { grantedAt: {} } as never,
-              false,
-              { isBundled: false, userId: user.id },
-            );
+            await synthesizeSkillExtension({ bundle: b, destDir, name: finalName });
+            const snapshot = await snapshotExtensionSource(dirname(destDir), { name: finalName, directory: basename(destDir), entrypoint: "extension.ts" });
+            const staged = await stageExtensionSourceFiles({ principalId: user.id, scope: "global", kind: "human" }, snapshot.files, { kind: "skill", name: finalName });
             results.push({
               kind: "skill",
               requested: b.rawName,
               finalName,
-              extId: inst.id,
+              extId: staged.installation.id,
+              operationId: staged.operation.id,
+              openUrl: staged.openUrl,
               status: "ok",
             });
           } catch (e) {
-            await bestEffortRm(destDir);
             results.push({
               kind: "skill",
               requested: b.rawName,
               status: "error",
               message: e instanceof Error ? e.message : "install failed",
             });
-          }
+          } finally { await bestEffortRm(destDir); }
         } catch (e) {
           results.push({
             kind: "skill",
@@ -163,13 +168,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
       if (results.some((r) => r.kind === "command" && r.status === "ok")) {
         getCommandRegistry().invalidateUser(user.id);
-      }
-      if (results.some((r) => r.kind === "skill" && r.status === "ok")) {
-        try {
-          await ExtensionRegistry.getInstance().reload();
-        } catch {
-          // Non-fatal — the next reload picks the new row up.
-        }
       }
     } finally {
       await cleanupStagingDir(root, sessionId);

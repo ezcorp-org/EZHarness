@@ -1,0 +1,14 @@
+services:
+  app:
+    environment:
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+      EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
+      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
+    volumes:
+      - ${EZ_RUNNER_SOCKET_DIR:?Set the host runner socket directory}:/run/ez-extension-runner:ro
+    secrets:
+      - extension-runner-token
+
+secrets:
+  extension-runner-token:
+    file: ${EZ_RUNNER_TOKEN_FILE:?Set the private runner credential file}

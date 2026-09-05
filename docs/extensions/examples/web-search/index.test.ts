@@ -10,7 +10,7 @@
  *   - maps SearchDisabledError + generic errors to toolError.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 
 afterAll(() => {
   restoreModuleMocks();
@@ -67,7 +67,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
 }));
 
 import { buildHandlers, createDeps, makeReadHandler, makeSearchHandler } from "./index";
-import type { ToolCallResult } from "../../../../packages/@ezcorp/sdk/src/types";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
 function textOf(r: ToolCallResult): string {
   const first = r.content[0];

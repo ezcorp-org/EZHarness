@@ -226,6 +226,7 @@ export interface CreateWorkflowDelegationInput {
    * definition changed" on its first fire.
    */
   definitionHash: string;
+  extensionReleaseBinding?: string | null;
   capabilitySet: Array<{ kind: string; value: string | null }>;
   maxTokensPerRun: number;
   maxRunsPerDay: number;
@@ -311,6 +312,7 @@ export async function createWorkflowDelegation(
         triggerSpec: input.triggerSpec,
         consentHash: input.consentHash,
         definitionHash: input.definitionHash,
+        extensionReleaseBinding: input.extensionReleaseBinding ?? null,
         capabilitySet: input.capabilitySet,
         maxTokensPerRun: input.maxTokensPerRun,
         maxRunsPerDay: input.maxRunsPerDay,

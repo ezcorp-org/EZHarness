@@ -49,7 +49,7 @@ import {
   type SeoOutcome,
 } from "./index";
 import config from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 afterEach(() => {
   _setResolversForTests(null, null);
@@ -767,10 +767,8 @@ describe("registration + manifest", () => {
     expect(() => defineSeoWatcherLoop()).not.toThrow();
   });
 
-  test("the manifest passes validateManifestV2 (snake_case settings keys)", () => {
-    const result = validateManifestV2(config);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(config)).not.toThrow();
     expect(Object.keys(config.settings ?? {})).toEqual(
       expect.arrayContaining([
         "enabled",

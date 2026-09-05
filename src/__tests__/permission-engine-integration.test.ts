@@ -25,7 +25,7 @@ import { createPermissionEngine, _resetPermissionEngineForTests } from "../exten
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../extensions/types";
-import { auditLog, users } from "../db/schema";
+import { auditLog, users, extensions, conversations, messages, projects, toolCalls } from "../db/schema";
 import { eq } from "drizzle-orm";
 
 const USER_ID = "ext-perm-engine-int-user";
@@ -96,6 +96,12 @@ beforeEach(async () => {
     })
     .onConflictDoNothing();
   _resetPermissionEngineForTests();
+  await getTestDb().insert(extensions).values({ id: EXT_ID, name: "scratchpad", version: "1.0.0", source: "test:fixture", manifest: { schemaVersion: 3, name: "scratchpad", version: "1.0.0", description: "test", author: { name: "Test" }, permissions: {} } });
+  const [project] = await getTestDb().insert(projects).values({ name: "Permission integration", path: "/tmp/permission-integration" }).returning();
+  for (const suffix of ["1", "2", "resolver", "prompt"]) {
+    await getTestDb().insert(conversations).values({ id: `conv-int-${suffix}`, userId: USER_ID, projectId: project!.id });
+    await getTestDb().insert(messages).values({ id: `msg-int-${suffix}`, conversationId: `conv-int-${suffix}`, role: "assistant", content: "" });
+  }
 });
 
 // ── End-to-end ──────────────────────────────────────────────────────
@@ -125,6 +131,7 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
     expect(result.isError).toBe(false);
     expect(captured).toHaveLength(1);
     expect(captured[0]!.name).toBe("write_note");
+    expect(await getTestDb().select().from(toolCalls)).toHaveLength(1);
 
     // Exactly one audit row, with the expected metadata shape.
     const rows = await getTestDb()

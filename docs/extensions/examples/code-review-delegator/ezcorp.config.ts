@@ -1,14 +1,14 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "code-review-delegator",
   version: "1.0.0",
   description: "Comprehensive code reviews by delegating to project-analyzer and code-quality",
   author: {
     name: "EZCorp",
   },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "reviewFile",

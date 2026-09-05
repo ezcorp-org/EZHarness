@@ -15,15 +15,12 @@
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { createUnsubscribedBridgeDatabase } from "./helpers/subscribe-bridge-db";
 
 mock.module("../db/queries/conversations", () => ({
 	createMessage: async () => ({ id: "msg-1" }),
 }));
-mock.module("../db/connection", () => ({
-	getDb: () => ({
-		update: () => ({ set: () => ({ where: async () => {} }) }),
-	}),
-}));
+mock.module("../db/connection", () => ({ getDb: createUnsubscribedBridgeDatabase }));
 mock.module("../db/queries/extensions", () => ({
 	listExtensions: async () => [],
 }));

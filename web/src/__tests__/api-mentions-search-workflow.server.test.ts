@@ -3,17 +3,10 @@
  * `/api/mentions/search/+server.ts`.
  *
  * The branch reads the merged in-memory workflow cache via
- * `$lib/server/context::getWorkflows` (extension + YAML + DB, in that
+ * `$lib/server/workflow-access::listVisibleWorkflows` (extension + YAML + DB, in that
  * precedence order), fuzzy-ranks on name OR description, and returns at
  * most MAX_RESULTS=10 entries shaped `{ name, description, kind:
  * "workflow" }`.
- *
- * The load-bearing difference from `type=feature` / `type=lesson`:
- * there is NO projectId gate. `workflow_definitions` has no project
- * column — workflows are global. A projectId check here would return []
- * for every global-project chat and would read to the next maintainer as
- * a scoping control that nothing downstream actually enforces. Several
- * tests below exist specifically to keep that gate from being added.
  *
  * Pattern mirrors `api-mentions-search-feature.server.test.ts` and
  * `api-mentions-search-EZ.server.test.ts`. Runs under
@@ -23,7 +16,10 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockGetWorkflows = vi.fn();
+const mockListVisibleWorkflows = vi.fn();
 const mockGetProject = vi.fn();
+
+vi.mock("$lib/server/workflow-access", () => ({ listVisibleWorkflows: mockListVisibleWorkflows }));
 
 vi.mock("$server/db/queries/projects", () => ({
   getProject: mockGetProject,
@@ -84,7 +80,19 @@ async function search(query: string) {
 describe("GET /api/mentions/search?type=workflow", () => {
   beforeEach(() => {
     mockGetWorkflows.mockReset();
+    mockListVisibleWorkflows.mockReset().mockImplementation(async () => mockGetWorkflows());
     mockGetProject.mockReset();
+  });
+
+  test.each(["?type=workflow", "?q=workflow"])("%s returns only the caller-authorized workflow snapshot", async query => {
+    const visible = wf("approved:visible", "Approved workflow");
+    mockGetWorkflows.mockReturnValue([visible, wf("private:secret", "Another owner's private instructions")]);
+    mockListVisibleWorkflows.mockResolvedValue([visible]);
+    const body = await search(`${query}&projectId=project-one`);
+    expect(body.filter(result => result.kind === "workflow")).toEqual([{ name: visible.name, description: visible.description, kind: "workflow" }]);
+    expect(mockListVisibleWorkflows).toHaveBeenCalledExactlyOnceWith(USER, "project-one");
+    expect(mockGetWorkflows).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).not.toContain("private:secret");
   });
 
   test("empty query → every workflow, shaped {name, description, kind}", async () => {

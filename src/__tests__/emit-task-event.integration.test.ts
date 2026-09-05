@@ -36,7 +36,8 @@ mock.module("../db/connection", () => ({
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { getDb } = await import("../db/connection");
 const { addConversationExtensions } = await import("../db/queries/conversation-extensions");
-const { projects, conversations, extensions: extensionsTable } = await import("../db/schema");
+const { users, projects, conversations, extensions: extensionsTable } = await import("../db/schema");
+const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
 
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
@@ -143,6 +144,8 @@ function spawnExtension(): TestProc {
 
 beforeAll(async () => {
   await setupTestDb();
+  _resetTaskTrackingExtensionIdCache();
+  await getDb().insert(users).values({ id: "user-int", email: "task-int@test.local", name: "Owner", passwordHash: "unused", role: "admin", status: "active" });
   await getDb().insert(projects).values({
     id: "proj-tte-int",
     name: "proj-tte-int",
@@ -150,6 +153,7 @@ beforeAll(async () => {
   } as any);
   await getDb().insert(conversations).values({
     id: CONV_ID,
+    userId: "user-int",
     projectId: "proj-tte-int",
     title: "integration",
   } as any);
@@ -170,6 +174,7 @@ beforeAll(async () => {
     installPath: `/tmp/${EXT_ID}`,
     enabled: true,
   } as any);
+  await getDb().insert(extensionsTable).values({ id: "task-tracking-store", name: "task-tracking", version: "1.0.0", manifest: { schemaVersion: 4, name: "task-tracking", version: "1.0.0", description: "Storage fixture", author: { name: "Test" }, permissions: {} }, enabled: true, source: "release-v4", creatorUserId: "user-int" });
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
 

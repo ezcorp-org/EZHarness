@@ -11,6 +11,7 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { extensionControlTools } from "../extensions/extension-control";
 
 mockDbConnection();
 
@@ -26,13 +27,14 @@ afterAll(async () => {
 });
 
 describe("Ez mode allowed_tools migration", () => {
-  test("ez mode references the runtime-namespaced extension-author__create_extension", async () => {
+  test("ez mode uses host controls instead of an extension authoring itself", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     // PGlite returns an array of objects keyed by column name.
     const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
       ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
-    expect(allowedTools).toContain("extension-author__create_extension");
+    for (const tool of extensionControlTools) expect(allowedTools).toContain(tool.name);
+    expect(allowedTools).not.toContain("extension-author__create_extension");
     // The stale slash-separator form must NOT survive — it never matched
     // the runtime tool name, so the tool was neither listed nor callable.
     expect(allowedTools).not.toContain("extension-author/create_extension");

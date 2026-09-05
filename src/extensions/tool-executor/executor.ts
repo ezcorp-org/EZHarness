@@ -1,5 +1,6 @@
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionProcess } from "../subprocess";
+import { verifyInvocationLocks, type InvocationGuard } from "../runtime-locks";
 import type { ToolCallResult, JsonRpcRequest, JsonRpcResponse } from "../types";
 import type { ExtensionStateMediator } from "../state-mediator";
 import { getStateMediator } from "../state-mediator";
@@ -10,16 +11,20 @@ import type { PendingPermissionInfo } from "../../runtime/stream-chat/host";
 import { resolveSharedVariables } from "../shared-variables";
 import type { FsRpcResponse } from "../fs-handler";
 import { getUserById } from "../../db/queries/users";
+import { getDb, type DbTransaction } from "../../db/connection";
+import type { StorageDatabase } from "../../db/queries/extension-storage";
 import { hasExtensionScope } from "../../auth/extension-rbac";
 import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
+import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../domain-event-outbox";
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
 import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { isSealedServiceInvocation, type ServiceInvocation } from "../service-invocation";
 import {
   createExtensionPermissionGate,
   type ApprovalResolution,
@@ -42,6 +47,13 @@ import {
   wireMaxToolCallsCounter,
 } from "./limits";
 import { dispatchReverseRpcWithTimeout } from "./reverse-rpc-timeout";
+import { handleHostApi } from "../host-api-broker";
+import { handleProjectPullRequest } from "../project-pr-broker";
+import { handleProjectGit } from "../project-git-broker";
+import { handleProjectPullRequestReview } from "../project-pull-request-broker";
+import { handleNetworkBroker } from "../network-broker";
+import { handleNetworkTunnel } from "../network-tunnel-broker";
+import { handleCredentialBroker } from "../credential-broker";
 import { PermissionDeniedError, type ArgsResolver, type ToolExecutorOptions } from "./errors";
 import { resolveReverseRpcMeta as provResolveReverseRpcMeta } from "./provenance";
 import {
@@ -234,6 +246,10 @@ export class ToolExecutor {
     messageId: string | null,
     _opts?: {
       callerExtensionId?: string;
+      expectedReleaseBinding?: string;
+      signal?: AbortSignal;
+      invocationGuard?: InvocationGuard;
+      serviceInvocation?: ServiceInvocation;
       _callDepth?: number;
       metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
       /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
@@ -243,6 +259,14 @@ export class ToolExecutor {
     },
     invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
+    const serviceInvocation = _opts?.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
+    if (serviceInvocation) {
+      if (!isSealedServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity or an unsealed host origin");
+      await serviceInvocation.assertActive();
+    }
+    _opts?.signal?.throwIfAborted();
+    if (_opts?.invocationGuard) await _opts.invocationGuard();
+    _opts?.signal?.throwIfAborted();
     const registered = this.registry.getRegisteredTool(toolName);
     if (!registered) {
       return {
@@ -349,7 +373,12 @@ export class ToolExecutor {
     // server-side from the conversation — identical semantics to the
     // advisory `ctx.rbac.check` via the shared `resolveExtensionScopeGrant`.
     const requiredScope = tool?.rbacScope;
-    if (requiredScope) {
+    let serviceTargetBinding: string | undefined;
+    if (serviceInvocation) {
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      serviceTargetBinding = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope });
+      if (_opts?.expectedReleaseBinding !== undefined && _opts.expectedReleaseBinding !== serviceTargetBinding) throw new Error("Service target does not match the expected release");
+    } else if (requiredScope) {
       const scopeGranted = await this.resolveExtensionScopeGrant(
         manifest?.name ?? extensionId,
         requiredScope,
@@ -364,6 +393,12 @@ export class ToolExecutor {
         );
       }
     }
+    const invocationGuard: InvocationGuard | undefined = serviceInvocation ? async database => {
+      await _opts?.invocationGuard?.(database);
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      const current = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope, database });
+      if (current !== serviceTargetBinding) throw new Error("Service target release changed during invocation");
+    } : _opts?.invocationGuard;
 
     // Mandatory in-chat approval for agent-driven extension install.
     // The bundled `extension-author.install_draft` tool installs
@@ -445,6 +480,7 @@ export class ToolExecutor {
           // PDP serializes it as JSON null in the audit row instead
           // of the literal string "unknown".
           userId: this.currentUserId ?? null,
+          serviceInvocation,
           conversationId: conversationId ?? null,
           toolName: originalName,
           callerExtensionId: _opts?.callerExtensionId,
@@ -494,6 +530,17 @@ export class ToolExecutor {
           content: [{ type: "text", text: message }],
           isError: true,
         };
+        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+          conversationId,
+          extensionId,
+          toolName,
+          error: message,
+          duration: Date.now() - promptStartedAt,
+          ...(registered.cardType && { cardType: registered.cardType }),
+          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+          ...(meta?.source && { source: meta.source }),
+          ...(meta?.invocationId && { invocationId: meta.invocationId }),
+        } };
         await this.recordToolCall(
           conversationId,
           messageId,
@@ -504,18 +551,9 @@ export class ToolExecutor {
           promptStartedAt,
           registered.cardType,
           registered.cardLayout,
+          toolEvent,
         );
-        this.bus?.emit("tool:error", {
-          conversationId,
-          extensionId,
-          toolName,
-          error: message,
-          duration: Date.now() - promptStartedAt,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        });
+        emitPersistedDomainEvent(this.bus, toolEvent);
       };
 
       // Emit tool:start FIRST so the card + tool_ref block exist before
@@ -560,6 +598,7 @@ export class ToolExecutor {
       let resolution: ApprovalResolution;
       try {
         resolution = await createExtensionPermissionGate({
+          ...(_opts?.signal ? { signal: _opts.signal } : {}),
           promptId: decision.promptId,
           conversationId,
           userId: this.currentUserId ?? "",
@@ -660,7 +699,10 @@ export class ToolExecutor {
     // invocations stack chained-deputy intersections correctly.
     const runtimeCtxForCall: import("../runtime-tool-context").RuntimeToolContext = {
       ...(_opts?.capContext !== undefined ? { currentCapContext: _opts.capContext } : {}),
+      signal: _opts?.signal,
+      invocationGuard,
       currentAuditId: decision.auditId,
+      ...(serviceInvocation ? { serviceInvocation } : {}),
     };
 
     const startTime = Date.now();
@@ -670,6 +712,7 @@ export class ToolExecutor {
 
     return withRuntimeToolContext(runtimeCtxForCall, async () => {
     try {
+      _opts?.signal?.throwIfAborted();
       // Resolve shared variables (x-shared) before dispatching to either
       // subprocess or MCP client.
       const resolvedInput = resolveSharedVariables(
@@ -712,27 +755,22 @@ export class ToolExecutor {
             `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
           );
         }
-        const store = createHostEntityStore({
-          extensionId,
-          scope,
-          scopeId,
+        const executeEntity = async (database?: StorageDatabase) => {
+          _opts?.signal?.throwIfAborted();
+          const store = createHostEntityStore({ extensionId, scope, scopeId, ...(database ? { database } : {}) });
+          const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
+          const result = await handler(resolvedInput);
+          _opts?.signal?.throwIfAborted();
+          return result;
+        };
+        const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
+          await verifyInvocationLocks(transaction, invocationGuard);
+          const result = await executeEntity(transaction);
+          await verifyInvocationLocks(transaction, invocationGuard);
+          return result;
         });
-        const handlers = buildEntityToolHandlers(decl, store);
-        const handler = handlers[registered.entityKind];
-        const entityResult = await handler(resolvedInput);
-        await this.recordToolCall(
-          conversationId,
-          messageId,
-          extensionId,
-          toolName,
-          input,
-          entityResult,
-          startTime,
-          registered.cardType,
-          registered.cardLayout,
-        );
         const duration = Date.now() - startTime;
-        this.bus?.emit("tool:complete", {
+        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
           conversationId,
           extensionId,
           toolName,
@@ -743,19 +781,29 @@ export class ToolExecutor {
           ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
           ...(meta?.source && { source: meta.source }),
           ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        });
+        } };
+        await this.recordToolCall(
+          conversationId,
+          messageId,
+          extensionId,
+          toolName,
+          input,
+          entityResult,
+          startTime,
+          registered.cardType,
+          registered.cardLayout,
+          toolEvent,
+        );
+        emitPersistedDomainEvent(this.bus, toolEvent);
         return entityResult;
       }
 
       let result: ToolCallResult;
-      if (isMcp) {
-        const client = await this.registry.getMcpClient(extensionId);
-        result = await client.callTool(originalName, resolvedInput);
-      } else {
-        const proc = await this.registry.getProcess(extensionId);
+      {
+        const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(extensionId);
 
         // Wire handlers if not already wired for this extension
-        await this.ensureSubprocessRpcWired(extensionId, proc);
+        if (proc) await this.ensureSubprocessRpcWired(extensionId, proc);
 
         // Use originalName for RPC call to subprocess, not the namespaced name
         const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
@@ -844,9 +892,11 @@ export class ToolExecutor {
           parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
           actorExtensionId: extensionId,
           kind: "tool",
-          ownerless: !this.currentUserId,
+          ownerless: !this.currentUserId && !serviceInvocation,
+          ...(serviceInvocation ? { serviceInvocation, invocationGuard, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
         });
         meta.ezCallId = ezCallId;
+        if (serviceTargetBinding !== undefined || _opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = serviceTargetBinding ?? _opts?.expectedReleaseBinding;
         // Only pass the fourth `options` arg when there's something to set —
         // keeps the 3-arg call shape for the common case (tests assert with
         // strict `toHaveBeenCalledWith` arity). The token is released the
@@ -873,29 +923,25 @@ export class ToolExecutor {
           (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
             this.registry.isBundled?.(extensionId) === true);
         try {
-          result = skipCallTimeout
-            ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
-            : await proc.callTool(originalName, callArgs, meta);
+          _opts?.signal?.throwIfAborted();
+          if (invocationGuard) await invocationGuard();
+          _opts?.signal?.throwIfAborted();
+          const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
+          const controlled = _opts?.signal || invocationGuard;
+          const callOptions = controlled ? { skipTimeout: skipCallTimeout, ...controlOptions } : skipCallTimeout ? { skipTimeout: true } : undefined;
+          result = isMcp
+            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(controlled ? [controlOptions] : []))
+            : callOptions
+            ? await proc!.callTool(originalName, callArgs, meta, callOptions)
+            : await proc!.callTool(originalName, callArgs, meta);
         } finally {
           releaseCallProvenance(ezCallId);
         }
       }
 
       // Record to tool_calls table
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        result,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-      );
-
       const duration = Date.now() - startTime;
-      this.bus?.emit("tool:complete", {
+      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
         conversationId,
         extensionId,
         toolName,
@@ -906,7 +952,20 @@ export class ToolExecutor {
         ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
         ...(meta?.source && { source: meta.source }),
         ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
+      } };
+      await this.recordToolCall(
+        conversationId,
+        messageId,
+        extensionId,
+        toolName,
+        input,
+        result,
+        startTime,
+        registered.cardType,
+        registered.cardLayout,
+        toolEvent,
+      );
+      emitPersistedDomainEvent(this.bus, toolEvent);
 
       return result;
     } catch (error) {
@@ -917,6 +976,18 @@ export class ToolExecutor {
       };
 
       // Record error to tool_calls table
+      const duration = Date.now() - startTime;
+      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+        conversationId,
+        extensionId,
+        toolName,
+        error: errorMsg,
+        duration,
+        ...(registered.cardType && { cardType: registered.cardType }),
+        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+        ...(meta?.source && { source: meta.source }),
+        ...(meta?.invocationId && { invocationId: meta.invocationId }),
+      } };
       await this.recordToolCall(
         conversationId,
         messageId,
@@ -927,20 +998,9 @@ export class ToolExecutor {
         startTime,
         registered.cardType,
         registered.cardLayout,
+        toolEvent,
       );
-
-      const duration = Date.now() - startTime;
-      this.bus?.emit("tool:error", {
-        conversationId,
-        extensionId,
-        toolName,
-        error: errorMsg,
-        duration,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
+      emitPersistedDomainEvent(this.bus, toolEvent);
 
       return errorResult;
     }
@@ -1037,10 +1097,10 @@ export class ToolExecutor {
    * Create the `tools` object for AgentContext.
    * Code-based agents can call ctx.tools.invoke("tool_name", {input}).
    */
-  createToolsContext(conversationId: string, messageId: string) {
+  createToolsContext(conversationId: string, messageId: string | null, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard; serviceInvocation?: ServiceInvocation }) {
     return {
       invoke: async (toolName: string, input: Record<string, unknown>): Promise<unknown> => {
-        const result = await this.executeToolCall(toolName, input, conversationId, messageId);
+        const result = await this.executeToolCall(toolName, input, conversationId, messageId, ...(options ? [options] : []));
         if (result.isError) {
           throw new Error(result.content.map((c) => c.text).join("\n"));
         }
@@ -1273,6 +1333,34 @@ export class ToolExecutor {
     return rpcHandlePiGithubProjects(this.rpcDeps(), extensionId, req);
   }
 
+  async handlePiHostApi(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleHostApi(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiProjectPullRequest(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleProjectPullRequest(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiProjectGit(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleProjectGit(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiProjectPullRequestReview(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleProjectPullRequestReview(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiNetworkBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleNetworkBroker(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiNetworkTunnel(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleNetworkTunnel(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiCredentialBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleCredentialBroker(this.rpcDeps(), extensionId, request);
+  }
+
   /** `ezcorp/RbacCheck` reverse-RPC — see {@link rpcHandlePiRbacCheck}. */
   async handlePiRbacCheck(
     extensionId: string,
@@ -1367,6 +1455,7 @@ export class ToolExecutor {
     startTime: number,
     cardType?: string,
     cardLayout?: string,
+    event?: DomainExtensionEvent,
   ): Promise<void> {
     // Route through the shared persist helper — single insert site for
     // tool_calls across the extension-tool path here and the built-in
@@ -1395,6 +1484,6 @@ export class ToolExecutor {
       agentConfigId: this.currentAgentConfigId ?? null,
       model: this.currentModel ?? null,
       provider: this.currentProvider ?? null,
-    });
+    }, event);
   }
 }

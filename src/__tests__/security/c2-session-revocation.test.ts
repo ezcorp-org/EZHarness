@@ -90,6 +90,7 @@ mock.module("$lib/server/security/api-keys", apiKeysMock);
 mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
 
 const payloadMock = () => ({
+  admitRequestPayload: async (request: Request) => request,
   getMaxPayload: () => 1024 * 1024,
   payloadTooLarge: () =>
     new Response(JSON.stringify({ error: "Payload too large" }), { status: 413 }),

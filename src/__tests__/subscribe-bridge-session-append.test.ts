@@ -15,6 +15,8 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { runs } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { domainEventSourceFixture, fillDomainEventQueue } from "./helpers/domain-event-source";
 
 mockDbConnection();
 
@@ -98,8 +100,9 @@ describe("subscribe-bridge live session append (flag ON)", () => {
   afterAll(async () => { await closeTestDb(); });
 
   test("turn_end appends the assistant turn as a session message entry", async () => {
-    const project = await createProject({ name: "SA", path: "/tmp/sa" });
-    const conv = await createConversation(project.id, { title: "t" });
+    const source = await domainEventSourceFixture(["run:turn_saved"]);
+    const conv = source.conversation;
+    await getTestDb().update(runs).set({ conversationId: conv.id }).where(eq(runs.id, "run-1"));
     const u1 = await createMessage(conv.id, { role: "user", content: "hi" });
     await backfillSessionForConversation(conv.id); // session now exists (holds u1)
 
@@ -116,6 +119,27 @@ describe("subscribe-bridge live session append (flag ON)", () => {
     const ids = await sessionEntryIds(conv.id);
     expect(ids).toContain(u1.id);
     expect(ids).toContain(assistantId); // the assistant turn is now in the session tree
+    expect((await source.queue.dispatch(async delivery => {
+      expect(delivery.input).toMatchObject({ method: "ezcorp/event/run:turn_saved", params: { messageId: assistantId, parentMessageId: u1.id, content: "the answer", final: true } });
+    }))?.state).toBe("delivered");
+    expect(await source.queue.claim()).toBeNull();
+  });
+
+  test("turn outbox backpressure preserves the old message leaf and session tree", async () => {
+    const source = await domainEventSourceFixture(["run:turn_saved"]);
+    await getTestDb().update(runs).set({ conversationId: source.conversation.id }).where(eq(runs.id, "run-1"));
+    const parent = await createMessage(source.conversation.id, { role: "user", content: "Parent" });
+    await backfillSessionForConversation(source.conversation.id);
+    await fillDomainEventQueue(source);
+    const ctx = makeCtx(parent.id);
+    const agent = makePiAgent();
+    subscribeBridge(ctx, makeHost(makeBus(), {}), agent as any, source.conversation.id, { sessionHistoryProducer: true }, null);
+    agent.fire({ type: "turn_start" });
+    agent.fire(assistantTurn("Must not commit"));
+    await ctx.dbQueue;
+    expect(ctx.lastSavedMessageId).toBe(parent.id);
+    expect(await sessionEntryIds(source.conversation.id)).toEqual([parent.id]);
+    expect(ctx.domainEventFailure).toMatchObject({ code: "event_queue_full" });
   });
 
   test("flag OFF → no session append (assistant row persisted, session untouched)", async () => {

@@ -1,188 +1,31 @@
-/**
- * Re-open an installed extension as an author-mode draft.
- *
- * This is the inverse of `installAuthoredDraft`: it takes a
- * user-owned, admin-`modifiable`, non-bundled installed extension and
- * mints a fresh author draft seeded with its on-disk files, so the
- * ENTIRE existing edit pipeline (`read_draft` / `write_draft_file` /
- * `validate_extension` / `install_draft`) works unchanged. The draft
- * carries `payload.modifyOf = <extension.id>` so `installAuthoredDraft`
- * treats the same-name re-install as the sanctioned in-place upgrade
- * (it RE-authorizes against the DB) rather than a `NAME_COLLISION`.
- *
- * Shared by BOTH the in-chat reverse-RPC (`ezcorp/drafts.reopen`) and
- * the web Modify route — one owner-scoped, opaque authorization path.
- * There is intentionally NO admin-override edit path: an admin's power
- * is flipping the `modifiable` flag; editing an extension is strictly
- * owner-only ("modify only the ones they created").
- */
+import { getDb } from "../db/connection";
+import { getExtensionByRef } from "../db/queries/extensions";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { LifecycleError } from "./v4";
 
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getUserModifiableExtension } from "../db/queries/extensions";
-import {
-  SCAFFOLD_DRAFT_FILES,
-  createDraft,
-  discardDraftAndDir,
-  writeExtensionAuthorDraftFiles,
-} from "../db/queries/ez-drafts";
-import type { ExtensionManifestV2 } from "./types";
-import { extensionLogger } from "../logger";
+export type ReopenErrorCode = "NOT_FOUND_OR_NOT_MODIFIABLE" | "NO_VERIFIED_RELEASE" | "SOURCE_UNAVAILABLE";
 
-// `ext.extension-author.reopen` — the binding namespace rule in
-// src/extensions/CLAUDE.md, so `EZCORP_DEBUG=ext.extension-author`
-// reaches this module along with the rest of the author path.
-const log = extensionLogger("extension-author", "reopen");
-
-export type ReopenErrorCode =
-  | "NOT_FOUND_OR_NOT_MODIFIABLE"
-  | "NO_INSTALL_PATH"
-  | "NO_FILES"
-  | "UNREADABLE_FILE"
-  | "DRAFT_FAILED";
-
-/** Typed failure so the RPC handler maps to `rpcError` and the web
- *  route maps to an HTTP status without knowing each other. */
 export class ReopenError extends Error {
-  readonly code: ReopenErrorCode;
-  constructor(code: ReopenErrorCode, message: string) {
+  constructor(readonly code: ReopenErrorCode, message: string) {
     super(message);
     this.name = "ReopenError";
-    this.code = code;
   }
 }
 
-/**
- * Map the manifest's component shape back to the scaffold "type" the
- * draft pipeline expects. Only the tool/multi distinction is
- * load-bearing: `installAuthoredDraft`'s `VERIFY_REQUIRED_TYPES` gate
- * re-runs the `smokeTest` round-trip for those, so anything that ships
- * a subprocess tool server still has to pass acceptance after a modify.
- */
-function scaffoldType(
-  m: ExtensionManifestV2,
-): "tool" | "skill" | "agent" | "multi" {
-  const hasTools = Array.isArray(m.tools) && m.tools.length > 0;
-  const hasSkills = Array.isArray(m.skills) && m.skills.length > 0;
-  const hasAgent = m.agent != null;
-  if (hasTools && (hasSkills || hasAgent)) return "multi";
-  if (hasTools) return "tool";
-  if (hasAgent) return "agent";
-  return "skill";
-}
-
-export async function reopenInstalledAsDraft(
-  nameOrId: string,
-  userId: string,
-): Promise<{ draftId: string; name: string }> {
-  // Owner + modifiable + not-bundled, opaque (miss ≡ not-owned ≡
-  // flag-off ≡ bundled). Mirrors `ez_drafts.getDraft` so a caller can
-  // never probe another user's extensions.
-  const ext = await getUserModifiableExtension(nameOrId, userId);
-  if (!ext) {
-    throw new ReopenError(
-      "NOT_FOUND_OR_NOT_MODIFIABLE",
-      'Extension not found, not yours, or modification is not enabled. ' +
-        'To enable it, an admin must open this extension\'s detail page ' +
-        '(Library → click the extension), scroll to the "Settings" ' +
-        'section, and turn ON the "Allow extension to be modified" ' +
-        'checkbox. Built-in (bundled) extensions can never be made ' +
-        'modifiable.',
-    );
-  }
-
-  const installPath = ext.installPath;
-  if (!installPath || !existsSync(installPath)) {
-    throw new ReopenError(
-      "NO_INSTALL_PATH",
-      "Installed extension has no on-disk source to re-open",
-    );
-  }
-
-  // Seed the draft from the installed files, restricted to the
-  // scaffold allowlist (same set `writeExtensionAuthorDraftFiles`
-  // enforces — anything else would be rejected on write anyway).
-  //
-  // An unreadable file is FATAL here, not skippable. The re-install
-  // replaces the extension directory with the draft's contents, so a
-  // silently-skipped file would be dropped from the draft and then
-  // deleted from the installed extension — a read error turning into
-  // permanent data loss, one install later.
-  const files: Record<string, string> = {};
-  for (const fname of SCAFFOLD_DRAFT_FILES) {
-    const p = join(installPath, fname);
-    if (!existsSync(p)) continue;
-    try {
-      files[fname] = await readFile(p, "utf8");
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      log.warn("reopenInstalledAsDraft: refusing to seed an incomplete draft", {
-        extensionId: ext.id,
-        file: fname,
-        error: detail,
-      });
-      throw new ReopenError(
-        "UNREADABLE_FILE",
-        `Cannot re-open "${ext.name}": its "${fname}" could not be read ` +
-          `(${detail}). Re-opening now would drop that file from the draft ` +
-          `and delete it from the installed extension on re-install. Fix ` +
-          `the file's permissions and try again.`,
-      );
-    }
-  }
-  if (!files["ezcorp.config.ts"]) {
-    throw new ReopenError(
-      "NO_FILES",
-      "Installed extension is missing a readable ezcorp.config.ts",
-    );
-  }
-
-  const manifest = ext.manifest as ExtensionManifestV2;
-  let row: Awaited<ReturnType<typeof createDraft>>;
+export async function reopenInstalledAsDraft(nameOrId: string, userId: string): Promise<{ installationId: string; workspaceId: string; revision: number; name: string; openUrl: string }> {
+  const extension = await getExtensionByRef(nameOrId);
+  if (!extension || extension.creatorUserId !== userId) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or source access denied.");
+  const repository = new DatabaseLifecycleRepository(getDb());
+  const state = await repository.read(extension.id);
+  if (state && (state.installation.ownerId !== userId || state.installation.uninstalled)) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or not modifiable.");
+  if (!state?.installation.activeReleaseId) throw new ReopenError("NO_VERIFIED_RELEASE", "No active immutable release is available. Import the source through the version 4 workspace flow.");
   try {
-    row = await createDraft({
-      userId,
-      kind: "extension",
-      payload: {
-        name: ext.name,
-        type: scaffoldType(manifest),
-        // `mode:"author"` so the WHOLE existing pipeline treats this
-        // identically — resolveDir / read_draft / write_draft_file /
-        // verify / install all gate on `mode === "author"`.
-        mode: "author",
-        // Sanctioned-modify marker. Set ONLY here (the LLM cannot
-        // inject payload keys via create_extension / write_draft_file).
-        // `installAuthoredDraft` re-authorizes it against the DB before
-        // performing the in-place replace.
-        modifyOf: ext.id,
-      },
-    });
-  } catch (err) {
-    throw new ReopenError(
-      "DRAFT_FAILED",
-      `Failed to create draft: ${String(err)}`,
-    );
+    const { getExtensionLifecycle } = await import("./extension-lifecycle-service");
+    const lifecycle = await getExtensionLifecycle();
+    const { workspace } = await lifecycle.createWorkspace({ principalId: userId, scope: state.installation.scope, kind: "agent" }, { installationId: extension.id, releaseId: state.installation.activeReleaseId });
+    return { installationId: extension.id, workspaceId: workspace.id, revision: workspace.revision, name: extension.name, openUrl: `/extensions/author?installation=${encodeURIComponent(extension.id)}&workspace=${encodeURIComponent(workspace.id)}` };
+  } catch (error) {
+    if (error instanceof LifecycleError && ["unauthorized", "forbidden", "not_found", "uninstalled"].includes(error.code)) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or not modifiable.");
+    throw new ReopenError("SOURCE_UNAVAILABLE", "The immutable release source could not be read. No workspace was created.");
   }
-
-  try {
-    await writeExtensionAuthorDraftFiles(row.id, userId, files);
-  } catch (err) {
-    // Transactional: a row with no files is useless and unrecoverable
-    // by the LLM. Best-effort discard, then a clean error.
-    try {
-      await discardDraftAndDir(row.id, userId);
-    } catch (discardErr) {
-      log.warn("reopenInstalledAsDraft: rollback discard failed", {
-        draftId: row.id,
-        error: String(discardErr),
-      });
-    }
-    throw new ReopenError(
-      "DRAFT_FAILED",
-      `Failed to materialize draft files: ${String(err)}`,
-    );
-  }
-
-  return { draftId: row.id, name: ext.name };
 }

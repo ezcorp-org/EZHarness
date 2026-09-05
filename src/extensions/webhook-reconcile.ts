@@ -32,6 +32,7 @@
  */
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
+import type { Database, DbTransaction } from "../db/connection";
 import { extensionWebhooks, type ExtensionWebhook } from "../db/schema";
 import { eq, and, notInArray } from "drizzle-orm";
 import { WEBHOOK_SLUG_RE } from "./manifest";
@@ -46,12 +47,13 @@ export async function reconcileWebhooks(
   // Injectable so a test can exercise the mint-failure safeguard without a
   // contrived FK error. Defaults to the real (mint-if-absent) helper.
   ensureSecret: (extId: string, slug: string) => Promise<string | null> = ensureWebhookSecret,
+  database?: Database | DbTransaction,
 ): Promise<{ added: number; disabled: number; preserved: number }> {
   // Defense-in-depth: re-validate slug shape even though the grant path already
   // clamped to manifest-declared slugs (which validation gated). A malformed
   // slug must never reach the route path via a registry row. Dedupe too.
   const valid = [...new Set(grantedSlugs.filter((s) => WEBHOOK_SLUG_RE.test(s)))];
-  const db = getDb();
+  const db = database ?? getDb();
 
   // MANIFEST rows only — see the module header. This snapshot feeds both the
   // re-enable map and the `disabled` count, so filtering here keeps a dynamic
@@ -96,6 +98,7 @@ export async function reconcileWebhooks(
     try {
       await ensureSecret(extensionId, slug);
     } catch (err) {
+      if (database) throw err;
       log.warn("ensure-secret-failed", { extensionId, slug, error: String(err) });
     }
   }

@@ -38,6 +38,7 @@ import { fetchCgcCert } from "./lib/sources/cgc";
 import { fetchPsaCert } from "./lib/sources/psa-api";
 import { fetchAllPrices, fetchPrices } from "./lib/sources/pricecharting";
 import { TOKEN_STORAGE_KEY, resolveToken } from "./lib/token";
+import { createSavedCardTools } from "./lib/saved-cards";
 
 /** @see app/lib/format.js CardRecord — the shared record shape. */
 export type CardRecord = ReturnType<typeof mockCard>;
@@ -196,6 +197,7 @@ const setPsaToken: ToolHandler = async (args) => {
 };
 
 export const tools: Record<string, ToolHandler> = {
+  ...createSavedCardTools(tokenStorage),
   lookup_card: lookupCard,
   identify_slab: identifySlab,
   set_psa_token: setPsaToken,

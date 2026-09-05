@@ -22,7 +22,7 @@
  */
 import type { AgentDefinition, WorkflowDefinition } from "../../types";
 import type { WorkflowExecutor } from "../workflow-executor";
-import type { CachedWorkflow } from "../workflow-scope";
+import { systemCachedWorkflow, type CachedWorkflow } from "../workflow-scope";
 
 /** The slice of `WorkflowExecutor` this registry's consumers use.
  *  Narrowed so tests can stub it without standing up the full executor
@@ -85,6 +85,18 @@ export interface WorkflowRuntime {
 }
 
 let registered: WorkflowRuntime | null = null;
+
+export function workflowResumeEntry(
+  runtime: WorkflowRuntime,
+  name: string,
+): CachedWorkflow | undefined {
+  if (runtime.getCachedWorkflows) {
+    const entry = runtime.getCachedWorkflows().find((entry) => entry.definition.name === name);
+    return entry && name.includes(":") && entry.source !== "extension" ? { ...entry, source: "extension" } : entry;
+  }
+  const definition = runtime.getWorkflows().find((entry) => entry.name === name);
+  return definition && systemCachedWorkflow(definition, name.includes(":") ? "extension" : "yaml");
+}
 
 /** Register the live workflow executor + cache reader. Called once by the
  *  web layer's `ensureInitialized()` right after the executor is

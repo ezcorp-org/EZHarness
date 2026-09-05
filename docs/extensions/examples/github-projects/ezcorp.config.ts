@@ -14,16 +14,16 @@
 // Reconnect actions. Like ping-loop, it's `bootSpawn` + event-driven so the
 // daemon's `github-projects:proposal-update` pushes refresh the page live.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "github-projects",
   version: "0.1.0",
   description:
     "Connect a GitHub Projects v2 board to the active EZCorp project, then plan and execute its tickets. A live Hub dashboard surfaces pending board-triggered proposals (approve / dismiss), connection health (pause / resume / reconnect), and history. All GitHub I/O is host-side — the token never reaches the sandbox.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Development",
   tags: ["hub", "pages", "github", "projects", "tickets", "orchestration"],
 

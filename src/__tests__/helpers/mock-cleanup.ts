@@ -18,6 +18,37 @@
  */
 import { mock } from "bun:test";
 
+export function deferredModuleFunctions<Module>(
+  load: () => Module,
+  names: { [Name in keyof Module]: Module[Name] extends (...args: never[]) => unknown ? true : never },
+): Module {
+  return Object.fromEntries(Object.keys(names).map((name) => [name, (...args: unknown[]) => {
+    const module = load();
+    const callable = module[name as keyof Module];
+    if (typeof callable !== "function") throw new TypeError(`Expected module function ${name}`);
+    return Reflect.apply(callable, undefined, args);
+  }])) as Module;
+}
+
+type WorkflowAccessModule = typeof import("../../../web/src/lib/server/workflow-access");
+
+export function unavailableWorkflowAccess(): WorkflowAccessModule {
+  return deferredModuleFunctions<WorkflowAccessModule>(
+    () => {
+      throw new Error("Workflow access is unavailable outside its owning test");
+    },
+    {
+      toWire: true,
+      callerFor: true,
+      resolveWorkflowOr: true,
+      denyVisibilityOr: true,
+      resolveDelegationConsentOr: true,
+      validateWorkflowForCaller: true,
+      listVisibleWorkflows: true,
+    } satisfies { [Name in keyof WorkflowAccessModule]: true },
+  );
+}
+
 // Paths relative to THIS file (src/__tests__/helpers/mock-cleanup.ts).
 // ../../ goes up from helpers/ → __tests__/ → src/
 // mock.module() resolves relative to the calling file, so we use ../../
@@ -26,6 +57,21 @@ import { mock } from "bun:test";
 // because files that need it call mockDbConnection() at module level. NOT restoring
 // it causes minimal stubs (like { insert: ... }) to leak across files.
 const MODULE_PATHS = [
+  "../../extensions/bundled-bootstrap",
+  "../../extensions/project-access",
+  "../../extensions/project-git-broker",
+  "../../extensions/project-pull-request-broker",
+  "../../extensions/project-binding",
+  "../../extensions/cli-control",
+  "../../db/queries/extension-releases",
+  "../../db/queries/extension-event-receipts",
+  "../../extensions/release-process",
+  "../../../scripts/migrate-extension-v4",
+  "../../extensions/extension-lifecycle-service",
+  "../../extensions/source-import",
+  "../../extensions/project-open-pr",
+  "../../search/egress",
+  "@ezcorp/extension-runner",
   "../../db/connection",
   "../../auth/middleware",
   "../../auth/jwt",
@@ -155,6 +201,7 @@ const MODULE_PATHS = [
   // routes' call shape; it is a pure module with no heavy import graph, so
   // snapshotting it is free.
   "../../extensions/mcp-audit",
+  "../../extensions/mcp-workspace-credentials",
   "../../extensions/secrets-store",
   // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
@@ -315,6 +362,8 @@ const MODULE_PATHS = [
   // time; list the resolved web paths so preload can snapshot them. The
   // `$lib/...` form is also restored below via `LIB_ALIAS_PREFIXES`.
   "../../../web/src/lib/server/security/api-keys",
+  "../../../web/src/lib/server/extensions/mcp-request",
+  "../../../web/src/lib/server/extensions/legacy-endpoint",
   "../../../web/src/lib/server/security/validation",
   "../../../web/src/lib/server/security/resource-quotas",
   "../../../web/src/lib/server/security/rate-limiter",

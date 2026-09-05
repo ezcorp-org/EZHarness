@@ -1,11 +1,3 @@
-/**
- * Server-handler unit tests for /api/extensions/[id]/+server.ts.
- *
- * Covers GET 401 + happy path + 404, PATCH scope/auth/404/disable-only/
- * happy-path with ExtensionRegistry.reload side-effect, and DELETE
- * scope/404/happy path. DB queries and registry are mocked at the
- * module boundary.
- */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
@@ -47,6 +39,25 @@ vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
 
 const { getExtension, getExtensionByRef, updateExtension, deleteExtension } =
 	await import("$server/db/queries/extensions");
+const lifecycleDisable = vi.fn(async () => {});
+const lifecycleUninstall = vi.fn(async () => {});
+vi.mock("$server/extensions/extension-lifecycle-service", () => ({
+  getExtensionLifecycle: async () => ({
+    inspect: async (_actor: unknown, id: string) => {
+      const extension = await getExtension(id);
+      if (!extension) {
+        const { LifecycleError } = await import("../../../src/extensions/v4/types");
+        throw new LifecycleError("not_found", "Not found");
+      }
+      return {};
+    },
+    disable: lifecycleDisable, uninstall: lifecycleUninstall,
+  }),
+}));
+beforeEach(() => {
+  lifecycleDisable.mockClear(); lifecycleUninstall.mockClear();
+  vi.mocked(getExtensionByRef).mockReset().mockImplementation(async (id) => getExtension(id));
+});
 const { GET, PATCH, DELETE } = await import(
 	"../routes/api/extensions/[id]/+server"
 );
@@ -196,7 +207,7 @@ describe("PATCH /api/extensions/[id]", () => {
 		);
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Not found");
+		expect(body).toMatchObject({ message: "Not found" });
 	});
 
 	test("rejects enabled=true (must use POST /:id/activate)", async () => {
@@ -208,9 +219,8 @@ describe("PATCH /api/extensions/[id]", () => {
 				locals: { user: admin },
 			}),
 		);
-		expect(res.status).toBe(400);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Use POST /:id/activate to enable an extension");
+		expect(res.status).toBe(410);
+		expect(await res.json()).toMatchObject({ controlUrl: "/api/extensions/control" });
 		expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
 	});
 
@@ -225,35 +235,21 @@ describe("PATCH /api/extensions/[id]", () => {
 		);
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("No valid update fields provided");
+		expect(body.error).toBe("Provide enabled:false");
 	});
 
-	test("happy path: enabled=false updates extension and reloads registry", async () => {
-		vi.mocked(getExtension).mockResolvedValue(ext as any);
-		vi.mocked(updateExtension).mockResolvedValue({
-			...ext,
-			enabled: false,
-		} as any);
-		const res = await PATCH(
-			makeEvent({
-				method: "PATCH",
-				body: { enabled: false },
-				locals: { user: admin },
-			}),
-		);
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as { enabled: boolean };
-		expect(body.enabled).toBe(false);
-		// `disabledByUser` is what keeps the OFF across a restart: the boot
-		// reconcilers re-enable a disabled BUILT-IN unless this flag says the
-		// user meant it (`ensureBundledExtensions`).
-		expect(vi.mocked(updateExtension)).toHaveBeenCalledWith("ext-1", {
-			enabled: false,
-			disabledByUser: true,
-		});
-		// Side-effect: registry reloaded after disable.
-		expect(reload).toHaveBeenCalledTimes(1);
-	});
+	test("disable delegates to the lifecycle with authenticated actor", async () => {
+    vi.mocked(getExtension).mockResolvedValue(ext as any);
+    lifecycleDisable.mockImplementationOnce(async () => {
+      vi.mocked(getExtension).mockResolvedValue({ ...ext, enabled: false } as any);
+    });
+    const response = await PATCH(makeEvent({ method: "PATCH", body: { enabled: false }, locals: { user: admin, authMethod: "session" } }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ enabled: false });
+    expect(lifecycleDisable).toHaveBeenCalledWith({ principalId: admin.id, scope: "global", kind: "human" }, "ext-1");
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
 });
 
 describe("DELETE /api/extensions/[id]", () => {
@@ -299,95 +295,32 @@ describe("DELETE /api/extensions/[id]", () => {
 		);
 		expect(res.status).toBe(404);
 		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Not found");
+		expect(body).toMatchObject({ message: "Not found" });
 	});
 
-	test("happy path: deletes row, reloads registry, returns 204 — and never killAll", async () => {
-		vi.mocked(getExtension).mockResolvedValue(ext as any);
-		vi.mocked(deleteExtension).mockResolvedValue(true as any);
-		const res = await DELETE(
-			makeEvent({ method: "DELETE", locals: { user: admin } }),
-		);
-		expect(res.status).toBe(204);
-		expect(vi.mocked(deleteExtension)).toHaveBeenCalledWith("ext-1");
-		expect(reload).toHaveBeenCalledTimes(1);
-		// `killAll()` kills EVERY extension's subprocess, closes every MCP
-		// client and drops every forward proxy — uninstalling one extension
-		// took the rest down with it. `reload()` retires exactly the entries
-		// that went away.
-		expect(killAll).not.toHaveBeenCalled();
-	});
+  test.each([false, true])("uninstall retains data and delegates one installation (bundled=%s)", async (isBundled) => {
+    vi.mocked(getExtension).mockResolvedValue({ ...ext, isBundled } as any);
+    const response = await DELETE(makeEvent({ method: "DELETE", locals: { user: admin, authMethod: "session" } }));
+    expect(response.status).toBe(204);
+    expect(lifecycleUninstall).toHaveBeenCalledWith({ principalId: admin.id, scope: "global", kind: "human" }, ext.id);
+    expect(deleteExtension).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(killAll).not.toHaveBeenCalled();
+  });
 
-	test("returns 409 for a built-in, and deletes nothing", async () => {
-		// The row is recreated at the next boot with DEFAULT grants, so the
-		// only lasting effect of allowing this was silently discarding the
-		// admin's permission narrowing. Disabling is the supported off switch.
-		vi.mocked(getExtension).mockResolvedValue({ ...ext, isBundled: true } as any);
-		const res = await DELETE(
-			makeEvent({ method: "DELETE", locals: { user: admin } }),
-		);
-		expect(res.status).toBe(409);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toMatch(/disable it instead/);
-		expect(vi.mocked(deleteExtension)).not.toHaveBeenCalled();
-		expect(reload).not.toHaveBeenCalled();
-	});
+  test("purge cannot bypass explicit data retention review", async () => {
+    vi.mocked(getExtension).mockResolvedValue(ext as any);
+    const response = await DELETE(makeEvent({ method: "DELETE", locals: { user: admin }, search: "purgeData=1" }));
+    expect(response.status).toBe(400);
+    expect(lifecycleUninstall).not.toHaveBeenCalled();
+    expect(deleteExtension).not.toHaveBeenCalled();
+  });
 
-	// ── Uninstall audit row ───────────────────────────────────────────
-	//
-	// This is the destructive end of the MCP lifecycle: an uninstall
-	// cascade-deletes `extension_secrets`, i.e. the stored transport
-	// credential. Install / edit / refresh all leave a row; without these
-	// assertions the uninstall row could be deleted outright and the whole
-	// suite would stay green, because `insertAuditEntry` never throws by
-	// contract and the route swallows its failure.
-	test("writes an ext:uninstalled audit row naming the actor, the target and the row's identity", async () => {
-		vi.mocked(getExtension).mockResolvedValue(ext as any);
-		vi.mocked(deleteExtension).mockResolvedValue(true as any);
-		const res = await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
-		expect(res.status).toBe(204);
-
-		expect(insertAuditEntry).toHaveBeenCalledTimes(1);
-		const [userId, action, target, metadata = {}] = insertAuditEntry.mock.calls[0]!;
-		expect(userId).toBe(admin.id);
-		expect(action).toBe("ext:uninstalled");
-		// `audit_log.target` is a plain text column with no FK, so the trail
-		// outlives the row it describes.
-		expect(target).toBe(ext.id);
-		expect(metadata.actor).toBe(admin.id);
-		expect(metadata.extensionName).toBe(ext.name);
-		expect(metadata.reason).toBe("uninstall");
-		expect(metadata.newValue).toBeNull();
-		expect(metadata.oldValue).toEqual({
-			version: ext.version,
-			source: ext.source,
-			isBundled: ext.isBundled,
-		});
-	});
-
-	test("purgeData in the audit row reflects the ?purgeData=1 query", async () => {
-		// The irreversible half of the uninstall — whether the extension's own
-		// data store was destroyed — is exactly what an investigator needs and
-		// is not recoverable from anywhere else afterwards.
-		vi.mocked(getExtension).mockResolvedValue(ext as any);
-		vi.mocked(deleteExtension).mockResolvedValue(true as any);
-
-		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin }, search: "purgeData=1" }));
-		expect(insertAuditEntry.mock.calls[0]![3]?.purgeData).toBe(true);
-
-		insertAuditEntry.mockClear();
-		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
-		expect(insertAuditEntry.mock.calls[0]![3]?.purgeData).toBe(false);
-	});
-
-	test("a refused uninstall writes NO audit row", async () => {
-		// The trail must never claim a removal that did not happen.
-		vi.mocked(getExtension).mockResolvedValue({ ...ext, isBundled: true } as any);
-		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
-		expect(insertAuditEntry).not.toHaveBeenCalled();
-
-		vi.mocked(getExtension).mockResolvedValue(null as any);
-		await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
-		expect(insertAuditEntry).not.toHaveBeenCalled();
-	});
+  test("a refused uninstall does not delegate or claim an audit event", async () => {
+    vi.mocked(getExtension).mockResolvedValue(null as any);
+    const response = await DELETE(makeEvent({ method: "DELETE", locals: { user: admin } }));
+    expect(response.status).toBe(404);
+    expect(lifecycleUninstall).not.toHaveBeenCalled();
+    expect(insertAuditEntry).not.toHaveBeenCalled();
+  });
 });

@@ -1,6 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, requireSessionAuth } from "$server/auth/middleware";
+import { importExtensionSource } from "$server/extensions/source-import";
+import { extensionControlError } from "$lib/server/extensions/control-errors";
 import { getListingById, incrementInstallCount } from "$server/db/queries/marketplace";
 import { getLatestVersion, getVersion } from "$server/db/queries/marketplace-versions";
 import { createAgentConfig, getAgentConfigByName } from "$server/db/queries/agent-configs";
@@ -45,6 +47,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   }
 
   const manifest = versionRecord.manifest as ExtensionManifestV2;
+  if (manifest.schemaVersion === 4) {
+    const administrator = requireSessionAuth(locals);
+    if (administrator instanceof Response) return administrator;
+    if (administrator.role !== "admin") return errorJson(403, "Administrator session required to stage extension source");
+    try {
+      const staged = await importExtensionSource({ principalId: administrator.id, scope: "global", kind: "human" }, { kind: "marketplace", versionId: versionRecord.id });
+      await insertAuditEntry(administrator.id, "marketplace:stage", listing.id, { version: versionRecord.version, installationId: staged.installation.id });
+      return json(staged, { status: 202 });
+    } catch (error) { return extensionControlError(error); }
+  }
   if (!manifest.agent) {
     return errorJson(400, "Listing has no agent definition");
   }

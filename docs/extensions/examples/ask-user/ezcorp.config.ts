@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // `ask_user_question` schema. v1 is single-question (`{ question, options? }`)
 // for simplicity. The forward path to a multi-question variant — same as
@@ -23,13 +23,13 @@ const ASK_USER_QUESTION_SCHEMA = {
 } as const;
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "ask-user",
   version: "1.0.0",
   description:
     "Pause execution and ask the user a question. Renders inline in the assistant message bubble — supports clickable options or free-text. Replaces orchestration's `ask_human` for general-purpose human-in-the-loop.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   // The pending-answer gate lives in a process-local Map keyed on
   // `toolCallId`; the subprocess must survive across calls so the map
   // persists. Same posture as `orchestration` and `task-tracking`.

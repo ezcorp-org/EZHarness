@@ -46,6 +46,7 @@ import type { WorkflowResolver } from "./workflow-closure";
 import { workflowDefinitionHash } from "./workflow-definition-hash";
 import {
   NO_PROJECT_MEMBERSHIPS,
+  workflowDelegationReleaseAllows,
   resolveWorkflowForCaller,
   type CachedWorkflow,
   type WorkflowCaller,
@@ -185,8 +186,9 @@ const DELEGATION_PRINCIPAL = {
 export function delegationPrincipal(
   ownerKind: DelegationOwnerKind,
   ownerUserId: string | null,
+  extensionReleaseBinding?: string | null,
 ): WorkflowCaller {
-  return DELEGATION_PRINCIPAL[ownerKind](ownerUserId);
+  return { ...DELEGATION_PRINCIPAL[ownerKind](ownerUserId), ...(ownerKind === "service" && extensionReleaseBinding ? { extensionReleaseBinding } : {}) };
 }
 
 export type DelegationConsentAuthorization =
@@ -233,7 +235,10 @@ export function authorizeDelegationConsent(
   workflowName: string,
   ownerKind: DelegationOwnerKind,
   ownerUserId: string | null,
+  extensionReleaseBinding?: string | null,
 ): DelegationConsentAuthorization {
+  const sealed = entries.find(entry => entry.definition.name === workflowName && workflowDelegationReleaseAllows(entry, extensionReleaseBinding));
+  if (ownerKind === "service" && sealed) return { ok: true, entry: sealed };
   const resolution = resolveWorkflowForCaller(
     entries,
     workflowName,
@@ -437,6 +442,8 @@ export function delegationWorkflowResolver(
   principal: WorkflowCaller,
 ): WorkflowResolver {
   return (name: string): WorkflowDefinition | undefined => {
+    const sealed = entries.find(entry => entry.definition.name === name && workflowDelegationReleaseAllows(entry, principal.extensionReleaseBinding));
+    if (sealed && principal.userId === null) return sealed.definition;
     const resolution = resolveWorkflowForCaller(entries, name, principal, "run");
     // A denial and a missing name collapse to the same `undefined`, and
     // that is right: the closure records both as `unresolved`, the hash

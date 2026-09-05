@@ -582,7 +582,9 @@ export async function createMessage(
     usage?: CreateMessageUsage;
     runId?: string;
     parentMessageId?: string;
+    excluded?: boolean;
   },
+  transaction?: DbTransaction,
 ): Promise<Message> {
   // Phase 63 IDX-04: the message insert, the conversation touch, AND the
   // embed-outbox enqueue MUST be one atomic unit — no message without its
@@ -593,7 +595,7 @@ export async function createMessage(
   // here; that is the Phase 64 worker's job, off the SSE finalize hot path.
   // (`tx` is `any` by the deliberate repo-wide `Database = any` design in
   // connection.ts; enqueueEmbedJob's EmbedJobTx documents the handle shape.)
-  return getDb().transaction(async (tx: DbTransaction) => {
+  const insert = async (tx: DbTransaction) => {
     const rows = await tx
       .insert(messages)
       .values({
@@ -606,6 +608,7 @@ export async function createMessage(
         usage: data.usage ?? null,
         runId: data.runId ?? null,
         parentMessageId: data.parentMessageId ?? null,
+        excluded: data.excluded ?? false,
       })
       .returning();
     const msg = rows[0]!;
@@ -621,7 +624,8 @@ export async function createMessage(
     }
 
     return msg;
-  });
+  };
+  return transaction ? insert(transaction) : getDb().transaction(insert);
 }
 
 export async function getMessages(conversationId: string): Promise<Message[]> {

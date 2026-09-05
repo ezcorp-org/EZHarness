@@ -51,12 +51,16 @@ mock.module("../finalize-tool-call-handler", () => ({
 mock.module("../storage-handler", () => ({
   handleStorageRpc: async (_e: string, req: { id: number | string }) => okResponse(req.id),
 }));
+let appendContext: import("../append-message-handler").AppendMessageContext | undefined;
 mock.module("../append-message-handler", () => ({
-  handleAppendMessageRpc: async (_e: string, req: { id: number | string }) => ({
+  handleAppendMessageRpc: async (_e: string, req: { id: number | string }, context: import("../append-message-handler").AppendMessageContext) => {
+    appendContext = context;
+    return {
     jsonrpc: "2.0",
     id: req.id,
     result: { messageId: "m-1" },
-  }),
+    };
+  },
 }));
 mock.module("../drafts-handler", () => ({
   handleDraftsRpc: async (_name: string, req: { id: number | string }) => ({
@@ -197,7 +201,7 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     }
   });
 
-  test("handlePiStorage logs the actorExtensionId tripwire on a mismatched token", async () => {
+  test("handlePiStorage rejects a mismatched token before storage access", async () => {
     const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
     // Token minted for a DIFFERENT actor than the resolving extension → the
     // resolveStorageProvenance tripwire warns (defense-in-depth) but proceeds.
@@ -209,13 +213,13 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
         method: "ezcorp/storage",
         params: { _meta: { ezCallId: tok } },
       })) as JsonRpcResponse;
-      expect(resp.result).toEqual({ ok: true });
+      expect(resp.error?.code).toBe(-32602);
     } finally {
       releaseCallProvenance(tok);
     }
   });
 
-  test("handlePiAppendMessage emits run:turn_saved after a successful append", async () => {
+  test("handlePiAppendMessage forwards the bus to the atomic source writer without a second emit", async () => {
     const bus = new EventBus<AgentEvents>();
     const saved: Array<{ messageId: string }> = [];
     bus.on("run:turn_saved", (d) => saved.push(d as { messageId: string }));
@@ -231,8 +235,8 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
         params: { content: "hi", _meta: { ezCallId: tok } },
       })) as JsonRpcResponse;
       expect((resp.result as { messageId: string }).messageId).toBe("m-1");
-      expect(saved.length).toBe(1);
-      expect(saved[0]?.messageId).toBe("m-1");
+      expect(appendContext?.bus).toBe(bus);
+      expect(saved).toEqual([]);
     } finally {
       releaseCallProvenance(tok);
     }

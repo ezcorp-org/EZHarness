@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Load the bundled skill knowledge files at module init so the
 // content can be inlined into the agent prompt. Wrap each read in a
@@ -21,7 +21,7 @@ const aestheticPhilosophy = loadSkill("design-aesthetic-philosophy.md");
 const systemGuide = loadSkill("design-system-guide.md");
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "claude-design",
   version: "0.1.0",
   description:
@@ -30,7 +30,7 @@ export default defineExtension({
     "knob-based tweaks, and package a Claude-Code-ready handoff bundle. " +
     "First consumer of the @ezcorp/sdk canvas primitives.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   category: "Design",
   tags: ["design", "prototyping", "design-system", "demo"],
@@ -468,7 +468,7 @@ export default defineExtension({
   },
 
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
     storage: true,
     eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],

@@ -1,23 +1,8 @@
-// ── Pure scaffolder for ezcorp extensions ────────────────────────────
-//
-// `scaffoldExtension({ name, type, description })` returns a
-// `{ files: Record<relpath, content> }` map without touching the
-// filesystem. Two consumers:
-//   - `bun run ext:init` CLI (host's `src/extensions/sdk/init.ts`)
-//   - `extension-author` bundled extension (writes to a draft dir
-//     under `.ezcorp/extension-data/extension-author/drafts/<draftId>/`)
-//
-// External LLMs (Claude Code, ChatGPT, etc.) helping users build
-// EZCorp extensions outside the app can also import this primitive:
-// `import { scaffoldExtension } from "@ezcorp/sdk"`.
-
 import { toolEntrypoint, toolManifest, toolReadme, toolTest } from "./templates/tool";
 import { skillEntrypoint, skillManifest, skillReadme, skillTest } from "./templates/skill";
 import { agentEntrypoint, agentManifest, agentReadme, agentTest } from "./templates/agent";
 import { multiEntrypoint, multiManifest, multiReadme, multiTest } from "./templates/multi";
 
-// Mirrors the host's `manifest.ts:NAME_REGEX`. Kept inline so the
-// scaffolder doesn't reach into the validator's private constants.
 const NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 
 export type ExtType = "tool" | "skill" | "agent" | "multi";
@@ -32,9 +17,6 @@ dist/
 `;
 
 function generateTsconfig(): string {
-  // Standalone tsconfig — no workspace-root `extends`. Scaffolded
-  // extensions resolve `@ezcorp/sdk` via `bun add @ezcorp/sdk` from
-  // the npm registry, identical to any third-party consumer.
   return JSON.stringify({
     compilerOptions: {
       module: "ESNext",
@@ -58,8 +40,8 @@ function generatePackageJson(name: string, description: string): string {
     description,
     type: "module",
     private: true,
-    dependencies: {
-      "@ezcorp/sdk": "^0.1.0",
+    peerDependencies: {
+      "@ezcorp/sdk": "0.1.0",
     },
   }, null, 2);
 }
@@ -75,27 +57,31 @@ export interface ScaffoldResult {
   files: Record<string, string>;
 }
 
-/**
- * Pure scaffolder. Does NOT write to disk — returns the file map for
- * the caller to persist. Throws on invalid `name` or `type`.
- *
- * The four templates produce different file sets:
- *   - tool/multi:  manifest + index.ts + index.test.ts + README + tsconfig + package.json + .gitignore
- *   - skill/agent: manifest + index.test.ts + README + tsconfig + package.json + .gitignore
- *     (no index.ts — skills are prompt-based, agents are persona-only)
- *
- * The `index.ts` omission for skill/agent matches the CLI's behavior
- * exactly.
- */
-export function scaffoldExtension(opts: ScaffoldOptions): ScaffoldResult {
-  if (!opts.name || typeof opts.name !== "string") {
+export function scaffoldWorkspace(opts: Pick<ScaffoldOptions, "name" | "description">): ScaffoldResult {
+  const { name, description } = opts;
+  validateScaffoldName(name);
+  const manifest = { schemaVersion: 4, name, version: "1.0.0", description, author: { name: "Extension author" }, permissions: {}, tools: [{ name: "echo", description: "Return the supplied text", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false } }], smokeTest: { tool: "echo", input: { text: "hello" }, expect: { textIncludes: "hello" } } };
+  return { files: {
+    "extension.ts": `import { defineExtension, serve } from "@ezcorp/sdk/v4";\nimport { echo } from "./src/echo";\n\nconst extension = defineExtension({ manifest: ${JSON.stringify(manifest, null, 2)}, tools: { echo } });\nawait serve(extension);\n`,
+    "src/echo.ts": "export function echo(input: Record<string, unknown>) {\n  return { text: input.text };\n}\n",
+    "src/echo.test.ts": "import { expect, test } from \"bun:test\";\nimport { echo } from \"./echo\";\n\ntest(\"returns the supplied text\", () => {\n  expect(echo({ text: \"hello\" })).toEqual({ text: \"hello\" });\n});\n",
+    "README.md": `# ${name}\n\n${description}\n\nBuild this workspace, review its tests and permissions, then approve the exact release before activation.\n`,
+  } };
+}
+
+function validateScaffoldName(name: string): void {
+  if (!name || typeof name !== "string") {
     throw new Error("scaffoldExtension: name is required");
   }
-  if (!NAME_REGEX.test(opts.name) || opts.name.includes("..")) {
+  if (!NAME_REGEX.test(name) || name.includes("..")) {
     throw new Error(
-      `scaffoldExtension: name must match /^[a-z0-9][a-z0-9-_.]{0,63}$/ (got "${opts.name}")`,
+      `scaffoldExtension: name must match /^[a-z0-9][a-z0-9-_.]{0,63}$/ (got "${name}")`,
     );
   }
+}
+
+export function scaffoldExtension(opts: ScaffoldOptions): ScaffoldResult {
+  validateScaffoldName(opts.name);
   if (!EXT_TYPES.includes(opts.type)) {
     throw new Error(
       `scaffoldExtension: type must be one of ${EXT_TYPES.join("|")}, got "${String(opts.type)}"`,
@@ -138,16 +124,12 @@ export function scaffoldExtension(opts: ScaffoldOptions): ScaffoldResult {
 
   const files: Record<string, string> = {
     "ezcorp.config.ts": manifest,
-    "index.test.ts": test,
+    "extension.ts": entrypoint,
+    "extension.test.ts": test,
     "README.md": readme,
     ".gitignore": GITIGNORE,
     "tsconfig.json": generateTsconfig(),
     "package.json": generatePackageJson(opts.name, description),
   };
-  // Skill/agent templates return empty entrypoint — omit `index.ts`
-  // from the file map, matching the CLI's behavior.
-  if (entrypoint) {
-    files["index.ts"] = entrypoint;
-  }
   return { files };
 }

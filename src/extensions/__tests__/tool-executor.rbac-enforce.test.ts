@@ -169,6 +169,7 @@ let convA: string; // conversation in projectA
 async function seed(): Promise<void> {
   const db = getTestDb();
   await db.insert(extensions).values({
+    id: EXT_ID,
     name: EXT_NAME,
     version: "1.0.0",
     source: "test:fixture",

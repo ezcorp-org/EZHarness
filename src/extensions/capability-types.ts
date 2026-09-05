@@ -27,7 +27,11 @@ import type { CapabilityDeclaration, ExtensionPermissions } from "./types";
 import { expandGrantPrefix } from "./permissions";
 
 export type CapabilityKind =
+  | "ezcorp:api:request"
+  | "ezcorp:api:events"
   | "network"
+  | "network.tcp"
+  | "secret.read"
   | "fs.read"
   | "fs.write"
   | "fs.list"
@@ -415,6 +419,11 @@ export function intersectPermissions(
   b: ExtensionPermissions,
 ): ExtensionPermissions {
   const out: ExtensionPermissions = { grantedAt: {} };
+  if (a.hostApi && b.hostApi) {
+    const routes = a.hostApi.routes.filter((route) => b.hostApi!.routes.some((other) => route.method === other.method && route.path === other.path));
+    const events = a.hostApi.events === true && b.hostApi.events === true;
+    if (routes.length || events) out.hostApi = { routes, events };
+  }
 
   // network — array intersection (lowercased)
   if (a.network && b.network) {
@@ -429,6 +438,16 @@ export function intersectPermissions(
       }
     }
     if (list.length > 0) out.network = list;
+  }
+
+  if (a.networkTcp && b.networkTcp) {
+    const allowed = new Set(b.networkTcp);
+    const destinations = [...new Set(a.networkTcp)].filter(destination => allowed.has(destination));
+    if (destinations.length) out.networkTcp = destinations;
+  }
+  if (a.secretRead && b.secretRead) {
+    const names = [...new Set(a.secretRead)].filter(name => b.secretRead!.includes(name));
+    if (names.length) out.secretRead = names;
   }
 
   // filesystem — path-prefix intersection (a path survives if it's in
@@ -728,6 +747,8 @@ export function intersectPermissions(
   for (const key of Object.keys({ ...aAt, ...bAt })) {
     const survived =
       (key === "network" && out.network) ||
+      (key === "networkTcp" && out.networkTcp) ||
+      (key === "secretRead" && out.secretRead) ||
       (key === "filesystem" && out.filesystem) ||
       (key === "shell" && out.shell) ||
       (key === "env" && out.env) ||
@@ -835,6 +856,10 @@ function intersectSearchProviders(
  * them via the per-tool `capabilities` declaration which the PDP
  * already enforces.
  */
+export function hostApiRouteCapability(route: { method: string; path: string }): Capability {
+  return { kind: "ezcorp:api:request", value: `${route.method} ${route.path}` };
+}
+
 export function grantsToCapabilitySet(
   grants: ExtensionPermissions | null,
   /** The user the authorization is for. A `$USER` grant segment expands
@@ -845,12 +870,19 @@ export function grantsToCapabilitySet(
 ): CapabilitySet {
   if (!grants) return [];
   const caps: Capability[] = [];
+  if (grants.hostApi) {
+    caps.push(...grants.hostApi.routes.map(hostApiRouteCapability));
+    if (grants.hostApi.events) caps.push({ kind: "ezcorp:api:events" });
+  }
 
   if (grants.network) {
     for (const host of grants.network) {
       caps.push({ kind: "network", value: host.toLowerCase() });
     }
   }
+
+  for (const destination of grants.networkTcp ?? []) caps.push({ kind: "network.tcp", value: destination });
+  for (const name of grants.secretRead ?? []) caps.push({ kind: "secret.read", value: name });
 
   if (grants.filesystem) {
     for (const path of grants.filesystem) {
@@ -1018,6 +1050,10 @@ function tighterMissedRunPolicy(
 /** Map manifest-level custom keys to namespaced capability kinds. */
 function customToKind(key: string): CapabilityKind | null {
   switch (key) {
+    case "ezcorp:network:tcp":
+      return "network.tcp";
+    case "ezcorp:credentials:read":
+      return "secret.read";
     case "appendMessages":
     case "ezcorp:chat:append":
       return "ezcorp:chat:append";

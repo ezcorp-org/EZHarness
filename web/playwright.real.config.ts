@@ -38,8 +38,7 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 
 // The deterministic mock LLM is served by this same preview server; pi-ai's
-// HTTP client must reach it on the actual bound port (vite preview's :4173),
-// which isn't reflected in PORT/EZCORP_PORT. Point the resolver at it
+// HTTP client must reach it on the actual bound port. Point the resolver at it
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
@@ -111,17 +110,6 @@ export default defineConfig({
     { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
   ],
   webServer: {
-    // Use Vite preview against the production build, identical to the
-    // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer
-    // initialises, auth runs end-to-end, and `/api/auth/*` handlers
-    // execute their real logic.
-    //
-    // `bun run preview` MUST execute from `web/` (where the
-    // package.json + svelte-kit preview wiring live). The previous
-    // `bun --cwd web run …` form was a typo — `bun`'s CLI requires
-    // `--cwd=<path>` with an equals sign; without it, bun treats
-    // `--cwd` as run-args and dumps usage help instead of building.
-    //
     // Pinning `cwd: web/` means `process.cwd()` at boot points at
     // `web/`, which would have broken the legacy `getProjectRoot()`
     // walk-up that anchored on `cwd`. We work around this by exporting
@@ -129,18 +117,21 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: "bun run build && bun run preview",
+    command: "bash ../scripts/start-real-extension-preview.sh",
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
     // Real harness MUST never reuse a stale server — a previous run
     // might have a DB that's already past first-boot setup, breaking
     // globalSetup's idempotent contract. Always start a fresh server.
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 300_000,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
+      EZCORP_PORT: new URL(baseURL).port || "4173",
+      ORIGIN: new URL(baseURL).origin,
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is
@@ -157,13 +148,6 @@ export default defineConfig({
       // Disable telemetry / external auto-init that might race the
       // setup endpoint on first boot.
       EZCORP_DISABLE_TELEMETRY: "1",
-      // Vite preview (`bun run preview`) sets NODE_ENV=production at
-      // build time, which trips the belt-and-braces gate on the
-      // `/api/__test/*` endpoints (added in 6ba7b2d):
-      //
-      //   if (process.env.PI_E2E_REAL !== "1" || process.env.NODE_ENV === "production")
-      //     return 404
-      //
       // Real production deployments do NOT set NODE_ENV=test, so the
       // gate stays effective for them. The harness explicitly opts in
       // here, unblocking the seed/cleanup endpoints. Endpoint code is

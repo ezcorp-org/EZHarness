@@ -252,6 +252,17 @@ describe("GET /api/hub/pages", () => {
 // ── GET /api/hub/pages/[id] ───────────────────────────────────────
 
 describe("GET /api/hub/pages/[id]", () => {
+  test("private page responses prohibit HTTP storage and ignore conditional cache reuse", async () => {
+    __extRenderResult = { page: { title: "Private", nodes: [] }, renderedAt: 123 };
+    const event = createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } });
+    const responseHeaders: Record<string, string> = {};
+    event.setHeaders = (headers: Record<string, string>) => Object.assign(responseHeaders, headers);
+    event.request.headers.set("If-None-Match", '"another-user-page"');
+    const response = await call(renderGet, event);
+    expect(response.status).toBe(200);
+    expect(responseHeaders).toEqual({ "cache-control": "private, no-store", vary: "Cookie, Authorization" });
+    expect((await response.json()).page.title).toBe("Private");
+  });
   test("401 / 403", async () => {
     expect((await call(renderGet, createMockEvent({ params: { id: "core:demo" } }))).status).toBe(401);
     const event = createMockEvent({ user: userA, params: { id: "core:demo" } });

@@ -55,6 +55,14 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
+  { method: "POST", path: "/api/__test/project-proposal", description: "Seed a controlled project review fixture only when the test surface is enabled", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/__test/marketplace-release", description: "Seed marketplace source from an existing owned verified release only when the test surface is enabled", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/import-source", description: "Import bounded extension source into an isolated lifecycle build", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/control", description: "Manage versioned extension workspaces, builds and releases", category: "extensions", scope: "extensions", harness: { controllable: true } },
+  { method: "POST", path: "/api/extensions/releases/:installationId/approve", description: "Approve or reject an exact extension release from a human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/releases/:installationId/project", description: "Bind or revoke project access for the exact active release from its owner's human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/extensions/:name/preview", description: "Read an opaque-origin browser bundle for an exact active release and owned conversation", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/:name/preview", description: "Invoke only the declared browser tools for an exact release and owned conversation", category: "extensions", scope: "session" },
   // Auth
   { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", scope: "public", schemaKey: "loginSchema" },
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
@@ -251,7 +259,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/marketplace/:id", description: "Get marketplace listing details", category: "marketplace" },
   { method: "DELETE", path: "/api/marketplace/:id", description: "Soft-remove a listing (status → \"removed\"), audited as marketplace:remove — distinct from the legacy DELETE /api/marketplace/:id/delete path (requires an admin-role key)", category: "marketplace", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "DELETE", path: "/api/marketplace/:id/delete", description: "Remove marketplace listing", category: "marketplace" },
-  { method: "POST", path: "/api/marketplace/:id/install", description: "Install agent from marketplace", category: "marketplace" },
+  { method: "POST", path: "/api/marketplace/:id/install", description: "Stage marketplace source for isolated build and human review", category: "marketplace", scope: "session" },
   { method: "POST", path: "/api/marketplace/:id/rate", description: "Rate a marketplace listing", category: "marketplace" },
   { method: "POST", path: "/api/marketplace/:id/flag", description: "Flag listing for moderation", category: "marketplace" },
   { method: "GET", path: "/api/marketplace/:id/flags", description: "Get flags for a listing (admin)", category: "marketplace" },
@@ -358,9 +366,9 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // MCP server lifecycle. Same two-axis shape as the block above; each of
   // these opens an outbound connection to an operator-supplied MCP server.
-  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation) (admin role + admin scope). Writes an ext:mcp:server-installed audit row", category: "extensions", scope: "admin", responseDescription: "the installed extension row (201)" },
-  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched) (admin role + admin scope). Writes an ext:mcp:server-updated audit row carrying both sides", category: "extensions", scope: "admin" },
-  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable) (admin role + admin scope). Writes an ext:mcp:server-refreshed audit row", category: "extensions", scope: "admin", responseDescription: "{ id, tools }" },
+  { method: "POST", path: "/api/mcp-servers", description: "Probe an MCP catalog and stage immutable source for build and human approval. Requires an administrator browser session; does not activate.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Stage changed MCP connection settings in a new workspace. The active release and credentials remain unchanged until approval.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Probe and stage a new sealed catalog for human approval. Never changes the active tool catalog directly.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
 
   // Search backend config — reuses the encrypted, deny-listed
   // `provider:apiKey:*` store, so keys are never readable back out.
@@ -737,7 +745,7 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // ── Import (commands + skill bundles) ─────────────────────────────────
   { method: "POST", path: "/api/import/preview", description: "Stage a directory upload or archive under <projectRoot>/.ezcorp/import-staging/<id> and return the command + skill checklist, scanned with the same scanners commit uses. Re-scoped `read` → `write` in 2026-08 (it writes staging dirs)", category: "extensions", scope: "write" },
-  { method: "POST", path: "/api/import/commit", description: "Import the selected items: commands via createUserCommand, skills synthesized into a tool extension and handed to installFromLocal INSTALLED DISABLED for the normal permission review. Staging is always removed in `finally`", category: "extensions", scope: "extensions" },
+  { method: "POST", path: "/api/import/commit", description: "Import commands or stage bounded UTF-8 skill source for an isolated build and human release review. Requires an administrator session; staging is removed in finally", category: "extensions", scope: "session" },
 
   // ── Marketplace ───────────────────────────────────────────────────────
   { method: "GET", path: "/api/marketplace/categories", description: "Marketplace tag taxonomy aggregated over ACTIVE listings, for the category filter chips. Same auth posture as GET /api/marketplace: any authenticated caller, no API-key scope gate (hooks still refuses anonymous /api/* callers, so this is not `public`)", category: "marketplace", responseDescription: "{ categories: [{ tag, count }] }" },

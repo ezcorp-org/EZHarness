@@ -8,16 +8,16 @@
 // `untrusted-input` — autopilot is never offered (Phase 8), and the payload
 // reaches check/act only inside the delimited `WebhookInput` wrapper.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "webhook-ticket-loop",
   version: "1.0.0",
   description:
     "Reference webhook-triggered Loop example — an external system POSTs a ticket to a per-hook URL; a deterministic check gates on the untrusted payload's priority and act records it, built on defineLoop.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Examples",
   tags: ["loop", "example", "webhook", "reference"],
   // Webhook-only loop — stay resident so a delivery isn't dropped on idle.
@@ -50,7 +50,7 @@ export default defineExtension({
     webhooks: ["tickets"],
     storage: true,
     // The artifact mirror lands under .ezcorp/extension-data/ticket-webhook/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
   },
 
   resources: { memory: "128MB" },

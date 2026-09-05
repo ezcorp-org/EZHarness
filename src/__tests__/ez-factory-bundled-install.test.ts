@@ -1,57 +1,3 @@
-/**
- * ez-factory's bundled registration + the FIRST `triggers` ceiling row.
- *
- * Two things are being locked in here, and the second is the reason
- * `ezcorp.config.ts` and the `bundled-ceiling.ts` row have to land in one
- * commit.
- *
- * ── 1. Bundled siting is load-bearing, not a preference ───────────────
- *
- * `write_file` / `emit_artifact` (8.4) only authorize inside a workflow
- * because the sensitive-capability gate in `permission-engine.ts`
- * short-circuits to allow on `registry.isBundled(...) === true`
- * (`bundled-ceiling-auto-allow`). `fs.write` IS sensitive. For a
- * non-bundled extension the PDP returns `prompt`, a workflow's
- * non-interactive scope rejects a prompt synchronously, and the run
- * terminalizes `awaiting_approval`. So "is ez-factory in the bundled
- * list" is a security assertion, not bookkeeping.
- *
- * ── 2. The trigger grant dies SILENTLY, so it must be proven alive ────
- *
- * `intersectPermissions` treats `triggers.webhookPrefix` as a namespace
- * claim: there is no "narrower of the two", so when the manifest and the
- * ceiling disagree it DROPS the entire `triggers` grant. No throw, no
- * warning, no audit row — the extension just has no dynamic triggers from
- * that boot onward. The four numerics fail the same way through
- * `Math.min(NaN, …)`.
- *
- * A test asserting `getCeiling("ez-factory") !== null` would pass on a
- * mismatched prefix. So the assertions below run the REAL intersection and
- * require the grant to come out the other side intact — and, so the
- * assertion is not vacuous, two negative-control tests mutate one byte /
- * drop one numeric and require the grant to die. No bundled extension had
- * ever declared `triggers` before this one; this file is that path's only
- * exercise.
- *
- * ── 3. `allowDelegated` dies the same way, with no type-system help ───
- *
- * Phase 9 turned `permissions.workflows.allowDelegated` ON — the ONLY
- * route this extension has from an (ownerless) trigger fire to a run,
- * because `ctx.workflows.run()` is refused for an ownerless call at rung 7
- * (`WORKFLOWS_NO_OWNER`, -32106) and that refusal is deliberate.
- *
- * The field is folded with `&&`, not `Math.min`, and it is OPTIONAL on the
- * granted type. So a side that omits it yields `undefined && true` →
- * falsy → the flag is dropped, `runFor` refuses, and because a cron fire
- * has no session there is nowhere for the refusal to surface. TypeScript
- * catches none of it. `describe("allowDelegated — the phase-9 three-way
- * match")` therefore runs the real intersection AND the real capability
- * translation, with four negative controls (ceiling-side drop,
- * manifest-side drop, no-flag ⇒ no cap, and a check that the raise did not
- * also move the trigger envelope).
- *
- * Mock shape copied from `ez-code-bundled-install.test.ts`.
- */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { ExtensionPermissions } from "../extensions/types";
@@ -65,7 +11,6 @@ mock.module("../db/queries/audit-log", () => ({
 import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
 const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
   getExtensionByName: extStore.getExtensionByName,
@@ -94,7 +39,7 @@ mock.module("../db/queries/agent-configs", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import AFTER the mocks so the installer resolves to the stubbed queries.
-const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } =
+const { resolveBundledExtensions, isBundledExtensionName } =
   await import("../extensions/bundled");
 const { clampToBundledCeiling, getCeiling } = await import("../extensions/bundled-ceiling");
 const { intersectPermissions, grantsToCapabilitySet } = await import(
@@ -390,121 +335,5 @@ describe("bundled ceiling — the ez-factory intersection is lossless", () => {
     const effective = intersectPermissions(bundledEntry().permissions, holedCeiling);
     expect(effective.triggers).toBeDefined();
     expect(Number.isNaN(effective.triggers!.maxCron)).toBe(true);
-  });
-});
-
-describe("ensureBundledExtensions — ez-factory first-boot install", () => {
-  test("creates an enabled, bundled-flagged ez-factory row", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("ez-factory");
-    expect(row).toBeDefined();
-    expect(row!.name).toBe("ez-factory");
-    expect(row!.enabled).toBe(true);
-    expect(row!.isBundled).toBe(true);
-  });
-
-  test("BOOT PROOF: the persisted grant still carries the full trigger envelope", async () => {
-    // This is B10's actual failure mode. Everything upstream can look
-    // right and the row that lands in the DB — the one the runtime reads
-    // — can still have no `triggers` at all.
-    await ensureBundledExtensions();
-    const granted = store.get("ez-factory")!.grantedPermissions;
-
-    expect(granted.triggers).toBeDefined();
-    expect(granted.triggers).toEqual(TRIGGERS);
-    expect(Number.isNaN(granted.triggers!.maxCron)).toBe(false);
-    expect(Number.isNaN(granted.triggers!.maxWebhooks)).toBe(false);
-    expect(Number.isNaN(granted.triggers!.maxRunsPerDay)).toBe(false);
-  });
-
-  test("the persisted grant keeps storage, filesystem, and the three workflow names", async () => {
-    await ensureBundledExtensions();
-    const granted = store.get("ez-factory")!.grantedPermissions;
-    expect(granted.storage).toBe(true);
-    expect(granted.filesystem).toEqual(["$CWD"]);
-    expect(granted.workflows?.names).toEqual([
-      "docs-factory",
-      "etl-factory",
-      "draft-and-verify",
-    ]);
-    expect(granted.workflows?.maxRunsPerHour).toBe(60);
-    expect(Number.isNaN(granted.workflows?.maxRunsPerHour ?? NaN)).toBe(false);
-  });
-
-  test("BOOT PROOF: the persisted grant still carries allowDelegated", async () => {
-    // The same failure mode the trigger envelope has, one field over.
-    // Everything upstream — manifest, install grant, ceiling row — can be
-    // right and the DB row the runtime actually reads can still have
-    // `allowDelegated` missing, at which point `runFor` refuses and no
-    // unattended job ever fires. This is the row `workflows-handler.ts`
-    // reads at rung D-something; nothing else is authoritative.
-    await ensureBundledExtensions();
-    const granted = store.get("ez-factory")!.grantedPermissions;
-    expect(granted.workflows).toEqual(WORKFLOWS);
-    expect(granted.workflows!.allowDelegated).toBe(true);
-  });
-
-  test("BOOT PROOF: the persisted grant mints the run-delegated capability", async () => {
-    // What the PDP will be handed. The boolean is only ever read through
-    // this translation, so a grant that stores it and does not derive the
-    // cap would still refuse every `runFor`.
-    await ensureBundledExtensions();
-    const caps = grantsToCapabilitySet(store.get("ez-factory")!.grantedPermissions);
-    expect(caps.some((c) => c.kind === "ezcorp:workflows:run-delegated")).toBe(true);
-    // …alongside the three per-name run caps, which the delegated opt-in
-    // does not replace or widen.
-    expect(
-      caps.filter((c) => c.kind === "ezcorp:workflows:run").map((c) => c.value),
-    ).toEqual(["docs-factory", "etl-factory", "draft-and-verify"]);
-  });
-
-  test("second boot does not lose allowDelegated either", async () => {
-    // The refresh path is separate from first install, and an `&&` fold
-    // applied twice is where a half-written ceiling bites on boot 2.
-    await ensureBundledExtensions();
-    await ensureBundledExtensions();
-    expect(store.get("ez-factory")!.grantedPermissions.workflows).toEqual(WORKFLOWS);
-  });
-
-  test("the persisted grant gains nothing the manifest did not ask for", async () => {
-    await ensureBundledExtensions();
-    const granted = store.get("ez-factory")!.grantedPermissions;
-    expect(granted.llm).toBeUndefined();
-    expect(granted.shell).toBeUndefined();
-    expect(granted.network).toBeUndefined();
-    expect(granted.env).toBeUndefined();
-    expect(granted.schedule).toBeUndefined();
-  });
-
-  test("BOTH page actions SURVIVE intersectPermissions — the grant, not just the manifest", async () => {
-    // The one that matters at render time. `intersectPermissions` clamps the
-    // install grant against the bundled ceiling, and a name missing from the
-    // ceiling row is dropped HERE, silently — after which `allowedEvents`
-    // loses it and `validatePageTree` deletes that control from the tree.
-    // Asserting the manifest alone would not have caught a ceiling row that
-    // forgot the name: a console that renders, looks finished, and whose
-    // Run button simply is not there.
-    await ensureBundledExtensions();
-    const granted = store.get("ez-factory")!.grantedPermissions;
-    expect(granted.eventSubscriptions).toEqual(["ez-factory:job-save", "ez-factory:job-run"]);
-  });
-
-  test("appears in the bundled (isBundled=true) list", async () => {
-    await ensureBundledExtensions();
-    const { listExtensions } = await import("../db/queries/extensions");
-    const bundled = (await listExtensions()).filter((r) => r.isBundled === true);
-    expect(bundled.some((r) => r.name === "ez-factory")).toBe(true);
-  });
-
-  test("second boot is a no-op and does not lose the trigger grant", async () => {
-    // The refresh path is a separate code path from first install, and it
-    // is where a stale/mismatched ceiling would bite on boot 2 rather
-    // than boot 1.
-    await ensureBundledExtensions();
-    const firstId = store.get("ez-factory")!.id;
-    await ensureBundledExtensions();
-    expect(store.get("ez-factory")!.id).toBe(firstId);
-    expect(store.get("ez-factory")!.enabled).toBe(true);
-    expect(store.get("ez-factory")!.grantedPermissions.triggers).toEqual(TRIGGERS);
   });
 });

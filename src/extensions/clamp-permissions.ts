@@ -857,9 +857,23 @@ export function clampExtensionPermissions(
 ): ExtensionPermissions {
   const clamped: ExtensionPermissions = { grantedAt: {} };
 
+  if (submitted.hostApi && manifest.hostApi) {
+    const routes = Array.isArray(submitted.hostApi.routes) && Array.isArray(manifest.hostApi.routes)
+      ? submitted.hostApi.routes.filter((route) => route && typeof route.method === "string" && typeof route.path === "string" && manifest.hostApi!.routes.some((declared) => declared.method === route.method && declared.path === route.path)).map((route) => ({ method: route.method, path: route.path }))
+      : [];
+    const events = submitted.hostApi.events === true && manifest.hostApi.events === true;
+    if (routes.length || events) clamped.hostApi = { routes, events };
+  }
+
   if (submitted.network && manifest.network) {
     const allowed = submitted.network.filter((d) => manifest.network!.includes(d));
     if (allowed.length > 0) clamped.network = allowed;
+  }
+  for (const field of ["networkTcp", "secretRead"] as const) {
+    if (submitted[field] && manifest[field]) {
+      const allowed = [...new Set(submitted[field])].filter(value => manifest[field]!.includes(value));
+      if (allowed.length) clamped[field] = allowed;
+    }
   }
 
   if (submitted.filesystem && manifest.filesystem) {
@@ -915,6 +929,9 @@ export function clampExtensionPermissions(
     }
     if (submitted.loopEvents === true && manifest.loopEvents === true) {
       clamped.loopEvents = true;
+    }
+    if (submitted.appendMessages && manifest.appendMessages && typeof manifest.appendMessages.excludedDefault === "boolean" && submitted.appendMessages.excludedDefault === manifest.appendMessages.excludedDefault) {
+      clamped.appendMessages = { excludedDefault: manifest.appendMessages.excludedDefault };
     }
     if (submitted.spawnAgents && manifest.spawnAgents) {
       // spawnAgents is a structured permission — both maxPerHour and

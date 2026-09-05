@@ -1,5 +1,6 @@
 # Stage 1: Build
 FROM oven/bun:1.3.14 AS builder
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
 # Install root dependencies
@@ -9,6 +10,8 @@ COPY package.json bun.lock ./
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
 # `--ignore-scripts`: the @ezcorp/sdk `prepare` script (and root `postinstall`)
 # compile the SDK to dist/ via tsc, but the SDK source + tsconfig.build.json
 # haven't been COPY'd yet (only the package.json). Skip lifecycle here; we
@@ -30,6 +33,7 @@ RUN cd web && bun run build
 
 # Stage 2: Runtime
 FROM oven/bun:1.3.14-slim
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
 # Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp
@@ -122,6 +126,8 @@ COPY package.json bun.lock ./
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
 # `--ignore-scripts`: prevents the SDK's `prepare` (build) from running.
 # Two reasons: (1) the SDK source isn't COPY'd into this stage (only its
 # manifest), and (2) `--production` skips devDependencies including
@@ -186,16 +192,16 @@ RUN apt-get update \
 # points at ./src/index.ts, which runtime needs present since there's no built
 # dist/ yet (Phase 3 will add the build step).
 COPY --from=builder /app/packages/@ezcorp/sdk/src ./packages/@ezcorp/sdk/src
+COPY --from=builder /app/packages/@ezcorp/sdk/dist ./packages/@ezcorp/sdk/dist
+COPY --from=builder /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src
+COPY --from=builder /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src
+COPY --from=builder /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts
 
 # Copy @ezcorp/ai-kit — its manifest + source load at runtime because ai-kit is
 # a default-on bundled extension (see src/extensions/bundled.ts). The runtime
 # needs the .ts config, src/, docs/, and skills/ — the `files` list in the
 # package.json.
-COPY --from=builder /app/packages/@ezcorp/ai-kit/src ./packages/@ezcorp/ai-kit/src
-COPY --from=builder /app/packages/@ezcorp/ai-kit/ezcorp.config.ts ./packages/@ezcorp/ai-kit/ezcorp.config.ts
-COPY --from=builder /app/packages/@ezcorp/ai-kit/scripts ./packages/@ezcorp/ai-kit/scripts
-COPY --from=builder /app/packages/@ezcorp/ai-kit/docs ./packages/@ezcorp/ai-kit/docs
-COPY --from=builder /app/packages/@ezcorp/ai-kit/skills ./packages/@ezcorp/ai-kit/skills
+COPY --from=builder /app/packages/@ezcorp/ai-kit ./packages/@ezcorp/ai-kit
 
 # Copy bundled extension definitions (needed by src/extensions/bundled.ts at runtime)
 COPY --from=builder /app/docs ./docs
@@ -250,6 +256,7 @@ VOLUME /app/.ezcorp
 EXPOSE 3000
 
 ENV EZCORP_PORT=3000
+ENV BODY_SIZE_LIMIT=134217728
 ENV EZCORP_DB_PATH=/app/data/ezcorp
 # Pin the runtime mode. The test/determinism HTTP surface (/api/__test/**)
 # is fail-safe gated on `NODE_ENV !== "production"` (see

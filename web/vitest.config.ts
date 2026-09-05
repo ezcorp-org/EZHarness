@@ -28,6 +28,7 @@ export default defineConfig({
 			// no-op stubs; any test asserting specific behaviour `vi.mock`s
 			// the same path on top.
 			"$app/navigation": resolve(__dirname, "src/__tests__/stubs/app-navigation.ts"),
+			"$app/forms": resolve(__dirname, "src/__tests__/stubs/app-forms.ts"),
 			"$app/state": resolve(__dirname, "src/__tests__/stubs/app-state.ts"),
 			"$app/stores": resolve(__dirname, "src/__tests__/stubs/app-stores.ts"),
 			"$app/environment": resolve(__dirname, "src/__tests__/stubs/app-environment.ts"),

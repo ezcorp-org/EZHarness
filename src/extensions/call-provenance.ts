@@ -33,16 +33,21 @@
  */
 
 import { logger } from "../logger";
+import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
 
 const log = logger.child("ext.call-provenance");
 
 export type CallProvenanceKind = "tool" | "schedule" | "event" | "render";
 
 export interface CallProvenance {
+  serviceInvocation?: ServiceInvocation;
+  invocationGuard?: import("./runtime-locks").InvocationGuard;
   /** User the call is on behalf of. `null` only when `ownerless` —
    *  capability handlers soft-fail rather than throw in that case. */
   onBehalfOf: string | null;
   conversationId: string | null;
+  projectId?: string;
+  projectBindingId?: string;
   runId: string | null;
   parentCallId: string | null;
   /** Host-owned — sourced from the registered-tool record, NOT the
@@ -152,6 +157,7 @@ export function registerCallProvenance(
   prov: CallProvenance,
   opts?: { expiresAt?: number; now?: number },
 ): string {
+  if (prov.serviceInvocation && (!isServiceInvocation(prov.serviceInvocation) || prov.onBehalfOf !== null || prov.ownerless)) throw new Error("Invalid service invocation provenance");
   const now = opts?.now ?? Date.now();
   sweep(now);
   if (registry.size >= maxEntries) {
@@ -182,7 +188,6 @@ export function registerCallProvenance(
     ...(opts?.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
   });
   log.debug("registered call provenance", {
-    ezCallId: id,
     kind: prov.kind,
     actorExtensionId: prov.actorExtensionId,
     onBehalfOf: prov.onBehalfOf,
@@ -210,7 +215,6 @@ export function resolveCallProvenance(
   const e = registry.get(ezCallId);
   if (!e) {
     log.warn("call-provenance resolve miss — token unknown or already released", {
-      ezCallId,
       liveEntries: registry.size,
     });
     return undefined;
@@ -227,7 +231,7 @@ export function resolveCallProvenance(
 export function releaseCallProvenance(ezCallId: string | undefined | null): void {
   if (typeof ezCallId !== "string" || ezCallId.length === 0) return;
   const had = registry.delete(ezCallId);
-  log.debug("released call provenance", { ezCallId, had, liveEntries: registry.size });
+  log.debug("released call provenance", { had, liveEntries: registry.size });
 }
 
 /**

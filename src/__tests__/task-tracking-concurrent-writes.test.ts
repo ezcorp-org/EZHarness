@@ -76,21 +76,7 @@ class SlowStorage {
   }
 }
 
-class FakeTaskEvents {
-  snapshots: Array<{ tasks: TrackedTask[]; activeTaskId?: string }> = [];
-  assignmentUpdates: Array<{ taskId: string; assignment: TaskAssignment }> = [];
-  async emitSnapshot(tasks: TrackedTask[], activeTaskId?: string): Promise<void> {
-    await Promise.resolve();
-    this.snapshots.push({
-      tasks: structuredClone(tasks),
-      ...(activeTaskId !== undefined ? { activeTaskId } : {}),
-    });
-  }
-  async emitAssignmentUpdate(taskId: string, assignment: TaskAssignment): Promise<void> {
-    await Promise.resolve();
-    this.assignmentUpdates.push({ taskId, assignment: structuredClone(assignment) });
-  }
-}
+import { TaskEventStorageFixture as FakeTaskEvents } from "./helpers/task-event-storage";
 
 class FakeAgentConfigs {
   async list(): Promise<unknown[]> {
@@ -133,7 +119,7 @@ describe("task-tracking extension — concurrent snapshot writes", () => {
 
   beforeEach(() => {
     storage = new SlowStorage();
-    events = new FakeTaskEvents();
+    events = new FakeTaskEvents(storage);
     _setStoreForTests(storage as never);
     _setTaskEventsForTests(events as never);
     _setAgentConfigsForTests(new FakeAgentConfigs() as never);

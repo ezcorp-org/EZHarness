@@ -18,6 +18,7 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import type { LifecycleActor } from "../extensions/v4/types";
 import {
   mockServerAlias,
   createMockEvent,
@@ -68,23 +69,15 @@ const extensionsQueriesMock = () => ({
 mock.module("$server/db/queries/extensions", extensionsQueriesMock);
 mock.module("../db/queries/extensions", extensionsQueriesMock);
 
-// ── Installer stub — capture what the route asked for ────────────────
-const uninstallCalls: Array<{
-  ext: Record<string, unknown>;
-  purgeData: boolean | undefined;
-}> = [];
-const installerMock = () => ({
-  // Capture the WHOLE row, not just its id — see the "passes the row" test.
-  uninstallExtension: async (
-    ext: Record<string, unknown>,
-    opts?: { purgeData?: boolean },
-  ) => {
-    uninstallCalls.push({ ext, purgeData: opts?.purgeData });
-    return { installPathRemoved: true, dataRemoved: opts?.purgeData === true };
-  },
+const uninstallCalls: Array<{ actor: LifecycleActor; installationId: string }> = [];
+const lifecycleMock = () => ({
+  getExtensionLifecycle: async () => ({
+    inspect: async () => ({}),
+    uninstall: async (actor: LifecycleActor, installationId: string) => { uninstallCalls.push({ actor, installationId }); },
+  }),
 });
-mock.module("$server/extensions/installer", installerMock);
-mock.module("../extensions/installer", installerMock);
+mock.module("$server/extensions/extension-lifecycle-service", lifecycleMock);
+mock.module("../extensions/extension-lifecycle-service", lifecycleMock);
 
 const registryMock = () => ({
   ExtensionRegistry: { getInstance: () => ({ reload: async () => {}, killAll: () => {} }) },
@@ -121,69 +114,29 @@ beforeEach(() => {
   isBundled = false;
 });
 
-describe("DELETE /api/extensions/[id] — built-in guard", () => {
-  test("a bundled extension is refused with 409 and never uninstalled", async () => {
-    // The UI has never shown the button for a built-in, but the API did
-    // allow it — and the delete was worse than a no-op: the next boot
-    // reinstalls the row with DEFAULT grants, so the only lasting effect
-    // was silently discarding the admin's permission narrowing.
-    isBundled = true;
-
-    const res = await call(DELETE, deleteEvent());
-
-    expect(res.status).toBe(409);
-    const body = await jsonFromResponse(res);
-    expect(body.error).toContain("disable it instead");
+describe("DELETE /api/extensions/[id] — durable uninstall policy", () => {
+  test.each([false, true])("uninstall delegates one installation and preserves data (bundled=%s)", async (bundled) => {
+    isBundled = bundled;
+    const response = await call(DELETE, deleteEvent());
+    expect(response.status).toBe(204);
+    expect(uninstallCalls).toHaveLength(1);
+    expect(uninstallCalls[0]).toMatchObject({ installationId: "ext-1", actor: { principalId: ADMIN_USER.id } });
+    expect(uninstallCalls[0]).not.toHaveProperty("purgeData");
+  });
+  test("uninstall does not trust a source path supplied in the HTTP request", async () => {
+    const event = deleteEvent("?path=/etc&installPath=/");
+    await call(DELETE, event);
+    expect(uninstallCalls[0]).toEqual({ installationId: "ext-1", actor: { principalId: ADMIN_USER.id, scope: "global", kind: "agent" } });
+  });
+  test("purge is rejected before any mutation", async () => {
+    const response = await call(DELETE, deleteEvent("?purgeData=1"));
+    expect(response.status).toBe(400);
+    expect(await jsonFromResponse(response)).toHaveProperty("error");
     expect(uninstallCalls).toEqual([]);
   });
-
-  test("a user-installed extension is uninstalled normally", async () => {
-    const res = await call(DELETE, deleteEvent());
-
-    expect(res.status).toBe(204);
+  test.each(["", "?purgeData=true", "?purgeData=yes", "?purgeData=0", "?purgeData="])("uninstall never implies deletion for query %s", async (query) => {
+    expect((await call(DELETE, deleteEvent(query))).status).toBe(204);
     expect(uninstallCalls).toHaveLength(1);
-    expect(uninstallCalls[0]!.ext.id).toBe("ext-1");
-  });
-
-  test("passes the ROW, not just its id", async () => {
-    // `uninstallExtension` reads `name` (to locate the data directory) and
-    // `installPath` (to locate the install directory) off this object.
-    // Handing it `{id}` alone still returns 204 and still deletes the row —
-    // and silently skips BOTH filesystem deletes, degrading uninstall back
-    // to the "unregister" this feature exists to fix. Asserting only the id
-    // could not tell the two apart.
-    await call(DELETE, deleteEvent());
-
-    expect(uninstallCalls[0]!.ext).toMatchObject({
-      id: "ext-1",
-      name: "fake-ext",
-      installPath: "/tmp/fake-ext",
-    });
-  });
-});
-
-describe("DELETE /api/extensions/[id] — purgeData", () => {
-  test("?purgeData=1 asks the installer to delete the stored data", async () => {
-    const res = await call(DELETE, deleteEvent("?purgeData=1"));
-
-    expect(res.status).toBe(204);
-    expect(uninstallCalls[0]!.purgeData).toBe(true);
-  });
-
-  test("no query parameter keeps the data", async () => {
-    await call(DELETE, deleteEvent());
-
-    expect(uninstallCalls[0]!.purgeData).toBe(false);
-  });
-
-  test("any other spelling keeps the data — the parse fails SAFE", async () => {
-    // `=1` is the documented spelling (`src/api-registry.ts`). A caller
-    // that guesses wrong must lose nothing; the failure direction for an
-    // irreversible delete is "did not delete".
-    for (const query of ["?purgeData=true", "?purgeData=yes", "?purgeData=0", "?purgeData="]) {
-      uninstallCalls.length = 0;
-      await call(DELETE, deleteEvent(query));
-      expect(uninstallCalls[0]!.purgeData).toBe(false);
-    }
+    expect(uninstallCalls[0]).not.toHaveProperty("purgeData");
   });
 });

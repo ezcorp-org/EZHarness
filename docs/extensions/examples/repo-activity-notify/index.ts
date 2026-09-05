@@ -22,11 +22,11 @@
 // check context structurally CANNOT reach an LLM (see LoopCheckContext).
 // See docs/extensions/loops.md#the-check-stage for the full reference.
 
+import { getToolContext } from "@ezcorp/sdk/runtime";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import {
-  createToolDispatcher,
   defineLoop,
   getChannel,
-  getLoopTools,
   type ActResult,
   type CheckResult,
   type LoopActContext,
@@ -87,6 +87,7 @@ export function parseGitHead(stdout: string, exitCode: number): GitHead | null {
  * line must not make git fatal.
  */
 export async function readGitHead(repoPath: string): Promise<GitHead | null> {
+  if (getInvocationContext()) return getChannel().request<GitHead | null>("ezcorp/project.gitHead", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", "-1", "--format=%H%x00%s"],
     {
@@ -141,7 +142,7 @@ export async function checkRepoActivity(
   const repoPath =
     typeof ctx.settings.repo_path === "string" && ctx.settings.repo_path.length > 0
       ? ctx.settings.repo_path
-      : (process.env.EZCORP_PROJECT_ROOT ?? process.cwd());
+      : (getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd());
 
   const head = await gitHeadImpl(repoPath);
   if (!head) return { proceed: false, reason: "no_git_head" };
@@ -261,7 +262,6 @@ export function defineRepoActivityNotifyLoop(): void {
  */
 export function start(): void {
   defineRepoActivityNotifyLoop();
-  createToolDispatcher({ ...getLoopTools() });
   getChannel().start();
 }
 

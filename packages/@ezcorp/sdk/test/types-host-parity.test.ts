@@ -44,7 +44,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
-const SDK_TYPES = join(REPO_ROOT, "packages/@ezcorp/sdk/src/types.ts");
+const SDK_TYPES = join(REPO_ROOT, "packages/@ezcorp/extension-contract/src/legacy.d.ts");
 const HOST_TYPES = join(REPO_ROOT, "src/extensions/types.ts");
 
 const sdkSrc = readFileSync(SDK_TYPES, "utf8");

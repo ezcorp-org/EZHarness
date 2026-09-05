@@ -10,14 +10,14 @@
 // lazy `require("node:fs")` walk — the require throws inside the
 // sandbox but is swallowed; outside, it works as before.
 
-import { fsMkdir } from "@ezcorp/sdk/runtime";
+import { fsMkdir, getToolContext } from "@ezcorp/sdk/runtime";
 import { basename, dirname, join } from "node:path";
 
 const EXT_NAME = "claude-design";
 
 export function findProjectRoot(from: string = process.cwd()): string {
   // (1) Host-injected — production fast path.
-  const fromEnv = process.env.EZCORP_PROJECT_ROOT;
+  const fromEnv = getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
   if (fromEnv && fromEnv.length > 0) return fromEnv;
 
   // (2) Lazy fs walk — only reached in test / CLI contexts where the

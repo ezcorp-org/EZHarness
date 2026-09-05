@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Minimal test extension for the Phase 2d spawn-assignment integration
 // test. Exposes two tools:
@@ -12,12 +12,12 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 // Not bundled — only loaded by
 // src/__tests__/spawn-assignment.integration.test.ts.
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "test-spawn-assignment",
   version: "1.0.0",
   description: "Integration-test fixture — exercises ezcorp/spawn-assignment",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   tools: [
     {

@@ -52,7 +52,7 @@ import {
   type ConsentHashMaterial,
   type WorkflowVersionIdentity,
 } from "./workflow-capability-hash";
-import { collectWorkflowClosure } from "./workflow-closure";
+import { collectWorkflowClosure, type WorkflowResolver } from "./workflow-closure";
 import type { CachedWorkflow, WorkflowCaller } from "./workflow-scope";
 import type { AgentDefinition, WorkflowDefinition } from "../types";
 
@@ -124,6 +124,7 @@ export async function latestWorkflowVersionFor(
 }
 
 export interface DelegationConsentInput {
+  workflowResolver?: WorkflowResolver;
   /** Already authorized for the delegation's principal by the caller. */
   entry: CachedWorkflow;
   /** Registry-resolved, never off the wire. */
@@ -220,7 +221,7 @@ export async function computeDelegationConsentRecord(
 
   // ONE cache, ONE principal, ONE resolver — shared by the pre-walk and by
   // the hash, so the two cannot see different graphs.
-  const resolve = delegationWorkflowResolver(input.entries, input.principal);
+  const resolve = input.workflowResolver ?? delegationWorkflowResolver(input.entries, input.principal);
   const closure = collectWorkflowClosure(input.entry.definition, resolve);
   const identities = new Map<string, WorkflowVersionIdentity>();
   for (const definition of closure.definitions) {
@@ -239,7 +240,7 @@ export async function computeDelegationConsentRecord(
       runAs: input.runAs,
       trigger: input.trigger,
     },
-    buildConsentHashSources(input.entries, input.principal, {
+    { ...buildConsentHashSources(input.entries, input.principal, {
       capabilitiesForTool,
       capabilitiesForAgent: agentCapabilityLookup(input.agents),
       // A definition the pre-walk did not see cannot appear in the walk
@@ -249,7 +250,7 @@ export async function computeDelegationConsentRecord(
       // CONTENT, which never under-reports a change.
       identify: (def: WorkflowDefinition) =>
         identities.get(def.name) ?? { kind: "unversioned" as const },
-    }),
+    }), resolve },
   );
 
   return {

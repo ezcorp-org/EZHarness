@@ -1,0 +1,3 @@
+{
+  "postgres": "docker.io/library/postgres@sha256:485935f94cc7165afa896978809c37b592dc07f0a37d2c8f645f12412d0212c8"
+}

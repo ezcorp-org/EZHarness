@@ -1,0 +1,17 @@
+{
+  "name": "@ezcorp/extension-contract",
+  "version": "4.0.0",
+  "type": "module",
+  "files": ["dist", "src", "README.md"],
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "bun": "./src/index.ts", "import": "./dist/index.js" },
+    "./files": { "types": "./dist/files.d.ts", "bun": "./src/files.ts", "import": "./dist/files.js" },
+    "./json": { "types": "./dist/json.d.ts", "bun": "./src/json.ts", "import": "./dist/json.js" },
+    "./legacy": { "types": "./src/legacy.d.ts" },
+    "./types": { "types": "./src/types.d.ts" },
+    "./entities": { "types": "./dist/entities.d.ts", "bun": "./src/entities.ts", "import": "./dist/entities.js" }
+  },
+  "scripts": { "build": "tsc -b tsconfig.build.json", "test": "bun test", "schema:generate": "ts-json-schema-generator --path src/types.d.ts --type WireData --tsconfig tsconfig.build.json --no-type-check --out src/wire-schema.json", "schema:check": "bun test ./src/schema.test.ts" },
+  "dependencies": { "ajv": "8.17.1", "re2js": "2.8.6" },
+  "devDependencies": { "typescript": "^5.9.3", "ts-json-schema-generator": "2.4.0" }
+}

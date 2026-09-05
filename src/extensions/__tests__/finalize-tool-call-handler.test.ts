@@ -28,6 +28,7 @@ const { getDb } = await import("../../db/connection");
 const {
   conversations,
   projects,
+  projectMembers,
   users,
   messages,
   extensions: extensionsTable,
@@ -113,8 +114,10 @@ beforeAll(async () => {
     email: `${USER}@t.local`,
     passwordHash: "x",
     name: USER,
+    status: "active",
   } as any).onConflictDoNothing();
   await getDb().insert(projects).values({ id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}` } as any);
+  await getDb().insert(projectMembers).values({ projectId: PROJECT, userId: USER, role: "member" });
   await getDb().insert(conversations).values({ id: CONV, projectId: PROJECT, title: "ftc", userId: USER } as any);
   await getDb().insert(conversations).values({ id: OTHER_CONV, projectId: PROJECT, title: "other", userId: USER } as any);
   await ensureExtension(EXT_OWNER);

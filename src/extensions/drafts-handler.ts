@@ -140,14 +140,6 @@ interface DraftsDiscardParams {
   draftId?: string;
 }
 
-interface DraftsVerifyParams {
-  draftId?: string;
-}
-
-interface DraftsInstallParams {
-  draftId?: string;
-}
-
 interface DraftsReopenParams {
   /** Manifest name OR extension id of an installed extension the
    *  caller owns and an admin has flagged `modifiable`. */
@@ -223,9 +215,8 @@ export async function handleDraftsRpc(
     case "discard":
       return handleDiscard(req, params as DraftsDiscardParams, ctx);
     case "verify":
-      return handleVerify(req, params as DraftsVerifyParams, ctx);
     case "install":
-      return handleInstall(req, params as DraftsInstallParams, ctx);
+      return rpcError(req.id, -32601, "Legacy extension verification and installation are disabled. Use an isolated v4 release build.", { code: "extension_v4_required", controlUrl: "/api/extensions/control", openUrl: "/extensions/author" });
     case "reopen":
       return handleReopen(req, params as DraftsReopenParams, ctx);
     default:
@@ -453,132 +444,6 @@ async function handleResolveDir(
   return rpcResult(req.id, { draftDir });
 }
 
-/**
- * Run the deterministic acceptance gate (`verifyExtension`) against an
- * owner-scoped draft dir, HOST-SIDE. The bundled `extension-author`
- * subprocess cannot import `src/extensions/sdk/verify.ts` (sandbox-
- * preload poisons fs; the host module isn't reachable from the
- * subprocess), so `validate_extension` reverse-RPCs here instead of
- * self-judging. The structured `VerifyResult` is the machine verdict
- * the LLM sees — root-cause fix #4 (hand-rolled bypass) of the loop
- * incident: the author path is the only path that yields a real PASS.
- *
- * Owner-scoping is identical to `handleResolveDir` — a non-owner /
- * missing / non-author draft gets the same opaque -32603.
- */
-async function handleVerify(
-  req: JsonRpcRequest,
-  params: DraftsVerifyParams,
-  ctx: DraftsContext,
-): Promise<JsonRpcResponse> {
-  const draftId = params.draftId;
-  if (!draftId || typeof draftId !== "string") {
-    return rpcError(req.id, -32602, "Missing or invalid 'draftId'");
-  }
-
-  const row = await getDraft(draftId, ctx.userId);
-  if (!row) {
-    return rpcError(req.id, -32603, "Draft not found");
-  }
-
-  const payload = row.payload as Record<string, unknown> | null;
-  if (row.kind !== "extension" || !payload || payload.mode !== "author") {
-    return rpcError(req.id, -32603, "Draft does not have a directory");
-  }
-
-  let draftDir: string;
-  try {
-    draftDir = getExtensionAuthorDraftDir(row.id, row.userId);
-  } catch (err) {
-    log.warn("verify: getExtensionAuthorDraftDir threw", {
-      draftId,
-      error: String(err),
-    });
-    return rpcError(req.id, -32603, "Failed to resolve draft directory");
-  }
-
-  // Lazy import so the subprocess sandbox-preload graph (which cannot
-  // touch fs) never pulls verify.ts; this handler runs in the HOST.
-  const { verifyExtension } = await import("./sdk/verify");
-  const result = await verifyExtension({ extDir: draftDir });
-  return rpcResult(req.id, result as unknown as Record<string, unknown>);
-}
-
-/**
- * Install an authored draft as a real, ENABLED extension.
- *
- * This action only ever runs AFTER the tool-call permission gate for
- * `ezcorp:extension:install` was explicitly approved by the user (the
- * gate is enforced host-side in `tool-executor.ts` BEFORE the
- * `install_draft` tool body issues this reverse-RPC — see the
- * always-prompt carve-outs in `permission-engine.ts`). It performs NO
- * approval of its own; it runs the exact same secure pipeline the web
- * form uses (`installAuthoredDraft` — owner scope, `verifyExtension`
- * hard-gate, `installFromLocal` env-key-leak gate, `isBundled:false`)
- * with `enable:true` so the just-approved extension is immediately
- * testable.
- *
- * Lazy-imported (mirrors `handleVerify`) so the sandbox-preload graph
- * never pulls the host-only install modules; this runs in the HOST.
- */
-async function handleInstall(
-  req: JsonRpcRequest,
-  params: DraftsInstallParams,
-  ctx: DraftsContext,
-): Promise<JsonRpcResponse> {
-  const draftId = params.draftId;
-  if (!draftId || typeof draftId !== "string") {
-    return rpcError(req.id, -32602, "Missing or invalid 'draftId'");
-  }
-
-  const { installAuthoredDraft, AuthorInstallError } = await import(
-    "./author-install"
-  );
-  try {
-    const result = await installAuthoredDraft({
-      draftId,
-      userId: ctx.userId,
-      enable: true,
-    });
-    // D1/D2: surface the host-revalidated relative deep-link so the
-    // `EzToolResultCard` "Open extension" button can render it. Keep
-    // `{ ok, extensionId, name }` exactly for back-compat (existing
-    // tool-result consumers + the bundled extension's `install_draft`
-    // body keyed on those three). `openUrl` is OMITTED when the
-    // pipeline withheld it (name failed the host NAME_REGEX re-check)
-    // — never emit a malformed URL.
-    return rpcResult(req.id, {
-      ok: true,
-      extensionId: result.extensionId,
-      name: result.name,
-      ...(result.openUrl !== undefined ? { openUrl: result.openUrl } : {}),
-    });
-  } catch (err) {
-    if (err instanceof AuthorInstallError) {
-      log.warn("ezcorp/drafts.install rejected", {
-        draftId,
-        userId: ctx.userId,
-        code: err.code,
-        error: err.message,
-      });
-      // Structured `data` so the bundled `install_draft` tool can let
-      // the LLM branch deterministically on the code (NAME_COLLISION →
-      // ask the user; VERIFY_FAILED/ENV_KEY_LEAK → self-fix + retry)
-      // instead of regex-parsing the message. The message string is
-      // kept byte-identical for any existing string-only consumers.
-      return rpcError(req.id, -32603, `${err.code}: ${err.message}`, {
-        code: err.code,
-        ...(err.details ? { details: err.details } : {}),
-      });
-    }
-    log.error("ezcorp/drafts.install failed", {
-      draftId,
-      userId: ctx.userId,
-      error: String(err),
-    });
-    return rpcError(req.id, -32603, `Install failed: ${String(err)}`);
-  }
-}
 
 /**
  * Re-open a user-owned, admin-`modifiable`, non-bundled installed
@@ -605,11 +470,11 @@ async function handleReopen(
     "./reopen-extension"
   );
   try {
-    const { draftId, name: extName } = await reopenInstalledAsDraft(
+    const result = await reopenInstalledAsDraft(
       name,
       ctx.userId,
     );
-    return rpcResult(req.id, { draftId, name: extName });
+    return rpcResult(req.id, result);
   } catch (err) {
     if (err instanceof ReopenError) {
       log.warn("ezcorp/drafts.reopen rejected", {

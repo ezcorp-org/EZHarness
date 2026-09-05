@@ -11,7 +11,7 @@ EZCorp — a self-hosted AI platform for multi-model chat with persistent memory
 - `src/` — Bun backend: runtime executor + built-in tools, providers, auth/RBAC, db, extension host
 - `web/` — SvelteKit frontend (Svelte 5 runes, Vite, Tailwind 4) — see `web/CLAUDE.md`
 - `packages/@ezcorp/` — bun workspaces: `sdk` (extension authoring), `ai-kit` (LLM-driver integration kit), `harness-client` (remote-control client)
-- `extensions/` — first-party **bundled** extensions (git-tracked, registered in `src/extensions/bundled.ts`); `docs/extensions/examples/*/` holds the reference extensions — see `src/extensions/CLAUDE.md`
+- `extensions/` and `docs/extensions/examples/*/` — first-party source built into immutable v4 releases; activation requires exact human approval. Read `src/extensions/CLAUDE.md` before changing extension authoring, execution, or authority.
 - `worker/` — Cloudflare Workers deploy target (LLM-only agents reusing `src/runtime/executor` with stubbed shell/file providers)
 - Database: PGlite embedded by default; external Postgres via `DATABASE_URL` (`Bun.sql`)
 

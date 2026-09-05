@@ -188,13 +188,14 @@ describe("wireExtensionAuthorToolsIfEz — gate", () => {
     expect(args.agentTools).toHaveLength(0);
   });
 
-  test("REGRESSION GUARD: the Ez branch of setupTools invokes the extension-author gate", async () => {
+  test("setupTools uses host-owned controls instead of the retired authoring gate", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const src = readFileSync(
       join(import.meta.dir, "..", "runtime", "stream-chat", "setup-tools.ts"),
       "utf-8",
     );
-    expect(src).toContain("await wireExtensionAuthorToolsIfEz({");
+    expect(src).not.toContain("await wireExtensionAuthorToolsIfEz({");
+    expect(src).toContain("createExtensionControlTools(");
   });
 });

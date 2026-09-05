@@ -3,9 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
-import { resolveWorkflowOr } from "$lib/server/workflow-access";
+import { resolveWorkflowOr, validateWorkflowForCaller } from "$lib/server/workflow-access";
 import { dryRunWorkflow } from "$server/runtime/workflow-dry-run";
-import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { workflowBodySchema } from "../../schema";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
@@ -56,7 +55,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // The same shared validator the create/update routes use — a draft that
   // could not be saved should not be dry-runnable either, or the editor
   // would report a green dry run for a graph the save then rejects.
-  const errors = validateWorkflow(definition);
+  const errors = await validateWorkflowForCaller(user, definition, projectId);
   if (errors.length > 0) return errorJson(400, errors[0]!);
 
   return json(await dryRunWorkflow(definition, input));

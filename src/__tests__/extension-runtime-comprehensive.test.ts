@@ -13,6 +13,7 @@ import {
 } from "../db/queries/extensions";
 import { ExtensionProcess, type ExtensionProcessOptions } from "../extensions/subprocess";
 import { ExtensionRegistry } from "../extensions/registry";
+import { ReleaseProcess, configureReleaseRuntime } from "../extensions/release-process";
 import { computeChecksum, verifyChecksum } from "../extensions/checksum";
 
 const MOCK_ENTRYPOINT = resolve(__dirname, "helpers/mock-extension/entrypoint.ts");
@@ -20,6 +21,7 @@ const MOCK_INSTALL_PATH = resolve(__dirname, "helpers/mock-extension");
 
 beforeAll(async () => {
   await setupTestDb();
+  configureReleaseRuntime({ runner: async () => { throw new Error("Registry descriptor tests must not spawn workers"); }, resolve: async () => null });
 });
 
 afterAll(async () => {
@@ -29,15 +31,16 @@ afterAll(async () => {
 // ── Helper: create a test extension in DB ────────────────────────────
 function makeManifest(overrides: Record<string, unknown> = {}) {
   return {
-    schemaVersion: 2 as const,
+    schemaVersion: 4 as const,
     name: "test-ext",
     version: "1.0.0",
     description: "Test extension",
     author: { name: "Test" },
     entrypoint: "./entrypoint.ts",
-    tools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object" } }],
+    tools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object" }, outputSchema: {} }],
     permissions: {},
     ...overrides,
+    ...(Array.isArray(overrides.tools) ? { tools: overrides.tools.map((tool) => ({ ...tool, outputSchema: tool.outputSchema ?? {} })) } : {}),
   };
 }
 
@@ -47,8 +50,8 @@ async function insertTestExtension(name: string, overrides: Record<string, unkno
     version: "1.0.0",
     description: "Test",
     manifest: makeManifest({ name, ...overrides }),
-    source: "local:/test",
-    installPath: MOCK_INSTALL_PATH,
+    source: "release-v4",
+    installPath: null,
     ...overrides,
   });
 }
@@ -450,7 +453,7 @@ describe("ExtensionProcess", () => {
     // Simulate a notification arriving via the transport
     transport.onNotification!({ jsonrpc: "2.0", method: "ezcorp/state", params: {} });
     expect(received).toHaveLength(1);
-    expect(received[0].method).toBe("ezcorp/state");
+    expect(received[0]?.method).toBe("ezcorp/state");
   });
 
   test("setNotificationHandler() before ensureRunning still wires on first spawn", () => {
@@ -637,7 +640,7 @@ describe("ExtensionRegistry", () => {
 
   // ── getProcess ─────────────────────────────────────────────────────
 
-  test("getProcess() creates ExtensionProcess with correct env", async () => {
+  test("getProcess() creates a lazy release adapter without spawning host code", async () => {
     await createTrackedExtension("proc-create", {
       manifest: makeManifest({ name: "proc-create", permissions: { env: ["FOO_VAR"] } }),
     });
@@ -648,6 +651,7 @@ describe("ExtensionRegistry", () => {
     const extId = registry.getToolExtension("proc-create__echo")!;
     const proc = await registry.getProcess(extId);
     expect(proc).toBeDefined();
+    expect(proc).toBeInstanceOf(ReleaseProcess);
     expect(proc.extensionId).toBe(extId);
 
     proc.kill();
@@ -673,7 +677,7 @@ describe("ExtensionRegistry", () => {
     const registry = ExtensionRegistry.getInstance();
     await registry.loadFromDb();
 
-    expect(registry.getProcess("nonexistent-id-12345")).rejects.toThrow("not found in registry");
+    await expect(registry.getProcess("nonexistent-id-12345")).rejects.toThrow("not found in registry");
   });
 
   // ── getProcessIfRunning ───────────────────────────────────────────
@@ -702,7 +706,7 @@ describe("ExtensionRegistry", () => {
     proc.kill();
   });
 
-  test("getProcessIfRunning() returns null after process is killed", async () => {
+  test("getProcessIfRunning() replaces a killed adapter without starting a worker", async () => {
     await createTrackedExtension("proc-killed-check");
 
     const registry = ExtensionRegistry.getInstance();
@@ -714,7 +718,10 @@ describe("ExtensionRegistry", () => {
     expect(registry.getProcessIfRunning(extId)).not.toBeNull();
 
     proc.kill();
-    expect(registry.getProcessIfRunning(extId)).toBeNull();
+    const replacement = registry.getProcessIfRunning(extId);
+    expect(replacement).toBeInstanceOf(ReleaseProcess);
+    expect(replacement).not.toBe(proc);
+    expect(proc.isRunning).toBe(false);
   });
 
   // ── killAll ────────────────────────────────────────────────────────

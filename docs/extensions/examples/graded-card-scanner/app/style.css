@@ -58,14 +58,18 @@ main { max-width: 480px; margin: 0 auto; padding: 0 12px; }
   background: #000; aspect-ratio: 4 / 3;
   border: 2px solid var(--gcs-hairline);
 }
-.gcs-frame video { width: 100%; height: 100%; object-fit: cover; }
+.gcs-frame img { width: 100%; height: 100%; object-fit: cover; }
+.gcs-frame img:not([src]) { visibility: hidden; }
+.gcs-clear-dialog { max-width: min(440px, calc(100vw - 32px)); padding: 24px; border-radius: 16px; border: 1px solid #475569; background: #111827; color: #f8fafc; }
+.gcs-clear-dialog::backdrop { background: rgb(0 0 0 / 65%); }
 .gcs-flash { animation: gcs-flash 0.5s ease-out; }
 @keyframes gcs-flash {
   0% { border-color: var(--gcs-good); box-shadow: 0 0 0 4px var(--gcs-good); }
   100% { border-color: var(--gcs-hairline); box-shadow: none; }
 }
 
-.gcs-status { min-height: 1.2em; color: var(--gcs-ink-2); font-size: 0.85rem; margin: 8px 2px; }
+.gcs-actions { border: 0; padding: 0; margin: 0; min-width: 0; }
+.gcs-status { min-height: 2.8em; line-height: 1.4; color: var(--gcs-ink-2); font-size: 0.85rem; margin: 8px 2px; }
 .gcs-error-text { color: var(--gcs-danger); }
 
 .gcs-controls { display: flex; gap: 8px; }
@@ -74,7 +78,7 @@ main { max-width: 480px; margin: 0 auto; padding: 0 12px; }
   background: var(--gcs-surface); color: var(--gcs-ink);
   padding: 8px 14px; font-size: 0.9rem; cursor: pointer;
 }
-.gcs-btn:disabled { opacity: 0.45; cursor: default; }
+.gcs-btn:disabled, .gcs-actions:disabled .gcs-btn { opacity: 0.45; cursor: default; }
 .gcs-btn-secondary { color: var(--gcs-ink-2); }
 .gcs-btn-danger { color: var(--gcs-danger); }
 .gcs-icon-btn {

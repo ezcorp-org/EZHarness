@@ -1109,6 +1109,7 @@ export interface AgentEvents {
   };
   // ── Extension Panel State ──
   "ext:state": {
+    userId: string;
     extensionId: string;
     extensionName: string;
     state: Record<string, unknown>;

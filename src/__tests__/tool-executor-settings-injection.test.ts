@@ -359,3 +359,5 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
     });
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

@@ -48,6 +48,7 @@
  * snapshot with exactly the staleness problem this check exists to close.
  */
 import { getExtensionByName } from "../db/queries/extensions";
+import { workflowReleaseCanAccess, workflowReleaseIsCurrent } from "./workflow-release-assets";
 import { listProjectIdsForUser } from "../db/queries/project-members";
 import {
   authorizeWorkflow,
@@ -202,6 +203,7 @@ export async function canRunWorkflow(
 ): Promise<WorkflowAuthzDecision> {
   const live = await workflowExtensionLiveness(entry.definition.name);
   if (!live.allowed) return live;
+  if (entry.source === "extension" && !await workflowReleaseCanAccess(entry, user.id, projectId)) return deny("Workflow release is not available to this user.");
 
   const memberships =
     readRunAudience(entry.visibility, entry.projectId) === "project-members-and-admins"
@@ -236,7 +238,9 @@ export async function canRunWorkflow(
  */
 export async function workflowExtensionLiveness(
   name: string,
+  entry?: CachedWorkflow,
 ): Promise<WorkflowAuthzDecision> {
+  if (entry?.source === "extension" && !await workflowReleaseIsCurrent(entry)) return deny("Workflow release is no longer active.");
   const prefix = extensionPrefix(name);
   if (!prefix) return ALLOW;
   const extension = await getExtensionByName(prefix);

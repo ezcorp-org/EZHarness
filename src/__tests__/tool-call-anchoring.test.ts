@@ -10,14 +10,16 @@ afterAll(() => {
 
 // ── Track tool_calls updates ─────────────────────────────────────────
 
-let toolCallUpdates: { set: any; where: any }[] = [];
-let createdMessages: { id: string; role: string; conversationId: string; runId?: string }[] = [];
+let toolCallUpdates: { set: any; where: any; transactional: boolean }[] = [];
+let createdMessages: { id: string; role: string; conversationId: string; runId?: string; transactional: boolean }[] = [];
 let msgCounter = 0;
+let inTransaction = false;
 
 beforeEach(() => {
   toolCallUpdates = [];
   createdMessages = [];
   msgCounter = 0;
+  inTransaction = false;
 });
 
 // ── Helper: mock Agent with state property ───────────────────────────
@@ -63,7 +65,7 @@ mock.module("../db/queries/conversations", () => ({
   getConversation: async () => ({ id: "test", projectId: "proj-1" }),
   createMessage: async (conversationId: string, data: any) => {
     msgCounter++;
-    const msg = { id: `real-msg-${msgCounter}`, ...data, conversationId, createdAt: new Date() };
+    const msg = { id: `real-msg-${msgCounter}`, ...data, conversationId, createdAt: new Date(), transactional: inTransaction };
     createdMessages.push(msg);
     return msg;
   },
@@ -83,13 +85,19 @@ mock.module("../db/connection", () => ({
     };
     chain.where = (condition: any) => {
       if (chain._setData != null) {
-        toolCallUpdates.push({ set: chain._setData, where: condition });
+        toolCallUpdates.push({ set: chain._setData, where: condition, transactional: inTransaction });
       }
       return Promise.resolve([]);
     };
     chain.insert = () => ({ values: async () => {} });
     chain.select = () => ({ from: () => ({ where: () => Promise.resolve([]) }) });
     chain.delete = () => ({ where: () => Promise.resolve() });
+    chain.execute = async () => ({ rows: [] });
+    chain.transaction = async (callback: (transaction: typeof chain) => Promise<unknown>) => {
+      inTransaction = true;
+      try { return await callback(chain); }
+      finally { inTransaction = false; }
+    };
     return chain;
   },
 }));
@@ -110,6 +118,7 @@ mock.module("../db/queries/runs", () => ({
   insertLog: async () => {},
   listRuns: async () => [],
   getRunWithLogs: async () => null,
+  terminalizeOrphanedRuns: async () => 0,
   toAgentRun: (r: any) => r,
 }));
 
@@ -242,11 +251,13 @@ describe("tool call anchoring", () => {
     expect(run.status).toBe("success");
     const assistantMsg = createdMessages.find(m => m.role === "assistant");
     expect(assistantMsg).toBeDefined();
+    expect(assistantMsg?.transactional).toBe(true);
 
     // tool_calls UPDATE was issued to anchor messageId
     expect(toolCallUpdates.length).toBeGreaterThanOrEqual(1);
     const anchorUpdate = toolCallUpdates.find(u => u.set?.messageId === assistantMsg!.id);
     expect(anchorUpdate).toBeDefined();
+    expect(anchorUpdate?.transactional).toBe(true);
   });
 
   test("fixup runs before run:complete so frontend gets correct data", async () => {

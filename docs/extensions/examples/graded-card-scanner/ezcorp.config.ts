@@ -1,7 +1,8 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
+import { savedCardTools } from "./lib/saved-cards";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "graded-card-scanner",
   version: "0.1.0",
   description:
@@ -14,7 +15,7 @@ export default defineExtension({
     "and PriceCharting for prices; missing values are always N/A, never a " +
     "guess.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   category: "Collectibles",
   tags: ["psa", "cards", "scanner", "collectibles", "prices"],
@@ -32,6 +33,7 @@ export default defineExtension({
   ],
 
   tools: [
+    ...savedCardTools,
     {
       name: "lookup_card",
       description:
@@ -151,9 +153,9 @@ export default defineExtension({
   // opaque "Transport closed" crash-loop that auto-disabled this
   // extension on 2026-07-11.
   npmDependencies: {
-    "@zxing/library": "^0.23.0",
-    "fast-png": "^8.0.0",
-    "jpeg-js": "^0.4.4",
+    "@zxing/library": "0.23.0",
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4",
   },
 
   agent: {
@@ -166,7 +168,7 @@ export default defineExtension({
       "the JSON is provided to you as a system note; you can also call",
       "`identify_slab` with an image's ez-attachment:// handle directly.",
       "The user also has a phone scanner page at",
-      "`/api/extensions/graded-card-scanner/data/app/index.html` — mention it",
+      "`/extensions/graded-card-scanner/preview` — mention it",
       "if they want continuous scanning rather than one-off lookups.",
     ].join("\n"),
     category: "Collectibles",

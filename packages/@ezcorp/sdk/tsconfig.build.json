@@ -18,6 +18,7 @@
     // matching direct devDependencies) makes the build deterministic.
     "types": ["node", "bun"]
   },
+  "references": [{ "path": "../extension-contract/tsconfig.build.json" }],
   "include": ["src/**/*"],
   "exclude": [
     "dist",

@@ -43,8 +43,14 @@
       "web/e2e/real-auth/delegated-fire-boundary.spec.ts",
       "web/e2e/real-auth/delegation-consent-boundary.spec.ts",
       "web/e2e/real-auth/extension-author-flow.spec.ts",
+      "web/e2e/real-auth/extension-binary-assets.spec.ts",
       "web/e2e/real-auth/extension-control-flow.spec.ts",
+      "web/e2e/real-auth/extension-chat-build.spec.ts",
+      "web/e2e/real-auth/extension-project-authority.spec.ts",
       "web/e2e/real-auth/extension-release-gate.spec.ts",
+      "web/e2e/real-auth/extension-browser-scanner.spec.ts",
+      "web/e2e/real-auth/extension-browser-cancel.spec.ts",
+      "web/e2e/real-auth/extension-source-import.spec.ts",
       "web/e2e/real-auth/ez-factory-job-run.spec.ts",
       "web/e2e/real-auth/harness-client-flow.spec.ts",
       "web/e2e/real-auth/health-detail-reachable.spec.ts",
@@ -55,7 +61,8 @@
       "web/e2e/real-auth/task-panel-durability.spec.ts",
       "web/e2e/real-auth/tier-routing-flow.spec.ts",
       "web/e2e/real-auth/web-search-flow.spec.ts",
-      "web/e2e/real-auth/workflow-existence-oracle-flow.spec.ts"
+      "web/e2e/real-auth/workflow-existence-oracle-flow.spec.ts",
+      "web/e2e/real-auth/workflow-service-release-flow.spec.ts"
     ],
     "evidence-soft": [
       "web/e2e/admin-routing-cost.spec.ts",

@@ -11,10 +11,7 @@ import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
-import {
-  collectExtensionWorkflowSources,
-  loadExtensionWorkflows,
-} from "$server/runtime/workflow-extension-loader";
+import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
 import { initDb, closeDb } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
@@ -28,22 +25,19 @@ import {
   registerTeardown,
 } from "$lib/server/shutdown";
 import {
-  bootSpawnFlaggedBundledExtensions,
   ensureBundledExtensions,
 } from "$server/extensions/bundled";
-import { assertBundledNotStranded } from "$server/startup/assert-bundled-not-stranded";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
-import { bootstrapBundledCredentials } from "$lib/server/security/bundled-creds";
-import { wireOpenAIExtensionCredentials } from "$lib/server/security/openai-extension-creds";
+import { recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
+import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
 import {
   ExtensionStateMediator,
   setStateMediator as setStateMediatorSingleton,
 } from "$server/extensions/state-mediator";
 import {
   LifecycleHookDispatcher,
-  type LifecycleHookName,
 } from "$server/extensions/lifecycle-dispatcher";
 import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
 import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
@@ -133,27 +127,16 @@ export async function ensureInitialized(): Promise<void> {
     stopBackups();
   });
   const registry = ExtensionRegistry.getInstance();
-  // Provision internal (loopback-only) credentials for allowlisted bundled
-  // extensions BEFORE they install + spawn. The registry injects these at
-  // subprocess spawn time; the extension uses them to call back into this
-  // same server without ever touching process.env or the DB. See
-  // lib/server/security/bundled-creds.ts for the security contract.
-  await bootstrapBundledCredentials(registry);
-  // Wire a per-spawn resolver so the `openai-image-gen-2` extension gets
-  // the user's configured OpenAI credential (BYOK key or OAuth token,
-  // refreshed on the fly) injected into its subprocess. No host env var
-  // required — it reads whatever the user has already set via admin
-  // settings or the OpenAI OAuth sign-in flow.
-  wireOpenAIExtensionCredentials(registry);
-  await ensureBundledExtensions();
-  // Boot health signal: report any bundled extension left DISABLED by the
-  // S9 / tamper gate. That state is permanent without an admin (the
-  // disable exit skips both the manifest refresh and the re-enable
-  // branch) and silent — the extension registers no tools, so agents just
-  // never see them. `web-search` sat like that for days. Reports only;
-  // auto-enabling would defeat a fail-closed gate awaiting human consent.
-  // Never throws, but keep boot non-fatal regardless.
-  await assertBundledNotStranded().catch(() => {});
+  const { initializeHostApiTransport } = await import("$lib/server/extensions/host-api-transport");
+  const { initializeExtensionCredentials } = await import("$lib/server/extensions/credential-resolver");
+  initializeHostApiTransport();
+  initializeExtensionCredentials();
+  await recoverExtensionLifecycle().catch((error) => {
+    console.error("Extension runner recovery unavailable; extension execution remains disabled", { error: String(error) });
+  });
+  await ensureBundledExtensions().catch((error) => {
+    console.error("Bundled source staging unavailable; configure the runner and retry", { error: String(error) });
+  });
   await registry.loadFromDb();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
@@ -164,6 +147,9 @@ export async function ensureInitialized(): Promise<void> {
   // (import direction), so it reads it back via the bus registry.
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
+  const { configureEzFactoryAgentPublisher, createEzFactoryAgentPublisher } = await import("$server/extensions/ez-factory-release-agents");
+  configureEzFactoryAgentPublisher(createEzFactoryAgentPublisher(executor));
+  registerTeardown("extension-factory-agents", () => configureEzFactoryAgentPublisher());
   // `persist: true` mirrors the AgentExecutor above — the server writes
   // workflow run history to workflow_runs / workflow_step_runs. Boot
   // reconciliation drains any row a previous process left `running`
@@ -317,15 +303,7 @@ export async function ensureInitialized(): Promise<void> {
 
   // Wire lifecycle hook dispatcher (sends sanitized events to subscribed extensions)
   lifecycleDispatcher = new LifecycleHookDispatcher(bus, registry);
-  for (const [extId, manifest] of registry.getAllManifests()) {
-    if (manifest.lifecycleHooks?.length) {
-      // manifest.lifecycleHooks is declared as string[] on the manifest
-      // type; the dispatcher validates each entry against ALLOWED_LIFECYCLE_HOOKS
-      // at registration time, so the structural assertion here is narrower
-      // than `any` and preserves runtime behavior.
-      lifecycleDispatcher.registerExtension(extId, manifest.lifecycleHooks as LifecycleHookName[]);
-    }
-  }
+  lifecycleDispatcher.reconcileFromRegistry();
   lifecycleDispatcher.start();
   registerTeardown("lifecycle-dispatcher", () => {
     lifecycleDispatcher?.stop();
@@ -344,14 +322,13 @@ export async function ensureInitialized(): Promise<void> {
     registry,
     getConversationExtensionIds,
   );
-  for (const [extId] of registry.getAllManifests()) {
-    const granted = registry.getGrantedPermissions(extId);
-    const subs = granted?.eventSubscriptions;
-    if (Array.isArray(subs) && subs.length > 0) {
-      eventSubscriptionDispatcher.registerExtension(extId, subs);
-    }
-  }
+  eventSubscriptionDispatcher.reconcileFromRegistry();
   eventSubscriptionDispatcher.start();
+  const unsubscribeReload = registry.onReload(() => {
+    lifecycleDispatcher!.reconcileFromRegistry();
+    eventSubscriptionDispatcher!.reconcileFromRegistry();
+  });
+  registerTeardown("extension-contribution-reload", unsubscribeReload);
   registerTeardown("event-subscription-dispatcher", () => {
     eventSubscriptionDispatcher?.stop();
   });
@@ -392,10 +369,8 @@ export async function ensureInitialized(): Promise<void> {
       bus,
       eventDriven: true,
     });
-    await bootSpawnFlaggedBundledExtensions(
-      registry,
-      (extId, proc) => bootExecutor.ensureSubprocessRpcWired(extId, proc),
-    );
+    startExtensionDeliveryRuntime((extId, proc) => bootExecutor.ensureSubprocessRpcWired(extId, proc));
+    registerTeardown("extension-delivery-runtime", stopExtensionDeliveryRuntime);
   } catch (bootSpawnErr) {
     // Boot-spawn failures are individually logged inside the helper.
     // Anything escaping here is a wiring-bootstrap failure (engine /
@@ -462,6 +437,7 @@ export async function ensureInitialized(): Promise<void> {
 
   // Load workflows from extension assets + YAML + DB
   workflows = await buildWorkflowCache();
+  registerTeardown("extension-workflow-reload", registry.onReload(reloadWorkflows));
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE
@@ -545,16 +521,11 @@ export function getCachedWorkflows(): CachedWorkflow[] {
  * their names always carry a `:` and host names never do.
  */
 async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
-  const extensionWorkflows = await loadExtensionWorkflows(
-    collectExtensionWorkflowSources(ExtensionRegistry.getInstance()),
-  );
+  const extensionWorkflows = await loadReleaseWorkflowEntries(ExtensionRegistry.getInstance());
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
-  // Only DB rows carry ownership. YAML and extension assets ship with the
-  // INSTALL, not with a project or a user, so they are `system` — the same
-  // authorization they have had all along.
   const dbWorkflows = await loadDbCachedWorkflows();
   return [
-    ...extensionWorkflows.map((w) => systemCachedWorkflow(w, "extension")),
+    ...extensionWorkflows,
     ...yamlWorkflows.map((w) => systemCachedWorkflow(w, "yaml")),
     ...dbWorkflows,
   ];

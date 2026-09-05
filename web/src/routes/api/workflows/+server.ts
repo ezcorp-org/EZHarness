@@ -2,11 +2,10 @@ import { json } from "@sveltejs/kit";
 import * as workflowQueries from "$server/db/queries/workflows";
 import { reloadWorkflows } from "$lib/server/context";
 import { ensureWorkflowVersion } from "$server/db/queries/workflow-versions";
-import { validateWorkflow } from "$server/runtime/workflow-validator";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
-import { denyVisibilityOr, listVisibleWorkflows } from "$lib/server/workflow-access";
+import { denyVisibilityOr, listVisibleWorkflows, validateWorkflowForCaller } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "./schema";
@@ -52,7 +51,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   // Definition-time validation (duplicate names, unknown deps, kind/field
   // mismatches, loop-on-gate, loop+retries, non-integer maxIterations).
-  const errors = validateWorkflow(body as WorkflowDefinition);
+  const errors = await validateWorkflowForCaller(user, body as WorkflowDefinition);
   if (errors.length > 0) {
     return errorJson(400, errors[0]!);
   }

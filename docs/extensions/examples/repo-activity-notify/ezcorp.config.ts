@@ -7,16 +7,16 @@
 // filesystem path for the artifact mirror. There is NO `llm` grant and NO
 // `spawnAgents` grant — this loop never reaches a model.
 
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "repo-activity-notify",
   version: "1.0.0",
   description:
     "Reference check-stage trust probe — a read-only loop that notices new git commits (deterministic git-cursor check, no LLM) and appends a one-line notice to its wired conversation plus an artifact mirror.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Examples",
   tags: ["loop", "check", "example", "reference"],
   // Cron + manual loop — stay resident so the hourly fire isn't dropped on idle.
@@ -60,7 +60,7 @@ export default defineExtension({
     // The notice is an excluded role:extension turn (host forces excluded).
     appendMessages: { excludedDefault: true },
     // The artifact mirror lands under .ezcorp/extension-data/repo-activity-notify/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // The hourly sweep.
     schedule: { crons: ["0 * * * *"] },
   },

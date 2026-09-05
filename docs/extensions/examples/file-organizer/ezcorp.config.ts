@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 import { ALL_EVENTS } from "./lib/page";
 
 // ── file-organizer — 100%-local, secure file organization ───────────
@@ -16,13 +16,13 @@ import { ALL_EVENTS } from "./lib/page";
 //     the host daemon, which has no per-user context, can read/write it).
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "file-organizer",
   version: "1.0.0",
   description:
     "Proposes file moves, renames, and garbage cleanup you accept or reject; auto-handles new files in watched folders; recognizes junk/duplicate/stale clutter; co-designs a workflow with an agent and alerts when a file falls outside it. 100% local — no network access.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   category: "Productivity",
   tags: ["files", "organization", "cleanup", "automation", "local"],
@@ -237,7 +237,7 @@ export default defineExtension({
   permissions: {
     // Subprocess: data dir only. Host folders (Desktop/Downloads/…) are
     // outside this jail and are touched ONLY by the host daemon/applier.
-    filesystem: ["$CWD"],
+    filesystem: ["/data"],
     // No network ⇒ no calls home, enforced by the sandbox.
     shell: false,
     // File-based state so the host daemon (no per-user context) can

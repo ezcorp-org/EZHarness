@@ -1,14 +1,14 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Minimal test extension for the Phase 2b agent-configs integration
 // test. Declares `agentConfig: "read"`; not bundled.
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "test-agent-configs",
   version: "1.0.0",
   description: "Integration-test fixture — reads the caller's agent configs",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   tools: [
     {

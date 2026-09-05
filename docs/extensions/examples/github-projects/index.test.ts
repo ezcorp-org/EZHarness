@@ -43,7 +43,7 @@ import {
   _setRpcForTests,
   _setPushPageForTests,
 } from "./index";
-import type { ToolCallResult } from "../../../../src/extensions/types";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
 // ── Reverse-RPC recorder ─────────────────────────────────────────────
 interface RpcCall {

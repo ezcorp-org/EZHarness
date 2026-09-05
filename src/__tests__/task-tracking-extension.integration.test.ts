@@ -28,6 +28,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, type Subprocess } from "bun";
 import { join } from "path";
+import { TaskEventStorageFixture } from "./helpers/task-event-storage";
 
 const EXT_ENTRY = join(
   import.meta.dir ?? process.cwd(),
@@ -164,15 +165,21 @@ function wireStorageHost(p: TestProc): Map<string, unknown> {
   return store;
 }
 
-/** Auto-ack ezcorp/emit-task-event; collect for assertion. */
-function wireTaskEventHost(p: TestProc): Array<Record<string, unknown>> {
+/** Model the task-event persistence boundary and collect accepted events. */
+function wireTaskEventHost(p: TestProc, store: Map<string, unknown>): Array<Record<string, unknown>> {
   const events: Array<Record<string, unknown>> = [];
+  const state = new TaskEventStorageFixture({
+    get: async <Value>(key: string) => ({ value: (store.get(`conversation::${key}`) ?? null) as Value | null, exists: store.has(`conversation::${key}`) }),
+    set: async <Value>(key: string, value: Value) => { store.set(`conversation::${key}`, structuredClone(value)); },
+  });
   (async () => {
     let next = 0;
     while (p.proc.exitCode === null) {
       for (; next < p.outbound.length; next++) {
         const m = p.outbound[next]!;
         if (m.method !== "ezcorp/emit-task-event") continue;
+        const params = m.params as { type: string; payload: { tasks: Parameters<typeof state.emitSnapshot>[0]; activeTaskId?: string } & NonNullable<Parameters<typeof state.emitSnapshot>[2]> };
+        if (params.type === "snapshot") await state.emitSnapshot(params.payload.tasks, params.payload.activeTaskId, params.payload);
         events.push(m.params as Record<string, unknown>);
         p.inbound({ jsonrpc: "2.0", id: m.id, result: { ok: true } });
       }
@@ -234,7 +241,7 @@ afterEach(() => {
 describe("task-tracking integration: real subprocess + RPC", () => {
   test("task_plan round-trips — persists a snapshot, emits task:snapshot", async () => {
     const store = wireStorageHost(proc!);
-    const events = wireTaskEventHost(proc!);
+    const events = wireTaskEventHost(proc!, store);
     wireAgentConfigsHost(proc!);
 
     proc!.inbound({
@@ -270,7 +277,7 @@ describe("task-tracking integration: real subprocess + RPC", () => {
 
   test("task_list reads from persisted storage and returns what's there", async () => {
     const store = wireStorageHost(proc!);
-    wireTaskEventHost(proc!);
+    wireTaskEventHost(proc!, store);
     wireAgentConfigsHost(proc!);
 
     // Seed a snapshot directly in the fake storage.
@@ -310,7 +317,7 @@ describe("task-tracking integration: real subprocess + RPC", () => {
 
   test("task:assignment_update bridge — incoming 'completed' updates storage", async () => {
     const store = wireStorageHost(proc!);
-    wireTaskEventHost(proc!);
+    wireTaskEventHost(proc!, store);
     wireAgentConfigsHost(proc!);
 
     // Seed a running assignment.
@@ -381,8 +388,8 @@ describe("task-tracking integration: real subprocess + RPC", () => {
   });
 
   test("sequential tool calls don't deadlock (regression for the SDK runLoop bug)", async () => {
-    wireStorageHost(proc!);
-    wireTaskEventHost(proc!);
+    const store = wireStorageHost(proc!);
+    wireTaskEventHost(proc!, store);
     wireAgentConfigsHost(proc!);
 
     for (let i = 0; i < 5; i++) {

@@ -32,9 +32,9 @@ import {
   _setCheckFetchForTests,
   _setLlmFactoryForTests,
   _setProposalClosuresForTests,
-} from "../../../../packages/@ezcorp/sdk/src/runtime/loop";
-import { __resetChannelForTests } from "../../../../packages/@ezcorp/sdk/src/runtime/channel";
-import type { LoopApprovalLabel, LoopRunState } from "../../../../packages/@ezcorp/sdk/src/runtime/loop-types";
+} from "@ezcorp/sdk/test";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
+import type { LoopApprovalLabel, LoopRunState } from "@ezcorp/sdk/runtime";
 import { defineSeoWatcherLoop, handleApproveAction, handleDeclineAction, LOOP_ID, type SeoOutcome } from "./index";
 
 // ── in-memory Storage (mirrors the host storage RPC contract) ───────

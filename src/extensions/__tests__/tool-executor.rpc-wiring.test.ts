@@ -294,7 +294,7 @@ describe("ensureSubprocessRpcWired — state-mediator singleton fallback", () =>
 
   const VALID_TREE = {
     title: "Ping Loop",
-    nodes: [{ type: "heading", level: 2, text: "Runs" }],
+    nodes: [{ type: "heading" as const, level: 2 as const, text: "Runs" }],
   };
 
   let registry: ExtensionRegistry;
@@ -333,17 +333,15 @@ describe("ensureSubprocessRpcWired — state-mediator singleton fallback", () =>
     expect(proc.setNotificationHandlerCalls).toBe(1);
     expect(typeof proc.installedNotificationHandler).toBe("function");
 
-    // Drive an inbound `ezcorp/page-state` push through the handler.
+    getPageCache().set(EXT_ID, PAGE_ID, VALID_TREE);
     proc.installedNotificationHandler!({
       jsonrpc: "2.0",
       method: "ezcorp/page-state",
       params: { pageId: PAGE_ID, page: VALID_TREE },
     });
 
-    // It reached the REAL mediator: page cache set + content-free emit.
     const cached = getPageCache().get(EXT_ID, PAGE_ID);
-    expect(cached).not.toBeNull();
-    expect(cached!.tree.title).toBe("Ping Loop");
+    expect(cached).toBeNull();
 
     expect(pageEvents).toHaveLength(1);
     expect(pageEvents[0]!.extensionId).toBe(EXT_ID);

@@ -116,6 +116,8 @@ export function _resetOverrideCacheForTests(): void {
 // ── Public surface ──────────────────────────────────────────────────
 
 export interface AuthorizeContext {
+  serviceInvocation?: import("./service-invocation").ServiceInvocation;
+  projectConsent?: import("./project-consent").ProjectOperationConsent;
   extensionId: string;
   /**
    * Phase 6: missing user/context becomes JSON `null` in audit rows
@@ -299,6 +301,19 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       ...ctx,
       ...(parentAuditId !== undefined ? { parentAuditId } : {}),
     };
+    const { getRuntimeToolContext } = await import("./runtime-tool-context");
+    const serviceInvocation = ctx.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
+    if (serviceInvocation) {
+      try {
+        if (ctx.userId) throw new Error("Service capability cannot use a human principal");
+        const { assertServiceCapabilities } = await import("./service-capabilities");
+        await assertServiceCapabilities(serviceInvocation, ctx.extensionId, needed);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Service capability denied";
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, undefined, reason);
+        return { decision: "deny", reason, auditId };
+      }
+    }
 
     // 1. Compute effective grant set.
     //
@@ -337,6 +352,21 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         : grantedFromRegistry(deps.registry, ctx.extensionId, ctx.userId);
     }
 
+    let liveGranted: CapabilitySet | undefined;
+    if (deps.registry.getManifest?.(ctx.extensionId)?.schemaVersion === 4) {
+      try {
+        const { getExtension } = await import("../db/queries/extensions");
+        const current = await getExtension(ctx.extensionId);
+        liveGranted = current?.enabled && current.source === "release-v4"
+          ? grantsToCapabilitySet(current.grantedPermissions, ctx.userId)
+          : [];
+      } catch {
+        const reason = "live-release-grant-unavailable";
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, undefined, reason);
+        return { decision: "deny", reason, auditId };
+      }
+    }
+
     // 2. Subset check. The first missing cap is the deny reason.
     //
     // The audit row is coalesced, the DECISION never is: a folded deny
@@ -349,7 +379,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     // reason, so only byte-identical refusals fold, and the summary
     // preserves the count plus the first/last timestamps — see
     // `perm-audit-coalescer.ts`.
-    const missing = firstMissingCapability(needed, granted);
+    const missing = firstMissingCapability(needed, granted) ?? (liveGranted ? firstMissingCapability(needed, liveGranted) : undefined);
     if (missing) {
       const reason = formatMissingReason(missing, ctx.toolName);
       if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "deny", missing, reason), auditId)) {
@@ -366,8 +396,21 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     //    `resolvePrompt` below, which is the single writer for
     //    always-allow rows (kind-only key — clicking "Allow forever"
     //    grants the kind for ANY value, e.g. any path under fs.write).
+    if (serviceInvocation) {
+      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined, "service-delegation-consent");
+      return { decision: "allow", auditId };
+    }
     const sensitive = needed.find((c) => SENSITIVE_KINDS.has(c.kind));
     if (sensitive) {
+      if (ctx.projectConsent) {
+        const { hasProjectOperationConsent } = await import("./project-consent");
+        if (await hasProjectOperationConsent(ctx, needed)) {
+          await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, sensitive, "project-operation-consent");
+          return { decision: "allow", auditId };
+        }
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, sensitive, "invalid-project-operation-consent");
+        return { decision: "deny", reason: "invalid-project-operation-consent", auditId };
+      }
       // `ezcorp:extension:install` is NEVER persisted as an
       // always-allow grant (every install is individually consented).
       // Force the read to "not allowed" so a stray/legacy row can

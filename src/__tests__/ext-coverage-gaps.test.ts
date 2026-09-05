@@ -525,213 +525,27 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
 // 6. sdk/test-runner.ts: runExtensionTests
 // ================================================================
 
-describe("runExtensionTests", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "test-runner-"));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test("throws when ezcorp.config.ts is missing", async () => {
-    await expect(runExtensionTests({ extDir: tempDir })).rejects.toThrow("No ezcorp.config.ts");
-  });
-
-  test("throws when manifest is invalid", async () => {
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ bad: true })};\n`);
-    await expect(runExtensionTests({ extDir: tempDir })).rejects.toThrow("Invalid manifest");
-  });
-
-  test("runs tests and returns exit code for valid extension", async () => {
-    const manifest = {
-      schemaVersion: 2,
-      name: "test-runner-ext",
-      version: "1.0.0",
-      description: "Test extension",
-      author: { name: "Test" },
-      permissions: {},
-    };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-
-    // Create a simple passing test file
-    await writeFile(join(tempDir, "index.test.ts"), `
-import { test, expect } from "bun:test";
-test("pass", () => { expect(1 + 1).toBe(2); });
-`);
-
-    const exitCode = await runExtensionTests({ extDir: tempDir, timeout: 30000 });
-    expect(exitCode).toBe(0);
-  }, 30_000);
+describe("retired directory-based SDK execution", () => {
+  for (const source of [undefined, "export default {};", "export default {entrypoint:'./index.ts'};"]) {
+    test(`refuses directory execution with ${source ?? "missing config"}`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), "sdk-retired-"));
+      const marker = join(directory, "executed");
+      try {
+        if (source) await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); ${source}`);
+        await expect(runExtensionTests({ extDir: directory })).rejects.toThrow("Host configuration evaluation is disabled");
+        for (const sandbox of [true, false]) {
+          await expect(createTestExtension(directory, { sandbox })).rejects.toThrow("Host configuration evaluation is disabled");
+        }
+        expect(await Bun.file(marker).exists()).toBe(false);
+      } finally { await rm(directory, { recursive: true, force: true }); }
+    });
+  }
 });
 
-// ================================================================
-// 7. sdk/test-helpers.ts: createTestExtension, callTool wrapper
-// ================================================================
-
-describe("createTestExtension", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "test-helper-"));
-  });
-
-  afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test("throws when manifest does not exist", async () => {
-    await expect(createTestExtension(tempDir)).rejects.toThrow("Manifest not found");
-  });
-
-  test("throws when manifest is invalid", async () => {
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ bad: true })};\n`);
-    await expect(createTestExtension(tempDir)).rejects.toThrow("Invalid manifest");
-  });
-
-  test("throws when manifest has no entrypoint", async () => {
-    const manifest = {
-      schemaVersion: 2,
-      name: "no-entry",
-      version: "1.0.0",
-      description: "No entrypoint",
-      author: { name: "Test" },
-      permissions: {},
-      // No entrypoint field
-    };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-    await expect(createTestExtension(tempDir)).rejects.toThrow("must declare an entrypoint");
-  });
-
-  test("creates ExtensionProcess with valid manifest and entrypoint", async () => {
-    // Write a valid echo extension
-    const echoCode = `
-const decoder = new TextDecoder();
-async function main() {
-  const reader = Bun.stdin.stream().getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const lines = decoder.decode(value).split("\\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const req = JSON.parse(line);
-        const response = { jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: "echo: " + req.method }], isError: false } };
-        process.stdout.write(JSON.stringify(response) + "\\n");
-      } catch {}
-    }
-  }
-}
-main();
-`;
-    await writeFile(join(tempDir, "index.ts"), echoCode);
-
-    const manifest = {
-      schemaVersion: 2,
-      name: "test-echo",
-      version: "1.0.0",
-      description: "Echo extension",
-      author: { name: "Test" },
-      entrypoint: "./index.ts",
-      tools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object" } }],
-      permissions: {},
-    };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-
-    const proc = await createTestExtension(tempDir);
-    try {
-      expect(proc).toBeDefined();
-      expect(proc.extensionId).toBe("test-test-echo");
-      expect(proc.isRunning).toBe(false); // Not started yet
-    } finally {
-      proc.kill();
-    }
-  });
-});
-
-describe("callTool wrapper", () => {
-  let tempDir: string;
-  let proc: ExtensionProcess;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "calltool-test-"));
-
-    // Write echo extension
-    const echoCode = `
-const decoder = new TextDecoder();
-async function main() {
-  const reader = Bun.stdin.stream().getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const lines = decoder.decode(value).split("\\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const req = JSON.parse(line);
-        const response = { jsonrpc: "2.0", id: req.id, result: { content: [{ type: "text", text: "echo: " + req.method + " " + JSON.stringify(req.params) }], isError: false } };
-        process.stdout.write(JSON.stringify(response) + "\\n");
-      } catch {}
-    }
-  }
-}
-main();
-`;
-    await writeFile(join(tempDir, "index.ts"), echoCode);
-
-    const manifest = {
-      schemaVersion: 2,
-      name: "calltool-echo",
-      version: "1.0.0",
-      description: "Echo for callTool test",
-      author: { name: "Test" },
-      entrypoint: "./index.ts",
-      tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }],
-      permissions: {},
-    };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-  });
-
-  afterEach(async () => {
-    proc?.kill();
-    await rm(tempDir, { recursive: true, force: true });
-  });
-
-  test("callTool wrapper returns ToolCallResult", async () => {
-    proc = await createTestExtension(tempDir, { sandbox: false });
-
-    // Apply the same JIT workaround
-    const _origEnsure = proc.ensureRunning;
-    (proc as any).ensureRunning = function (this: any) {
-      if (this.proc && !this.killed) return;
-      this.killed = false;
-      this.proc = Bun.spawn(["bun", "run", this.extensionPath], {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "pipe",
-        env: this.allowedEnv,
-      });
-      this.transport = new JsonRpcTransport(
-        this.proc.stdin as any,
-        this.proc.stdout as ReadableStream<Uint8Array>,
-      );
-      this.transport.startReading();
-      this.wireRequestHandler();
-      this.resetIdleTimer();
-      this.proc.exited.then(async (_exitCode: number) => {
-        if (this.killed) return;
-        this.proc = null;
-        this.transport = null;
-      });
-    }.bind(proc);
-
-    const result = await callTool(proc, "my-tool", { arg: "value" });
-    expect(result.isError).toBe(false);
-    expect(result.content).toBeArray();
-    expect(result.content[0]!.text).toContain("tools/call");
-    expect(result.content[0]!.text).toContain("my-tool");
-  });
+test("callTool wrapper delegates tool name and arguments unchanged", async () => {
+  const calls: unknown[] = [];
+  const result = { content: [{ type: "text" as const, text: "response" }], isError: false };
+  const process = { callTool: async (...args: unknown[]) => { calls.push(args); return result; } } as unknown as ExtensionProcess;
+  expect(await callTool(process, "my-tool", { arg: "value" })).toBe(result);
+  expect(calls).toEqual([["my-tool", { arg: "value" }]]);
 });

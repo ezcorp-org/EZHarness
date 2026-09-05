@@ -1,13 +1,13 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "cron-dashboard",
   version: "0.1.0",
   description:
     "Reference Hub-page extension: a dashboard tab that visualizes this extension's own scheduled heartbeat runs — stats, a run table, and a clear-log action — refreshed live via pushPage after every fire.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Development",
   tags: ["hub", "pages", "cron", "demo"],
 

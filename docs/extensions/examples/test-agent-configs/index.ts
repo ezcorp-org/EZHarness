@@ -40,8 +40,10 @@ export const tools: Record<string, ToolHandler> = {
   resolve_config: resolve,
 };
 
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+if (import.meta.main) start();

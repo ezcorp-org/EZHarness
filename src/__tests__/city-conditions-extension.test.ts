@@ -9,11 +9,15 @@
  * than a comment: the batcher's own output is asserted, and the run is
  * then executed end-to-end through it.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeAll, afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { workflowReleaseFixture } from "./helpers/workflow-release";
+import { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } from "../runtime/workflow/runtime-registry";
+import { users } from "../db/schema";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { loadManifest } from "../extensions/loader";
-import { validateManifestV2 } from "../extensions/manifest";
+import { discoverFirstPartyManifest as loadManifest, withFirstPartyExecution } from "./helpers/first-party-manifest";
+import { validateManifest } from "@ezcorp/extension-contract";
 import { getProjectRoot, resolveBundledExtensions } from "../extensions/bundled";
 import { BUNDLED_CEILING, clampToBundledCeiling } from "../extensions/bundled-ceiling";
 import { loadExtensionWorkflows } from "../runtime/workflow-extension-loader";
@@ -45,6 +49,12 @@ const CONDITIONS_HOSTS = [
   "www.atlantaallergy.com",
 ];
 
+mockDbConnection();
+beforeAll(async () => {
+  await setupTestDb();
+  await getTestDb().insert(users).values({ id: "workflow-owner", email: "workflow@test.invalid", passwordHash: "unused", name: "Owner" });
+});
+afterAll(async () => { _resetWorkflowRuntimeForTests(); await closeTestDb(); });
 beforeEach(() => _resetGooglePollenKeyResolverForTests());
 
 // ── Upstream fixtures (the suite never touches the network) ──────────
@@ -137,6 +147,8 @@ async function loadConditionsWorkflow(): Promise<WorkflowDefinition> {
   ]);
   const wf = loaded.find((w) => w.name === `${EXT_NAME}:conditions`);
   if (!wf) throw new Error("conditions.workflow.yaml did not load");
+  const { entry } = workflowReleaseFixture(wf, "workflow-owner");
+  registerWorkflowRuntime({ getWorkflows: () => [wf], getCachedWorkflows: () => [entry], workflowExecutor: executor() });
   return wf;
 }
 
@@ -152,15 +164,14 @@ describe("manifest", () => {
   test("loads from disk and passes install-time validation", async () => {
     const manifest = await loadManifest(EXT_DIR);
     expect(manifest.name).toBe(EXT_NAME);
-    const result = validateManifestV2(manifest);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
+    expect(validateManifest(manifest)).toEqual(manifest);
+    expect(manifest.schemaVersion).toBe(4);
   });
 
   test("the declared entrypoint exists (the install path checksums it)", async () => {
     const manifest = await loadManifest(EXT_DIR);
-    expect(manifest.entrypoint).toBe("./index.ts");
-    expect(existsSync(join(EXT_DIR, "index.ts"))).toBe(true);
+    expect(manifest.entrypoint).toBe("./extension.ts");
+    expect(existsSync(join(EXT_DIR, "extension.ts"))).toBe(true);
   });
 
   test("declares a smokeTest naming one of its own tools", async () => {
@@ -170,30 +181,19 @@ describe("manifest", () => {
     expect(names).toContain(manifest.smokeTest!.tool);
   });
 
-  // DECLARING a smokeTest is not the same as PASSING it, and the gap is
-  // where this extension actually broke: `start()` called
-  // `createToolDispatcher` before `getChannel()`, so the subprocess threw
-  // "[@ezcorp/sdk] channel not ready" and died at spawn. Every unit test
-  // stayed green (they import `tools` directly and never spawn) and
-  // boot.test.ts could not see it either — it arms the register itself,
-  // and rpc.ts's lazy `_register` stays armed process-wide once any
-  // `getChannel()` has run. Only a real spawn catches it.
-  //
-  // `verifyExtension` is the host's own acceptance pipeline (the one
-  // `ezcorp ext verify` and `runExtensionTests` fold in), so this reuses
-  // that machinery rather than hand-rolling a spawn. The round-trip is
-  // network-free by construction: the declared smokeTest sends
-  // `{ city: "" }` and expects the BAD_INPUT envelope, so no upstream is
-  // contacted and a slow third party can never redden this gate.
-  test("the declared smokeTest actually round-trips in a spawned sandbox", async () => {
-    const { verifyExtension } = await import("../extensions/sdk/verify");
-    const result = await verifyExtension({ extDir: EXT_DIR });
-    const roundTrip = result.steps.find((s) => s.name === "smoke-test-roundtrip");
-    expect(roundTrip).toBeDefined();
-    // Name the failure detail in the assertion so a regression reports the
-    // subprocess's actual stderr instead of a bare `false !== true`.
-    expect(`${roundTrip!.ok} :: ${roundTrip!.detail}`).toBe(`true :: ${roundTrip!.detail}`);
-    expect(result.pass).toBe(true);
+  test("the declared smokeTest round-trips through the actual v4 worker without host capabilities", async () => {
+    await withFirstPartyExecution(EXT_DIR, async (manifest, execution) => {
+      const smoke = manifest.smokeTest!;
+      const expectedText = smoke.expect?.textIncludes;
+      if (!expectedText) throw new Error("City smoke test must declare expected response text");
+      const result = await execution.request("extension/invoke", {
+        name: smoke.tool,
+        input: smoke.input,
+        context: { invocationId: "city-smoke", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "project", token: "fixture", deadline: Date.now() + 5000 },
+      }) as ToolCallResult;
+      expect(result.isError === true).toBe(smoke.expect?.isError === true);
+      expect(result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n")).toContain(expectedText);
+    });
   }, 30_000);
 
   test("stores the Google key as a secret instead of a credential-shaped env grant", async () => {
@@ -311,7 +311,7 @@ describe("conditions workflow — end to end", () => {
   test("runs green and assembles the full report, fetching the two upstreams concurrently", async () => {
     const probe = stubUpstream();
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" }, undefined, "workflow-owner");
       expect(run.status).toBe("success");
       expect(probe.peakConcurrent()).toBe(2);
 
@@ -337,7 +337,7 @@ describe("conditions workflow — end to end", () => {
       return json(FORECAST_BODY);
     }) as typeof fetch);
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" }, undefined, "workflow-owner");
       expect(run.status).toBe("success");
       const out = run.result!.output as Record<string, unknown>;
       expect((out.pollen as { available: boolean }).available).toBe(false);
@@ -355,7 +355,7 @@ describe("conditions workflow — end to end", () => {
       return json(FORECAST_BODY);
     }) as typeof fetch);
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Atlantis" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Atlantis" }, undefined, "workflow-owner");
       expect(run.status).toBe("error");
       const error = run.result!.error;
       const message = typeof error === "string" ? error : error!.message;
@@ -384,7 +384,7 @@ describe("conditions workflow — end to end", () => {
       toolRunnerFactory: runner,
     });
 
-    const run = await wf.runWorkflow(await loadConditionsWorkflow(), { city: "Nowhere" });
+    const run = await wf.runWorkflow(await loadConditionsWorkflow(), { city: "Nowhere" }, undefined, "workflow-owner");
     expect(run.status).toBe("error");
     const error = run.result!.error;
     const message = typeof error === "string" ? error : error!.message;

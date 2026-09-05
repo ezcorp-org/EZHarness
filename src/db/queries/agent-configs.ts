@@ -1,5 +1,5 @@
 import { eq, inArray, and, ne, isNull } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
 import { CURRENT_MODEL_SENTINEL, type AgentConfig, type AgentDefinition, type InputSchema, type TeamMember } from "../../types";
@@ -78,8 +78,8 @@ export async function listAgentConfigs(userId?: string): Promise<(DbAgentConfig 
   return getDb().select().from(agentConfigs);
 }
 
-export async function getAgentConfig(id: string): Promise<DbAgentConfig | undefined> {
-  const rows = await getDb().select().from(agentConfigs).where(eq(agentConfigs.id, id));
+export async function getAgentConfig(id: string, database?: DbTransaction): Promise<DbAgentConfig | undefined> {
+  const rows = await (database ?? getDb()).select().from(agentConfigs).where(eq(agentConfigs.id, id));
   return rows[0];
 }
 
@@ -121,7 +121,7 @@ export async function getAgentConfigsByNames(names: string[]): Promise<Map<strin
   return out;
 }
 
-export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {
+export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }, database?: DbTransaction): Promise<DbAgentConfig> {
   const now = new Date();
   // Callers may pin a fixed, well-known id (e.g. the bundled ez-code
   // coder, which must be resolvable by a stable id that survives the
@@ -138,6 +138,7 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
   }
   const row = {
     id,
+    managedByExtensionId: null,
     name: data.name,
     description: data.description ?? "",
     capabilities: data.capabilities ?? ["llm"],
@@ -162,13 +163,14 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
     createdAt: now,
     updatedAt: now,
   };
-  await getDb().insert(agentConfigs).values(row);
+  await (database ?? getDb()).insert(agentConfigs).values(row);
   return row;
 }
 
 export async function updateAgentConfig(id: string, data: Partial<AgentConfig> & { category?: string | null; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig | undefined> {
   const existing = await getAgentConfig(id);
   if (!existing) return undefined;
+  if (existing.managedByExtensionId) throw new AgentValidationError("Managed extension agents require release publication.");
 
   if (data.references?.members?.length) {
     const memberIds = flattenMemberIds(data.references.members);
@@ -213,6 +215,7 @@ export async function updateAgentConfig(id: string, data: Partial<AgentConfig> &
 export async function deleteAgentConfig(id: string): Promise<boolean> {
   const existing = await getAgentConfig(id);
   if (!existing) return false;
+  if (existing.managedByExtensionId) throw new AgentValidationError("Managed extension agents require release publication.");
   await getDb().delete(agentConfigs).where(eq(agentConfigs.id, id));
   return true;
 }
@@ -239,8 +242,9 @@ export async function deleteAgentConfig(id: string): Promise<boolean> {
 export async function deleteAgentConfigsByNameExceptId(
   name: string,
   keepId: string,
+  database?: DbTransaction,
 ): Promise<number> {
-  const rows = await getDb()
+  const rows = await (database ?? getDb())
     .delete(agentConfigs)
     .where(
       and(
@@ -289,6 +293,12 @@ export async function loadDbAgents(): Promise<Map<string, AgentDefinition>> {
   const agents = new Map<string, AgentDefinition>();
   const configs = await listAgentConfigs();
   for (const row of configs) {
+    if (row.managedByExtensionId) {
+      const { loadManagedFactoryAgent } = await import("../../extensions/ez-factory-release-agents");
+      const managed = await loadManagedFactoryAgent(row);
+      if (managed) agents.set(row.name, managed);
+      continue;
+    }
     agents.set(row.name, configToAgent(dbConfigToAgentConfig(row)));
   }
   return agents;

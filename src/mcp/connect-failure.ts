@@ -53,6 +53,8 @@ const log = logger.child("mcp-connect");
 /** The uniform 502 status every MCP connect failure returns. */
 export const MCP_CONNECT_FAILED_STATUS = 502;
 
+export const MCP_CATALOG_PROBE_FAILED_MESSAGE = "MCP catalog probe failed. Check the public endpoint and credentials; no release was activated.";
+
 /** The uniform, target-independent 502 body every MCP connect failure returns. */
 export const MCP_CONNECT_FAILED_MESSAGE =
   "MCP server unreachable or invalid. If the target is on a private network, " +

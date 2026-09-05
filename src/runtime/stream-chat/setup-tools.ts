@@ -1275,15 +1275,6 @@ export async function setupTools(
           // the LLM can scaffold new extensions on request. Self-gated on
           // kind==='ez' + fail-soft (see wireExtensionAuthorToolsIfEz). The
           // mode allowlist narrows the wired set to just create_extension.
-          await wireExtensionAuthorToolsIfEz({
-            agentTools: ctx.agentTools,
-            conversationId,
-            runId: run.id,
-            convRecord,
-            host,
-            options,
-            attachmentArgsResolver,
-          });
         }
 
         // Daily Briefing Phase 1: wire the briefing read tools for any
@@ -1414,7 +1405,7 @@ export async function setupTools(
               extensionIds: convExtIds,
               registry,
               executeToolCall: (toolName, input) =>
-                toolExec.executeToolCall(toolName, input, conversationId, null),
+                toolExec.executeToolCall(toolName, input, conversationId, null, { signal: host.controllers.get(run.id)?.signal }),
               getAttachmentSizes: async () => {
                 // This turn's attachments all hang off the user message
                 // (options.parentMessageId) — one query resolves every
@@ -1540,6 +1531,16 @@ export async function setupTools(
       // LAST of the per-turn families and deliberately AFTER §2b's
       // `ctx.agentTools = extTools.map(...)` — that line is an ASSIGNMENT, so
       // anything pushed before it is discarded.
+      if (convRecord?.userId) {
+        const { createExtensionControlTools } = await import("../tools/extensions");
+        const { getExtensionControl } = await import("../../extensions/extension-lifecycle-service");
+        const extensionControls = createExtensionControlTools({ principalId: convRecord.userId, scope: "global", kind: "agent" }, getExtensionControl);
+        for (const definition of extensionControls) {
+          ctx.builtinToolDefsMap.set(definition.name, definition);
+          ctx.agentTools.push(withPermissionGate(definition, permissionDeps));
+        }
+      }
+
       await wireCallerToolsIfDeclared({
         agentTools: ctx.agentTools,
         builtinToolDefsMap: ctx.builtinToolDefsMap,

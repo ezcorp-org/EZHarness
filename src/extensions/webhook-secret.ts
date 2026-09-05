@@ -18,6 +18,7 @@
  *     the value.
  */
 import { randomBytes } from "node:crypto";
+import type { Database, DbTransaction } from "../db/connection";
 import { setSecret, getSecret, hasSecret, deleteSecret } from "./secrets-store";
 
 /** Human-facing token prefix (type tag; not a secret component). */
@@ -44,10 +45,12 @@ export async function mintWebhookSecret(
   extensionId: string,
   slug: string,
   actorUserId?: string | null,
+  database?: Database | DbTransaction,
 ): Promise<string> {
   const token = generateWebhookToken();
   await setSecret(extensionId, null, webhookSecretName(slug), token, {
     userId: null,
+    database,
     ...(actorUserId !== undefined ? { actorUserId } : {}),
   });
   return token;
@@ -69,8 +72,9 @@ export async function getWebhookSecret(
 export async function hasWebhookSecret(
   extensionId: string,
   slug: string,
+  database?: Database | DbTransaction,
 ): Promise<boolean> {
-  return hasSecret(extensionId, null, webhookSecretName(slug), { userId: null });
+  return hasSecret(extensionId, null, webhookSecretName(slug), { userId: null, database });
 }
 
 /**
@@ -83,9 +87,10 @@ export async function ensureWebhookSecret(
   extensionId: string,
   slug: string,
   actorUserId?: string | null,
+  database?: Database | DbTransaction,
 ): Promise<string | null> {
-  if (await hasWebhookSecret(extensionId, slug)) return null;
-  return mintWebhookSecret(extensionId, slug, actorUserId);
+  if (await hasWebhookSecret(extensionId, slug, database)) return null;
+  return mintWebhookSecret(extensionId, slug, actorUserId, database);
 }
 
 /** Delete a hook's secret (slug removal cleanup). Returns true on a real

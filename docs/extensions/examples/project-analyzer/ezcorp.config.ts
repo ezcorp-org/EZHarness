@@ -1,14 +1,14 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "project-analyzer",
   version: "1.0.0",
   description: "Read and list project files with filesystem and shell access",
   author: {
     name: "EZCorp",
   },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "listFiles",
@@ -16,6 +16,7 @@ export default defineExtension({
       inputSchema: {
         type: "object",
         properties: {
+          path: { type: "string", description: "Directory relative to the project root" },
           pattern: {
             type: "string",
             description: "Glob pattern to filter files (default: *)",
@@ -40,8 +41,8 @@ export default defineExtension({
     },
   ],
   permissions: {
-    filesystem: ["$CWD"],
-    shell: true,
+    filesystem: ["/project", "/data"],
+    shell: false,
   },
   scripts: {
     postinstall: "./scripts/postinstall.ts",

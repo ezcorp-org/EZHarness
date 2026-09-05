@@ -13,33 +13,34 @@
     </header>
 
     <div class="gcs-mock-banner" data-testid="gcs-mock-banner" hidden>
-      Mock mode — backend unreachable, showing sample data.
+      Sample mode — this card is demonstration data, not a live lookup.
     </div>
 
-    <main>
+    <main aria-busy="true">
+      <fieldset class="gcs-actions" disabled aria-label="Scanner actions">
       <!-- ── Scan ─────────────────────────────────────────────── -->
       <section class="gcs-scan">
         <div id="scan-frame" class="gcs-frame">
-          <video data-testid="gcs-video" muted playsinline></video>
+          <img data-testid="gcs-video" alt="Camera frame shared by the trusted scanner" />
         </div>
-        <p class="gcs-status" data-testid="gcs-status" aria-live="polite"></p>
+        <p class="gcs-status" data-testid="gcs-status" role="status" aria-live="polite">Loading saved cards…</p>
         <div class="gcs-controls">
-          <button data-testid="gcs-pause" class="gcs-btn">Pause</button>
+          <button data-testid="gcs-pause" class="gcs-btn">Start scanning</button>
           <label class="gcs-btn gcs-btn-secondary">
             Photo
             <input data-testid="gcs-upload" type="file" accept="image/*" capture="environment" hidden />
           </label>
           <button data-testid="gcs-simulate" class="gcs-btn gcs-btn-secondary">Simulate scan</button>
         </div>
-        <form data-testid="gcs-manual-form" class="gcs-manual">
+        <div data-testid="gcs-manual-form" class="gcs-manual" role="group" aria-label="Certificate lookup">
           <input
             data-testid="gcs-manual-input"
             inputmode="numeric"
             placeholder="…or type a cert number"
             aria-label="Cert number"
           />
-          <button data-testid="gcs-manual-add" class="gcs-btn">Add</button>
-        </form>
+          <button data-testid="gcs-manual-add" class="gcs-btn" type="button">Add</button>
+        </div>
       </section>
 
       <!-- ── Saved list ───────────────────────────────────────── -->
@@ -51,9 +52,18 @@
         <p data-testid="gcs-empty" class="gcs-empty">No cards yet — scan a slab to start your list.</p>
         <ul data-testid="gcs-list" class="gcs-list"></ul>
       </section>
+      </fieldset>
     </main>
 
     <!-- ── Detail ─────────────────────────────────────────────── -->
+    <dialog data-testid="gcs-clear-dialog" class="gcs-clear-dialog">
+      <h2>Delete saved cards?</h2>
+      <p>This deletes your saved scanner list. This cannot be undone.</p>
+      <div class="gcs-controls">
+        <button data-testid="gcs-clear-cancel" class="gcs-btn gcs-btn-secondary">Cancel</button>
+        <button data-testid="gcs-clear-confirm" class="gcs-btn gcs-btn-danger">Delete all</button>
+      </div>
+    </dialog>
     <section class="gcs-detail" data-testid="gcs-detail" hidden>
       <div class="gcs-detail-head">
         <div>

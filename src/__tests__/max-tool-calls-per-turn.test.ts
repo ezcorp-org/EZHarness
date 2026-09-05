@@ -404,3 +404,5 @@ describe("parseMaxToolCallsPerTurn (pure env-parser)", () => {
 		expect(parseMaxToolCallsPerTurn("Infinity")).toBe(100);
 	});
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

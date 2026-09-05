@@ -11,12 +11,19 @@ import {
   deleteStorageValue,
   listStorageKeys,
   getStorageUsage,
+  type StorageDatabase,
 } from "../db/queries/extension-storage";
 import { getConversationExtensionIds } from "../db/queries/conversation-extensions";
 import { decrypt } from "../providers/encryption";
 import { encryptStorageValue } from "./secret-settings";
 import { createRateLimiter } from "./rate-limit";
 import { rpcError, rpcResult } from "./json-rpc";
+import { sql } from "drizzle-orm";
+import { getDb } from "../db/connection";
+import { verifyInvocationLocks, type InvocationGuard } from "./runtime-locks";
+import { getRuntimeToolContext } from "./runtime-tool-context";
+import { assertServiceCapabilities } from "./service-capabilities";
+import { isSealedServiceInvocation } from "./service-invocation";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -83,6 +90,7 @@ function resolveScopeId(scope: Scope, ctx: StorageContext): string | null {
 // ── Context passed by tool-executor ─────────────────────────────────
 
 export interface StorageContext {
+  repository?: StorageRepository;
   conversationId: string;
   userId: string;
   manifest: ExtensionManifestV2;
@@ -98,6 +106,43 @@ export interface StorageContext {
    */
   engine?: PermissionEngine;
 }
+
+export interface StorageRepository {
+  transaction<Result>(extensionId: string, operation: (repository: StorageRepository) => Promise<Result>, guard?: InvocationGuard): Promise<Result>;
+  get: typeof getStorageValue;
+  set: typeof setStorageValue;
+  delete: typeof deleteStorageValue;
+  list: typeof listStorageKeys;
+  usage: typeof getStorageUsage;
+  conversationExtensionIds: typeof getConversationExtensionIds;
+  encrypt(value: unknown): unknown;
+  decrypt(value: string): unknown;
+}
+
+export const productionStorageRepository: StorageRepository = {
+  async transaction(extensionId, operation, guard) {
+    return getDb().transaction(async (transaction: StorageDatabase) => {
+      await verifyInvocationLocks(transaction, guard);
+      await transaction.execute(sql`SELECT id FROM extensions WHERE id = ${extensionId} FOR UPDATE`);
+      return operation({
+        ...productionStorageRepository,
+        get: (id, scope, scopeId, key) => getStorageValue(id, scope, scopeId, key, transaction),
+        set: (id, scope, scopeId, key, value, encrypted, sizeBytes, expiresAt) => setStorageValue(id, scope, scopeId, key, value, encrypted, sizeBytes, expiresAt, transaction),
+        delete: (id, scope, scopeId, key) => deleteStorageValue(id, scope, scopeId, key, transaction),
+        list: (id, scope, scopeId, prefix, limit) => listStorageKeys(id, scope, scopeId, prefix, limit, transaction),
+        usage: (id) => getStorageUsage(id, transaction),
+      });
+    });
+  },
+  get: getStorageValue,
+  set: setStorageValue,
+  delete: deleteStorageValue,
+  list: listStorageKeys,
+  usage: getStorageUsage,
+  conversationExtensionIds: getConversationExtensionIds,
+  encrypt: (value) => encryptStorageValue(value).stored,
+  decrypt: (value) => JSON.parse(decrypt(value)),
+};
 
 /**
  * Pre-flight for per-key actions (get/set/delete): validate the key shape
@@ -128,6 +173,10 @@ export async function handleStorageRpc(
 ): Promise<JsonRpcResponse> {
   const params = (req.params ?? {}) as Record<string, unknown>;
   const isBuiltin = extensionId === "builtin";
+  const repository = ctx.repository ?? productionStorageRepository;
+  const serviceInvocation = getRuntimeToolContext()?.serviceInvocation;
+  if (serviceInvocation && !isSealedServiceInvocation(serviceInvocation)) return rpcError(req.id, -32106, "Service storage requires a sealed extension origin");
+  if (!isBuiltin && Number(ctx.manifest.schemaVersion) === 4 && (!ctx.manifest.permissions.storage || !ctx.grantedPermissions.storage)) return rpcError(req.id, -32001, "Storage permission not granted");
 
   // Phase 6: PDP is the sole gate. When `ctx.engine` is wired, the
   // handler defers the permission decision to `engine.authorize` so
@@ -137,7 +186,7 @@ export async function handleStorageRpc(
   // remains as the fallback for context that pre-dates the PDP
   // wiring (some unit tests).
   if (!isBuiltin) {
-    if (ctx.engine) {
+    if (ctx.engine && !serviceInvocation) {
       const decision = await ctx.engine.authorize(
         {
           extensionId,
@@ -150,7 +199,7 @@ export async function handleStorageRpc(
         },
         [{ kind: "storage" }],
       );
-      if (decision.decision === "deny") {
+      if (decision.decision !== "allow") {
         return rpcError(req.id, -32001, "Storage permission not granted");
       }
     } else if (!ctx.grantedPermissions.storage) {
@@ -163,6 +212,7 @@ export async function handleStorageRpc(
   if (!action) return rpcError(req.id, -32602, "Missing 'action' parameter");
 
   const scope = (params.scope as Scope) ?? "global";
+  if (serviceInvocation && scope !== "global") return rpcError(req.id, -32106, "Service storage is limited to the installation scope");
   if (!["global", "conversation", "user"].includes(scope)) {
     return rpcError(req.id, -32602, "Invalid scope: must be global, conversation, or user");
   }
@@ -179,25 +229,28 @@ export async function handleStorageRpc(
 
   // Validate conversation scope: extension must be wired to this conversation
   if (scope === "conversation" && !isBuiltin) {
-    const extIds = await getConversationExtensionIds(ctx.conversationId);
+    const extIds = await repository.conversationExtensionIds(ctx.conversationId);
     if (!extIds.includes(extensionId)) {
       return rpcError(req.id, -32001, "Extension not wired to this conversation");
     }
   }
 
-  switch (action) {
-    case "get": return handleGet(extensionId, req.id, params, scope, scopeId, isBuiltin);
-    case "set": return handleSet(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
-    case "delete": return handleDelete(extensionId, req.id, params, scope, scopeId, isBuiltin);
-    case "list": return handleList(extensionId, req.id, params, scope, scopeId);
-    case "batch": return handleBatch(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
+  const dispatch = async (repository: StorageRepository): Promise<JsonRpcResponse> => { switch (action) {
+    case "get": return handleGet(repository, extensionId, req.id, params, scope, scopeId, isBuiltin);
+    case "set": return handleSet(repository, extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
+    case "delete": return handleDelete(repository, extensionId, req.id, params, scope, scopeId, isBuiltin);
+    case "list": return handleList(repository, extensionId, req.id, params, scope, scopeId);
+    case "batch": return handleBatch(repository, extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
     default: return rpcError(req.id, -32602, `Unknown action: ${action}`);
-  }
+  } };
+  if (serviceInvocation) return repository.transaction(extensionId, dispatch, async database => { await assertServiceCapabilities(serviceInvocation, extensionId, [{ kind: "storage" }], { database }); });
+  return action === "set" || action === "batch" || action === "delete" ? repository.transaction(extensionId, dispatch) : dispatch(repository);
 }
 
 // ── Action handlers ─────────────────────────────────────────────────
 
 async function handleGet(
+  repository: StorageRepository,
   extensionId: string, id: number | string,
   params: Record<string, unknown>, scope: Scope, scopeId: string | null,
   isBuiltin: boolean, skipRateLimit = false,
@@ -206,13 +259,13 @@ async function handleGet(
   const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
   if (pre) return pre;
 
-  const row = await getStorageValue(extensionId, scope, scopeId, key);
+  const row = await repository.get(extensionId, scope, scopeId, key);
   if (!row) return rpcResult(id, { value: null, exists: false });
 
   let value = row.value;
   if (row.encrypted) {
     try {
-      value = JSON.parse(decrypt(value as string));
+      value = repository.decrypt(value as string);
     } catch {
       return rpcError(id, -32603, "Failed to decrypt stored value");
     }
@@ -222,6 +275,7 @@ async function handleGet(
 }
 
 async function handleSet(
+  repository: StorageRepository,
   extensionId: string, id: number | string,
   params: Record<string, unknown>, scope: Scope, scopeId: string | null,
   manifest: ExtensionManifestV2, isBuiltin: boolean, skipRateLimit = false,
@@ -248,6 +302,7 @@ async function handleSet(
 
   let valueToStore: unknown = params.value;
   const serialized = JSON.stringify(valueToStore);
+  if (serialized === undefined) return rpcError(id, -32602, "A JSON value is required");
   const sizeBytes = Buffer.byteLength(serialized, "utf-8");
 
   if (sizeBytes > MAX_VALUE_BYTES) {
@@ -256,9 +311,9 @@ async function handleSet(
 
   // Quota check
   const quota = parseStorageQuota(manifest);
-  const usage = await getStorageUsage(extensionId);
+  const usage = await repository.usage(extensionId);
   // Account for existing key size (upsert replaces it)
-  const existing = await getStorageValue(extensionId, scope, scopeId, key);
+  const existing = await repository.get(extensionId, scope, scopeId, key);
   const delta = sizeBytes - (existing?.sizeBytes ?? 0);
   if (usage.totalBytes + delta > quota) {
     return rpcError(id, -32002, `Storage quota exceeded (${quota} bytes)`);
@@ -267,7 +322,7 @@ async function handleSet(
   // Encrypt if requested — via the shared canonical helper so this path
   // and the host-side secret-settings write stay byte-identical.
   if (shouldEncrypt) {
-    valueToStore = encryptStorageValue(valueToStore).stored;
+    valueToStore = repository.encrypt(valueToStore);
   }
 
   const rawTtl = params.ttlSeconds;
@@ -279,12 +334,13 @@ async function handleSet(
     ? new Date(Date.now() + ttlSeconds * 1000)
     : undefined;
 
-  await setStorageValue(extensionId, scope, scopeId, key, valueToStore, shouldEncrypt, sizeBytes, expiresAt);
+  await repository.set(extensionId, scope, scopeId, key, valueToStore, shouldEncrypt, sizeBytes, expiresAt);
 
   return rpcResult(id, { ok: true, sizeBytes });
 }
 
 async function handleDelete(
+  repository: StorageRepository,
   extensionId: string, id: number | string,
   params: Record<string, unknown>, scope: Scope, scopeId: string | null,
   isBuiltin: boolean, skipRateLimit = false,
@@ -293,11 +349,12 @@ async function handleDelete(
   const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
   if (pre) return pre;
 
-  const deleted = await deleteStorageValue(extensionId, scope, scopeId, key);
+  const deleted = await repository.delete(extensionId, scope, scopeId, key);
   return rpcResult(id, { deleted });
 }
 
 async function handleList(
+  repository: StorageRepository,
   extensionId: string, id: number | string,
   params: Record<string, unknown>, scope: Scope, scopeId: string | null,
 ): Promise<JsonRpcResponse> {
@@ -305,12 +362,13 @@ async function handleList(
 
   const prefix = params.prefix as string | undefined;
   const limit = Math.min((params.limit as number) ?? 100, 1000);
-  const keys = await listStorageKeys(extensionId, scope, scopeId, prefix, limit);
+  const keys = await repository.list(extensionId, scope, scopeId, prefix, limit);
 
   return rpcResult(id, { keys });
 }
 
 async function handleBatch(
+  repository: StorageRepository,
   extensionId: string, id: number | string,
   params: Record<string, unknown>, scope: Scope, scopeId: string | null,
   manifest: ExtensionManifestV2, isBuiltin: boolean,
@@ -334,13 +392,13 @@ async function handleBatch(
     // skipRateLimit=true: tokens already consumed upfront for the whole batch
     switch (opAction) {
       case "get":
-        result = await handleGet(extensionId, id, opParams, scope, scopeId, isBuiltin, true);
+        result = await handleGet(repository, extensionId, id, opParams, scope, scopeId, isBuiltin, true);
         break;
       case "set":
-        result = await handleSet(extensionId, id, opParams, scope, scopeId, manifest, isBuiltin, true);
+        result = await handleSet(repository, extensionId, id, opParams, scope, scopeId, manifest, isBuiltin, true);
         break;
       case "delete":
-        result = await handleDelete(extensionId, id, opParams, scope, scopeId, isBuiltin, true);
+        result = await handleDelete(repository, extensionId, id, opParams, scope, scopeId, isBuiltin, true);
         break;
       default:
         result = rpcError(id, -32602, `Unknown batch action: ${opAction}`);

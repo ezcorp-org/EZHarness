@@ -1,30 +1,3 @@
-/**
- * End-to-end test for the Phase 2b capability tier.
- *
- * Covers the "full stack minus HTTP server" vertical slice:
- *   1. Seed an extension row with a manifest declaring `taskEvents: true`
- *      and `agentConfig: "read"`.
- *   2. PUT /api/extensions/[id]/permissions with capability grants →
- *      clampToManifest preserves both fields.
- *   3. The audit log gains CAPABILITY_GRANTED entries (typed + per-field).
- *   4. Reading back via GET /api/extensions/[id]/permissions echoes the
- *      clamped grants.
- *   5. Attempting to grant a capability NOT declared in the manifest is
- *      silently clamped and written as PERMISSION_REJECTED.
- *   6. The handlers route off the granted permissions — a tight loop
- *      through handleEmitTaskEventRpc + handleAgentConfigsRpc proves
- *      the RPC layer sees the grants set in step (2).
- *   7. Revoking the grants via PUT with an empty object — the next RPC
- *      call is refused with -32001.
- *   8. Setting EZCORP_DISABLE_CAPABILITY_TOOLS=1 kills the tier at the
- *      handler layer even if the DB still has the grants (the manual
- *      exit criterion from the plan).
- *
- * Pattern matches scratchpad-e2e.test.ts — SvelteKit routes are called
- * as function handlers with a fabricated RequestEvent; we do not spin
- * up Bun's HTTP listener. This keeps the test fast (< 2s) and stable.
- */
-
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
@@ -53,6 +26,10 @@ mock.module("$server/extensions/registry", async () => {
 mock.module("../../web/src/routes/api/extensions/[id]/permissions/$types", () => ({}));
 
 import { PUT as permissionsPut, GET as permissionsGet } from "../../web/src/routes/api/extensions/[id]/permissions/+server";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { validateManifest } from "@ezcorp/extension-contract";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
 import { listAuditForExtension } from "../db/queries/audit-log";
 import { handleEmitTaskEventRpc } from "../extensions/task-events-handler";
 import { handleAgentConfigsRpc } from "../extensions/agent-configs-handler";
@@ -60,6 +37,7 @@ import { getDb } from "../db/connection";
 import {
   extensions as extensionsTable,
   projects,
+  projectMembers,
   conversations,
   conversationExtensions,
   users,
@@ -74,6 +52,18 @@ const ADMIN = { id: "admin-2b-e2e", role: "admin", email: "a@t", name: "Admin" }
 const USER_ID = "user-2b-e2e";
 const EXT_ID = "ext-2b-e2e";
 const CONV_ID = "conv-2b-e2e";
+const manifest = validateManifest({ schemaVersion: 4, name: EXT_ID, version: "1.0.0", description: "e2e", author: { name: "e2e" }, permissions: { taskEvents: true, agentConfig: "read" } });
+const fixture = releaseRuntimeFixture(EXT_ID, manifest, { ownerId: ADMIN.id });
+let repository: DatabaseLifecycleRepository;
+async function publish(enabled: boolean) {
+  await repository.transact(EXT_ID, (state) => {
+    state.installation.activeReleaseId = fixture.snapshot.release.id;
+    state.installation.generation++;
+    state.installation.enabled = enabled;
+    state.installation.grants = enabled ? fixture.snapshot.installation.grants : [];
+  }, { principalId: ADMIN.id, kind: "human", scope: "global" });
+  await publishExtensionGeneration((await repository.read(EXT_ID))!.installation, enabled ? fixture.snapshot.release : null);
+}
 
 function makeEvent(body: unknown): any {
   const request = new Request(`http://test/api/extensions/${EXT_ID}/permissions`, {
@@ -114,6 +104,8 @@ function rpc(method: string, params: Record<string, unknown>, id: number | strin
 
 beforeAll(async () => {
   await setupTestDb();
+  const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
+  _resetTaskTrackingExtensionIdCache();
 
   await getDb().insert(users).values({
     id: USER_ID, email: "u@t.local", passwordHash: "x", name: "U",
@@ -126,30 +118,25 @@ beforeAll(async () => {
     id: "proj-2b-e2e", name: "proj", path: "/tmp/proj-2b-e2e",
   } as any);
   await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: "proj-2b-e2e", title: "e2e",
+    id: CONV_ID, projectId: "proj-2b-e2e", title: "e2e", userId: USER_ID,
   } as any);
+  await getDb().insert(projectMembers).values({ projectId: "proj-2b-e2e", userId: USER_ID, role: "member" });
+  await getDb().insert(extensionsTable).values({ id: "task-state-store-2b", name: "task-tracking", version: "1.0.0", manifest: { ...manifest, name: "task-tracking" }, source: "test:task-state", enabled: true });
 
   await getDb().insert(extensionsTable).values({
     id: EXT_ID,
     name: EXT_ID,
     version: "1.0.0",
     description: "e2e fixture",
-    manifest: {
-      schemaVersion: 2,
-      name: EXT_ID,
-      version: "1.0.0",
-      description: "e2e",
-      author: { name: "e2e" },
-      permissions: {
-        taskEvents: true,
-        agentConfig: "read",
-      },
-    },
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
+    manifest,
+    source: "release-v4",
+    installPath: null,
+    enabled: false,
     grantedPermissions: { grantedAt: {} },
   } as any);
+
+  repository = new DatabaseLifecycleRepository(getDb());
+  await repository.create({ installation: { ...fixture.snapshot.installation, activeReleaseId: null, enabled: false, generation: 0, acknowledgedGeneration: 0, grants: [] }, releases: { [fixture.snapshot.release.id]: fixture.snapshot.release }, workspaces: {}, revisions: {}, operations: {}, approvals: {} });
 
   await getDb().insert(conversationExtensions).values({
     conversationId: CONV_ID, extensionId: EXT_ID,
@@ -172,22 +159,20 @@ afterAll(async () => {
 });
 
 describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch", () => {
-  test("PUT grants taskEvents + agentConfig when manifest declares them; clampToManifest preserves", async () => {
-    const res = await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read" },
-    }));
-    expect(res.status).toBe(200);
-    const body = await res.json() as { grantedPermissions: ExtensionPermissions };
-    expect(body.grantedPermissions.taskEvents).toBe(true);
-    expect(body.grantedPermissions.agentConfig).toBe("read");
+  test("release publication grants the exact declared capabilities", async () => {
+    await publish(true);
+    const response = await permissionsGet(getEvent());
+    const grant = await response.json() as ExtensionPermissions;
+    expect(grant.taskEvents).toBe(true);
+    expect(grant.agentConfig).toBe("read");
   });
 
-  test("audit log gains CAPABILITY_GRANTED rows for each capability field", async () => {
+  test("activation audit carries the exact sealed grant and actor", async () => {
     const entries = await listAuditForExtension(EXT_ID);
-    const caps = entries.filter((e) => e.action === "ext:capability-granted");
-    const fields = new Set(caps.map((e) => (e.metadata as { permission: string } | null)?.permission));
-    expect(fields.has("taskEvents")).toBe(true);
-    expect(fields.has("agentConfig")).toBe(true);
+    const activated = entries.filter((entry) => entry.action === "ext:activated");
+    expect(activated).toHaveLength(1);
+    expect(activated[0]!.userId).toBe(ADMIN.id);
+    expect(activated[0]!.metadata?.grants).toEqual(fixture.snapshot.installation.grants);
   });
 
   test("GET echoes the clamped grants", async () => {
@@ -197,18 +182,12 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
     expect(body.agentConfig).toBe("read");
   });
 
-  test("attempting to grant a non-manifest capability (shell) is silently clamped → PERMISSION_REJECTED audit", async () => {
-    const res = await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read", shell: true },
-    }));
-    expect(res.status).toBe(200);
-    const body = await res.json() as { grantedPermissions: ExtensionPermissions };
-    // shell was NOT in the manifest → clamp drops it.
-    expect(body.grantedPermissions.shell).toBeUndefined();
-    const entries = await listAuditForExtension(EXT_ID);
-    const rejected = entries.filter((e) => e.action === "ext:permission-rejected");
-    const shellAttempts = rejected.filter((e) => (e.metadata as { permission: string } | null)?.permission === "shell");
-    expect(shellAttempts.length).toBeGreaterThanOrEqual(1);
+  test("legacy PUT cannot add undeclared shell access or mutate current grants", async () => {
+    const response = await permissionsPut(makeEvent({ permissions: { shell: true, taskEvents: true, agentConfig: "read" } }));
+    expect(response.status).toBe(410);
+    const grant = await (await permissionsGet(getEvent())).json() as ExtensionPermissions;
+    expect(grant.shell).toBeUndefined();
+    expect(grant.taskEvents).toBe(true);
   });
 
   test("handleEmitTaskEventRpc routes off the granted permissions → bus fires", async () => {
@@ -240,20 +219,18 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
     expect(configs.some((c) => c.name === "e2e-helper")).toBe(true);
   });
 
-  test("revoking via PUT with empty permissions → next RPC call is refused (-32001)", async () => {
+  test("disabling the release revokes grants and the next RPC call is refused (-32001)", async () => {
     // Revoke all.
-    await permissionsPut(makeEvent({ permissions: {} }));
+    await publish(false);
     const getRes = await permissionsGet(getEvent());
     const granted = await getRes.json() as ExtensionPermissions;
     expect(granted.taskEvents).toBeUndefined();
     expect(granted.agentConfig).toBeUndefined();
 
-    // Audit log must have CAPABILITY_REVOKED rows.
     const entries = await listAuditForExtension(EXT_ID);
-    const revoked = entries.filter((e) => e.action === "ext:capability-revoked");
-    const fields = new Set(revoked.map((e) => (e.metadata as { permission: string } | null)?.permission));
-    expect(fields.has("taskEvents")).toBe(true);
-    expect(fields.has("agentConfig")).toBe(true);
+    const revoked = entries.filter((entry) => entry.action === "ext:disabled");
+    expect(revoked).toHaveLength(1);
+    expect(revoked[0]!.metadata?.grants).toEqual([]);
 
     // Handler refusal.
     const { bus, calls } = makeBus();
@@ -269,9 +246,7 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
 
   test("kill-switch EZCORP_DISABLE_CAPABILITY_TOOLS=1 refuses even when DB grants are present", async () => {
     // Re-grant.
-    await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read" },
-    }));
+    await publish(true);
 
     const prev = process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
     process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";

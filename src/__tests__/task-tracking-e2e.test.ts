@@ -117,6 +117,7 @@ const {
   conversations,
   extensions: extensionsTable,
   projects,
+  projectMembers,
   users,
 } = await import("../db/schema");
 const { addConversationExtensions } = await import("../db/queries/conversation-extensions");
@@ -363,8 +364,10 @@ async function callTool(
 
 beforeAll(async () => {
   await setupTestDb();
+  const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
+  _resetTaskTrackingExtensionIdCache();
   await getDb().insert(users).values({
-    id: USER_ID, email: "e2e@t.local", passwordHash: "x", name: "E2E",
+    id: USER_ID, email: "e2e@t.local", passwordHash: "x", name: "E2E", status: "active",
   } as any).onConflictDoNothing();
   await getDb().insert(projects).values({
     id: PROJ_ID, name: PROJ_ID, path: "/tmp/" + PROJ_ID,
@@ -372,6 +375,7 @@ beforeAll(async () => {
   await getDb().insert(conversations).values({
     id: CONV_ID, projectId: PROJ_ID, title: "e2e-conv", userId: USER_ID,
   } as any).onConflictDoNothing();
+  await getDb().insert(projectMembers).values({ projectId: PROJ_ID, userId: USER_ID, role: "member" });
   await getDb().insert(extensionsTable).values({
     id: EXT_ID,
     name: "task-tracking",
@@ -401,7 +405,7 @@ beforeEach(async () => {
 // ── Tests ──────────────────────────────────────────────────────────
 
 describe("task-tracking e2e: real subprocess + real host handlers + real bus", () => {
-  test("task_plan round-trips: persists via real storage-handler, real task-events emits onto the bus", async () => {
+  test("task_plan round-trips: real task-events transaction persists state before the bus event", async () => {
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
@@ -424,7 +428,7 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     expect(out.isError).toBe(false);
     expect(out.text).toMatch(/Created task plan with 2 tasks/);
 
-    // The real storage-handler must have written to PGlite.
+    // The real task-events writer must have committed to PGlite.
     const row = await getStorageValue(EXT_ID, "conversation", CONV_ID, "tasks");
     expect(row).toBeDefined();
     const snap = row!.value as { tasks: Array<Record<string, unknown>>; activeTaskId?: string; schemaVersion?: number };
@@ -479,17 +483,7 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     proc.kill();
   });
 
-  // Skipped 2026-05-13: the initial-state assertion `taskA.status === "active"`
-  // no longer holds after commit `144aeef fix(task-tracking): task_plan
-  // appends by default; destructive wipe is opt-in via replace:true`. The
-  // task_plan reverse-RPC no longer auto-activates the first assigned task
-  // on seed; activation now requires an explicit task_start (or a follow-up
-  // assignment_update). This test was previously masked by the broken
-  // hardcoded cwd in spawnExtension (fixed at `d5bd3de`) and only surfaced
-  // afterwards. Re-enable by either seeding with `replace: true` plus an
-  // explicit task_start, or by changing the assertion to assert `pending`
-  // before the bridge fires and `active` only after the bridge delivery.
-  test.skip("push task:assignment_update(completed) → real dispatcher delivers → extension auto-advances storage", async () => {
+  test("push task:assignment_update(completed) → real dispatcher delivers → extension auto-advances storage", async () => {
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);

@@ -4,14 +4,9 @@
  * RPC (which the bundled `task-tracking` extension drives from inside
  * the subprocess).
  *
- * Phase 3 commit-5 removed the dynamic imports of
- * `./tools/task-tracking`. After the cutover this file owns NONE of
- * the task-state bookkeeping — that moved inside the bundled extension
- * and is driven by its `task:assignment_update` subscription (see
- * docs/extensions/examples/task-tracking/index.ts). This file's only
- * remaining job around task state is emitting `task:snapshot` +
- * `task:assignment_update` bus events so the extension (and SSE) see
- * the lifecycle transitions.
+ * Task transitions use the shared host writer. Snapshot storage and matching
+ * task deliveries commit before the UI event or the next child starts.
+ * The extension subscriber no longer acts as the persistence mechanism.
  *
  * Responsibilities: create/reuse a sub-conversation, mutate the
  * assignment record the caller passed in to "running", emit lifecycle
@@ -47,6 +42,7 @@ import type {
   TaskSnapshot,
   TrackedTask,
 } from "./task-tracking-host";
+import { writeTaskSnapshotForConversation } from "./task-tracking-host";
 
 const log = logger.child("start-assignment");
 
@@ -247,25 +243,15 @@ export interface StartAssignmentResult {
   agentRunId: string;
 }
 
-function emitTaskSnapshot(
+async function emitAssignmentUpdate(
   bus: EventBus<AgentEvents>,
   snapshot: TaskSnapshot,
-): void {
-  bus.emit("task:snapshot", {
-    conversationId: snapshot.conversationId,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-}
-
-function emitAssignmentUpdate(
-  bus: EventBus<AgentEvents>,
-  conversationId: string,
   taskId: string,
   assignment: TaskAssignment,
   resultFull?: string,
   structured?: { result?: unknown; error?: string; overCap?: boolean },
-): void {
+): Promise<void> {
+  const conversationId = snapshot.conversationId;
   // Terminal updates are the ONLY signal a spawning extension gets that its
   // sub-agent finished (the ez-code-factory pipeline awaits them) — a missed
   // one wedges the caller until its dispatch timeout. Rare + load-bearing, so
@@ -277,15 +263,14 @@ function emitAssignmentUpdate(
     status: assignment.status,
     hasStructured: structured?.result !== undefined,
   });
-  bus.emit("task:assignment_update", {
-    conversationId,
+  await writeTaskSnapshotForConversation(conversationId, snapshot, { bus, assignments: [{
     taskId,
     assignment,
     ...(resultFull !== undefined ? { resultFull } : {}),
     ...(structured?.result !== undefined ? { structuredResult: structured.result } : {}),
     ...(structured?.error !== undefined ? { structuredResultError: structured.error } : {}),
     ...(structured?.overCap ? { structuredResultOverCap: true } : {}),
-  });
+  }] });
 }
 
 /**
@@ -392,8 +377,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   assignment.subConversationId = subConversationId;
   assignment.agentRunId = agentRunId;
 
-  emitTaskSnapshot(bus, snapshot);
-  emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+  await emitAssignmentUpdate(bus, snapshot, taskId, assignment);
   bus.emit("agent:spawn", {
     runId: agentRunId,
     agentRunId,
@@ -528,7 +512,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
    * injects messages via the agent-chat endpoint while the agent is
    * running.
    */
-  function startRun(
+  async function startRun(
     runId: string,
     message: string,
     runParentMessageId?: string,
@@ -573,9 +557,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         assignment.status = "failed";
         assignment.failedAt = new Date().toISOString();
         assignment.resultPreview = "Parent run ended before this agent could start";
-        emitTaskSnapshot(bus, snapshot);
-        emitAssignmentUpdate(
-          bus, conversationId, taskId, assignment,
+        await emitAssignmentUpdate(bus, snapshot, taskId, assignment,
           "Parent run ended before this agent could start — child was not started.",
         );
         emitTerminal(runId, false, "Parent run ended before this agent could start");
@@ -629,12 +611,19 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           }),
     });
 
+    function reportPublicationFailure(error: unknown): void {
+      log.error("Task state publication failed; persisted running assignments require reconciliation", { conversationId, taskId, assignmentId: assignment.id, error: error instanceof Error ? error.message : String(error) });
+    }
+    function subscribeRunEvent<Event extends "run:complete" | "run:error" | "run:cancel">(type: Event, listener: (data: AgentEvents[Event]) => Promise<void>): () => void {
+      return bus.on(type, data => { void listener(data).catch(reportPublicationFailure); });
+    }
+
     let unsubComplete: () => void = () => {};
     let unsubError: () => void = () => {};
     let unsubCancel: () => void = () => {};
     const cleanup = () => { unsubComplete(); unsubError(); unsubCancel(); };
 
-    unsubComplete = bus.on("run:complete", (data) => {
+    unsubComplete = subscribeRunEvent("run:complete", async (data) => {
       if (data.run.id !== runId) return;
       cleanup();
 
@@ -652,8 +641,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         schemaRepromptInFlight = false;
         const newRunId = crypto.randomUUID();
         assignment.agentRunId = newRunId;
-        emitTaskSnapshot(bus, snapshot);
-        emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+        await emitAssignmentUpdate(bus, snapshot, taskId, assignment);
 
         bus.emit("agent:spawn", {
           runId: newRunId, agentRunId: newRunId, subConversationId,
@@ -661,7 +649,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           task: pending.content, parentConversationId: conversationId,
         });
 
-        startRun(newRunId, pending.content, pending.messageId, runId);
+        await startRun(newRunId, pending.content, pending.messageId, runId);
         log.info("Auto-continue with pending message", {
           conversationId, taskId, newRunId,
         });
@@ -689,8 +677,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           assignment.autonomousMaxCycles = maxAutoCycles;
           const newRunId = crypto.randomUUID();
           assignment.agentRunId = newRunId;
-          emitTaskSnapshot(bus, snapshot);
-          emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+          await emitAssignmentUpdate(bus, snapshot, taskId, assignment);
 
           bus.emit("agent:spawn", {
             runId: newRunId, agentRunId: newRunId, subConversationId,
@@ -698,7 +685,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
             task: CONTINUATION_PROMPT, parentConversationId: conversationId,
           });
 
-          startRun(newRunId, CONTINUATION_PROMPT, undefined, runId);
+          await startRun(newRunId, CONTINUATION_PROMPT, undefined, runId);
           log.info("Autonomous continuation", {
             conversationId, taskId, newRunId,
             cycle: autoCycle, maxCycles: maxAutoCycles,
@@ -758,8 +745,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           });
           const newRunId = crypto.randomUUID();
           assignment.agentRunId = newRunId;
-          emitTaskSnapshot(bus, snapshot);
-          emitAssignmentUpdate(bus, conversationId, taskId, assignment);
+          await emitAssignmentUpdate(bus, snapshot, taskId, assignment);
 
           bus.emit("agent:spawn", {
             runId: newRunId, agentRunId: newRunId, subConversationId,
@@ -767,7 +753,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
             task: correction, parentConversationId: conversationId,
           });
 
-          startRun(newRunId, correction, undefined, runId);
+          await startRun(newRunId, correction, undefined, runId);
           log.info("Structured-output re-prompt", {
             conversationId, taskId, newRunId,
             retry: schemaRetries, maxRetries: MAX_SCHEMA_RETRIES,
@@ -824,14 +810,12 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         structuredArg = { error: structuredResultError, overCap: structuredResultOverCap };
       }
 
-      emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(
-        bus, conversationId, taskId, assignment, resultFull, structuredArg,
+      await emitAssignmentUpdate(bus, snapshot, taskId, assignment, resultFull, structuredArg,
       );
       emitTerminal(runId, true, assignment.resultPreview ?? "");
     });
 
-    unsubError = bus.on("run:error", (data) => {
+    unsubError = subscribeRunEvent("run:error", async (data) => {
       if (data.run.id !== runId) return;
       cleanup();
 
@@ -840,10 +824,9 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       const errorMsg = typeof data.error === "string" ? data.error : String(data.error ?? "Unknown error");
       assignment.resultPreview = errorMsg.slice(0, 200);
 
-      emitTaskSnapshot(bus, snapshot);
       // Return the full error to the orchestrator so it can diagnose and
       // retry/route, not just the truncated panel preview.
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      await emitAssignmentUpdate(bus, snapshot, taskId, assignment, capFullResult(errorMsg));
       emitTerminal(runId, false, assignment.resultPreview ?? "");
     });
 
@@ -860,7 +843,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     // "running" by the time this listener fires, an earlier handler
     // already transitioned it — leave it alone to preserve the
     // resumable state.
-    unsubCancel = bus.on("run:cancel", (data) => {
+    unsubCancel = subscribeRunEvent("run:cancel", async (data) => {
       if (data.run.id !== runId) return;
       cleanup();
 
@@ -870,24 +853,22 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       assignment.failedAt = new Date().toISOString();
       assignment.resultPreview = "Run was cancelled";
 
-      emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment, "Run was cancelled");
+      await emitAssignmentUpdate(bus, snapshot, taskId, assignment, "Run was cancelled");
       emitTerminal(runId, false, "Run was cancelled");
     });
 
-    streamPromise.catch((err) => {
+    streamPromise.catch(async (err) => {
       const errorMsg = err instanceof Error ? err.message : String(err);
       log.error("streamChat error", { error: errorMsg });
       assignment.status = "failed";
       assignment.failedAt = new Date().toISOString();
       assignment.resultPreview = errorMsg.slice(0, 200);
-      emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(bus, conversationId, taskId, assignment, capFullResult(errorMsg));
+      await emitAssignmentUpdate(bus, snapshot, taskId, assignment, capFullResult(errorMsg));
       emitTerminal(runId, false, assignment.resultPreview ?? "");
-    });
+    }).catch(reportPublicationFailure);
   }
 
-  startRun(agentRunId, taskDescription);
+  await startRun(agentRunId, taskDescription);
 
   log.info("Started assignment", {
     conversationId,

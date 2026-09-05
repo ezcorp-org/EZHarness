@@ -1,0 +1,8 @@
+{
+  "name": "@ezcorp/extension-runner",
+  "version": "4.0.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./service": "./src/service.ts" },
+  "dependencies": { "@ezcorp/extension-contract": "workspace:*" },
+  "scripts": { "test": "bun test" }
+}

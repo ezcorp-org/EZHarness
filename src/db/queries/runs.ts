@@ -1,7 +1,10 @@
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
-import { getDb } from "../connection";
-import { runs, runLogs } from "../schema";
+import { getDb, type DbTransaction } from "../connection";
+import { runs, runLogs, activeRuns } from "../schema";
 import type { AgentRun, AgentLog, AgentResult } from "../../types";
+import { publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { consumeRunCompletionIntent } from "../../runtime/briefing/completion-intents";
 
 /**
  * Resolve the ROOT conversation owner for a chat run.
@@ -116,27 +119,30 @@ export async function getRunConversationId(id: string): Promise<string | undefin
   return rows[0]?.conversationId ?? undefined;
 }
 
-export async function updateRun(run: AgentRun): Promise<void> {
-  await getDb().update(runs).set({
-    status: run.status,
-    finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
-    result: run.result ?? null,
-  }).where(eq(runs.id, run.id));
+export async function updateRun(run: AgentRun, event?: DomainExtensionEvent): Promise<void> {
+  const values = { status: run.status, finishedAt: run.finishedAt ? new Date(run.finishedAt) : null, result: run.result ?? null };
+  await getDb().transaction(async (transaction: DbTransaction) => {
+    const [current] = await transaction.select({ status: runs.status, conversationId: runs.conversationId, result: runs.result }).from(runs).where(eq(runs.id, run.id)).for("update");
+    if (!current) { if (event) throw new Error("Terminal event has no stored run"); return; }
+    const expectedType = run.status === "success" ? "run:complete" : run.status === "error" ? "run:error" : run.status === "cancelled" ? "run:cancel" : undefined;
+    if (event && (event.type !== expectedType || event.conversationId !== current.conversationId || event.id !== `run:${run.id}:${run.status}`)) throw new Error("Terminal event does not match its stored run");
+    if (current.status !== "running") {
+      if (event && (current.status !== run.status || canonicalJson(current.result) !== canonicalJson(run.result ?? null))) throw new Error("Terminal run event conflicts with its committed state");
+      return;
+    }
+    await transaction.update(runs).set(values).where(eq(runs.id, run.id));
+    if (expectedType) {
+      const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, run.id));
+      if (active && active.conversationId !== current.conversationId) throw new Error("Active run belongs to another conversation");
+      await transaction.delete(activeRuns).where(eq(activeRuns.id, run.id));
+      await consumeRunCompletionIntent(transaction, { runId: run.id, status: run.status, conversationId: current.conversationId });
+    }
+    if (event && current.status === "running") await publishDomainEvent(transaction, event);
+  });
 }
 
 /**
  * Atomically terminalize the `runs` mirror for an abnormal termination.
- *
- * Why this exists: the `runs` table and the `active_runs` table are two
- * representations of run state. The watchdog/cancel/setup-error paths
- * write `active_runs` directly (markInterrupted) but historically left
- * the `runs` row at `status='running', finished_at=NULL` whenever the
- * normal `streamChat` `finally → finalizeCleanup` path (the only caller
- * of `updateRun`) could not run — i.e. the textbook hung/leaked-promise
- * run the watchdog exists to kill. The two representations then diverge
- * permanently. This is the single shared "finalize the runs row" helper
- * every abnormal-termination path funnels through, alongside its
- * existing `active_runs` write.
  *
  * Idempotent + race-safe: the WHERE clause only matches a row that is
  * still non-terminal (`status='running'`). If `finalizeCleanup` already
@@ -150,19 +156,40 @@ export async function finalizeRunRow(
   runId: string,
   status: TerminalRunStatus,
   error?: string,
+  event?: DomainExtensionEvent,
+  recoverActiveOnly = false,
 ): Promise<number> {
-  const rows = await getDb()
-    .update(runs)
-    .set({
-      status,
-      finishedAt: sql`NOW()`,
-      ...(error !== undefined
-        ? { result: { success: false, output: null, error } }
-        : {}),
-    })
-    .where(and(eq(runs.id, runId), eq(runs.status, "running")))
-    .returning({ id: runs.id });
-  return rows.length;
+  return getDb().transaction(async (transaction: DbTransaction) => {
+    const eventRun = event?.payload.run as AgentRun | undefined;
+    if (recoverActiveOnly) {
+      if (!event || !eventRun || eventRun.id !== runId || eventRun.status !== status || event.payload.conversationId !== event.conversationId) throw new Error("Active-only recovery requires an exact terminal event");
+      const [existing] = await transaction.select({ id: runs.id }).from(runs).where(eq(runs.id, runId));
+      if (!existing) {
+        const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, runId)).for("update");
+        if (active?.status !== "running") return 0;
+        if (active.conversationId !== event.conversationId) throw new Error("Active run belongs to another conversation");
+        const [created] = await transaction.insert(runs).values({ id: runId, agentName: eventRun.agentName, conversationId: active.conversationId, status: "running", startedAt: active.startedAt }).onConflictDoNothing().returning({ id: runs.id });
+        if (!created) return 0;
+      }
+    }
+    const [row] = await transaction.update(runs).set({
+      status, finishedAt: eventRun?.finishedAt ? new Date(eventRun.finishedAt) : sql`NOW()`,
+      ...(eventRun?.result ? { result: eventRun.result } : error !== undefined ? { result: { success: false, output: null, error } } : {}),
+    }).where(and(eq(runs.id, runId), eq(runs.status, "running"))).returning();
+    if (!row) return 0;
+    const type = status === "cancelled" ? "run:cancel" : "run:error";
+    if (event && (event.id !== `run:${runId}:${status}` || event.type !== type || event.conversationId !== row.conversationId || event.payload.conversationId !== row.conversationId || eventRun?.id !== runId || eventRun.status !== status || event.payload.runId !== undefined && event.payload.runId !== runId)) throw new Error("Terminal event does not match its stored run");
+    const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, runId));
+    if (active && active.conversationId !== row.conversationId) throw new Error("Active run belongs to another conversation");
+    await transaction.update(activeRuns).set({ status: "interrupted" }).where(and(eq(activeRuns.id, runId), eq(activeRuns.status, "running")));
+    await consumeRunCompletionIntent(transaction, { runId, status, conversationId: row.conversationId });
+    if (row.conversationId) {
+      const run: AgentRun = { id: row.id, agentName: row.agentName, status, startedAt: row.startedAt.getTime(), finishedAt: row.finishedAt!.getTime(), logs: [], ...(row.result ? { result: row.result } : {}) };
+      const payload = { run, runId, conversationId: row.conversationId, ...(status === "error" ? { error: error ?? "Run interrupted" } : {}) };
+      await publishDomainEvent(transaction, event ?? { id: `run:${runId}:${status}`, type, conversationId: row.conversationId, payload });
+    }
+    return 1;
+  });
 }
 
 /**
@@ -184,20 +211,10 @@ export async function finalizeRunRow(
  * Returns the number of rows drained.
  */
 export async function terminalizeOrphanedRuns(): Promise<number> {
-  const rows = await getDb()
-    .update(runs)
-    .set({
-      status: "error",
-      finishedAt: sql`NOW()`,
-      result: {
-        success: false,
-        output: null,
-        error: "Run orphaned: process restarted while run was active",
-      },
-    })
-    .where(and(eq(runs.status, "running"), isNull(runs.finishedAt)))
-    .returning({ id: runs.id });
-  return rows.length;
+  const rows = await getDb().select({ id: runs.id }).from(runs).where(and(eq(runs.status, "running"), isNull(runs.finishedAt)));
+  let count = 0;
+  for (const row of rows) count += await finalizeRunRow(row.id, "error", "Run orphaned: process restarted while run was active");
+  return count;
 }
 
 /**

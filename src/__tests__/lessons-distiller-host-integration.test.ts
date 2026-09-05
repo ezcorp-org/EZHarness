@@ -1,61 +1,10 @@
-/**
- * INTEGRATION — the REAL `lessons-distiller` subprocess against the REAL
- * host, across the seam neither half's own suite can reach.
- *
- * The extension-side suite (`extensions/lessons-distiller/index.test.ts`)
- * swaps the module-level `runtimeApi`; the real-subprocess e2e
- * (`lessons-distiller-real-subprocess.e2e.test.ts`) answers reverse-RPC
- * from a host MIMIC; the host-side suites
- * (`runtime-invoke-handler.test.ts`,
- * `lessons-distiller-boot-settings.review.test.ts`) call the handlers
- * directly with a hand-built ctx. So NOTHING proved that the params the
- * extension SENDS are the params the real host READS, nor that the fire
- * provenance token actually rides along on `ezcorp/invoke` frames born of
- * a background `run:complete`.
- *
- * This test wires the production chain end to end:
- *
- *   real PGlite DB
- *     → `EventSubscriptionDispatcher` (mints the fire token via
- *       `registerFireCallProvenance`, stamping the CONVERSATION OWNER)
- *     → `ExtensionRegistry.getProcess` + `bootSpawnFlaggedBundledExtensions`
- *       (real `bun` subprocess running `extensions/lessons-distiller/index.ts`)
- *     → `ToolExecutor({bus, eventDriven: true}).ensureSubprocessRpcWired`
- *       (the production reverse-RPC dispatch table)
- *     → `handlePiInvoke` → `resolveTokenPreferredScope` →
- *       `handleRuntimeInvoke` → `resolveExtensionSettings` /
- *       `listToolCallsByConversation` / `shouldDistill`
- *     → `handlePiLessons` → a real `lessons` row.
- *
- * ONLY the LLM boundary is faked: `piComplete` (`src/lib/pi-complete`,
- * the dynamic-import wrapper `llm-handler.ts` calls) and `getCredential`
- * (which would otherwise demand a real provider API key). Everything
- * between the subprocess and those two seams — including all SQL — is
- * production code.
- *
- * `resolveExtensionSettings` is wrapped in a RECORDING PASS-THROUGH (the
- * real implementation still runs against the real DB); the wrapper only
- * captures the `userId` argument so the bug-1 fix can be asserted
- * directly rather than inferred.
- *
- * What each case pins:
- *   1. bug 1 — the acting user on the auto path is the conversation
- *      OWNER, and the owner's stored `{enabled: false}` actually
- *      suppresses the distill (no LLM call, no lesson row). Pre-fix the
- *      executor's `currentUserId` singleton was undefined on the boot
- *      executor, so settings resolved to the manifest's declared
- *      defaults (`enabled: true`) and the user's off switch did nothing.
- *   2. bug 2 (declines) — 6 tool calls recorded BEFORE `run.startedAt`
- *      score ZERO. The lifetime count is over `TOOL_CALL_THRESHOLD`, so
- *      pre-fix this fire would have burned an LLM call; post-fix the
- *      real host's SQL window drops them and the gate declines.
- *   3. bug 2 (fires) — 5 tool calls recorded AFTER `run.startedAt` DO
- *      count: the gate fires, the LLM runs, and the lesson lands in the
- *      DB owned by the conversation owner.
- */
-
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { resolve } from "node:path";
+import { buildFirstPartyRelease } from "./helpers/first-party-release";
+import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
+import { configureReleaseRuntime } from "../extensions/release-process";
+import { buildFullGrantFromManifest } from "../extensions/install-grant";
+import { getExtensionLifecycle } from "../extensions/extension-lifecycle-service";
+import { drainExtensionDeliveries, enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "../extensions/delivery-runtime";
 import { and, eq } from "drizzle-orm";
 import {
   setupTestDb,
@@ -154,57 +103,27 @@ const { EventBus } = await import("../runtime/events");
 const { EventSubscriptionDispatcher } = await import(
   "../extensions/event-subscription-dispatcher"
 );
-const { bootSpawnFlaggedBundledExtensions, resolveBundledExtensions } = await import(
-  "../extensions/bundled"
-);
 const { _resetCallProvenanceForTests } = await import("../extensions/call-provenance");
 const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
 const {
   users,
-  projects,
-  conversations,
   messages,
-  extensions,
   conversationExtensions,
   extensionSettingsUser,
   toolCalls,
   lessons,
 } = await import("../db/schema");
-const distillerManifestModule = await import(
-  "../../extensions/lessons-distiller/ezcorp.config"
-);
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-  JsonRpcRequest,
-  JsonRpcResponse,
-} from "../extensions/types";
+import type { JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
 
-/** The REAL bundled manifest. `defineExtension` is identity-typed over
- *  the SDK's looser `ExtensionConfig`, so string-literal fields
- *  (`lessons.access`) widen to `string`; re-assert the host shape once
- *  here rather than casting at every use site. */
-const DISTILLER_MANIFEST = distillerManifestModule.default as unknown as ExtensionManifestV2;
-const DISTILLER_DIR = resolve(import.meta.dir, "..", "..", "extensions", "lessons-distiller");
-/** The REAL install-time grant. `ensureBundledExtensions` stores the
- *  `BUNDLED_EXTENSIONS` entry's `permissions` block on the row, so the
- *  llm / lessons / storage ceilings the host handlers enforce here are
- *  the production ones, not a hand-written approximation. */
-const DISTILLER_ENTRY = resolveBundledExtensions().find(
-  (e) => e.name === "lessons-distiller",
-);
-if (!DISTILLER_ENTRY) throw new Error("lessons-distiller is not a registered bundled extension");
-const DISTILLER_GRANTS: ExtensionPermissions = {
-  ...DISTILLER_ENTRY.permissions,
-  grantedAt: { ...DISTILLER_ENTRY.permissions.grantedAt },
-};
-const DECLARED_EVENTS = DISTILLER_GRANTS.eventSubscriptions ?? [];
-
-const OWNER_ID = "user-distill-owner";
+let release: Awaited<ReturnType<typeof buildFirstPartyRelease>>;
+let session: Awaited<ReturnType<typeof release.session>>;
+let wireRpc: Parameters<typeof startExtensionDeliveryRuntime>[0];
+const deliveries: Promise<void>[] = [];
+let OWNER_ID: string;
 const OTHER_ID = "user-distill-bystander";
-const PROJECT_ID = "proj-distill";
-const CONV_ID = "conv-distill-integration";
-const EXT_ID = "ext-lessons-distiller-integration";
+let PROJECT_ID: string;
+let CONV_ID: string;
+let EXT_ID: string;
 
 /** The finished run's `startedAt`. Tool-call rows straddle it. */
 const RUN_STARTED_MS = Date.UTC(2026, 6, 31, 12, 0, 0);
@@ -240,18 +159,15 @@ let bus: InstanceType<typeof EventBus<import("../types").AgentEvents>>;
 
 beforeAll(async () => {
   await setupTestDb();
+  await getExtensionLifecycle();
+  release = await buildFirstPartyRelease("lessons-distiller");
+  session = await release.session({ persistRelease: true });
+  OWNER_ID = session.userId;
+  PROJECT_ID = session.projectId;
+  CONV_ID = session.conversationId;
+  EXT_ID = session.id;
   const db = getTestDb();
-
-  await db.insert(users).values([
-    { id: OWNER_ID, email: "owner@distill.local", passwordHash: "x", name: "Owner" },
-    { id: OTHER_ID, email: "bystander@distill.local", passwordHash: "x", name: "Bystander" },
-  ] as never);
-  await db.insert(projects).values({
-    id: PROJECT_ID, name: "distill", path: "/tmp/proj-distill",
-  } as never);
-  await db.insert(conversations).values({
-    id: CONV_ID, projectId: PROJECT_ID, title: "distill integration", userId: OWNER_ID,
-  } as never);
+  await db.insert(users).values({ id: OTHER_ID, email: "bystander@distill.local", passwordHash: "x", name: "Bystander" });
   // The latest user message is deliberately signal-FREE: no correction
   // token, no `[lesson]` tag. That leaves the tool-call count as the
   // ONLY gate signal, so each case's verdict is attributable to the run
@@ -260,18 +176,6 @@ beforeAll(async () => {
     { id: "m1", conversationId: CONV_ID, role: "user", content: "summarise the build output" },
     { id: "m2", conversationId: CONV_ID, role: "assistant", content: "the build produced 3 warnings" },
   ] as never);
-  await db.insert(extensions).values({
-    id: EXT_ID,
-    name: DISTILLER_MANIFEST.name,
-    version: DISTILLER_MANIFEST.version,
-    description: DISTILLER_MANIFEST.description,
-    manifest: DISTILLER_MANIFEST as never,
-    source: "bundled:lessons-distiller",
-    installPath: DISTILLER_DIR,
-    enabled: true,
-    grantedPermissions: DISTILLER_GRANTS as never,
-    isBundled: true,
-  } as never);
   // The wiring row the dispatcher AND the event-driven conversation gate
   // both read — the single trust source for "this extension may see this
   // conversation".
@@ -289,26 +193,11 @@ beforeAll(async () => {
 
   _resetCallProvenanceForTests();
 
-  // Real registry pointed at the REAL bundled distiller directory.
-  ExtensionRegistry.resetInstance();
-  registry = ExtensionRegistry.getInstance();
-  registry.setManifestForTest(EXT_ID, DISTILLER_MANIFEST);
-  registry.setInstallPathForTest(EXT_ID, DISTILLER_DIR);
-  registry.setGrantedPermsForTest(EXT_ID, DISTILLER_GRANTS);
-
+  registry = session.registry;
   bus = new EventBus<import("../types").AgentEvents>();
+  const bootExecutor = new ToolExecutor(registry, createStubPermissionEngine("allow-all"), { bus, eventDriven: true });
 
-  // The boot executor, built exactly as `web/src/lib/server/context.ts`
-  // builds it: `{bus, eventDriven: true}` and NO `setCurrentUserId`.
-  // That is precisely the shape that made `handlePiInvoke` thread
-  // `userId: null` before the fix.
-  const stubEngine = {
-    authorize: async () => ({ outcome: "allow" as const }),
-    resolvePrompt: async () => undefined,
-  } as unknown as ConstructorParameters<typeof ToolExecutor>[1];
-  const bootExecutor = new ToolExecutor(registry, stubEngine, { bus, eventDriven: true });
-
-  const wireRpc = async (
+  wireRpc = async (
     extId: string,
     proc: import("../extensions/subprocess").ExtensionProcess,
   ) => {
@@ -332,10 +221,15 @@ beforeAll(async () => {
     await bootExecutor.ensureSubprocessRpcWired(extId, proc);
   };
 
-  const boot = await bootSpawnFlaggedBundledExtensions(registry, wireRpc);
-  expect(boot.spawned).toContain(DISTILLER_MANIFEST.name);
-  const proc = registry.getProcessIfRunning(EXT_ID);
-  expect(proc?.isRunning).toBe(true);
+  configureReleaseRuntime({
+    ...session.runtime,
+    dispatchNotification: async (id, method, params) => {
+      const delivery = enqueueExtensionNotification(id, method, params ?? {});
+      deliveries.push(delivery);
+      await delivery;
+    },
+  });
+  startExtensionDeliveryRuntime(wireRpc);
 
   dispatcher = new EventSubscriptionDispatcher(
     bus,
@@ -343,13 +237,15 @@ beforeAll(async () => {
     // Production lookup — the real `conversation_extensions` query.
     getConversationExtensionIds,
   );
-  dispatcher.registerExtension(EXT_ID, DECLARED_EVENTS);
+  dispatcher.registerExtension(EXT_ID, buildFullGrantFromManifest(release.manifest).eventSubscriptions ?? []);
   dispatcher.start();
-}, 60_000);
+}, 120_000);
 
 afterAll(async () => {
-  try { dispatcher?.stop(); } catch { dispatcher = null; }
-  try { registry?.killAll(); } catch { registry = null; }
+  dispatcher?.stop();
+  await stopExtensionDeliveryRuntime();
+  await session?.close();
+  await release?.close();
   ExtensionRegistry.resetInstance();
   await closeTestDb();
   restoreModuleMocks();
@@ -398,20 +294,13 @@ async function seedToolCalls(count: number, createdAtMs: number, idPrefix: strin
  *  the subprocess's reverse-RPC storm to settle. The dispatcher mints
  *  the fire provenance token itself — nothing here is hand-minted. */
 async function fireRunComplete(runId: string, startedAt: number): Promise<void> {
-  const before = frames.length;
+  const before = deliveries.length;
   bus.emit("run:complete", {
     conversationId: CONV_ID,
     run: { id: runId, agentName: "chat", status: "success", startedAt },
   } as unknown as import("../types").AgentEvents["run:complete"]);
-  // Wait for the first frame of THIS fire, then for the wire to go quiet
-  // (no new frame for 400ms) so late frames can't be missed.
-  await waitFor(() => frames.length > before, 10_000);
-  let settled = frames.length;
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 100));
-    if (frames.length === settled && i >= 3) return;
-    settled = frames.length;
-  }
+  await waitFor(() => deliveries.length > before, 10_000);
+  await Promise.all(deliveries.slice(before));
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<void> {
@@ -420,6 +309,7 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
     if (predicate()) return;
     await new Promise((r) => setTimeout(r, 25));
   }
+  throw new Error("Expected event delivery did not start");
 }
 
 function reset(): void {
@@ -429,6 +319,30 @@ function reset(): void {
 }
 
 describe("lessons-distiller ↔ host — the seam, end to end", () => {
+  test("boot remains lazy and restarted delivery starts one fresh owner-bound worker per event", async () => {
+    reset();
+    await setOwnerSettings({ enabled: false, provider: "google", model: "" });
+    expect(session.starts()).toBe(0);
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(0);
+    await fireRunComplete("run-boot-first", RUN_STARTED_MS);
+    expect(session.starts()).toBe(1);
+    expect(settingsResolutions).toHaveLength(1);
+    expect(settingsResolutions[0]).toMatchObject({ extensionId: EXT_ID, userId: OWNER_ID });
+    await stopExtensionDeliveryRuntime();
+    startExtensionDeliveryRuntime(wireRpc);
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(1);
+    expect(settingsResolutions).toHaveLength(1);
+    await fireRunComplete("run-boot-second", RUN_STARTED_MS);
+    expect(session.starts()).toBe(2);
+    expect(settingsResolutions).toHaveLength(2);
+    expect(settingsResolutions[1]).toMatchObject({ extensionId: EXT_ID, userId: OWNER_ID });
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(2);
+    expect(settingsResolutions).toHaveLength(2);
+  }, 60_000);
+
   test("bug 1: the fire resolves the CONVERSATION OWNER's settings, and their off switch suppresses the distill", async () => {
     reset();
     // Manifest default is `enabled: true`. The owner turned it OFF.

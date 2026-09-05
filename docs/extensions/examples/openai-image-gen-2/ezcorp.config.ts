@@ -1,7 +1,7 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "openai-image-gen-2",
   version: "1.2.0",
   description:
@@ -13,7 +13,7 @@ export default defineExtension({
     "modify a prior turn's image. Uses your subscription OAuth token via the " +
     "Codex Responses API when available, or a classic sk-… API key against the Images API.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "generate",
@@ -145,7 +145,7 @@ export default defineExtension({
     // Serving them via a short URL instead of embedding base64 in the
     // tool result keeps image bytes out of the model's context window
     // (base64 of a 1024×1024 PNG is ~2 MB — easily overruns it).
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
   },
   resources: {
     memory: "512MB",

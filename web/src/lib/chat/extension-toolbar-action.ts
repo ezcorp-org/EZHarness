@@ -212,7 +212,7 @@ export async function postExtensionEvent(
   try {
     const res = await deps.fetcher(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {

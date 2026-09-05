@@ -220,3 +220,5 @@ describe("ToolExecutor", () => {
     expect(MAX_TOOL_CALLS_PER_TURN).toBe(100);
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

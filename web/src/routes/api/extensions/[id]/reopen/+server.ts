@@ -1,13 +1,3 @@
-// User "Modify" action: re-open an installed extension the requesting
-// user CREATED (and an admin has flagged `modifiable`) as an editable
-// author draft, then redirect the client to the existing editable
-// preview at `/extensions/author?prefill=<draftId>`.
-//
-// Owner-scoped via the SHARED `reopenInstalledAsDraft` helper — the
-// SAME authorization path the in-chat `ezcorp/drafts.reopen` RPC uses
-// (creator + modifiable + not-bundled, opaque). There is intentionally
-// NO admin-override edit path here: an admin's power is flipping the
-// `modifiable` flag (POST [id]/modifiable), not editing others' code.
 
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
@@ -32,11 +22,11 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	}
 
 	try {
-		const { draftId, name } = await reopenInstalledAsDraft(
+		const result = await reopenInstalledAsDraft(
 			params.id,
 			user.id,
 		);
-		return json({ draftId, name });
+		return json(result);
 	} catch (err) {
 		if (err instanceof ReopenError) {
 			// Opaque: not-found / not-owned / flag-off / bundled all map

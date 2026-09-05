@@ -37,6 +37,8 @@ import { capabilityToolsDisabled } from "./capability-flags";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { rpcError, rpcResult } from "./json-rpc";
+import { writeTaskAssignmentForConversation, writeTaskSnapshotForConversation } from "../runtime/task-tracking-host";
+import { LifecycleError } from "./v4/types";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -151,6 +153,18 @@ async function auditReject(
 
 // ── Main handler ───────────────────────────────────────────────────
 
+async function persistTaskMutation(id: JsonRpcRequest["id"], mutation: () => Promise<void>): Promise<JsonRpcResponse> {
+  try { await mutation(); return rpcResult(id, { ok: true }); }
+  catch (error) {
+    if (error instanceof LifecycleError) {
+      if (error.code === "task_conflict") return rpcError(id, -32009, error.message);
+      if (error.code === "event_not_found") return rpcError(id, -32001, "Task conversation access denied");
+      if (["task_not_found", "assignment_not_found", "invalid_task_update", "event_payload_limit"].includes(error.code)) return rpcError(id, -32602, error.message);
+    }
+    throw error;
+  }
+}
+
 export async function handleEmitTaskEventRpc(
   extensionId: string,
   req: JsonRpcRequest,
@@ -225,14 +239,14 @@ export async function handleEmitTaskEventRpc(
       await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: validation.errors });
       return rpcError(req.id, -32602, `Invalid snapshot payload: ${validation.errors[0] ?? "unknown error"}`);
     }
-    const p = payload as { tasks: AgentEvents["task:snapshot"]["tasks"]; activeTaskId?: string };
+    const p = payload as { tasks: AgentEvents["task:snapshot"]["tasks"]; activeTaskId?: string; assignments?: Omit<AgentEvents["task:assignment_update"], "conversationId">[]; expectedRevision?: string };
+    if (p.assignments !== undefined && (!Array.isArray(p.assignments) || p.assignments.length > 256 || p.assignments.some(assignment => !validateAssignmentUpdatePayload(assignment).ok))) return rpcError(req.id, -32602, "Invalid assignment batch");
+    if (p.expectedRevision !== undefined && !/^[a-f0-9]{64}$/.test(p.expectedRevision)) return rpcError(req.id, -32602, "Invalid task revision");
     // conversationId is FORCED — never read from params.
-    ctx.bus?.emit("task:snapshot", {
-      conversationId: ctx.conversationId,
+    return persistTaskMutation(req.id, () => writeTaskSnapshotForConversation(ctx.conversationId, {
       tasks: p.tasks,
       ...(p.activeTaskId !== undefined ? { activeTaskId: p.activeTaskId } : {}),
-    });
-    return rpcResult(req.id, { ok: true });
+    }, { bus: ctx.bus, principalId: userIdForAudit ?? "", assignments: p.assignments, expectedRevision: p.expectedRevision }));
   }
 
   if (type === "assignment_update") {
@@ -242,12 +256,10 @@ export async function handleEmitTaskEventRpc(
       return rpcError(req.id, -32602, `Invalid assignment_update payload: ${validation.errors[0] ?? "unknown error"}`);
     }
     const p = payload as { taskId: string; assignment: AgentEvents["task:assignment_update"]["assignment"] };
-    ctx.bus?.emit("task:assignment_update", {
-      conversationId: ctx.conversationId,
+    return persistTaskMutation(req.id, () => writeTaskAssignmentForConversation(ctx.conversationId, {
       taskId: p.taskId,
       assignment: p.assignment,
-    });
-    return rpcResult(req.id, { ok: true });
+    }, ctx.bus, userIdForAudit ?? ""));
   }
 
   await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: [`type: unknown value ${String(type)}`] });

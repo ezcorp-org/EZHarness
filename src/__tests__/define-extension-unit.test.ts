@@ -114,258 +114,33 @@ describe("defineExtension", () => {
 
 // ── stripFunctions (tested via loadManifest roundtrip) ──────────────
 
-describe("stripFunctions via loadManifest", () => {
-  test("strips functions from skills array items", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        skills: [{ name: "s", description: "d", onInvoke: () => {} }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const skill = at(m.skills, 0, "skill");
-      expect((skill as any).onInvoke).toBeUndefined();
-      expect(skill.name).toBe("s");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("strips functions from agent object", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        agent: { prompt: "hi", onMessage: () => {} },
-      };\n`);
-      const m = await loadManifest(dir);
-      expect((m.agent as any).onMessage).toBeUndefined();
-      expect(m.agent!.prompt).toBe("hi");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("strips functions from mcpServers array items", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./m.ts"], setup: () => {} }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const server = at(m.mcpServers, 0, "mcp server");
-      expect((server as any).setup).toBeUndefined();
-      expect(server.name).toBe("m");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("preserves non-function properties (strings, numbers, objects, arrays)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        entrypoint: "./index.ts",
-        tools: [{
-          name: "tool1", description: "d",
-          inputSchema: { type: "object", properties: { x: { type: "number" } } },
-          extra: 42, tags: ["a", "b"],
-        }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const tool = m.tools![0] as any;
-      expect(tool.extra).toBe(42);
-      expect(tool.tags).toEqual(["a", "b"]);
-      expect(tool.inputSchema.properties.x.type).toBe("number");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("handles empty tools/skills arrays", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        tools: [], skills: [],
-      };\n`);
-      const m = await loadManifest(dir);
-      expect(m.tools).toEqual([]);
-      expect(m.skills).toEqual([]);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("handles missing tools/skills/agent keys", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-      };\n`);
-      const m = await loadManifest(dir);
-      // Phase 1's migrateManifestV2ToV3 normalizes missing `tools` to
-      // an empty array in the v3 shape. `skills` and `agent` aren't
-      // added by the migration, so they stay undefined.
-      expect(m.tools).toEqual([]);
-      expect(m.skills).toBeUndefined();
-      expect(m.agent).toBeUndefined();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("handles multiple function properties on same tool", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        tools: [{
-          name: "t", description: "d",
-          inputSchema: { type: "object", properties: {} },
-          handler: () => {}, validate: () => {}, transform: () => {},
-        }],
-        entrypoint: "./index.ts",
-      };\n`);
-      const m = await loadManifest(dir);
-      const tool = m.tools![0] as any;
-      expect(tool.handler).toBeUndefined();
-      expect(tool.validate).toBeUndefined();
-      expect(tool.transform).toBeUndefined();
-      expect(tool.name).toBe("t");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("does NOT strip functions from top-level config", async () => {
-    const dir = await makeTempDir();
-    try {
-      // Top-level functions should pass through stripFunctions unchanged.
-      // We write a config with a top-level function and verify it survives.
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        onInstall: () => "installed",
-      };\n`);
-      const m = await loadManifest(dir);
-      expect(typeof (m as any).onInstall).toBe("function");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+describe("host manifest entrypoints are retired", () => {
+  for (const source of [
+    "export default {skills:[{handler:()=>null}]};",
+    "export default {agent:{handler:()=>null}};",
+    "export default {mcpServers:[{handler:()=>null}]};",
+    "export default {tools:[{run:()=>null,handler:()=>null}]};",
+    "export default {tools:[],skills:[]};",
+    "export default {extra:{nested:[1,2]}};",
+    "export const config = {};",
+    "export default null;",
+    "export default [];",
+    "export default 42;",
+  ]) {
+    test(`refuses configuration without evaluating: ${source}`, async () => {
+      const directory = await makeTempDir();
+      const marker = join(directory, "executed");
+      try {
+        await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); ${source}`);
+        await expect(loadManifest(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+        await expect(loadManifestFresh(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+        expect(await Bun.file(marker).exists()).toBe(false);
+        await Bun.write(join(directory, "ezcorp.config.ts"), "export default {name:'edited'};");
+        await expect(loadManifestFresh(directory)).rejects.toThrow("Host configuration evaluation is disabled");
+      } finally { await rm(directory, { recursive: true, force: true }); }
+    });
+  }
 });
-
-// ── loadManifest error paths ────────────────────────────────────────
-
-describe("loadManifest error paths", () => {
-  test("throws when no default export (named export only)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export const config = { name: "x" };\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is null", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default null;\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is an array", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default [1, 2, 3];\n`);
-      // Arrays are typeof "object" so they pass the object check but fail validation
-      await expect(loadManifest(dir)).rejects.toThrow(/Invalid manifest/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is a number", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default 42;\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("passes through extra unknown properties", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        customField: "hello", anotherExtra: 123,
-      };\n`);
-      const m = await loadManifest(dir);
-      expect((m as any).customField).toBe("hello");
-      expect((m as any).anotherExtra).toBe(123);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ── loadManifestFresh ───────────────────────────────────────────────
-
-describe("loadManifestFresh", () => {
-  test("returns valid manifest (basic)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify(BASE)};\n`);
-      const m = await loadManifestFresh(dir);
-      expect(m.name).toBe("test-ext");
-      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
-      expect(m.schemaVersion).toBe(3);
-      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("returns updated content after file rewrite (cache-busting)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "original" })};\n`);
-      const m1 = await loadManifestFresh(dir);
-      expect(m1.name).toBe("original");
-
-      // Small delay to ensure Date.now() produces a different cache-bust param
-      await Bun.sleep(5);
-
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "updated" })};\n`);
-      const m2 = await loadManifestFresh(dir);
-      expect(m2.name).toBe("updated");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ── configContent / writeConfig helpers ─────────────────────────────
 
 describe("configContent", () => {
   test("generates valid TS export default", () => {
@@ -390,17 +165,11 @@ describe("writeConfig", () => {
     }
   });
 
-  test("generated config is loadable by loadManifest", async () => {
-    const dir = await makeTempDir();
+  test("generated legacy metadata cannot re-enable host execution", async () => {
+    const directory = await makeTempDir();
     try {
-      await writeConfig(dir, BASE);
-      const m = await loadManifestFresh(dir);
-      expect(m.name).toBe("test-ext");
-      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
-      expect(m.schemaVersion).toBe(3);
-      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+      await writeConfig(directory, BASE);
+      await expect(loadManifest(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 });

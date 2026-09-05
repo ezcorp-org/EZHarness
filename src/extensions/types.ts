@@ -399,7 +399,7 @@ export type SettingsSchema = Record<string, SettingsField>;
 // regardless of the manifest's authored version.
 
 export interface ExtensionManifestV2 {
-  schemaVersion: 2 | 3;
+  schemaVersion: 2 | 3 | 4;
   name: string; // Also serves as namespace prefix
   version: string; // semver
   description: string;
@@ -524,7 +524,10 @@ export interface ExtensionManifestV2 {
 
   // Package-level metadata
   permissions: {
+    hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
     network?: string[];
+    networkTcp?: string[];
+    secretRead?: string[];
     filesystem?: string[];
     shell?: boolean;
     env?: string[];
@@ -978,7 +981,10 @@ export interface JsonRpcNotification {
 // ── Permissions (granted at install time) ────────────────────────
 
 export interface ExtensionPermissions {
+  hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
   network?: string[];
+  networkTcp?: string[];
+  secretRead?: string[];
   filesystem?: string[];
   shell?: boolean;
   env?: string[];

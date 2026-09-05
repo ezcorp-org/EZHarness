@@ -28,7 +28,7 @@ const { handleFinalizeToolCallRpc } = await import(
   "../extensions/finalize-tool-call-handler"
 );
 const { getDb } = await import("../db/connection");
-const { conversations, projects, messages, toolCalls, users, extensions } = await import(
+const { conversations, projects, projectMembers, messages, toolCalls, users, extensions } = await import(
   "../db/schema"
 );
 
@@ -110,7 +110,7 @@ beforeAll(async () => {
   await setupTestDb();
   await getDb()
     .insert(users)
-    .values({ id: USER_ID, email: "ftc@test.local", passwordHash: "x", name: "ftc" } as never)
+    .values([{ id: USER_ID, email: "ftc@test.local", passwordHash: "x", name: "ftc", status: "active" }, { id: "foreign-ftc", email: "foreign-ftc@test.local", passwordHash: "x", name: "Foreign", status: "active" }])
     .onConflictDoNothing();
   await getDb()
     .insert(projects)
@@ -118,7 +118,7 @@ beforeAll(async () => {
     .onConflictDoNothing();
   await getDb()
     .insert(conversations)
-    .values({ id: CONV_ID, projectId: PROJECT_ID, title: "ftc" } as never)
+    .values({ id: CONV_ID, projectId: PROJECT_ID, userId: USER_ID, title: "ftc" } as never)
     .onConflictDoNothing();
   await getDb()
     .insert(messages)
@@ -132,6 +132,7 @@ beforeAll(async () => {
   // FK target rows for tool_calls.
   await ensureExtension(EXT_ID);
   await ensureExtension(OTHER_EXT_ID);
+  await getDb().insert(projectMembers).values({ projectId: PROJECT_ID, userId: USER_ID, role: "member" });
 });
 
 afterAll(async () => {
@@ -142,6 +143,33 @@ afterAll(async () => {
 // ── Legacy boolean path ─────────────────────────────────────────────
 
 describe("finalize-tool-call — legacy boolean fallback (no engine)", () => {
+  test("an unbound foreign user cannot finalize another owner's row through the same installation", async () => {
+    const toolCallId = uniqueToolCallId();
+    await insertToolCall(toolCallId, EXT_ID);
+    const response = await handleFinalizeToolCallRpc(EXT_ID, rpc({ toolCallId, status: "error", output: "forged" }), makeCtx({ conversationId: "unknown", userId: "foreign-ftc" }));
+    expect(response.error?.code).toBe(-32001);
+    const { eq } = await import("drizzle-orm");
+    const [stored] = await getDb().select().from(toolCalls).where(eq(toolCalls.id, toolCallId));
+    expect(stored?.output).toEqual({ content: [] });
+    expect(stored?.success).toBe(true);
+  });
+
+  test("unbound owner access requires current project membership and an active principal", async () => {
+    const { eq } = await import("drizzle-orm");
+    const toolCallId = uniqueToolCallId();
+    await insertToolCall(toolCallId, EXT_ID);
+    const invoke = () => handleFinalizeToolCallRpc(EXT_ID, rpc({ toolCallId, status: "complete", output: "owner result" }), makeCtx({ conversationId: "unknown" }));
+    await getDb().delete(projectMembers).where(eq(projectMembers.userId, USER_ID));
+    try { expect((await invoke()).error?.code).toBe(-32001); }
+    finally { await getDb().insert(projectMembers).values({ projectId: PROJECT_ID, userId: USER_ID, role: "member" }); }
+    await getDb().update(users).set({ status: "disabled" }).where(eq(users.id, USER_ID));
+    try { expect((await invoke()).error?.code).toBe(-32001); }
+    finally { await getDb().update(users).set({ status: "active" }).where(eq(users.id, USER_ID)); }
+    expect((await invoke()).result).toEqual({ ok: true });
+    const [stored] = await getDb().select().from(toolCalls).where(eq(toolCalls.id, toolCallId));
+    expect(stored?.output).toEqual({ content: [{ type: "text", text: "owner result" }] });
+  });
+
   test("appendMessages not granted → -32001", async () => {
     const tcid = uniqueToolCallId();
     await insertToolCall(tcid, EXT_ID);

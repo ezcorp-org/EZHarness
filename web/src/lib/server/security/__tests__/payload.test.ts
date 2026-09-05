@@ -8,11 +8,17 @@
 
 import { test, expect, describe } from "bun:test";
 import {
+  admitRequestPayload,
   getMaxPayload,
   payloadTooLarge,
 } from "../payload";
 
 const ONE_MB = 1024 * 1024;
+
+test("bodyless request admission preserves the original request", async () => {
+  const request = new Request("http://localhost/api/extensions/control");
+  expect(await admitRequestPayload(request, "/api/extensions/control")).toBe(request);
+});
 
 describe("getMaxPayload — prefix table", () => {
   test("/api/extensions/<name>/uploads → 25MB", () => {

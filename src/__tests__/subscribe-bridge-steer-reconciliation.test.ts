@@ -15,6 +15,7 @@
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { createUnsubscribedBridgeDatabase } from "./helpers/subscribe-bridge-db";
 
 interface CreateCall { role: string; parentMessageId?: string }
 interface ReparentCall { conversationId: string; messageId: string; newParent: string | null }
@@ -33,11 +34,7 @@ mock.module("../db/queries/conversations", () => ({
 		return { id: messageId };
 	},
 }));
-mock.module("../db/connection", () => ({
-	getDb: () => ({
-		update: () => ({ set: () => ({ where: async () => {} }) }),
-	}),
-}));
+mock.module("../db/connection", () => ({ getDb: createUnsubscribedBridgeDatabase }));
 mock.module("../db/queries/extensions", () => ({
 	listExtensions: async () => [],
 }));

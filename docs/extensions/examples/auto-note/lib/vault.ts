@@ -2,6 +2,7 @@
 // Filesystem-backed vault with in-memory index for fast lookups.
 
 import { join, dirname } from "path";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import type {
   VaultNote, VaultIndex, VaultStats, Category, ActionItem,
   CaptureResult, PlannedAction, Config, CaptureOverrides,
@@ -49,11 +50,12 @@ export function findProjectRoot(from: string = process.cwd()): string {
 // This keeps the top of a user's repo tidy and means a single `.gitignore`
 // entry (`.ezcorp/`) covers every extension's persistent state.
 
-const projectRoot = findProjectRoot();
-const EXT_DATA_ROOT = join(projectRoot, ".ezcorp", "extension-data", "auto-note");
+function extensionDataRoot(): string {
+  return getInvocationContext() ? "/data" : join(findProjectRoot(), ".ezcorp", "extension-data", "auto-note");
+}
 
 export function getVaultRoot(config?: Config): string {
-  return config?.vaultPath ?? join(EXT_DATA_ROOT, "vault");
+  return config?.vaultPath ?? join(extensionDataRoot(), "vault");
 }
 
 let _configPathOverride: string | null = null;
@@ -64,7 +66,7 @@ export function _setConfigPathForTests(path: string | null): void {
 }
 
 export function getConfigPath(): string {
-  return _configPathOverride ?? join(EXT_DATA_ROOT, "config.json");
+  return _configPathOverride ?? join(extensionDataRoot(), "config.json");
 }
 
 function vaultAbsPath(vaultRoot: string, vaultRelPath: string): string {

@@ -84,14 +84,15 @@ vi.mock("$server/extensions/permission-engine", () => ({
   getPermissionEngine: (...args: unknown[]) => getPermissionEngineSpy(...args),
 }));
 
-const { POST } = await import("../routes/api/tool-invoke/+server");
+const { POST, _invokeWithControl } = await import("../routes/api/tool-invoke/+server");
 
 function makeEvent(opts: {
   body?: unknown;
   locals?: Record<string, unknown>;
   bodyRaw?: string;
+  signal?: AbortSignal;
 }) {
-  const init: RequestInit = { method: "POST" };
+  const init: RequestInit = { method: "POST", signal: opts.signal };
   if (opts.bodyRaw !== undefined) {
     init.body = opts.bodyRaw;
     init.headers = { "content-type": "application/json" };
@@ -106,6 +107,65 @@ function makeEvent(opts: {
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+
+test("trusted invocation control stays out of JSON and reaches the executor", async () => {
+  const controller = new AbortController();
+  const invocationGuard = vi.fn(async () => undefined);
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async (...args: unknown[]) => {
+    const options = args[4] as { signal: AbortSignal; invocationGuard: () => Promise<void> };
+    expect(options.invocationGuard).toBe(invocationGuard);
+    await options.invocationGuard();
+    controller.abort();
+    expect(options.signal.aborted).toBe(true);
+    return { isError: false, content: [] };
+  });
+  const body = { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" };
+  const response = await _invokeWithControl(makeEvent({ locals: authedUser, body }), { signal: controller.signal, invocationGuard });
+  expect(response.status).toBe(499);
+  expect(invocationGuard).toHaveBeenCalledTimes(1);
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+  expect((await POST(makeEvent({ locals: authedUser, body: { ...body, invocationGuard: "forged" } }))).status).toBe(400);
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
+
+for (const outcome of ["throw", "success", "error"] as const) test(`cancelled ${outcome} returns 499 without retry`, async () => {
+  const controller = new AbortController();
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async (...args: unknown[]) => {
+    expect((args[4] as { signal: AbortSignal }).signal.aborted).toBe(false);
+    controller.abort();
+    expect((args[4] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    if (outcome === "throw") throw new Error("Worker closed");
+    return { isError: outcome === "error", content: [{ type: "text", text: "result" }] };
+  });
+  const response = await POST(makeEvent({ locals: authedUser, signal: controller.signal, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" } }));
+  expect(response.status).toBe(499);
+  expect(await response.json()).toMatchObject({ success: false, retryCount: 0 });
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
+
+test("release-bound failures retain their error without retry", async () => {
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockRejectedValue(new Error("Release changed"));
+  const response = await POST(makeEvent({ locals: authedUser, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1", expectedReleaseBinding: "a".repeat(64) } }));
+  expect(response.status).toBe(500);
+  expect(await response.json()).toMatchObject({ error: "Release changed", retryCount: 0 });
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
+
+for (const outcome of ["throw", "error"] as const) test(`an admitted effect followed by ${outcome} is never repeated`, async () => {
+  let writes = 0;
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async () => {
+    writes++;
+    if (outcome === "throw") throw new Error("Response lost after write");
+    return { isError: true, content: [{ type: "text", text: "Response lost after write" }] };
+  });
+  const response = await POST(makeEvent({ locals: authedUser, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" } }));
+  expect(await response.json()).toMatchObject({ success: false, error: "Response lost after write", retryCount: 0 });
+  expect(writes).toBe(1);
+});
 
 // FILE-level, not inside a describe: the mutable `ownershipResult` /
 // `extensionRow` / `wireAllowed` seams are read by every describe in this
@@ -473,14 +533,12 @@ describe("POST /api/tool-invoke — capability denial", () => {
     expect(err).not.toContain("710da8a9");
   });
 
-  test("a NON-permission error still retries and still 500s", async () => {
-    // The retry exists for a crashed extension subprocess; that path is
-    // unchanged.
+  test("a non-permission error returns 500 without repeating uncertain effects", async () => {
     registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
     executeToolCall.mockRejectedValue(new Error("subprocess died"));
     const res = await POST(makeEvent({ locals: authedUser, body }));
     expect(res.status).toBe(500);
-    expect(executeToolCall).toHaveBeenCalledTimes(3);
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
   });
 
   test("a tool-level failure still RESOLVES 200 — the harness contract is unchanged", async () => {

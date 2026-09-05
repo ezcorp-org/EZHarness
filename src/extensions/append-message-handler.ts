@@ -21,12 +21,6 @@
  *   8. attachmentIds (when supplied) all belong to the caller's
  *      conversation
  *
- * On accept: createMessage(role:"extension", excluded:true) → persist
- * tool calls (one row per item) → update each attachmentId's
- * `messageId` to the new message id. The whole thing is best-effort
- * non-transactional today (mirrors the messages POST handler), so a
- * partial failure on attachments leaves the message in place — same
- * tradeoff documented at messages/+server.ts.
  */
 
 import type {
@@ -45,6 +39,10 @@ import { persistToolCall } from "../db/queries/tool-calls";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { rpcError, rpcResult } from "./json-rpc";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "./domain-event-outbox";
+import type { EventBus } from "../runtime/events";
+import type { AgentEvents } from "../types";
+import type { DbTransaction } from "../db/connection";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -74,6 +72,7 @@ export interface AppendMessageContext {
   grantedPermissions: ExtensionPermissions;
   /** Phase 6: PDP. Optional for back-compat with pre-PDP unit tests. */
   engine?: PermissionEngine;
+  bus?: EventBus<AgentEvents>;
 }
 
 // ── Validation helpers ─────────────────────────────────────────────
@@ -278,64 +277,32 @@ export async function handleAppendMessageRpc(
     }
   }
 
-  // 8. Insert the message with role forced to "extension" and
-  // excluded=true. createMessage doesn't expose `excluded`, so we
-  // patch it via setMessageExcluded immediately after — same row, two
-  // statements. The brief window between create + flip is invisible
-  // because the caller is awaiting our response (no SSE flush yet).
-  const newMsg = await convQueries.createMessage(effectiveConvId, {
-    role: "extension",
-    content,
-    parentMessageId,
+  const committed = await getDb().transaction(async (transaction: DbTransaction) => {
+    const newMsg = await convQueries.createMessage(effectiveConvId, {
+      role: "extension", content, parentMessageId, excluded: true,
+    }, transaction);
+    const toolCallIds: string[] = [];
+    for (const toolCall of toolCalls) {
+      const id = crypto.randomUUID();
+      await persistToolCall({
+        id, conversationId: effectiveConvId, messageId: newMsg.id, extensionId, toolName: toolCall.name,
+        input: typeof toolCall.input === "object" && toolCall.input !== null ? toolCall.input as Record<string, unknown> : { value: toolCall.input },
+        output: coerceToolCallOutput(toolCall.output, false), success: true, durationMs: 0,
+        cardType: toolCall.cardType ?? null, cardLayout: toolCall.cardLayout ?? null,
+        userId: ctx.userId !== "unknown" ? ctx.userId : null,
+      }, undefined, transaction);
+      toolCallIds.push(id);
+    }
+    if (attachmentIds.length > 0) await transaction.update(messageAttachments).set({ messageId: newMsg.id }).where(and(
+      inArray(messageAttachments.id, attachmentIds), eq(messageAttachments.conversationId, effectiveConvId),
+    ));
+    const event: DomainExtensionEvent = {
+      id: newMsg.id, type: "run:turn_saved", conversationId: effectiveConvId,
+      payload: { runId: `ext:${extensionId}:${newMsg.id}`, conversationId: effectiveConvId, messageId: newMsg.id, parentMessageId, content, final: true },
+    };
+    await publishDomainEvent(transaction, event);
+    return { messageId: newMsg.id, toolCallIds, event };
   });
-  await convQueries.setMessageExcluded(effectiveConvId, newMsg.id, true);
-
-  // 9. Persist tool-call rows. Each one gets the new message's id as
-  // its anchor; the executor's path keys on the same column when it
-  // hydrates inline cards onto a turn. We mint our own row ids so the
-  // response can return them — the subprocess uses them to call back
-  // via `ezcorp/finalize-tool-call` once the card finishes async work.
-  const toolCallIds: string[] = [];
-  for (const tc of toolCalls) {
-    const id = crypto.randomUUID();
-    const isError = false;
-    const out = coerceToolCallOutput(tc.output, isError);
-    await persistToolCall({
-      id,
-      conversationId: effectiveConvId,
-      messageId: newMsg.id,
-      extensionId,
-      toolName: tc.name,
-      input: (typeof tc.input === "object" && tc.input !== null
-        ? (tc.input as Record<string, unknown>)
-        : { value: tc.input }),
-      output: out,
-      // Always start as success=true: a `running` call that errors out
-      // later flips this via `ezcorp/finalize-tool-call`. The
-      // interrupted-status discriminator in `toolCallRowToSummary`
-      // only fires when BOTH success=null AND output=null — neither is
-      // true for an append, so a fresh running row renders correctly.
-      success: true,
-      durationMs: 0,
-      cardType: tc.cardType ?? null,
-      cardLayout: tc.cardLayout ?? null,
-      userId: ctx.userId !== "unknown" ? ctx.userId : null,
-    });
-    toolCallIds.push(id);
-  }
-
-  // 10. Reattribute pre-uploaded attachments to the new message. This
-  // happens last so a failure here doesn't strand tool_call rows
-  // pointing at a message-less attachment.
-  if (attachmentIds.length > 0) {
-    await getDb()
-      .update(messageAttachments)
-      .set({ messageId: newMsg.id })
-      .where(and(
-        inArray(messageAttachments.id, attachmentIds),
-        eq(messageAttachments.conversationId, effectiveConvId),
-      ));
-  }
-
-  return rpcResult(req.id, { messageId: newMsg.id, toolCallIds });
+  emitPersistedDomainEvent(ctx.bus, committed.event);
+  return rpcResult(req.id, { messageId: committed.messageId, toolCallIds: committed.toolCallIds });
 }

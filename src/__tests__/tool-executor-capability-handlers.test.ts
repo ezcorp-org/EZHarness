@@ -223,7 +223,7 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
       }),
     );
     expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toEqual({ ok: true, durable: false });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       event: "loops:approval_resolved",
@@ -395,9 +395,7 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
     expect(resp.error?.code).not.toBe(-32106);
   });
 
-  test("a token whose actorExtensionId differs from the resolver still proceeds (tripwire, not enforced)", async () => {
-    // The actorExtensionId mismatch logs a warn but does NOT hard-reject —
-    // exercising line 2330's tripwire branch.
+  test("a token issued to another extension is rejected before capability dispatch", async () => {
     const ezCallId = registerCallProvenance({
       onBehalfOf: "user-cap",
       conversationId: CONV_ID,
@@ -411,8 +409,8 @@ describe("ToolExecutor.resolveReverseRpcMeta provenance ladder (via handlePiMemo
       EXT_ID,
       rpc("ezcorp/memory", { v: 1, action: "search", query: "hi there", _meta: { ezCallId } }),
     );
-    expect(resp.error?.code).not.toBe(-32602);
-    expect(resp.error?.code).not.toBe(-32106);
+    expect(resp.error?.code).toBe(-32602);
+    expect(resp.result).toBeUndefined();
   });
 
   test("fs.read with no token returns the resolver's verbatim -32602", async () => {
