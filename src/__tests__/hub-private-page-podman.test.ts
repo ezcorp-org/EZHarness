@@ -38,7 +38,14 @@ mock.module("$lib/runtime-event-names", () => require("../../web/src/lib/runtime
 mock.module("$lib/server/sse-resume-buffer", () => require("../../web/src/lib/server/sse-resume-buffer"));
 const { GET: pageGet } = await import("../../web/src/routes/api/hub/pages/[id]/+server");
 const { GET: eventsGet } = await import("../../web/src/routes/api/runtime-events/+server");
-afterAll(restoreModuleMocks);
+afterAll(() => {
+  mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$lib/server/hub-render-pull", () => require("../../web/src/lib/server/hub-render-pull"));
+  mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
+  mock.module("$lib/runtime-event-names", () => require("../../web/src/lib/runtime-event-names"));
+  mock.module("$lib/server/sse-resume-buffer", () => require("../../web/src/lib/server/sse-resume-buffer"));
+  restoreModuleMocks();
+});
 
 test("rootless page rendering never shares a worker result or cache across authenticated principals", async () => {
   const root = await mkdtemp(join(tmpdir(), "ez-private-page-"));

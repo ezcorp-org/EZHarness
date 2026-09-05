@@ -33,6 +33,8 @@ const MODULE_PATHS = [
   "../../extensions/project-binding",
   "../../extensions/cli-control",
   "../../db/queries/extension-releases",
+  "../../db/queries/extension-event-receipts",
+  "../../extensions/release-process",
   "../../../scripts/migrate-extension-v4",
   "../../extensions/extension-lifecycle-service",
   "../../extensions/source-import",
