@@ -8,7 +8,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import { releaseRuntimeFixture } from "./release-runtime";
 import { getTestDb } from "./test-pglite";
 import { conversations, projects, projectMembers, users } from "../../db/schema";
-import { createExtension } from "../../db/queries/extensions";
+import { createExtension, getExtension } from "../../db/queries/extensions";
 import { getStorageValue } from "../../db/queries/extension-storage";
 import { ReleaseProcess } from "../../extensions/release-process";
 import { ExtensionRegistry } from "../../extensions/registry";
@@ -91,6 +91,7 @@ export async function buildFirstPartyRelease(name: string) {
         };
         return {
           id, process, notifications, failures, projectRoot: directory, dataRoot: data, conversationId: conversation!.id, starts: () => starts,
+          installed: () => getExtension(id),
           call: invoke,
           async tool(tool: string, input: Record<string, unknown>) { return (await invoke("tools/call", { name: tool, arguments: input })).result as { isError: boolean; content: Array<{ type: string; text?: string }> }; },
           async storage(key: string) { return (await getStorageValue(id, "global", null, key))?.value; },

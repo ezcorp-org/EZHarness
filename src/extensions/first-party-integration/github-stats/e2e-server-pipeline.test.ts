@@ -43,4 +43,5 @@ test("five tool-level denials do not disable later invocations", async () => {
   for (let index = 0; index < 5; index++) await denied("repo-stats", { owner: "octocat", repo: `repo-${index}` });
   expect(session.starts()).toBe(5);
   expect(session.process.inFlightCallCount).toBe(0);
+  expect(await session.installed()).toMatchObject({ enabled: true, consecutiveFailures: 0 });
 }, 90_000);

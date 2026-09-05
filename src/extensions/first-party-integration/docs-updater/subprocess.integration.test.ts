@@ -1,182 +1,44 @@
-import { fileURLToPath as fixtureFilePath } from "node:url";
-const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/docs-updater/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/docs-updater/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/docs-updater/subprocess.integration.test.ts", import.meta.url).href };
-/**
- * docs-updater — REAL subprocess smoke (transport proof).
- *
- * Spawns the example through the real `ExtensionProcess` transport under the
- * production sandbox-preload, seeds a REAL throwaway git repo, and drives the
- * manual trigger to prove the leg in-process mocks cannot: the deterministic
- * `git`-cursor check (real `git` under the shell grant) → the deferred agent
- * dispatch (the real `ezcorp/spawn-assignment` reverse RPC) → the deferred run
- * persisted to the host storage RPC. It STOPS before the agent completes, so
- * no `gh` / network is ever touched — the approve/decline/finalize flow is
- * proven deterministically by `index.integration.test.ts` against the real
- * primitive with an injected offline `gh`.
- *
- * Isolated file: `mock.module("../../../../src/db/queries/extensions")` must
- * run BEFORE the subprocess module is imported.
- */
-import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
-import { join } from "node:path";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildFirstPartyRelease, seedFirstPartyGit } from "../../../__tests__/helpers/first-party-release";
+import { closeTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/helpers/test-pglite";
 
-mock.module("../../../db/queries/extensions", () => ({
-  incrementFailures: async () => 1,
-  resetFailures: async () => {},
-  disableExtension: async () => {},
-}));
+mockDbConnection();
+afterAll(closeTestDb);
 
-afterAll(() => restoreModuleMocks());
-
-import { ExtensionProcess } from "../../subprocess";
-import { restoreModuleMocks } from "@ezcorp/sdk/test";
-import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
-import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
-
-const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
-
-interface HostState {
-  kv: Map<string, unknown>;
-  spawns: Record<string, unknown>[];
-}
-
-function ok(id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function handleStorage(state: HostState, p: Record<string, unknown>): unknown {
-  const action = p.action as string;
-  const key = p.key as string;
-  if (action === "get") return state.kv.has(key) ? { value: state.kv.get(key), exists: true } : { value: null, exists: false };
-  if (action === "set") { state.kv.set(key, JSON.parse(JSON.stringify(p.value))); return { ok: true, sizeBytes: 0 }; }
-  if (action === "delete") return { deleted: state.kv.delete(key) };
-  if (action === "list") return { keys: [...state.kv.keys()].filter((k) => k.startsWith((p.prefix as string) ?? "")) };
-  return { ok: true };
-}
-
-async function seedRepo(repo: string): Promise<void> {
-  const git = async (...args: string[]) => {
-    const p = Bun.spawn(["git", "-C", repo, ...args], {
-      stdout: "pipe", stderr: "pipe",
-      env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
-    });
-    await p.exited;
-  };
-  await git("init", "-q");
-  await git("config", "user.email", "probe@example.test");
-  await git("config", "user.name", "Probe");
-  writeFileSync(join(repo, "README.md"), "# probe\n");
-  await git("add", "README.md");
-  await git("commit", "-q", "-m", "feat: seed the probe repo");
-}
-
-describe("docs-updater — real subprocess", () => {
-  let proc: ExtensionProcess | undefined;
-  let state: HostState;
-  let projectRoot: string;
-  let originalCwd: string;
-
-  beforeEach(async () => {
-    projectRoot = join(tmpdir(), `du-sub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    mkdirSync(join(projectRoot, ".ezcorp", "extension-data"), { recursive: true });
-    // Keep EZCORP_PROJECT_ROOT UNSET (setting it trips the bwrap wrap that
-    // can't run in this container). The loop resolves the repo from the
-    // configured `repo_path` setting.
-    originalCwd = process.cwd();
-    process.chdir(projectRoot);
-    await seedRepo(projectRoot);
-    state = { kv: new Map(), spawns: [] };
+test("isolated manual trigger reads real git, spawns once and retains the deferred cursor", async () => {
+  await setupTestDb();
+  const root = await mkdtemp(join(tmpdir(), "docs-release-project-"));
+  const release = await buildFirstPartyRelease("docs-updater");
+  const spawns: Record<string, unknown>[] = [];
+  const session = await release.session({
+    projectRoot: root,
+    settings: { enabled: true, repo_path: "/project", agent_name: "coder", write_paths: "README.md,docs/", auto_merge: false },
+    async handler(request) {
+      if (request.method !== "ezcorp/spawn-assignment") return;
+      spawns.push(request.params ?? {});
+      return { jsonrpc: "2.0", id: request.id, result: { v: 1, subConversationId: "sub-e2e", agentRunId: "agent-run-e2e", taskId: "task-e2e", assignmentId: "assign-e2e" } };
+    },
   });
-
-  afterEach(() => {
-    proc?.kill();
-    proc = undefined;
-    process.chdir(originalCwd);
-    rmSync(projectRoot, { recursive: true, force: true });
-  });
-
-  function spawnWired(): ExtensionProcess {
-    const extId = "docs-updater-" + Math.random().toString(36).slice(2, 8);
-    const env = buildHarnessEnv(extId, { shell: true, filesystem: true });
-    const fsHandler = makeFsRpcHandler(projectRoot);
-    const p = new ExtensionProcess(extId, ENTRYPOINT, env, {
-      persistent: true,
-      shellAllowed: true,
-      callTimeoutMs: 20_000,
-    });
-    p.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      if (req.method === "ezcorp/storage") return ok(req.id, handleStorage(state, params));
-      if (req.method === "ezcorp/spawn-assignment") {
-        state.spawns.push(params);
-        return ok(req.id, {
-          v: 1,
-          subConversationId: "sub-e2e",
-          agentRunId: "agent-run-e2e",
-          taskId: "task-e2e",
-          assignmentId: "assign-e2e",
-        });
-      }
-      if (req.method === "ezcorp/invoke") {
-        const tool = (params as { tool?: string }).tool;
-        if (tool === "runtime.settings.getMine") {
-          return ok(req.id, {
-            enabled: true,
-            repo_path: projectRoot,
-            agent_name: "coder",
-            write_paths: "README.md,docs/",
-            auto_merge: false,
-          });
-        }
-        return ok(req.id, {});
-      }
-      const fsRes = fsHandler(req);
-      if (fsRes) return fsRes;
-      return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `no: ${req.method}` } };
-    });
-    return p;
-  }
-
-  test("manual trigger: check proceeds → spawns the agent → deferred run persists", async () => {
-    proc = spawnWired();
-    proc.ensureRunning();
-    await new Promise((r) => setTimeout(r, 200));
-
-    const first = await proc.call("tools/call", { name: "run_docs_update", arguments: {} });
-    const body = JSON.parse(((first.result as { content?: { text?: string }[] })?.content?.[0]?.text) ?? "{}") as {
-      status?: string;
-      skipped?: boolean;
-      runId?: string;
-    };
+  try {
+    await seedFirstPartyGit(root);
+    const first = await session.tool("run_docs_update", {});
+    expect({ first, failures: session.failures }).toMatchObject({ first: { isError: false } });
+    const body = JSON.parse(first.content[0]?.text ?? "{}");
     expect(body.skipped).toBeUndefined();
     expect(body.status).toBe("drafting");
     expect(body.runId).toBe("agent-run-e2e");
-
-    // The real spawn RPC fired with the preset docs prompt.
-    expect(state.spawns.length).toBe(1);
-    expect(String((state.spawns[0] as { task?: string }).task)).toContain("update the project documentation");
-
-    // The deferred run persisted (per-run + index keys) at `drafting`.
-    const ids = state.kv.get("loop:docs-updater:index") as string[] | undefined;
-    expect(ids).toEqual(["agent-run-e2e"]);
-    const run = state.kv.get("loop:docs-updater:run:agent-run-e2e") as { status: string } | undefined;
-    expect(run?.status).toBe("drafting");
-
-    // The cursor advanced to HEAD (at-most-once).
-    const cursor = state.kv.get("loop:docs-updater:cursor") as string | undefined;
-    expect(cursor).toMatch(/^[0-9a-f]{40}$/);
-
-    // ── second run → check declines (no new commits) → skip ──
-    const second = await proc.call("tools/call", { name: "run_docs_update", arguments: {} });
-    const secondBody = JSON.parse(((second.result as { content?: { text?: string }[] })?.content?.[0]?.text) ?? "{}") as {
-      skipped?: boolean;
-      reason?: string;
-    };
-    expect(secondBody.skipped).toBe(true);
-    expect(secondBody.reason).toBe("no_new_commits");
-    // No second spawn, still one run.
-    expect(state.spawns.length).toBe(1);
-    expect((state.kv.get("loop:docs-updater:index") as string[]).length).toBe(1);
-  });
-});
+    expect(spawns).toHaveLength(1);
+    expect(String(spawns[0]?.task)).toContain("update the project documentation");
+    expect(await session.storage("loop:docs-updater:index")).toEqual(["agent-run-e2e"]);
+    expect(await session.storage("loop:docs-updater:run:agent-run-e2e")).toMatchObject({ status: "drafting" });
+    expect(await session.storage("loop:docs-updater:cursor")).toMatch(/^[0-9a-f]{40}$/);
+    const second = await session.tool("run_docs_update", {});
+    expect(second).toMatchObject({ isError: false });
+    expect(JSON.parse(second.content[0]?.text ?? "{}")).toMatchObject({ skipped: true, reason: "no_new_commits" });
+    expect(spawns).toHaveLength(1);
+    expect(await session.storage("loop:docs-updater:index")).toEqual(["agent-run-e2e"]);
+  } finally { await session.close(); await release.close(); await rm(root, { recursive: true, force: true }); }
+}, 120_000);
