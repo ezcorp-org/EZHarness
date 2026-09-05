@@ -682,6 +682,18 @@ test.describe("Extensions Toggle Round-Trip", () => {
 test.describe("Extension Detail Page", () => {
 	const proj = makeProject({ id: "proj-1" });
 
+	async function readPermissions(page: import("@playwright/test").Page) {
+		const section = page.getByRole("region", { name: "Release permissions", exact: true });
+		await expect(section).toBeVisible();
+		const records = section.locator("pre code");
+		await expect(records).toHaveCount(2);
+		return {
+			section,
+			declared: JSON.parse(await records.nth(0).innerText()),
+			granted: JSON.parse(await records.nth(1).innerText()),
+		};
+	}
+
 	test("shows extension name, version, and description", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({
 			id: "ext-1",
@@ -854,7 +866,7 @@ test.describe("Extension Detail Page", () => {
 		await expect(page.getByText("No tools defined")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("shows Permissions section", async ({ page, mockApi }) => {
+	test("shows exact declared permissions separately from current grants", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({
 			id: "ext-1",
 			permissions: {
@@ -874,16 +886,15 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		// "Permissions" is both a section heading and part of the "Save
-		// Permissions" button label — pin to the heading explicitly.
-		await expect(page.getByRole("heading", { name: "Permissions" })).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Network Access")).toBeVisible();
-		await expect(page.getByText("Filesystem Access")).toBeVisible();
-		await expect(page.getByText("Shell Access")).toBeVisible();
-		await expect(page.getByText("Environment Variables")).toBeVisible();
+		const { section, declared, granted } = await readPermissions(page);
+		await expect(section.getByRole("heading", { name: "Declared permissions", exact: true })).toBeVisible();
+		await expect(section.getByRole("heading", { name: "Current grants", exact: true })).toBeVisible();
+		expect(declared).toEqual(detail.manifest.permissions);
+		expect(granted).toEqual(detail.grantedPermissions);
+		await expect(section.locator("input, select, textarea, [contenteditable=true]")).toHaveCount(0);
 	});
 
-	test("shows network domains with checkboxes", async ({ page, mockApi }) => {
+	test("shows declared and approved network domains without editable checkboxes", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({
 			id: "ext-1",
 			permissions: {
@@ -892,6 +903,7 @@ test.describe("Extension Detail Page", () => {
 				shell: false,
 				env: [],
 			},
+			grantedPermissions: { network: ["api.openai.com"], grantedAt: {} },
 		});
 
 		await mockApi({
@@ -903,11 +915,13 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		await expect(page.getByText("api.openai.com")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("api.anthropic.com")).toBeVisible();
+		const { section, declared, granted } = await readPermissions(page);
+		expect(declared.network).toEqual(["api.openai.com", "api.anthropic.com"]);
+		expect(granted.network).toEqual(["api.openai.com"]);
+		await expect(section.getByRole("checkbox")).toHaveCount(0);
 	});
 
-	test("shows shell Requested badge when extension requests shell", async ({ page, mockApi }) => {
+	test("distinguishes a declared shell capability from an unapproved grant", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({
 			id: "ext-1",
 			permissions: {
@@ -927,12 +941,13 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		// "None requested" appears for the non-shell permission rows; use an
-		// exact match so only the red "Requested" badge resolves.
-		await expect(page.getByText("Requested", { exact: true })).toBeVisible({ timeout: 5000 });
+		const { section, declared, granted } = await readPermissions(page);
+		expect(declared.shell).toBe(true);
+		expect(granted.shell).toBe(false);
+		await expect(section.getByRole("checkbox")).toHaveCount(0);
 	});
 
-	test("shows 'None requested' when no network domains", async ({ page, mockApi }) => {
+	test("shows empty capability declarations and grants without implying access", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({
 			id: "ext-1",
 			permissions: { network: [], filesystem: [], shell: false, env: [] },
@@ -947,12 +962,12 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		// "None requested" appears multiple times (network, filesystem, env)
-		const noneTexts = page.getByText("None requested");
-		await expect(noneTexts.first()).toBeVisible({ timeout: 5000 });
+		const { declared, granted } = await readPermissions(page);
+		expect(declared).toEqual({ network: [], filesystem: [], shell: false, env: [] });
+		expect(granted).toEqual({ network: [], filesystem: [], shell: false, env: [], grantedAt: {} });
 	});
 
-	test("shows Save Permissions button", async ({ page, mockApi }) => {
+	test("offers release review instead of direct permission mutation", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({ id: "ext-1" });
 
 		await mockApi({
@@ -964,10 +979,14 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		await expect(page.getByRole("button", { name: "Save Permissions" })).toBeVisible({ timeout: 5000 });
+		const { section } = await readPermissions(page);
+		await expect(section.getByRole("button", { name: "Review release and permissions", exact: true })).toBeVisible();
+		await expect(section.getByRole("button", { name: "Review release and permissions", exact: true })).toBeEnabled();
+		await expect(page.getByRole("button", { name: "Save Permissions", exact: true })).toHaveCount(0);
+		await expect(section.getByText("Permissions belong to an exact built release. Changes require a new review and human approval. Disable the extension to stop access.", { exact: true })).toBeVisible();
 	});
 
-	test("shows Sensitive Operations section", async ({ page, mockApi }) => {
+	test("does not expose independent always-allow controls for sensitive operations", async ({ page, mockApi }) => {
 		const detail = makeExtensionDetail({ id: "ext-1" });
 
 		await mockApi({
@@ -979,11 +998,13 @@ test.describe("Extension Detail Page", () => {
 		});
 		await page.goto("/extensions/ext-1");
 
-		// "Sensitive Operations" appears as the heading and again in the
-		// section's description paragraph — pin to the heading.
-		await expect(page.getByRole("heading", { name: "Sensitive Operations" })).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Always allow shell commands")).toBeVisible();
-		await expect(page.getByText("Always allow filesystem writes")).toBeVisible();
+		const { section, declared, granted } = await readPermissions(page);
+		expect(declared.shell).toBe(false);
+		expect(granted.filesystem).toEqual([]);
+		await expect(page.getByRole("heading", { name: "Sensitive Operations", exact: true })).toHaveCount(0);
+		await expect(page.getByText("Always allow shell commands", { exact: true })).toHaveCount(0);
+		await expect(page.getByText("Always allow filesystem writes", { exact: true })).toHaveCount(0);
+		await expect(section.getByRole("button", { name: "Review release and permissions", exact: true })).toBeVisible();
 	});
 
 	test("shows 'Extension not found' when extension does not exist", async ({ page, mockApi }) => {
