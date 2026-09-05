@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "drizzle-orm";
-import { ContractError, type InvocationContext } from "@ezcorp/extension-contract";
+import { ContractError, MAX_RUNTIME_LOCK_KEYS, validateRuntimeLockKey, validateRuntimeLockRequest, type InvocationContext } from "@ezcorp/extension-contract";
 import { getDb, type DbTransaction } from "../db/connection";
 import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
@@ -12,19 +12,8 @@ interface LockRow extends Fence { workerId: string; releaseId: string; generatio
 const columns = sql`installation_id AS "installationId", lock_key AS key, fence, invocation_id AS "invocationId", worker_id AS "workerId", release_id AS "releaseId", generation, principal_id AS "principalId", scope_id AS "scopeId", deadline, state, effects`;
 const activeEffects = new AsyncLocalStorage<readonly Fence[]>();
 const sessions = new Map<string, InvocationLocks>();
-export const MAX_RUNTIME_LOCK_KEYS = 8;
+export { MAX_RUNTIME_LOCK_KEYS, validateRuntimeLockRequest } from "@ezcorp/extension-contract";
 const maxEffects = 32;
-
-function keyValue(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,127}$/.test(value)) throw new ContractError("INVALID_LOCK", "Lock keys require 1-128 stable letters, digits or . _ : / - characters");
-  return value;
-}
-
-export function validateRuntimeLockRequest(method: string, input: Record<string, unknown>): string {
-  const key = keyValue(input.key);
-  if (method !== "ezcorp/lock.acquire" && method !== "ezcorp/lock.release" || Object.keys(input).some(name => name !== "key" && name !== "fence") || method === "ezcorp/lock.acquire" && input.fence !== undefined || method === "ezcorp/lock.release" && (typeof input.fence !== "string" || !input.fence || input.fence.length > 128)) throw new ContractError("INVALID_LOCK", "Invalid lock request");
-  return key;
-}
 
 async function rowsFor(database: MigrationDb, fence: Pick<Fence, "installationId" | "key">): Promise<LockRow | undefined> {
   return releaseRows<LockRow>(await database.execute(sql`SELECT ${columns} FROM extension_runtime_locks WHERE installation_id = ${fence.installationId} AND lock_key = ${fence.key} FOR UPDATE`))[0];
@@ -152,7 +141,7 @@ export async function inspectRuntimeLocks(installationId: string): Promise<LockR
 }
 
 export async function recoverRuntimeLock(actor: LifecycleActor, installationId: string, key: unknown, expectedFence: unknown, acknowledgeUncertainEffects: unknown): Promise<void> {
-  const lockKey = keyValue(key);
+  const lockKey = validateRuntimeLockKey(key);
   if (actor.kind !== "human" || acknowledgeUncertainEffects !== true || typeof expectedFence !== "string") throw new ContractError("HUMAN_ADMIN_REQUIRED", "Human administrator acknowledgement of reconciled effects is required");
   await getDb().transaction(async (transaction: DbTransaction) => {
     const [user] = releaseRows<{ role: string; status: string }>(await transaction.execute(sql`SELECT role, status FROM users WHERE id = ${actor.principalId} FOR SHARE`));

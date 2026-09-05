@@ -51,7 +51,7 @@ test("v4 lock validation rejects malformed responses, unsafe keys and expired wa
   for (const response of [null, [], {}, { acquired: "yes" }, { acquired: true }, { acquired: true, fence: "" }, { acquired: true, fence: "x".repeat(129) }]) {
     await expect(withExtensionContext(hostContext(async () => response), () => withLock("counter", async () => 1))).rejects.toThrow("Invalid lock");
   }
-  await expect(withExtensionContext(hostContext(async () => null), () => withLock("../unsafe", async () => 1))).rejects.toThrow("stable lock key");
+  await expect(withExtensionContext(hostContext(async () => null), () => withLock("../unsafe", async () => 1))).rejects.toThrow("Lock keys require");
   const expired = hostContext(async () => null);
   expired.invocation.deadline = 0;
   await expect(withExtensionContext(expired, () => withLock("counter", async () => 1))).rejects.toThrow("bounded deadline");

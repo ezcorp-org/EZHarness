@@ -16,14 +16,14 @@
  * same entry for every subsequent caller without caring what they return.
  */
 import { getExtensionContext } from "../v4/context";
-import { ContractError } from "@ezcorp/extension-contract";
+import { ContractError, validateRuntimeLockKey } from "@ezcorp/extension-contract";
 
 const tails = new Map<string, Promise<unknown>>();
 
 async function hostLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const context = getExtensionContext();
   if (!context) return fn();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,127}$/.test(key)) throw new ContractError("INVALID_LOCK", "Provide a stable lock key of 1-128 safe characters");
+  validateRuntimeLockKey(key);
   const deadline = Math.min(context.invocation.deadline, Date.now() + 30_000);
   let fence: string | undefined;
   while (!fence) {
