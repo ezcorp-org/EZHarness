@@ -1,19 +1,6 @@
-/**
- * Server-handler unit tests for /api/extensions (+server.ts).
- *
- * Covers:
- *  - GET 401 when locals.user missing
- *  - POST 401 when locals.user missing (requireRole throws)
- *  - POST 403 when non-admin authenticated
- *  - POST 400 on validation failures (missing source, bad enum, missing path/repo/url)
- *
- * The happy paths hit installFromLocal/installFromGit/installFromGitHub,
- * ExtensionRegistry.reload(), and DB audit-log — all mocked at their
- * module boundaries so we stay off PGlite and the extension runtime.
- */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   listExtensions: vi.fn(),
@@ -154,15 +141,15 @@ describe("POST /api/extensions", () => {
   });
 
   test("rejects unauthenticated request with 401", async () => {
-    const res = await POST(
+    const res = await expectThrownResponse(() => POST(
       makeEvent({ locals: {}, body: { source: "local", path: "/tmp/x" }, method: "POST" }),
-    );
+    ), 401);
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Authentication required");
   });
 
-  test("rejects non-admin authenticated user with 403", async () => {
+  test("does not execute source for a non-admin user", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: regularUser },
@@ -170,21 +157,22 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Insufficient permissions");
+    expect(await Promise.resolve(body)).toMatchObject({ code: "extension_v4_required" });
+    expect(installFromLocal).not.toHaveBeenCalled();
   });
 
-  test("returns 400 when source is missing", async () => {
+  test("returns migration response when source is missing", async () => {
     const res = await POST(
       makeEvent({ locals: { user: adminUser }, body: {}, method: "POST" }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(typeof body.error).toBe("string");
+    expect(body).toMatchObject({ code: "extension_v4_required" });
   });
 
-  test("returns 400 when source is an invalid enum value", async () => {
+  test("returns migration response when source is an invalid enum value", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: adminUser },
@@ -192,10 +180,10 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  test("returns 400 when source=local and path is missing", async () => {
+  test("returns migration response when source=local and path is missing", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: adminUser },
@@ -203,10 +191,10 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  test("returns 400 when source=github and repo is missing", async () => {
+  test("returns migration response when source=github and repo is missing", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: adminUser },
@@ -214,10 +202,10 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  test("returns 400 when source=git and url is missing", async () => {
+  test("returns migration response when source=git and url is missing", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: adminUser },
@@ -225,10 +213,10 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  test("returns 400 when source=git and url starts with '-'", async () => {
+  test("returns migration response when source=git and url starts with '-'", async () => {
     const res = await POST(
       makeEvent({
         locals: { user: adminUser },
@@ -236,6 +224,6 @@ describe("POST /api/extensions", () => {
         method: "POST",
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 });
