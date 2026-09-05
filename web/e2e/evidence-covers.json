@@ -1,4 +1,8 @@
 {
+  "web/e2e/real-auth/extension-release-gate.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/real-auth/extension-project-authority.spec.ts": [
     "web/src/routes/(app)/extensions/author/**",
     "web/src/routes/(app)/extensions/project-proposals/**"

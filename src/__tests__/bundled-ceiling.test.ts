@@ -37,6 +37,8 @@ interface CapturedAudit {
 }
 
 const auditEntries: CapturedAudit[] = [];
+const stageSources = mock(async (_entries: unknown[]) => undefined);
+mock.module("../extensions/bundled-bootstrap", () => ({ stageBundledExtensionSources: stageSources }));
 
 mock.module("../db/queries/audit-log", () => ({
   insertAuditEntry: async (
@@ -84,6 +86,7 @@ const { EXT_AUDIT_ACTIONS } = await import("../extensions/audit-actions");
 beforeEach(() => {
   extStore.reset();
   auditEntries.length = 0;
+  stageSources.mockClear();
 });
 
 // ── (a) every bundled extension's declared permissions ⊆ ceiling ──────
@@ -571,17 +574,16 @@ describe("install integration — bundled.ts clamps at install + writes audit", 
   // `BUNDLED_INSTALLED` audit row and NO `BUNDLED_CEILING_CLAMP` row,
   // because the ceiling was authored to MATCH today's manifests.
 
-  test("first-boot install of all bundled extensions produces NO clamp audit rows", async () => {
+  test("first boot delegates all source candidates without installing or granting permissions", async () => {
     await ensureBundledExtensions();
     const clampRows = auditEntries.filter(
       (r) => r.action === EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP,
     );
     expect(clampRows).toEqual([]);
-    // And every bundled extension is installed + enabled.
-    expect(store.size).toBeGreaterThan(0);
-    for (const row of store.values()) {
-      expect(row.enabled).toBe(true);
-    }
+    expect(stageSources).toHaveBeenCalledTimes(1);
+    expect(stageSources).toHaveBeenCalledWith(resolveBundledExtensions());
+    expect(store.size).toBe(0);
+    expect(auditEntries).toEqual([]);
   });
 
   test("clampToBundledCeiling is the only narrowing surface — direct call records intent", () => {
