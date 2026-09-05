@@ -86,7 +86,7 @@ async function verifiedDelegationOrigin(authority: WorkflowExecutionAuthority, d
   const origin = consent.version === 1 ? consent.release : consent.origin.release;
   if (origin.installationId !== row.extensionId) return null;
   if (consent.version === 2 && (consent.origin.workflowName !== row.workflowName || consent.origin.ownerKind !== row.ownerKind || consent.origin.ownerId !== authority.runAs || consent.origin.projectId !== row.projectId)) return null;
-  const stamps = [origin, ...(consent.version === 1 ? [] : consent.releases.map(group => group.release))];
+  const stamps = [...new Map([origin, ...(consent.version === 1 ? [] : consent.releases.map(group => group.release))].map(stamp => [canonicalJson(stamp), stamp])).values()];
   for (const stamp of stamps) {
     if (row.ownerKind === "service" && stamp.ownerId !== row.consentedByUserId || !await releaseStampCanAccess(stamp, row.consentedByUserId, row.projectId, database)) return null;
   }

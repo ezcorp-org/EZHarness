@@ -1,7 +1,7 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 import { resolveCallProvenance } from "../call-provenance";
-import { assertServiceCapabilities } from "../service-capabilities";
-import { withRuntimeToolContext } from "../runtime-tool-context";
+import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { isSealedServiceInvocation } from "../service-invocation";
 import { isRuntimeInvokeMethod } from "../runtime-invoke-handler";
 import type { ExtensionRegistry } from "../registry";
 import type { PermissionEngine } from "../permission-engine";
@@ -1030,14 +1030,14 @@ export async function routeReverseRpc(
   const token = resolveCallProvenance(typeof tokenId === "string" ? tokenId : undefined);
   if (token?.serviceInvocation) {
     try {
+      if (!isSealedServiceInvocation(token.serviceInvocation)) throw new Error("Service reverse RPC requires a sealed extension origin");
       if (token.actorExtensionId !== extensionId || token.onBehalfOf !== null) throw new Error("Service request does not match its host token");
       if (typeof token.invocationGuard !== "function") throw new Error("Service tool authority is unavailable");
-      await token.invocationGuard();
+      if (getRuntimeToolContext()?.invocationGuard !== token.invocationGuard) await token.invocationGuard();
       const permitted = ["ezcorp/storage", "ezcorp/invoke", "ezcorp/network.fetch", "ezcorp/network.read", "ezcorp/fs.read", "ezcorp/fs.write", "ezcorp/fs.list", "ezcorp/fs.stat", "ezcorp/fs.exists", "ezcorp/fs.mkdir", "ezcorp/fs.unlink"];
       if (!permitted.includes(req.method)) throw new Error("This capability requires a human or conversation-owned context");
       if (req.method === "ezcorp/storage" && params?.scope !== undefined && params.scope !== "global") throw new Error("Service storage is limited to the installation scope");
       if (req.method === "ezcorp/invoke" && typeof params?.tool === "string" && isRuntimeInvokeMethod(params.tool)) throw new Error("Service calls cannot invoke conversation-owned runtime tools");
-      await assertServiceCapabilities(token.serviceInvocation, extensionId, []);
       return await withRuntimeToolContext({ serviceInvocation: token.serviceInvocation, invocationGuard: token.invocationGuard }, () => REVERSE_RPC_ROUTES[req.method]!(self, extensionId, req));
     } catch (error) {
       return { jsonrpc: "2.0", id: req.id, error: { code: -32106, message: error instanceof Error ? error.message : "Service capability unavailable" } };

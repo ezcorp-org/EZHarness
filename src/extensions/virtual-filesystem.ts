@@ -5,7 +5,7 @@ import type { FsHandlerContext } from "./fs-handler";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { extensionDataDir, isRemovableDataDir } from "./extension-data-dir";
 import { isReservedSensitivePath } from "./permissions";
-import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
+import { isSealedServiceInvocation, type ServiceInvocation } from "./service-invocation";
 import { assertServiceCapabilities } from "./service-capabilities";
 
 export type VirtualFsOperation = "read" | "write" | "list" | "stat" | "exists" | "mkdir" | "unlink";
@@ -19,13 +19,11 @@ export const productionFilesystemPorts: VirtualFilesystemPorts = {
   async roots(context) {
     if (!isRemovableDataDir(context.extensionName)) throw new Error("Invalid extension data namespace");
     if (context.serviceInvocation) {
-      if (!isServiceInvocation(context.serviceInvocation)) throw new Error("Invalid service filesystem authority");
-      await assertServiceCapabilities(context.serviceInvocation, context.extensionId, []);
+      if (!isSealedServiceInvocation(context.serviceInvocation)) throw new Error("Invalid service filesystem authority");
       const data = extensionDataDir(context.extensionName);
       if (!context.serviceInvocation.projectId) return { data };
       const { getProject } = await import("../db/queries/projects");
       const project = await getProject(context.serviceInvocation.projectId);
-      await context.serviceInvocation.assertActive();
       if (!project?.path) throw new Error("Service project root unavailable");
       return { data, project: project.path };
     }
@@ -111,8 +109,10 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
     const actual = resolve(root, ...path.parts);
     if (await isReservedSensitivePath(actual)) return fail(-32001, "The path is reserved by the host.");
     const needed = [{ kind: writing ? "fs.write" : operation === "list" ? "fs.list" : operation === "stat" ? "fs.stat" : "fs.read", value: path.virtual }] as const;
-    const decision = await context.engine.authorize({ extensionId: context.extensionId, userId: context.serviceInvocation ? null : context.userId, conversationId: context.serviceInvocation ? null : context.conversationId, serviceInvocation: context.serviceInvocation }, needed);
-    if (decision.decision !== "allow") return fail(-32001, "Filesystem access requires an approved capability.");
+    if (!context.serviceInvocation) {
+      const decision = await context.engine.authorize({ extensionId: context.extensionId, userId: context.userId, conversationId: context.conversationId }, needed);
+      if (decision.decision !== "allow") return fail(-32001, "Filesystem access requires an approved capability.");
+    }
     authorizedPath = path.virtual;
     if (writing && path.parts.length === 0 && operation !== "mkdir") return fail(-32001, "A virtual root cannot be replaced or removed.");
     const recursive = operation === "mkdir" && params?.recursive === true;
@@ -148,7 +148,6 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
         result = { ...result, encoding: params?.encoding === "binary" ? "binary" : "utf-8", body: bytes.subarray(0, offset).toString("base64"), bytes: offset };
       } else if (operation === "write") {
         if (!stat.isFile() || !writeBytes) return fail(-32602, "Write requires a regular file.");
-        if (context.serviceInvocation) await assertServiceCapabilities(context.serviceInvocation, context.extensionId, needed);
         await file.truncate(0);
         await file.writeFile(writeBytes);
         result.bytes = writeBytes.byteLength;

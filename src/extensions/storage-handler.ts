@@ -23,6 +23,7 @@ import { getDb } from "../db/connection";
 import { verifyInvocationLocks, type InvocationGuard } from "./runtime-locks";
 import { getRuntimeToolContext } from "./runtime-tool-context";
 import { assertServiceCapabilities } from "./service-capabilities";
+import { isSealedServiceInvocation } from "./service-invocation";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -173,6 +174,8 @@ export async function handleStorageRpc(
   const params = (req.params ?? {}) as Record<string, unknown>;
   const isBuiltin = extensionId === "builtin";
   const repository = ctx.repository ?? productionStorageRepository;
+  const serviceInvocation = getRuntimeToolContext()?.serviceInvocation;
+  if (serviceInvocation && !isSealedServiceInvocation(serviceInvocation)) return rpcError(req.id, -32106, "Service storage requires a sealed extension origin");
   if (!isBuiltin && Number(ctx.manifest.schemaVersion) === 4 && (!ctx.manifest.permissions.storage || !ctx.grantedPermissions.storage)) return rpcError(req.id, -32001, "Storage permission not granted");
 
   // Phase 6: PDP is the sole gate. When `ctx.engine` is wired, the
@@ -183,7 +186,7 @@ export async function handleStorageRpc(
   // remains as the fallback for context that pre-dates the PDP
   // wiring (some unit tests).
   if (!isBuiltin) {
-    if (ctx.engine) {
+    if (ctx.engine && !serviceInvocation) {
       const decision = await ctx.engine.authorize(
         {
           extensionId,
@@ -209,7 +212,6 @@ export async function handleStorageRpc(
   if (!action) return rpcError(req.id, -32602, "Missing 'action' parameter");
 
   const scope = (params.scope as Scope) ?? "global";
-  const serviceInvocation = getRuntimeToolContext()?.serviceInvocation;
   if (serviceInvocation && scope !== "global") return rpcError(req.id, -32106, "Service storage is limited to the installation scope");
   if (!["global", "conversation", "user"].includes(scope)) {
     return rpcError(req.id, -32602, "Invalid scope: must be global, conversation, or user");
