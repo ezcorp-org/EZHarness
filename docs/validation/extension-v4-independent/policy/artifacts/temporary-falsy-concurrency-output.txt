@@ -1,0 +1,23 @@
+Captured tool output; copied verbatim from the original bounded run. This is not a reconstructed rerun.
+
+Reviewed runtime object: ddd024e5b1e724d33963c8ea2c83aad7e18af022
+Equivalent source commit: 1fdf454d059a89644214eb2422f5426e5d9b0751
+Bun: 1.3.14 (0d9b296a)
+Command:
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock timeout 20s /tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun test ./packages/@ezcorp/sdk/src/v4/policy-audit-temp.test.ts --timeout 5000
+Exit: 0
+
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/sdk/src/v4/policy-audit-temp.test.ts:
+(pass) retains thrown undefined after draining an admitted request [4.24ms]
+(pass) retains thrown null after draining an admitted request [0.15ms]
+(pass) retains thrown zero after draining an admitted request [0.10ms]
+(pass) retains thrown false after draining an admitted request [0.08ms]
+(pass) retains thrown Error after draining an admitted request [0.08ms]
+(pass) two concurrent invocations drain only their own admitted request [0.35ms]
+
+ 6 pass
+ 0 fail
+ 13 expect() calls
+Ran 6 tests across 1 file. [537.00ms]

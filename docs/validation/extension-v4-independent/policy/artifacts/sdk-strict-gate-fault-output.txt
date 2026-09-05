@@ -1,0 +1,15 @@
+Captured tool outputs; copied verbatim from the original mutation and restored runs. These are not reconstructed reruns.
+
+Reviewed strict-gate object: 1987e2a219fcf8c8d1ed87a4de55e4366e27dd67
+Mutation: removed the legs-only `exit 1` for `SDK_LEG_EXIT != 0` from scripts/test-coverage.sh.
+Command used Bun 1.3.14 with `flock --close` and test-name pattern `SDK assertion failures execute non-zero leg-only and full verdicts`.
+Mutation exit: 1
+
+Expected shell exit: 1
+Received shell exit: 0
+Failure: src/__tests__/coverage-leg-lcov-guard.test.ts:749
+0 pass; 39 filtered out; 1 fail; 4 expect() calls.
+
+Restored command exit: 0
+(pass) test-coverage.sh: full mode reports BOTH verdicts > SDK assertion failures execute non-zero leg-only and full verdicts [10.46ms]
+1 pass; 39 filtered out; 0 fail; 13 expect() calls.

@@ -1,0 +1,6 @@
+diff --git a/src/extensions/v4/lifecycle.ts b/src/extensions/v4/lifecycle.ts
+index 3b3967f4..5df44475 100644
+--- a/src/extensions/v4/lifecycle.ts
++++ b/src/extensions/v4/lifecycle.ts
+@@ -250 +249,0 @@ export class ExtensionLifecycle {
+-    if (actor.kind !== "human") throw new LifecycleError("human_approval_required", "Only an authenticated human can decide release approval.");

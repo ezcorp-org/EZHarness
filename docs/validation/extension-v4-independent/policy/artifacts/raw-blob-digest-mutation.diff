@@ -1,0 +1,12 @@
+diff --git a/src/extensions/v4/blobs.ts b/src/extensions/v4/blobs.ts
+index 490b863e..1b657ed8 100644
+--- a/src/extensions/v4/blobs.ts
++++ b/src/extensions/v4/blobs.ts
+@@ -82,7 +82,6 @@ export class FileBlobStore implements BlobStore {
+       const stat = await handle.stat();
+       if (!stat.isFile() || stat.size > 192 * 1024 * 1024) throw new LifecycleError("artifact_corrupt", "Stored content is not a bounded regular file.");
+       const bytes = await handle.readFile();
+-      if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored content does not match its digest.");
+       return bytes;
+     } finally { await handle.close(); }
+   }

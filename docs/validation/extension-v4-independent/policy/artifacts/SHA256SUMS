@@ -1,0 +1,6 @@
+cb58f51bc8be88295929d631e248074c39563b6f96e8d842032be497a50af299  docs/validation/extension-v4-independent/policy/artifacts/policy-raw-receipts.tar.gz
+ed519139dc9516294f23ff1c453c49d760a5bf596d76e402b44c96d1ec86ef0d  docs/validation/extension-v4-independent/policy/artifacts/raw-blob-digest-mutation.diff
+dcc5ebfee8b698dfc3a017ea3758d060b728224e1189d680027ca412925b38fe  docs/validation/extension-v4-independent/policy/artifacts/raw-human-guard-mutation.diff
+0b2cbc4ae581530b4d25d47bc43e53dbd1a56e2a7879f1929f3f8d3de90f123c  docs/validation/extension-v4-independent/policy/artifacts/raw-sdk-admission-mutation.diff
+8f470b20cd4bf6d1492f7c6f6e5cc6826cfa3858c8d4a62646a2bc4c5c9b87a4  docs/validation/extension-v4-independent/policy/artifacts/raw-strict-sdk-gate-mutation.diff
+51874331c4535efddde7e2d6c7879e551e6607404b7dc899510366fc1cf3dfb1  docs/validation/extension-v4-independent/policy/artifacts/raw-temporary-falsy-concurrency-test.ts.txt
