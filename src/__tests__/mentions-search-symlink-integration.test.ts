@@ -89,6 +89,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 // later file's own mock still wins through the alias, and nothing is loaded
 // here at module-load time.
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", () => require("../../web/src/lib/server/workflow-access"));
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );

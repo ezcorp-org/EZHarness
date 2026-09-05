@@ -101,6 +101,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 // loaded here at module-load time. The mock-cleanup coverage meta-test
 // recognises this ≥2-registrations shape as the in-file restore pattern.
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", () => require("../../web/src/lib/server/workflow-access"));
   mock.module("$server/runtime/ez-actions/registry", () => require("../runtime/ez-actions/registry"));
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
