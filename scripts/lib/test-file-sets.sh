@@ -212,6 +212,7 @@ web_host_files() {
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/message-toolbar-extension-actions.test.ts \
       web/src/__tests__/iframe-card-logic.test.ts \
+      web/src/__tests__/dock-popout-url.test.ts \
       web/src/__tests__/extensions-data-route.test.ts \
       web/src/__tests__/ask-user-answer-route.test.ts \
       web/src/__tests__/file-organizer-hub-authority.integration.test.ts \
@@ -409,6 +410,7 @@ security_test_files() {
   {
     set +e
     find web/src/__tests__/security -name "*.test.ts"
+    printf '%s\n' web/src/lib/server/security/__tests__/payload.test.ts
   } 2>/dev/null | sort -u
 }
 
