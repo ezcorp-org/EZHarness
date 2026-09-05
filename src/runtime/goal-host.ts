@@ -49,10 +49,11 @@ import type { AgentExecutor } from "./executor";
 import type { EventBus } from "./events";
 import type { AgentEvents, AgentRun } from "../types";
 import * as convQueries from "../db/queries/conversations";
-import { deleteGoalMetadata, mergeConversationMetadata } from "../db/queries/conversation-metadata";
-import { getDb } from "../db/connection";
+import { deleteConversationMetadataKey, deleteGoalMetadata, mergeConversationMetadata } from "../db/queries/conversation-metadata";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../extensions/domain-event-outbox";
+import { getDb, type DbTransaction } from "../db/connection";
 import { conversations, messages, runs } from "../db/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { resolveModel as defaultResolveModel } from "../providers/router";
 import { getCredential as defaultGetCredential } from "../providers/credentials";
 import { dequeue as dequeuePendingDefault } from "./pending-messages";
@@ -188,7 +189,10 @@ export async function readPersistedGoal(
 export async function writePersistedGoal(
   conversationId: string,
   goal: PersistedGoal,
+  event?: DomainExtensionEvent,
+  expected?: PersistedGoal,
 ): Promise<void> {
+  if (event) return persistGoalTransition(conversationId, goal, event, expected);
   await mergeConversationMetadata(conversationId, { goal });
 }
 
@@ -197,8 +201,24 @@ export async function writePersistedGoal(
  *  key is already absent. */
 export async function deletePersistedGoal(
   conversationId: string,
+  event?: DomainExtensionEvent,
+  expected?: PersistedGoal,
 ): Promise<void> {
+  if (event) return persistGoalTransition(conversationId, undefined, event, expected);
   await deleteGoalMetadata(conversationId);
+}
+
+async function persistGoalTransition(conversationId: string, goal: PersistedGoal | undefined, event: DomainExtensionEvent, expected?: PersistedGoal): Promise<void> {
+  if (event.type !== "goal:update" || event.conversationId !== conversationId) throw new Error("Goal event does not match its conversation");
+  await getDb().transaction(async (transaction: DbTransaction) => {
+    const [conversation] = await transaction.select({ metadata: conversations.metadata }).from(conversations).where(eq(conversations.id, conversationId)).for("update");
+    if (!conversation) throw new Error("Goal conversation not found");
+    const current = (conversation.metadata as { goal?: PersistedGoal } | null)?.goal;
+    if (expected && (current?.createdAt !== expected.createdAt || current?.condition !== expected.condition)) throw new Error("Goal changed before the transition committed");
+    if (goal) await mergeConversationMetadata(conversationId, { goal }, transaction);
+    else await deleteConversationMetadataKey(conversationId, "goal", transaction);
+    await publishDomainEvent(transaction, event);
+  });
 }
 
 // ── Slash-prefix parser (FR-2 / U1) ─────────────────────────────────
@@ -865,9 +885,9 @@ export interface GoalHostOptions {
   /** Override for tests — defaults to live read of `metadata.goal`. */
   readGoal?: (conversationId: string) => Promise<PersistedGoal | undefined>;
   /** Override for tests — defaults to live write/delete. */
-  writeGoal?: (conversationId: string, goal: PersistedGoal) => Promise<void>;
+  writeGoal?: typeof writePersistedGoal;
   /** Override for tests — defaults to live write/delete. */
-  deleteGoal?: (conversationId: string) => Promise<void>;
+  deleteGoal?: typeof deletePersistedGoal;
   /** Override for tests — list of conversation ids whose `metadata.goal`
    *  is present, for the boot sweep. Defaults to a live SQL scan. */
   scanGoalConversations?: () => Promise<Array<{ id: string; persisted: PersistedGoal }>>;
@@ -899,11 +919,8 @@ export class GoalHost {
   private readonly readGoalFn: (
     conversationId: string,
   ) => Promise<PersistedGoal | undefined>;
-  private readonly writeGoalFn: (
-    conversationId: string,
-    goal: PersistedGoal,
-  ) => Promise<void>;
-  private readonly deleteGoalFn: (conversationId: string) => Promise<void>;
+  private readonly writeGoalFn: typeof writePersistedGoal;
+  private readonly deleteGoalFn: typeof deletePersistedGoal;
   private readonly scanGoalConversationsFn: () => Promise<
     Array<{ id: string; persisted: PersistedGoal }>
   >;
@@ -1059,8 +1076,7 @@ export class GoalHost {
     // Conditional paused→active flip. ONLY for non-/goal posts; /goal
     // subcommands own resume/clear/replace (FR-13b safety; I5d).
     if (!isGoalCmd && record.status === "paused") {
-      record.status = "active";
-      this.emitUpdate(conversationId, "active", record, persisted);
+      await this.emitUpdate(conversationId, "active", { ...record, status: "active" }, persisted, persisted);
     }
   }
 
@@ -1126,12 +1142,11 @@ export class GoalHost {
       lastReason: null,
       createdAt: new Date(now).toISOString(),
     };
-    await this.writeGoalFn(input.conversationId, persisted);
     // Replaces any active goal (FR-7 / §5.1 silent supersede). The
     // single consolidated subscription stays attached; the next
     // run:complete just re-evaluates the canonical armed predicate
     // (R10 — re-/goal on an active conv doesn't double-subscribe).
-    this.records.set(input.conversationId, {
+    const record: GoalRecord = {
       conversationId: input.conversationId,
       armedAt: now,
       turnsEvaluated: 0,
@@ -1140,8 +1155,8 @@ export class GoalHost {
       lastReason: null,
       status: "active",
       inFlightRunId: null,
-    });
-    this.emitUpdate(input.conversationId, "active", this.records.get(input.conversationId)!, persisted);
+    };
+    await this.emitUpdate(input.conversationId, "active", record, persisted);
     return {
       kind: "start-turn",
       turnMessage: condition, // not used by the route — body.content is the turn input
@@ -1160,9 +1175,7 @@ export class GoalHost {
     }
     // Single op (R11 — clear-vs-disarm single predicate): delete +
     // drop. No `armed:false` two-step.
-    await this.deleteGoalFn(input.conversationId);
-    this.records.delete(input.conversationId);
-    this.emitUpdate(input.conversationId, "off");
+    await this.emitUpdate(input.conversationId, "off", undefined, undefined, persisted);
     const card = buildClearedCard(persisted.condition);
     const row = await this.persistResultRow(input, card);
     return { kind: "card", result: card, row };
@@ -1274,9 +1287,7 @@ export class GoalHost {
     if (record!.turnsEvaluated >= this.maxGoalTurns) {
       const card = buildTurnCapCard(persisted!.condition, this.maxGoalTurns);
       // Clear (delete metadata.goal + drop record) + transcript row.
-      await this.deleteGoalFn(conversationId);
-      this.records.delete(conversationId);
-      this.emitUpdate(conversationId, "off");
+      await this.emitUpdate(conversationId, "off", undefined, undefined, persisted!);
       await this.persistResultRowBare(conversationId, card);
       return;
     }
@@ -1341,16 +1352,10 @@ export class GoalHost {
     // Mirror the reason into persisted metadata so the status card has
     // it after a restart (FR-15).
     record!.lastReason = evalResult.reason;
-    await this.writeGoalFn(conversationId, {
-      ...persisted!,
-      lastReason: evalResult.reason,
-    });
 
     if (evalResult.achieved) {
       const card = buildAchievedCard(evalResult.reason, persisted!.condition);
-      await this.deleteGoalFn(conversationId);
-      this.records.delete(conversationId);
-      this.emitUpdate(conversationId, "off");
+      await this.emitUpdate(conversationId, "off", undefined, undefined, persisted!);
       await this.persistResultRowBare(conversationId, card);
       return;
     }
@@ -1363,7 +1368,7 @@ export class GoalHost {
     const newRunId = crypto.randomUUID();
     record!.inFlightRunId = newRunId;
     const continuation = buildContinuationPrompt(evalResult.reason);
-    this.emitUpdate(conversationId, "active", record!, stillPersisted!);
+    await this.emitUpdate(conversationId, "active", record!, stillPersisted!, persisted!);
     // An autopilot turn must see the SAME tool surface as the turn that armed
     // the goal. `setup-tools` gates the built-in project tools on
     // `options.projectId` and the agent's extension tools on
@@ -1440,14 +1445,7 @@ export class GoalHost {
     record: GoalRecord,
     persisted: PersistedGoal,
   ): Promise<void> {
-    record.status = "paused";
-    record.lastReason = reason;
-    record.inFlightRunId = null;
-    await this.writeGoalFn(conversationId, {
-      ...persisted,
-      lastReason: reason,
-    });
-    this.emitUpdate(conversationId, "paused", record, persisted);
+    await this.emitUpdate(conversationId, "paused", { ...record, status: "paused", lastReason: reason, inFlightRunId: null }, persisted, persisted);
     await this.persistResultRowBare(
       conversationId,
       buildPausedCard(reason, persisted.condition),
@@ -1473,12 +1471,13 @@ export class GoalHost {
     }
   }
 
-  private emitUpdate(
+  private async emitUpdate(
     conversationId: string,
     state: "active" | "paused" | "off",
     record?: GoalRecord,
     persisted?: PersistedGoal,
-  ): void {
+    expected?: PersistedGoal,
+  ): Promise<void> {
     const payload: AgentEvents["goal:update"] = {
       conversationId,
       state,
@@ -1489,7 +1488,15 @@ export class GoalHost {
       payload.turnsEvaluated = record.turnsEvaluated;
       payload.lastReason = record.lastReason;
     }
-    this.bus.emit("goal:update", payload);
+    const event: DomainExtensionEvent = { id: `goal:${crypto.randomUUID()}`, type: "goal:update", conversationId, payload };
+    if (persisted && record) await this.writeGoalFn(conversationId, { ...persisted, lastReason: record.lastReason }, event, expected);
+    else await this.deleteGoalFn(conversationId, event, expected);
+    if (record) {
+      const current = expected ? this.records.get(conversationId) : undefined;
+      this.records.set(conversationId, current ? Object.assign(current, record) : record);
+    }
+    else this.records.delete(conversationId);
+    emitPersistedDomainEvent(this.bus, event);
   }
 }
 
