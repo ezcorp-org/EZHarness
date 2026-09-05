@@ -33,3 +33,7 @@ Strict coverage-gate behavior:
 The MCP change adds `--log-driver=none` to the direct Podman test, which matches the repository's documented CI requirement. The real opt-in MCP run remains part of the build/runtime evidence and was not duplicated here.
 
 No deliberate mutation remains. No reviewed shared commit was amended.
+
+Final freeze review: the runtime SDK files at `9ccce310` retain the reviewed admission, drain, error-precedence, and late-call protections. The final visual-evidence runner has seven focused tests. It assigns selected mock specs to the Chromium mock config, selected real-auth specs to `playwright.real.config.ts` with `PI_E2E_REAL=1`, runs both tiers for `__ALL__`, continues to the other group after one fails, uses distinct explicit blob output files, and returns non-zero for either tier. The workflow records every non-empty selection as credited before setup and only records `credited_ok` after the runner succeeds.
+
+One documentation inconsistency remains outside this policy report: `web/e2e/lanes.json` still describes the `__ALL__` evidence fallback as soft, while the final workflow now fails it closed. This does not weaken execution, but the manifest description should be corrected by its owner.

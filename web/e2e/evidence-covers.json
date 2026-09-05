@@ -1,5 +1,6 @@
 {
   "web/e2e/canvas-dock-open-close.spec.ts": [
+    "web/src/lib/components/tool-cards/DesignCanvasCard.svelte",
     "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte"
   ],
   "web/e2e/import-wizard.spec.ts": [
