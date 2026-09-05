@@ -84,7 +84,7 @@ vi.mock("$server/extensions/permission-engine", () => ({
   getPermissionEngine: (...args: unknown[]) => getPermissionEngineSpy(...args),
 }));
 
-const { POST } = await import("../routes/api/tool-invoke/+server");
+const { POST, _invokeWithControl } = await import("../routes/api/tool-invoke/+server");
 
 function makeEvent(opts: {
   body?: unknown;
@@ -107,6 +107,27 @@ function makeEvent(opts: {
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+
+test("trusted invocation control stays out of JSON and reaches the executor", async () => {
+  const controller = new AbortController();
+  const invocationGuard = vi.fn(async () => undefined);
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async (...args: unknown[]) => {
+    const options = args[4] as { signal: AbortSignal; invocationGuard: () => Promise<void> };
+    expect(options.invocationGuard).toBe(invocationGuard);
+    await options.invocationGuard();
+    controller.abort();
+    expect(options.signal.aborted).toBe(true);
+    return { isError: false, content: [] };
+  });
+  const body = { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" };
+  const response = await _invokeWithControl(makeEvent({ locals: authedUser, body }), { signal: controller.signal, invocationGuard });
+  expect(response.status).toBe(499);
+  expect(invocationGuard).toHaveBeenCalledTimes(1);
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+  expect((await POST(makeEvent({ locals: authedUser, body: { ...body, invocationGuard: "forged" } }))).status).toBe(400);
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
 
 for (const outcome of ["throw", "success", "error"] as const) test(`cancelled ${outcome} returns 499 without retry`, async () => {
   const controller = new AbortController();

@@ -11,6 +11,7 @@ import { resolveRootConversationForOwnership } from "$lib/server/conversation-ow
 import { getExtension } from "$server/db/queries/extensions";
 import { canWireExtension } from "$server/auth/extension-wire-authz";
 import type { RequestHandler } from "./$types";
+import type { InvocationGuard } from "$server/extensions/runtime-locks";
 
 // Boundary validation. POST invokes a registered extension tool by
 // `extensionName__toolName`; `input` is forwarded to the tool whose
@@ -29,7 +30,10 @@ const postBodySchema = z.object({
   expectedReleaseBinding: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = event => _invokeWithControl(event);
+
+export async function _invokeWithControl({ request, locals }: Parameters<RequestHandler>[0], control?: { signal?: AbortSignal; invocationGuard?: InvocationGuard }) {
+  const invocationSignal = control?.signal ? AbortSignal.any([request.signal, control.signal]) : request.signal;
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
@@ -160,16 +164,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const metadata = { invocationId, source: 'inline' as const };
   const responseMetadata = () => ({ retryCount: 0, durationMs: Date.now() - startTime, toolCallId: invocationId });
   try {
-    request.signal.throwIfAborted();
+    invocationSignal.throwIfAborted();
     const result = await toolExecutor.executeToolCall(
       namespacedTool, input ?? {}, conversationId, messageId ?? null,
-      { metadata, signal: request.signal, ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
+      { metadata, signal: invocationSignal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
     );
-    request.signal.throwIfAborted();
+    invocationSignal.throwIfAborted();
     const output = result.content.map(content => content.text).join("\n");
     return json({ success: !result.isError, ...(result.isError ? { error: output } : { output }), ...responseMetadata() });
   } catch (error) {
-    if (request.signal.aborted) return json({ success: false, error: "Invocation cancelled; admitted effects may already have completed", ...responseMetadata() }, { status: 499 });
+    if (invocationSignal.aborted) return json({ success: false, error: "Invocation cancelled; admitted effects may already have completed", ...responseMetadata() }, { status: 499 });
     if (error instanceof Error && error.name === "PermissionDeniedError") {
       return json({
         success: false,
@@ -181,4 +185,4 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     return json({ success: false, error: error instanceof Error ? error.message : String(error), ...responseMetadata() }, { status: 500 });
   }
-};
+}

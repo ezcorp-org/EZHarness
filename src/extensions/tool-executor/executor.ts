@@ -1,5 +1,6 @@
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionProcess } from "../subprocess";
+import type { InvocationGuard } from "../runtime-locks";
 import type { ToolCallResult, JsonRpcRequest, JsonRpcResponse } from "../types";
 import type { ExtensionStateMediator } from "../state-mediator";
 import { getStateMediator } from "../state-mediator";
@@ -244,6 +245,7 @@ export class ToolExecutor {
       callerExtensionId?: string;
       expectedReleaseBinding?: string;
       signal?: AbortSignal;
+      invocationGuard?: InvocationGuard;
       _callDepth?: number;
       metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
       /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
@@ -253,6 +255,8 @@ export class ToolExecutor {
     },
     invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
+    _opts?.signal?.throwIfAborted();
+    if (_opts?.invocationGuard) await _opts.invocationGuard();
     _opts?.signal?.throwIfAborted();
     const registered = this.registry.getRegisteredTool(toolName);
     if (!registered) {
@@ -674,6 +678,8 @@ export class ToolExecutor {
     // invocations stack chained-deputy intersections correctly.
     const runtimeCtxForCall: import("../runtime-tool-context").RuntimeToolContext = {
       ...(_opts?.capContext !== undefined ? { currentCapContext: _opts.capContext } : {}),
+      signal: _opts?.signal,
+      invocationGuard: _opts?.invocationGuard,
       currentAuditId: decision.auditId,
     };
 
@@ -889,9 +895,13 @@ export class ToolExecutor {
             this.registry.isBundled?.(extensionId) === true);
         try {
           _opts?.signal?.throwIfAborted();
-          const callOptions = _opts?.signal ? { skipTimeout: skipCallTimeout, signal: _opts.signal } : skipCallTimeout ? { skipTimeout: true } : undefined;
+          if (_opts?.invocationGuard) await _opts.invocationGuard();
+          _opts?.signal?.throwIfAborted();
+          const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(_opts?.invocationGuard ? { invocationGuard: _opts.invocationGuard } : {}) };
+          const controlled = _opts?.signal || _opts?.invocationGuard;
+          const callOptions = controlled ? { skipTimeout: skipCallTimeout, ...controlOptions } : skipCallTimeout ? { skipTimeout: true } : undefined;
           result = isMcp
-            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(_opts?.signal ? [{ signal: _opts.signal }] : []))
+            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(controlled ? [controlOptions] : []))
             : callOptions
             ? await proc!.callTool(originalName, callArgs, meta, callOptions)
             : await proc!.callTool(originalName, callArgs, meta);

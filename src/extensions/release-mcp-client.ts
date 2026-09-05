@@ -42,6 +42,8 @@ export class ReleaseMcpClient extends McpClient {
   override async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>, callOptions: McpCallOptions = {}): Promise<ToolCallResult> {
     const signal = callOptions.signal;
     signal?.throwIfAborted();
+    if (callOptions.invocationGuard) await callOptions.invocationGuard();
+    signal?.throwIfAborted();
     if (!this.ready) throw new ContractError("CLOSED", "MCP release client is closed");
     const snapshot = await resolveActiveRelease(this.extensionId, this.runtime);
     signal?.throwIfAborted();
@@ -61,7 +63,7 @@ export class ReleaseMcpClient extends McpClient {
     if (server.transport === "stdio") {
       const process = await this.process();
       signal?.throwIfAborted();
-      const options = { skipTimeout: false, signal };
+      const options = { skipTimeout: false, signal, ...(callOptions.invocationGuard ? { invocationGuard: callOptions.invocationGuard } : {}) };
       return process.callTool(name, args, meta, options);
     }
     const binding = releaseBinding(snapshot);
@@ -71,12 +73,16 @@ export class ReleaseMcpClient extends McpClient {
     const approved = snapshot.installation.grants.includes(canonicalJson(["network", network]));
     const authorize = async (url: URL) => {
       signal?.throwIfAborted();
+      if (callOptions.invocationGuard) await callOptions.invocationGuard();
+      signal?.throwIfAborted();
       const live = resolveCallProvenance(token);
       if (!this.ready || Date.now() >= deadline || !live || live.actorExtensionId !== this.extensionId || live.onBehalfOf !== provenance.onBehalfOf || live.conversationId !== provenance.conversationId || releaseBinding(await resolveActiveRelease(this.extensionId, this.runtime)) !== binding) throw new ContractError("RELEASE_CHANGED", "MCP invocation is no longer active");
       if (!approved || url.origin !== origin) throw new ContractError("CAPABILITY_DENIED", "MCP origin requires an exact approved network grant");
       const decision = await this.remote.permissionEngine().authorize({ extensionId: this.extensionId, userId: provenance.onBehalfOf, conversationId: provenance.conversationId, toolName: name }, [{ kind: "network", value: url.hostname.toLowerCase() }, { kind: "ezcorp:mcp:invoke" }]);
       signal?.throwIfAborted();
       if (decision.decision !== "allow") throw new ContractError("CAPABILITY_DENIED", "MCP network access is not approved");
+      if (callOptions.invocationGuard) await callOptions.invocationGuard();
+      signal?.throwIfAborted();
     };
     await authorize(new URL(server.url));
     const hydrated = await this.remote.secrets(this.extensionId, snapshot.release.workspaceId, server);

@@ -10,7 +10,8 @@ import type { LifecycleActor } from "./v4/types";
 interface Fence { installationId: string; key: string; fence: string; invocationId: string }
 interface LockRow extends Fence { workerId: string; releaseId: string; generation: number; principalId: string; scopeId: string; deadline: Date; state: "held" | "quarantined"; effects: number }
 const columns = sql`installation_id AS "installationId", lock_key AS key, fence, invocation_id AS "invocationId", worker_id AS "workerId", release_id AS "releaseId", generation, principal_id AS "principalId", scope_id AS "scopeId", deadline, state, effects`;
-const activeEffects = new AsyncLocalStorage<readonly Fence[]>();
+export type InvocationGuard = (database?: MigrationDb) => Promise<void>;
+const activeEffects = new AsyncLocalStorage<{ fences: readonly Fence[]; verifyTransaction?: InvocationGuard }>();
 const sessions = new Map<string, InvocationLocks>();
 export { MAX_RUNTIME_LOCK_KEYS, validateRuntimeLockRequest } from "@ezcorp/extension-contract";
 const maxEffects = 32;
@@ -28,7 +29,9 @@ async function verify(database: MigrationDb, fences: readonly Fence[], deadline 
 }
 
 export async function verifyInvocationLocks(database: MigrationDb): Promise<void> {
-  await verify(database, activeEffects.getStore() ?? []);
+  const effect = activeEffects.getStore();
+  await effect?.verifyTransaction?.(database);
+  await verify(database, effect?.fences ?? []);
 }
 
 export async function lockRuntimeAdmission(database: MigrationDb): Promise<void> {
@@ -84,7 +87,7 @@ export class InvocationLocks {
     return { released: true };
   }
 
-  async effect<Result>(method: string, action: () => Promise<Result>, admission?: { prepare?: () => Promise<void>; assertActive: () => void }): Promise<Result> {
+  async effect<Result>(method: string, action: () => Promise<Result>, admission?: { prepare?: () => Promise<void>; assertActive: () => void; verifyTransaction?: InvocationGuard }): Promise<Result> {
     this.check();
     if (this.pending.size >= maxEffects) throw new ContractError("LOCK_CAPACITY", "Too many concurrent host effects");
     const fences = [...this.held.values()];
@@ -98,7 +101,7 @@ export class InvocationLocks {
         if (admission?.prepare) await admission.prepare();
         admission?.assertActive();
         admitted = true;
-        const result = await activeEffects.run(fences, action);
+        const result = await activeEffects.run({ fences, verifyTransaction: admission?.verifyTransaction }, action);
         if (result && typeof result === "object" && "error" in result && JSON.stringify(result.error).includes("outcome_unknown")) this.uncertain = true;
         return result;
       } catch (error) {

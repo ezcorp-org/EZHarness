@@ -7,7 +7,8 @@ import { assertMcpTargetAllowed } from "./target-guard";
 import { createMcpGuardedFetch } from "./guarded-fetch";
 import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../extensions/types";
 import { awaitMcpSignal } from "./cancellation";
-export interface McpCallOptions { signal?: AbortSignal }
+import type { InvocationGuard } from "../extensions/runtime-locks";
+export interface McpCallOptions { signal?: AbortSignal; invocationGuard?: InvocationGuard }
 
 /**
  * Phase 58 / MCP-05 — Subclass of StdioClientTransport that fires a
@@ -200,7 +201,10 @@ export class McpClient {
 
   async callTool(name: string, args: Record<string, unknown>, _meta?: Record<string, unknown>, options: McpCallOptions = {}): Promise<ToolCallResult> {
     options.signal?.throwIfAborted();
+    if (options.invocationGuard) await options.invocationGuard();
+    options.signal?.throwIfAborted();
     if (!this.connected) await this.connect(options);
+    if (options.invocationGuard) await options.invocationGuard();
     options.signal?.throwIfAborted();
     const res = await this.client.callTool({ name, arguments: args }, undefined, { signal: options.signal });
     options.signal?.throwIfAborted();
