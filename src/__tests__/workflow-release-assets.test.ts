@@ -3,7 +3,7 @@ import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../extensions/release-process";
 import { executionLimits } from "@ezcorp/extension-runner";
 import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { CachedWorkflow } from "../runtime/workflow-scope";
 import type { WorkflowDefinition } from "../types";
 
@@ -194,7 +194,14 @@ test("direct execution rechecks release authority after durable reads and never 
   try {
     await expect(executor.runWorkflow(structuredClone(entry!.definition), {}, undefined, "owner")).rejects.toThrow("release authority");
     const failedInsertId = crypto.randomUUID();
-    expect((await executor.runWorkflow(entry!.definition, { unserializable: 1n }, undefined, "owner", undefined, { runId: failedInsertId })).result?.error).toMatchObject({ code: "run-persistence-failed" });
+    await getTestDb().execute(sql`CREATE FUNCTION reject_workflow_test_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'forced insert failure'; END; $$`);
+    await getTestDb().execute(sql`CREATE TRIGGER reject_workflow_test_insert BEFORE INSERT ON workflow_runs FOR EACH ROW EXECUTE FUNCTION reject_workflow_test_insert()`);
+    try {
+      expect((await executor.runWorkflow(entry!.definition, {}, undefined, "owner", undefined, { runId: failedInsertId })).result?.error).toMatchObject({ code: "run-persistence-failed" });
+    } finally {
+      await getTestDb().execute(sql`DROP TRIGGER reject_workflow_test_insert ON workflow_runs`);
+      await getTestDb().execute(sql`DROP FUNCTION reject_workflow_test_insert()`);
+    }
     expect(errors).toEqual([failedInsertId]);
     expect(await getWorkflowRunRow(failedInsertId)).toBeUndefined();
     expect(activeRuns.size).toBe(0);
