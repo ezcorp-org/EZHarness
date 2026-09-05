@@ -151,6 +151,12 @@ export async function ensureInitialized(): Promise<void> {
   // (import direction), so it reads it back via the bus registry.
   registerPreviewBus(bus);
   executor = new AgentExecutor(agents, bus, { persist: true });
+  const { configureEzFactoryAgentPublisher } = await import("$server/extensions/ez-factory-release-agents");
+  configureEzFactoryAgentPublisher((definitions, names) => {
+    for (const name of names) executor!.unregisterAgent(name);
+    for (const definition of definitions) executor!.registerAgent(definition);
+  });
+  registerTeardown("extension-factory-agents", () => configureEzFactoryAgentPublisher());
   // `persist: true` mirrors the AgentExecutor above — the server writes
   // workflow run history to workflow_runs / workflow_step_runs. Boot
   // reconciliation drains any row a previous process left `running`

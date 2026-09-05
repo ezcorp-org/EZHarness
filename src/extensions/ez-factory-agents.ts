@@ -16,27 +16,18 @@
  * every `agent` step in every ez-factory template fails
  * `Agent not found: …`.
  *
- * Boot order already works out, no executor call needed:
- * `web/src/lib/server/context.ts` runs `ensureBundledExtensions()` →
- * `registry.loadFromDb()` → `loadAgents(agentsDir, { includeDb: true })`,
- * and `loadAgents` with `includeDb` calls `loadDbAgents()`. A row seeded
- * inside `ensureBundledExtensions` is therefore in the executor map in the
- * SAME boot. `listAgentConfigs()` with no user id returns EVERY row, so the
- * seeded agents resolve for every user regardless of who ends up owning
- * them.
- *
- * (Pre-existing caveat, shared with the ez-code coder: `src/cli.ts` calls
- * `loadAgents` WITHOUT `ensureBundledExtensions()`, so on a database that
- * has never booted the web server, `ezcorp workflow:run ez-factory:…`
- * fails `Agent not found`. Boot the server once.)
+ * Version 4 calls this seeder inside approved release publication, after
+ * checking the host's first-party source digest. The same transaction
+ * stores the release projection and agents. A fenced post-commit callback
+ * registers them in the running executor without a server restart.
  *
  * ── Fixed ids, prefixed names ──────────────────────────────────────────
  *
  * Each row is pinned to a FIXED, well-known UUID for the same reasons
- * spelled out at length in `ez-code-coder-agent.ts`: `createAgentConfig`
- * assigns RANDOM ids to user-created rows, so these ids are unforgeable and
- * always win over a same-named impostor; and the ownerless→admin backfill
- * in `migrate.ts` rewrites only `user_id`, never `id`.
+ * spelled out at length in `ez-code-coder-agent.ts`. Fixed ids are stable
+ * identifiers, not proof of trust. A conflicting stored prompt makes
+ * transactional publication fail without changing the conflicting row.
+ * The ownerless→admin backfill rewrites only `user_id`, never `id`.
  *
  * **Agent names are a single GLOBAL, unnamespaced namespace** — `loadAgents`
  * keys one flat `Map<string, AgentDefinition>` and a DB agent overwrites a
@@ -105,6 +96,7 @@ import {
 } from "../db/queries/agent-configs";
 import { CURRENT_MODEL_SENTINEL } from "../types";
 import { extensionLogger } from "../logger";
+import type { DbTransaction } from "../db/connection";
 
 const log = extensionLogger("ez-factory", "agents");
 
@@ -326,30 +318,34 @@ export const EZ_FACTORY_AGENTS: readonly SeededAgent[] = [
  *
  * Safe to call on every boot.
  */
-export async function ensureEzFactoryAgents(): Promise<DbAgentConfig[]> {
+export async function ensureEzFactoryAgents(database?: DbTransaction): Promise<DbAgentConfig[]> {
   const rows: DbAgentConfig[] = [];
   for (const agent of EZ_FACTORY_AGENTS) {
-    rows.push(await ensureOne(agent));
+    rows.push(await ensureOne(agent, database));
   }
   return rows;
 }
 
-async function ensureOne(agent: SeededAgent): Promise<DbAgentConfig> {
+async function ensureOne(agent: SeededAgent, database?: DbTransaction): Promise<DbAgentConfig> {
   // 1. Dedupe stale same-named ownerless rows from earlier installs.
   try {
-    const removed = await deleteAgentConfigsByNameExceptId(agent.name, agent.id);
+    const removed = await deleteAgentConfigsByNameExceptId(agent.name, agent.id, database);
     if (removed > 0) {
       log.info("Removed stale ez-factory agent row(s)", { name: agent.name, removed });
     }
   } catch (err) {
+    if (database) throw err;
     // Non-fatal: dedupe is cleanup, not a correctness requirement — the
     // fixed-id row below is what the resolver targets.
     log.warn("ez-factory agent dedupe failed", { name: agent.name, error: String(err) });
   }
 
   // 2. Fixed-id row already present → no-op.
-  const existing = await getAgentConfig(agent.id);
-  if (existing) return existing;
+  const existing = await getAgentConfig(agent.id, database);
+  if (existing) {
+    if (database && (existing.name !== agent.name || existing.prompt !== agent.prompt || existing.outputFormat !== "json")) throw new Error(`Host agent configuration conflict: ${agent.name}`);
+    return existing;
+  }
 
   // 3. Create at the fixed id.
   const created = await createAgentConfig({
@@ -370,7 +366,7 @@ async function ensureOne(agent: SeededAgent): Promise<DbAgentConfig> {
     // prompts these rows carry all specify a JSON object, so the format is
     // a property of this pipeline, not of any one role.
     outputFormat: "json",
-  });
+  }, database);
   log.info("Created bundled ez-factory agent", { name: agent.name, id: created.id });
   return created;
 }

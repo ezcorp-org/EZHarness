@@ -168,6 +168,8 @@ export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueu
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null, sourceFiles?: WorkspaceFiles): Promise<void> {
+  const { prepareEzFactoryAgents, publishEzFactoryAgents } = await import("./ez-factory-release-agents");
+  let factoryAgents: import("../types").AgentDefinition[] | undefined;
   const { getDb } = await import("../db/connection");
   const { extensions, extensionWebhooks, extensionSchedules } = await import("../db/schema");
   const { serializeJsonbFields } = await import("../db/queries/extensions");
@@ -188,12 +190,14 @@ export async function publishExtensionGeneration(installation: InstallationRecor
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));
       const [projection] = await transaction.select({ name: extensions.name }).from(extensions).where(eq(extensions.id, installation.id));
       if (projection) {
+        if (projection.name === "ez-factory") factoryAgents = [];
         await transaction.update(extensionWebhooks).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionWebhooks.extensionId, projection.name));
         await transaction.update(extensionSchedules).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionSchedules.extensionId, installation.id));
       }
       return;
     }
     const manifest = release.manifest as unknown as import("./types").ExtensionManifestV2;
+    if (manifest.name === "ez-factory") factoryAgents = await prepareEzFactoryAgents(installation, release, transaction);
     const granted = buildFullGrantFromManifest(manifest);
     const values = serializeJsonbFields({ id: installation.id, name: release.manifest.name, version: release.manifest.version, description: release.manifest.description, manifest, source: "release-v4", installPath: null, enabled: true, grantedPermissions: granted, installedPermissions: granted, checksumVerified: true, isBundled: false, disabledByUser: false, creatorUserId: installation.ownerId, updatedAt: new Date() });
     await transaction.insert(extensions).values(values).onConflictDoUpdate({ target: extensions.id, set: values });
@@ -207,6 +211,14 @@ export async function publishExtensionGeneration(installation: InstallationRecor
   const { getPageCache } = await import("./page-cache");
   getPageCache().invalidateExtension(installation.id);
   await ExtensionRegistry.getInstance().reload();
+  if (factoryAgents) {
+    await getDb().transaction(async (transaction: import("../db/connection").DbTransaction) => {
+      const result = await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
+      const rows = releaseRows<{ payload: string }>(result);
+      const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
+      if (current?.generation === installation.generation && current.activeReleaseId === installation.activeReleaseId && current.enabled === installation.enabled) publishEzFactoryAgents(factoryAgents!);
+    });
+  }
 }
 
 export async function recoverExtensionLifecycle(): Promise<void> {

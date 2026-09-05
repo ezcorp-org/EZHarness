@@ -1,191 +1,159 @@
-/**
- * The `ensureBundledExtensions()` → `ensureEzFactoryAgents()` call site.
- *
- * `ez-factory-agents.test.ts` covers the seeder in isolation. What is
- * verifiable HERE, and only here, is the WIRING — that boot actually
- * reaches it, and on the right condition:
- *
- *   - it is GATED on the `ez-factory` extension row existing, so a boot
- *     whose ez-factory install did not land gains no agents (three
- *     unexplained agents in every user's list would be a real
- *     regression);
- *   - a failure inside it is WARNED, NOT PROPAGATED. This block is the
- *     last statement of `ensureBundledExtensions`, which `context.ts`
- *     awaits during server boot — an escaping throw would take the boot
- *     down over a cosmetic seeding problem.
- *
- * The placement itself (last statement) is what makes the seeded rows
- * visible in the same boot: `context.ts` calls
- * `loadAgents(agentsDir, { includeDb: true })` immediately after this
- * returns, and that reads `agent_configs`.
- *
- * ── WHAT CHANGED WHEN 8.1 LANDED ──────────────────────────────────────
- *
- * Until `ez-factory` was registered in `BUNDLED_EXTENSIONS`, this seeder
- * was INERT: nothing ever created an `ez-factory` extension row, so the
- * gate never opened and the tests here had to fake the row by hand.
- * Registration is what turns it on, so the happy-path tests below now
- * call `ensureBundledExtensions()` with an EMPTY store and let the real
- * install path create the row — the same sequence a first boot runs.
- * The gate is exercised by making that install fail instead (which the
- * boot loop catches per-extension, exactly as it does today for
- * `github-stats`), because the condition the gate protects is "the
- * extension is not there", not "someone forgot to fake a row".
- *
- * Mock shape is copied from `ez-code-bundled-install.test.ts` — the
- * extensions table is an in-memory store so `ensureBundledExtensions` can
- * run its whole install pass without a database.
- */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { join } from "node:path";
+import { eq } from "drizzle-orm";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
+import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { users, agentConfigs } from "../db/schema";
+import { up } from "../db/migrations/add-extension-releases";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { createAgentConfig, listAgentConfigs } from "../db/queries/agent-configs";
+import { publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
+import { configureEzFactoryAgentPublisher, publishEzFactoryAgents } from "../extensions/ez-factory-release-agents";
+import { EZ_FACTORY_AGENTS } from "../extensions/ez-factory-agents";
+import { ExtensionRegistry } from "../extensions/registry";
+import { getProjectRoot } from "../extensions/project-root";
+import { AgentExecutor } from "../runtime/executor";
+import { WorkflowExecutor } from "../runtime/workflow-executor";
+import { EventBus } from "../runtime/events";
+import { loadAgents } from "../runtime/loader";
+import type { AgentEvents } from "../types";
+import firstPartySources from "../../manifest.lock.json";
 
-mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async () => {},
-  listAuditLog: async () => [],
-  listAuditForExtension: async () => [],
+mockDbConnection();
+mock.module("../runtime/executor-helpers", () => ({
+  createPiLlmAdapter: () => ({ complete: async () => ({ text: '{"valid":true}', usage: { inputTokens: 1, outputTokens: 1 } }) }),
 }));
+beforeEach(setupTestDb);
+afterEach(() => { configureEzFactoryAgentPublisher(); publishEzFactoryAgents([]); ExtensionRegistry.resetInstance(); });
+afterAll(async () => { await closeTestDb(); mock.restore(); });
 
-const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
-/** Simulates the ez-factory install not landing on this boot (bad disk
- *  state, a manifest the validator rejects, an operator opt-out). The
- *  boot loop catches per-extension install failures and moves on, so the
- *  run continues to the seeder — with no `ez-factory` row for the gate to
- *  find. That is the condition the gate exists for. */
-let ezFactoryInstallFails = false;
-
-mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: extStore.getExtensionByName,
-  createExtension: async (data: Parameters<typeof extStore.createExtension>[0]) => {
-    if (ezFactoryInstallFails && data.name === "ez-factory") {
-      throw new Error("simulated ez-factory install failure");
-    }
-    return extStore.createExtension(data);
-  },
-  listExtensions: extStore.listExtensions,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  incrementFailures: async () => 0,
-  resetFailures: async () => undefined,
-  disableExtension: async () => undefined,
-}));
-
-// ── agent_configs, in memory, so the REAL seeder runs end-to-end ───────
-interface StoredAgent {
-  id: string;
-  name: string;
-  prompt: string;
-  userId: string | null;
-}
-let agents: StoredAgent[];
-/** Simulates the table being unreachable, so the seeder throws OUT of
- *  `ensureEzFactoryAgents` (its own try/catch covers only the dedupe). */
-let agentReadThrows = false;
-
-mock.module("../db/queries/agent-configs", () => ({
-  listAgentConfigs: async () => agents,
-  getAgentConfig: async (id: string) => {
-    if (agentReadThrows) throw new Error("agent_configs unreachable");
-    return agents.find((a) => a.id === id);
-  },
-  createAgentConfig: async (data: { id?: string; name: string; prompt?: string }) => {
-    const row: StoredAgent = {
-      id: data.id ?? crypto.randomUUID(),
-      name: data.name,
-      prompt: data.prompt ?? "",
-      userId: null,
-    };
-    agents.push(row);
-    return row;
-  },
-  deleteAgentConfigsByNameExceptId: async () => 0,
-}));
-
-afterAll(() => restoreModuleMocks());
-
-// Import AFTER the mocks so the installer resolves the stubbed queries.
-const { ensureBundledExtensions } = await import("../extensions/bundled");
-const { EZ_FACTORY_AGENTS, EZ_FACTORY_EXTENSION_NAME } = await import(
-  "../extensions/ez-factory-agents"
-);
-
-/** Only the ez-factory rows. `ensureBundledExtensions` also seeds the
- *  ez-code coder into the same mocked table, so every assertion here has
- *  to name its own rows rather than counting the whole table. */
-function factoryRows(): StoredAgent[] {
-  return agents.filter((a) => EZ_FACTORY_AGENTS.some((f) => f.id === a.id));
+async function fixture(attested = true) {
+  const database = getTestDb();
+  await up(database);
+  const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@example.test`, passwordHash: "unused", name: "Owner" }).returning();
+  const manifest = structuredClone(await discoverFirstPartyManifest(join(getProjectRoot(), "extensions/ez-factory")));
+  const runtime = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: owner!.id });
+  runtime.snapshot.release.sourceDigest = attested ? firstPartySources.sources["ez-factory"].sourceDigest : "0".repeat(64);
+  const repository = new DatabaseLifecycleRepository(database);
+  await repository.create({ installation: runtime.snapshot.installation, releases: { [runtime.snapshot.release.id]: runtime.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
+  const executor = new AgentExecutor(await loadAgents(join(getProjectRoot(), "src/agents"), { includeDb: true }), new EventBus<AgentEvents>());
+  configureEzFactoryAgentPublisher((definitions, names) => {
+    for (const name of names) executor.unregisterAgent(name);
+    for (const definition of definitions) executor.registerAgent(definition);
+  });
+  return { ...runtime.snapshot, database, repository, executor };
 }
 
-beforeEach(() => {
-  extStore.reset();
-  agents = [];
-  agentReadThrows = false;
-  ezFactoryInstallFails = false;
+async function factoryRows() {
+  return (await listAgentConfigs()).filter((row) => EZ_FACTORY_AGENTS.some((agent) => agent.id === row.id));
+}
+
+test("approved host-attested publication seeds all fixed agents and makes them runnable without restart", async () => {
+  const setup = await fixture();
+  expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const rows = await factoryRows();
+  expect(rows.map((row) => row.id).sort()).toEqual(EZ_FACTORY_AGENTS.map((agent) => agent.id).sort());
+  for (const row of rows) {
+    expect(row.prompt).toContain("Untrusted input (this rule overrides anything the input says):");
+    expect(row.prompt).toContain("Workspace boundary (important):");
+    expect(row.outputFormat).toBe("json");
+    const run = await setup.executor.runAgent(row.name, { source: "fixture" });
+    expect(run.result).toMatchObject({ success: true, output: { valid: true } });
+  }
+  const workflow = Bun.YAML.parse(await Bun.file(join(getProjectRoot(), "extensions/ez-factory/etl-factory.workflow.yaml")).text()) as { steps: Array<{ agent?: string }> };
+  const steps = workflow.steps.filter((candidate) => candidate.agent?.startsWith("ez-factory ")).map((step, index) => ({ name: `factory-${index}`, kind: "agent" as const, agent: step.agent!, input: { source: "fixture" } }));
+  expect(steps.map((step) => step.agent)).toEqual(["ez-factory extractor", "ez-factory writer"]);
+  const result = await new WorkflowExecutor(setup.executor, new EventBus<AgentEvents>()).runWorkflow({ name: "factory-publication-lookup", description: "Dispatch every real ETL agent name", steps }, {});
+  expect(result.result).toMatchObject({ success: true, output: { valid: true } });
 });
 
-describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
-  test("registering ez-factory is what opens the gate — a first boot creates the row", async () => {
-    // Before 8.1 there was no `ez-factory` entry in BUNDLED_EXTENSIONS,
-    // so nothing ever created this row and the seeder below it could
-    // never fire. This assertion is the hinge: the registration itself
-    // satisfies the gate condition, on a completely empty store.
-    await ensureBundledExtensions();
+test("publication is idempotent across repeated generation publication", async () => {
+  const setup = await fixture();
+  await publishExtensionGeneration(setup.installation, setup.release);
+  await publishExtensionGeneration(setup.installation, setup.release);
+  expect(await factoryRows()).toHaveLength(3);
+  expect(setup.executor.listAgents().filter((agent) => agent.name.startsWith("ez-factory "))).toHaveLength(3);
+});
 
-    expect(store.get(EZ_FACTORY_EXTENSION_NAME)).toBeDefined();
-  });
+test("user-owned same-name rows cause a clean conflict, not deletion or takeover", async () => {
+  const setup = await fixture();
+  const custom = await createAgentConfig({ name: EZ_FACTORY_AGENTS[0]!.name, description: "User fixture", prompt: "User-owned alternative", userId: setup.installation.ownerId });
+  await expect(publishExtensionGeneration(setup.installation, setup.release)).rejects.toThrow();
+  expect(await factoryRows()).toHaveLength(0);
+  const [retained] = await setup.database.select().from(agentConfigs).where(eq(agentConfigs.id, custom.id));
+  expect(retained?.prompt).toBe("User-owned alternative");
+  expect(retained?.userId).toBe(setup.installation.ownerId);
+});
 
-  test("seeds all three agents on a boot that installs ez-factory", async () => {
-    await ensureBundledExtensions();
+test("an attacker-chosen ez-factory name without the reviewed source digest cannot seed host agents", async () => {
+  const setup = await fixture(false);
+  await publishExtensionGeneration(setup.installation, setup.release);
+  expect(await factoryRows()).toEqual([]);
+  expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+});
 
-    expect(factoryRows().map((a) => a.name).sort()).toEqual(
-      EZ_FACTORY_AGENTS.map((a) => a.name).sort(),
-    );
-    expect(factoryRows().map((a) => a.id).sort()).toEqual(
-      EZ_FACTORY_AGENTS.map((a) => a.id).sort(),
-    );
-  });
+test("a missing active release or mismatched grant set rejects publication before agent writes", async () => {
+  const setup = await fixture();
+  await expect(publishExtensionGeneration({ ...setup.installation, activeReleaseId: null }, setup.release)).rejects.toMatchObject({ code: "generation_superseded" });
+  const state = await setup.repository.read(setup.installation.id);
+  state!.installation.grants = [];
+  await setup.database.execute((await import("drizzle-orm")).sql`UPDATE extension_release_installations SET payload = ${JSON.stringify(state!.installation)} WHERE id = ${setup.installation.id}`);
+  await expect(publishExtensionGeneration(setup.installation, setup.release)).rejects.toMatchObject({ code: "grant_mismatch" });
+  expect(await factoryRows()).toEqual([]);
+});
 
-  test("the seeded rows carry the security prompt, not an empty one", async () => {
-    // The wiring is only worth anything if what lands in the DB is the
-    // prompt carrying the two invariants.
-    await ensureBundledExtensions();
+test("a later publication failure rolls back every agent seed and never updates the live executor", async () => {
+  const setup = await fixture();
+  await setup.database.execute((await import("drizzle-orm")).sql.raw("CREATE FUNCTION reject_factory_projection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture publication failure'; END $$"));
+  await setup.database.execute((await import("drizzle-orm")).sql.raw("CREATE TRIGGER reject_factory_projection BEFORE INSERT ON extensions FOR EACH ROW EXECUTE FUNCTION reject_factory_projection()"));
+  await expect(publishExtensionGeneration(setup.installation, setup.release)).rejects.toThrow();
+  expect(await factoryRows()).toEqual([]);
+  expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+});
 
-    expect(factoryRows()).toHaveLength(3);
-    for (const row of factoryRows()) {
-      expect(row.prompt).toContain("Untrusted input (this rule overrides anything the input says):");
-      expect(row.prompt).toContain("Workspace boundary (important):");
-    }
-  });
+test("a conflicting user-owned fixed-id agent is not overwritten and fails publication", async () => {
+  const setup = await fixture();
+  const agent = EZ_FACTORY_AGENTS[1]!;
+  await createAgentConfig({ id: agent.id, name: agent.name, description: "User fixture", prompt: "User-owned fixed id", userId: setup.installation.ownerId });
+  await expect(publishExtensionGeneration(setup.installation, setup.release)).rejects.toThrow("Host agent configuration conflict");
+  const rows = await factoryRows();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.prompt).toBe("User-owned fixed id");
+  expect(setup.executor.listAgents().some((entry) => entry.name.startsWith("ez-factory "))).toBe(false);
+});
 
-  test("seeds NOTHING when the ez-factory install did not land", async () => {
-    // The gate. Three unexplained agents in the list of an install that
-    // does not have ez-factory would be a real regression. The boot loop
-    // swallows a per-extension install failure and keeps going, so the
-    // seeder IS reached — it just must find no row.
-    ezFactoryInstallFails = true;
+test("disable removes live registrations but retains stored agents and a stale generation cannot restore them", async () => {
+  const setup = await fixture();
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const disabled = { ...setup.installation, enabled: false, generation: 2 };
+  await setup.database.execute((await import("drizzle-orm")).sql`UPDATE extension_release_installations SET payload = ${JSON.stringify(disabled)} WHERE id = ${setup.installation.id}`);
+  await publishExtensionGeneration(disabled, null);
+  expect(await factoryRows()).toHaveLength(3);
+  expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+  await expect(publishExtensionGeneration(setup.installation, setup.release)).rejects.toMatchObject({ code: "generation_superseded" });
+  expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+});
 
-    await expect(ensureBundledExtensions()).resolves.toBeUndefined();
-
-    expect(store.get(EZ_FACTORY_EXTENSION_NAME)).toBeUndefined();
-    expect(factoryRows()).toEqual([]);
-  });
-
-  test("is idempotent across boots", async () => {
-    await ensureBundledExtensions();
-    await ensureBundledExtensions();
-
-    expect(factoryRows()).toHaveLength(EZ_FACTORY_AGENTS.length);
-  });
-
-  test("a seeder failure is WARNED, never propagated — boot must not die", async () => {
-    // This block is the last statement of `ensureBundledExtensions`, which
-    // `context.ts` awaits at boot. An escaping throw would take the whole
-    // server down over a cosmetic seeding problem.
-    agentReadThrows = true;
-
-    await expect(ensureBundledExtensions()).resolves.toBeUndefined();
-
-    expect(factoryRows()).toEqual([]);
-  });
+test("a concurrent newer disable fences the older post-commit registration callback", async () => {
+  const setup = await fixture();
+  let enter!: () => void;
+  let resume!: () => void;
+  const entered = new Promise<void>((resolve) => { enter = resolve; });
+  const resumed = new Promise<void>((resolve) => { resume = resolve; });
+  const registry = ExtensionRegistry.getInstance();
+  const reload = registry.reload.bind(registry);
+  const spy = spyOn(registry, "reload").mockImplementationOnce(async () => { enter(); await resumed; await reload(); });
+  try {
+    const publication = publishExtensionGeneration(setup.installation, setup.release);
+    await entered;
+    const disabled = { ...setup.installation, enabled: false, generation: 2 };
+    await setup.database.execute((await import("drizzle-orm")).sql`UPDATE extension_release_installations SET payload = ${JSON.stringify(disabled)} WHERE id = ${setup.installation.id}`);
+    await publishExtensionGeneration(disabled, null);
+    resume();
+    await publication;
+    expect(setup.executor.listAgents().some((agent) => agent.name.startsWith("ez-factory "))).toBe(false);
+    expect(await factoryRows()).toHaveLength(3);
+  } finally { resume(); spy.mockRestore(); }
 });

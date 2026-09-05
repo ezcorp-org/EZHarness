@@ -39,3 +39,14 @@ source revision instead. The old direct install/update entrypoints reject the
 request rather than evaluate configuration or reuse old approval. Uninstall
 retains source and user data; filesystem purge is not an implicit uninstall step.
 These restrictions are not claims of full legacy source-format parity.
+
+The three reserved ez-factory workflow agents are installed only when an approved
+release matches this host build's checked-in first-party source digest. Agent
+writes share the release publication transaction. A conflicting user-owned agent
+is kept; publication fails instead of using that agent's prompt. Disabling the
+release removes its live agent registrations but keeps stored user data.
+
+Historical first-party source attestation is not yet retained across host
+upgrades. If a previous host build's ez-factory source digest is no longer in the
+current lock, its workflow agents do not load automatically. Build and approve
+the current bundled source. An extension name alone is never proof of trust.

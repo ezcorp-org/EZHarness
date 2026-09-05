@@ -1,5 +1,5 @@
 import { eq, inArray, and, ne, isNull } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
 import { CURRENT_MODEL_SENTINEL, type AgentConfig, type AgentDefinition, type InputSchema, type TeamMember } from "../../types";
@@ -78,8 +78,8 @@ export async function listAgentConfigs(userId?: string): Promise<(DbAgentConfig 
   return getDb().select().from(agentConfigs);
 }
 
-export async function getAgentConfig(id: string): Promise<DbAgentConfig | undefined> {
-  const rows = await getDb().select().from(agentConfigs).where(eq(agentConfigs.id, id));
+export async function getAgentConfig(id: string, database?: DbTransaction): Promise<DbAgentConfig | undefined> {
+  const rows = await (database ?? getDb()).select().from(agentConfigs).where(eq(agentConfigs.id, id));
   return rows[0];
 }
 
@@ -121,7 +121,7 @@ export async function getAgentConfigsByNames(names: string[]): Promise<Map<strin
   return out;
 }
 
-export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {
+export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }, database?: DbTransaction): Promise<DbAgentConfig> {
   const now = new Date();
   // Callers may pin a fixed, well-known id (e.g. the bundled ez-code
   // coder, which must be resolvable by a stable id that survives the
@@ -162,7 +162,7 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
     createdAt: now,
     updatedAt: now,
   };
-  await getDb().insert(agentConfigs).values(row);
+  await (database ?? getDb()).insert(agentConfigs).values(row);
   return row;
 }
 
@@ -239,8 +239,9 @@ export async function deleteAgentConfig(id: string): Promise<boolean> {
 export async function deleteAgentConfigsByNameExceptId(
   name: string,
   keepId: string,
+  database?: DbTransaction,
 ): Promise<number> {
-  const rows = await getDb()
+  const rows = await (database ?? getDb())
     .delete(agentConfigs)
     .where(
       and(
