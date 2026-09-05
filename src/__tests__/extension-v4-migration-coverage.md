@@ -134,3 +134,6 @@ Settings remain available; v4 does not expose arbitrary host environment values.
 The chat suite retains the full seven-tool catalog and three-step draft flow
 through the real executor and release adapter, with a controlled runner response
 fixture. It additionally checks the owner identity and exact invocation inputs.
+# Authoring reference tests
+
+`ext-docs-validation.test.ts` now checks the actual v4 control tools, immutable revision and approval rules, canonical schema links, and shared scaffold files. All 84 test cases remain, with 114 assertions. Legacy installed-binary commands, v2 manifest promotion, and minimum Markdown line counts are replaced by the current behavioral contract. The executable scaffold is inspected directly, rather than copying its manifest into another documentation template. Internal links and retained first-party example checks still run.

@@ -30,6 +30,8 @@ Native stdio MCP can use the controlled loopback proxy when the exact release ha
 
 ## Private output
 
+Served extension HTML and SVG have an opaque browser origin through both iframe and response CSP sandboxing. Inline scripts remain possible; application DOM, cookies, origin storage, direct network calls, and session APIs do not. Direct-open documents retain the response sandbox. Only the current extension's data URLs are accepted as preview targets. Do not restore `allow-same-origin` or add a generic authenticated fetch bridge to support a feature.
+
 Page cache and concurrent-render identity include the principal, live release authority, and full scope. Authority is checked before cache use and after rendering. HTTP page responses are private and not stored by shared caches. Page pushes invalidate caches; they do not supply a global private page.
 
 Panel identity comes from the host invocation token. SSE sends panel content only to that principal. Project metadata is filtered for current access, and worker parameters use virtual paths rather than host paths.
