@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildFirstPartyRelease, seedFirstPartyGit } from "../../../__tests__/helpers/first-party-release";
@@ -8,15 +8,19 @@ import { closeTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/h
 mockDbConnection();
 afterAll(closeTestDb);
 
-test("isolated git check appends and persists once, then declines the unchanged commit", async () => {
+async function setupRepoActivitySession(denyProjectGit = false) {
   await setupTestDb();
   const root = await mkdtemp(join(tmpdir(), "repo-release-project-"));
   const release = await buildFirstPartyRelease("repo-activity-notify");
   const appends: Record<string, unknown>[] = [];
+  let denyGit = denyProjectGit;
   const session = await release.session({
     projectRoot: root,
     settings: { enabled: true, conversation_id: "conv-e2e", repo_path: "/project" },
     async handler(request) {
+      if (request.method === "ezcorp/project.gitHead" && denyGit) {
+        return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message: "Project Git access was not approved" } };
+      }
       if (request.method === "ezcorp/append-message") {
         appends.push(request.params ?? {});
         return { jsonrpc: "2.0", id: request.id, result: { messageId: `message-${appends.length}`, toolCallIds: [] } };
@@ -24,8 +28,19 @@ test("isolated git check appends and persists once, then declines the unchanged 
       if (request.method === "ezcorp/invoke" && request.params?.tool === "runtime.conversations.getMessages") return { jsonrpc: "2.0", id: request.id, result: { messages: [{ id: "seed-msg", role: "user", content: "watch the repo" }], projectId: "project" } };
     },
   });
+  await seedFirstPartyGit(root);
+  return {
+    appends,
+    session,
+    allowProjectGit() { denyGit = false; },
+    async close() { await session.close(); await release.close(); await rm(root, { recursive: true, force: true }); },
+  };
+}
+
+test("isolated git check appends and persists once, then declines the unchanged commit", async () => {
+  const fixture = await setupRepoActivitySession();
+  const { appends, session } = fixture;
   try {
-    await seedFirstPartyGit(root);
     const first = await session.tool("check_repo_activity", {});
     expect({ first, failures: session.failures }).toMatchObject({ first: { isError: false } });
     const body = JSON.parse(first.content[0]?.text ?? "{}");
@@ -44,5 +59,29 @@ test("isolated git check appends and persists once, then declines the unchanged 
     expect(JSON.parse(second.content[0]?.text ?? "{}")).toMatchObject({ skipped: true, reason: "no_new_commits" });
     expect(await session.storage("loop:repo-activity-notify:index")).toEqual(ids);
     expect(appends).toHaveLength(1);
-  } finally { await session.close(); await release.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { await fixture.close(); }
+}, 120_000);
+
+test("project Git denial has no effects and the same release recovers", async () => {
+  const fixture = await setupRepoActivitySession(true);
+  const { appends, session } = fixture;
+  try {
+    const denied = await session.tool("check_repo_activity", {});
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]?.text).toContain("Host capability denied or failed");
+    expect(session.failures).toContainEqual(expect.stringContaining("Project Git access was not approved"));
+    expect(appends).toEqual([]);
+    expect(await session.storage("loop:repo-activity-notify:cursor")).toBeUndefined();
+    expect(await access(join(session.dataRoot, "loops", "repo-activity-notify", "notices")).then(() => true, () => false)).toBe(false);
+
+    fixture.allowProjectGit();
+    const recovered = await session.tool("check_repo_activity", {});
+    expect(recovered.isError).toBe(false);
+    expect(JSON.parse(recovered.content[0]?.text ?? "{}")).toMatchObject({ status: "done" });
+    expect(appends).toHaveLength(1);
+    const ids = await session.storage("loop:repo-activity-notify:index") as string[];
+    expect(ids).toHaveLength(1);
+    expect(await session.storage("loop:repo-activity-notify:cursor")).toMatch(/^[0-9a-f]{40}$/);
+    expect(await readFile(join(session.dataRoot, "loops", "repo-activity-notify", "notices", `${ids[0]}.md`), "utf8")).toContain("new commit");
+  } finally { await fixture.close(); }
 }, 120_000);
