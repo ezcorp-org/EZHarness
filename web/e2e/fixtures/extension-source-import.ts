@@ -1,5 +1,5 @@
 import type { Page, Route } from "@playwright/test";
-import { expect } from "@playwright/test";
+import { expect } from "./hydration.js";
 import { stringify } from "devalue";
 
 export async function setupSourceImportMock(page: Page, options: { status?: number; message?: string; installationId?: string; workspaceId?: string; reviewData?: () => Record<string, unknown> } = {}) {
