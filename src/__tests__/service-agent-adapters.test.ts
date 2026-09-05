@@ -14,6 +14,7 @@ const { loadAgentsStatic } = await import("../runtime/loader");
 const helpers = await import("../runtime/executor-helpers");
 const { upsertSetting } = await import("../db/queries/settings");
 const { workflowDelegations, workflowRuns } = await import("../db/schema");
+const { ExtensionRegistry } = await import("../extensions/registry");
 
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
@@ -70,6 +71,17 @@ test.each(serviceKinds)("%s service agents receive explicit input, never ambient
     const run = await executor.runAgent("inspect", { supplied: "explicit" }, undefined, undefined, undefined, { serviceInvocation: proof });
     expect(run.result?.output).toEqual({ supplied: "explicit" });
   } finally { executor.destroy(); proof.close(); }
+});
+
+test("host service agents cannot probe extension tool configuration", async () => {
+  const proof = await hostService();
+  const registry = spyOn(ExtensionRegistry, "getInstance");
+  const executor = new AgentExecutor(loadAgentsStatic([{ name: "inspect", description: "Inspect tools", capabilities: [], execute: async context => ({ success: true, output: context.tools !== undefined }) }]), new EventBus());
+  try {
+    const run = await executor.runAgent("inspect", { agentConfigId: "foreign-private-config" }, undefined, undefined, undefined, { serviceInvocation: proof });
+    expect(run.result?.output).toBe(false);
+    expect(registry).not.toHaveBeenCalled();
+  } finally { executor.destroy(); proof.close(); registry.mockRestore(); }
 });
 
 test("service adapter authority rejects forged, human, project-mismatched and closed proofs", async () => {

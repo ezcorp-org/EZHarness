@@ -551,7 +551,7 @@ export class AgentExecutor {
 
     // Wire tools for code-based agents with extensions
     const agentConfigId = input.agentConfigId as string | undefined;
-    if (agentConfigId) {
+    if (agentConfigId && control?.serviceInvocation?.kind !== "host") {
       try {
         const registry = ExtensionRegistry.getInstance();
         const extTools = await registry.getToolsForAgent(agentConfigId);
