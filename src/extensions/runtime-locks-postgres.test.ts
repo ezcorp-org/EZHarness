@@ -17,7 +17,7 @@ async function podman(...args: string[]): Promise<string> {
 }
 
 beforeAll(async () => {
-  await podman("run", "-d", "--name", container, "--pull=never", "--memory=256m", "-e", "POSTGRES_PASSWORD=fixture", "-p", "127.0.0.1::5432", image);
+  await podman("run", "-d", "--name", container, "--pull=never", "--log-driver=none", "--memory=256m", "-e", "POSTGRES_PASSWORD=fixture", "-p", "127.0.0.1::5432", image);
   const port = (await podman("port", container, "5432/tcp")).split(":").at(-1);
   await podman("exec", container, "sh", "-c", "for attempt in $(seq 1 100); do pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1");
   client = new SQL(`postgres://postgres:fixture@127.0.0.1:${port}/postgres`, { max: 3, connectionTimeout: 10 });
