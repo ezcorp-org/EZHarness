@@ -16,9 +16,9 @@ import { test, expect, describe, afterEach, beforeEach } from "bun:test";
 import {
   __resetLoopsForTests,
   _getRegisteredLoop,
-} from "../../../../packages/@ezcorp/sdk/src/runtime/loop";
-import { isUntrustedInputLoop } from "../../../../packages/@ezcorp/sdk/src/runtime/loop-core";
-import { __resetChannelForTests } from "../../../../packages/@ezcorp/sdk/src/runtime/channel";
+} from "@ezcorp/sdk/test";
+import { isUntrustedInputLoop } from "@ezcorp/sdk/test";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import { defineSeoWatcherLoop, start, LOOP_ID, PAGE_ID, APPROVE_EVENT, DECLINE_EVENT } from "./index";
 
 beforeEach(() => __resetLoopsForTests());

@@ -62,7 +62,7 @@ import { migrate } from "../../../src/db/migrate";
 import { EventBus } from "../../../src/runtime/events";
 import type { AgentEvents, AgentRun, WorkflowDefinition } from "../../../src/types";
 import type { AgentExecutor } from "../../../src/runtime/executor";
-import type { JsonRpcRequest } from "../../../src/extensions/types";
+import type { JsonRpcRequest } from "@ezcorp/sdk";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;

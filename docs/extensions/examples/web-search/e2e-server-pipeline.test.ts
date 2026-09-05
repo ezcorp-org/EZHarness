@@ -28,7 +28,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import type { JsonRpcResponse } from "../../../../src/extensions/types";
+import type { JsonRpcResponse } from "@ezcorp/sdk";
 
 const ENTRYPOINT = join(import.meta.dir, "index.ts");
 

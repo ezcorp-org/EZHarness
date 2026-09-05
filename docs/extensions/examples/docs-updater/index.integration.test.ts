@@ -32,7 +32,7 @@ import {
   LoopEvents,
   type StorageScope,
 } from "@ezcorp/sdk/runtime";
-import type { spawnAssignment } from "../../../../packages/@ezcorp/sdk/src/runtime/spawn";
+import type { spawnAssignment } from "@ezcorp/sdk/runtime";
 import {
   __resetLoopsForTests,
   _setStoreFactoryForTests,
@@ -41,8 +41,8 @@ import {
   _setSettingsResolverForTests,
   _setProposalClosuresForTests,
   dispatchAssignmentUpdate,
-} from "../../../../packages/@ezcorp/sdk/src/runtime/loop";
-import { __resetChannelForTests } from "../../../../packages/@ezcorp/sdk/src/runtime/channel";
+} from "@ezcorp/sdk/test";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import {
   defineDocsUpdaterLoop,
   handleApproveAction,
@@ -51,7 +51,7 @@ import {
   _setProjectRootForTests,
   type ShellResult,
 } from "./index";
-import type { LoopApprovalLabel, LoopRunState } from "../../../../packages/@ezcorp/sdk/src/runtime/loop-types";
+import type { LoopApprovalLabel, LoopRunState } from "@ezcorp/sdk/runtime";
 
 // ── in-memory Storage (mirrors the host storage RPC contract) ───────
 

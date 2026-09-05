@@ -60,7 +60,7 @@ import {
   type TaskStore,
   type Trigger,
 } from "./index";
-import type { ToolCallResult } from "../../../../src/extensions/types";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
   const now = "2026-06-13T08:00:00.000Z";

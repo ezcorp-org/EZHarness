@@ -29,8 +29,8 @@ afterAll(() => restoreModuleMocks());
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
-import { buildHarnessEnv, makeFsRpcHandler } from "../_harness/pipeline-harness";
-import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
+import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
+import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
 const ENTRYPOINT = join(import.meta.dir, "index.ts");
 

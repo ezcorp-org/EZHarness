@@ -4,345 +4,345 @@
     "ask-user": {
       "directory": "docs/extensions/examples/ask-user",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 37587,
-      "sourceDigest": "d4f985acad2a9b0f822c2d52d199c8474c7b6500df6c4f353c4c60740dfcac93"
+      "files": 6,
+      "bytes": 37829,
+      "sourceDigest": "0fb24de4bdfb70fb69fe794112fc4f05481dfcffaf2540816768e5c13b9af138"
     },
     "auto-note": {
       "directory": "docs/extensions/examples/auto-note",
       "entrypoint": "extension.ts",
-      "files": 11,
-      "bytes": 161694,
-      "sourceDigest": "5bbbc5592f179dc231c0a53cb8b8654754c570a29efe6f90a645b7ac823cb92a"
+      "files": 12,
+      "bytes": 161914,
+      "sourceDigest": "12ea54e729bd31e1dcc88c18dbeb15284e1a00db93a1bdb129ffc6a2024ae9f8"
     },
     "cash-recovery-agent": {
       "directory": "docs/extensions/examples/cash-recovery-agent",
       "entrypoint": "extension.ts",
-      "files": 15,
-      "bytes": 157332,
-      "sourceDigest": "dc7bad088f1956c2e76b279a8d43c424cf6bb7314618758fbc47caf3778721c3"
+      "files": 16,
+      "bytes": 157596,
+      "sourceDigest": "59cbf8f31190ce13909677709856263108256e61b27fb743434d18a47f502941"
     },
     "city-conditions": {
       "directory": "docs/extensions/examples/city-conditions",
       "entrypoint": "extension.ts",
-      "files": 9,
-      "bytes": 102396,
-      "sourceDigest": "4c0e34496e21dd9486899149f31c43d60400105eab2b32603b7861318ebb3456"
+      "files": 10,
+      "bytes": 102652,
+      "sourceDigest": "94d765c5982ce0ece82c7a4ad6758170706a76a0e8e6cc67acd5423a3153edc4"
     },
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
-      "files": 24,
-      "bytes": 318555,
-      "sourceDigest": "dbd189b1c91c957ffe81f6e7313e2779259fccfaf8f74cd5cfdd409e4cf1a383"
+      "files": 25,
+      "bytes": 318807,
+      "sourceDigest": "14849d6ffedf5d4ac34bedff28935779a05fe7f6606c5c17182c61f1a3704f54"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 9061,
-      "sourceDigest": "fa3c41929a569cfd4be539bf7d212a21227ec8a59e1cd07686e7efc7d6bd23d4"
+      "files": 7,
+      "bytes": 9311,
+      "sourceDigest": "567675210b76dab8e461104e378ce92b279d503f07d365b87d302a34d3fbc736"
     },
     "code-review-delegator": {
       "directory": "docs/extensions/examples/code-review-delegator",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 7081,
-      "sourceDigest": "f2e4ed6ab2822f76a453a7989ca8001cc6fb3905972ef69e4f49df27c444d48e"
+      "files": 6,
+      "bytes": 7349,
+      "sourceDigest": "2ee400fa6ad60817f6dc33d860e7416d3ff886eef95c4356bc3f72975de386e0"
     },
     "cron-dashboard": {
       "directory": "docs/extensions/examples/cron-dashboard",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 18824,
-      "sourceDigest": "8b9fb308485c8d1c354f3090d18dabdc7e1e199917d078f44ae31c9fe44d3557"
+      "files": 6,
+      "bytes": 19078,
+      "sourceDigest": "dd0bbecb882a1f4f4153c636921b98ab2b290bbf917cc7a21adc7a5399f77321"
     },
     "docs-updater": {
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 124309,
-      "sourceDigest": "f84a41879f8ea70ba05ee3e7b3522c983999696e4ebc403903744f83fe1abf82"
+      "files": 9,
+      "bytes": 124321,
+      "sourceDigest": "512637c0470e487132dfbd1153eae2b82b340d5b6496f29343af997ad7964895"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 36689,
-      "sourceDigest": "88d4d13e53bcf15e9b2576201d087d4d164c6ffc2c46e4a4178f593d2ccacc5e"
+      "files": 8,
+      "bytes": 36925,
+      "sourceDigest": "c014c0fcb81e6160cd6f1154fa2c3438ea65a0f8d879d58e5dd6c9a564f6faf5"
     },
     "extension-author": {
       "directory": "docs/extensions/examples/extension-author",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 2848,
-      "sourceDigest": "ce17c064aa28f2b854658e38d789dd55868eefb726b5722b1d7b92ba44f14e96"
+      "files": 6,
+      "bytes": 3106,
+      "sourceDigest": "52d00d01c9e8ed1f8d2bf3c9fadc1dd238fa40fb5555265279e67c90821816d2"
     },
     "ez-code": {
       "directory": "docs/extensions/examples/ez-code",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 105924,
-      "sourceDigest": "13b836bc3cc81f4b00757d78855ee7f69335666d8901646845f30349d1b2aa11"
+      "files": 7,
+      "bytes": 106122,
+      "sourceDigest": "01ac31a56b01e6e90b9605492cd80ff98383a1ab6ffcfb4ac705b0e12d9f8400"
     },
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
-      "files": 26,
-      "bytes": 240753,
-      "sourceDigest": "6364e1804a347568bc68ab2e84a387af8b42a944e241de69132f58e65dd6ea2e"
+      "files": 27,
+      "bytes": 241007,
+      "sourceDigest": "c60fbdc3180be06c762752a49f9edac054fdeb0495477fd5c3ef0e483ef15f8b"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 25071,
-      "sourceDigest": "a90e8a454e9e660e5819b3e9ea7bef05fbde5efe18ee4fac0bdc3b1ad06fd2e8"
+      "files": 5,
+      "bytes": 25323,
+      "sourceDigest": "f03724ceef020f8f401be9d10d758edf5b5d103816d40b37b9268d4f49f311d4"
     },
     "github-projects": {
       "directory": "docs/extensions/examples/github-projects",
       "entrypoint": "extension.ts",
-      "files": 9,
-      "bytes": 67565,
-      "sourceDigest": "f088f8eec7ee4ddc9749166c84cdcce5bcb99480f37eb77da4676703079971a9"
+      "files": 10,
+      "bytes": 67800,
+      "sourceDigest": "56a82b47c5cd1f9fb639a19c2034d04ce8fcfdd80b4e77dd73f660ef04cc8f1c"
     },
     "github-stats": {
       "directory": "docs/extensions/examples/github-stats",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 24491,
-      "sourceDigest": "07a6a3b83fa77e2af3c7accc197b04110b8102fd658f4fc3e089acad406b3b99"
+      "files": 7,
+      "bytes": 24741,
+      "sourceDigest": "8e469cd1a6c38730d27f1fa79358f381b2dd836773bc52e8f1c0188424bf3f3a"
     },
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
-      "files": 52,
-      "bytes": 288552,
-      "sourceDigest": "f237f42948f083e93b7862f662a4643bd10a1a8dbf33122645d0fa0dcf749015"
+      "files": 53,
+      "bytes": 288816,
+      "sourceDigest": "b25c61cebac4142d044f3b6e734000373d3b522555595b832fe4e2258259b3bd"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 7437,
-      "sourceDigest": "fc02c6ba7914bbcd872fd9bd7cb781cc2dd635460716470495d5a92272edb4b4"
+      "files": 6,
+      "bytes": 7699,
+      "sourceDigest": "25c96757f858408cc256aada787b2f08d20ec47aa9e9842f442eead9a4f72c85"
     },
     "kokoro-tts": {
       "directory": "docs/extensions/examples/kokoro-tts",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 31700,
-      "sourceDigest": "c4b36c0a0440228d6a8711d0d6f0ba8a9ae1be83c327ff06a03ccff3cac717b5"
+      "files": 8,
+      "bytes": 31946,
+      "sourceDigest": "f44e8c124a0b467c9ad4756dd5d7feda20f0d417ebd54aa7d36a7b0a8dd21ef2"
     },
     "log-analyzer": {
       "directory": "docs/extensions/examples/log-analyzer",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 13921,
-      "sourceDigest": "876407a8f6dbd7be8adea88aa9efa4325da75cc45bad3c0ffc5259f360ccbc6d"
+      "files": 5,
+      "bytes": 14171,
+      "sourceDigest": "db35afe21dc39df091693c2f972f738138a2a666334080caa69f06cb0912b520"
     },
     "markdown-utils": {
       "directory": "docs/extensions/examples/markdown-utils",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 14463,
-      "sourceDigest": "4e20738607ce39328e3a70325d658da32511cc22bbd6726bfc5aff6340654f57"
+      "files": 6,
+      "bytes": 14717,
+      "sourceDigest": "c51871726b5e077b1799e5f0944c84f3052b0f5891bd13a9dfb7f635cafb6cd0"
     },
     "multi-agent-orchestrator": {
       "directory": "docs/extensions/examples/multi-agent-orchestrator",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 3958,
-      "sourceDigest": "7d67dc118bb3359595c29dc895dc9b13b95cc545f3f77acea7969eeae2b929de"
+      "files": 5,
+      "bytes": 4232,
+      "sourceDigest": "0187f2db0251d81060a2723e30dcf10a4aa704506ffc2cfd2ae75f0a641f3325"
     },
     "openai-image-gen-2": {
       "directory": "docs/extensions/examples/openai-image-gen-2",
       "entrypoint": "extension.ts",
-      "files": 17,
-      "bytes": 150425,
-      "sourceDigest": "b64b902a3dd8357bd081dbf85e8fef442c9ae62ddebac6548372603c3d319498"
+      "files": 18,
+      "bytes": 150687,
+      "sourceDigest": "ab3d1a1c6591ba2e2a2ac7be9f329289b95c1510669d38bda0f79a6efc520e9f"
     },
     "orchestration": {
       "directory": "docs/extensions/examples/orchestration",
       "entrypoint": "extension.ts",
-      "files": 3,
-      "bytes": 64964,
-      "sourceDigest": "1789b0cd1654ab2fb0e6d0ec3b9e8abcc0929288dc77c08a7dc98d209ad31ccf"
+      "files": 4,
+      "bytes": 65216,
+      "sourceDigest": "6adac5cedf757c5bacc4b2c172f48c0c4328cfe5415e543d022a86c5a8e8e9b7"
     },
     "ping-loop": {
       "directory": "docs/extensions/examples/ping-loop",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 29606,
-      "sourceDigest": "7386e25b56936bf601a9c0a352258f079e233eb71e8f3a973066572a3c3105b4"
+      "files": 8,
+      "bytes": 29850,
+      "sourceDigest": "6696042f2e15f91fe9eba58a4e11b2d189ab9e503ae77c6698f4b6e1e35123fa"
     },
     "price-chart": {
       "directory": "docs/extensions/examples/price-chart",
       "entrypoint": "extension.ts",
-      "files": 9,
-      "bytes": 42771,
-      "sourceDigest": "2c6ea1c06f2248388b40c6cbd54c57456dba9f181ef9293e1f8ee6aada6a9059"
+      "files": 10,
+      "bytes": 43019,
+      "sourceDigest": "36dfa4315339d31efa0eaadf217ea340f88d56ab3f8cab4cd0e9cc9112182072"
     },
     "project-analyzer": {
       "directory": "docs/extensions/examples/project-analyzer",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 14455,
-      "sourceDigest": "7de6adb8f5eef74ed3334ca630ebea11953bd264e83a1791d28cf4d88b73444b"
+      "files": 7,
+      "bytes": 14713,
+      "sourceDigest": "5f2d8444e1fcb7bfd7fc2bcb43b051bc5211ba07ebe46a1888ee896757fec88f"
     },
     "property-intelligence-agent": {
       "directory": "docs/extensions/examples/property-intelligence-agent",
       "entrypoint": "extension.ts",
-      "files": 19,
-      "bytes": 364072,
-      "sourceDigest": "82714dd6454103f595d38dc5dd75131cdff4366c26f2b54b3c6f7977b19a603c"
+      "files": 20,
+      "bytes": 364352,
+      "sourceDigest": "f107701d8f2e5762d9c1aaaa2b23480d0a8ebf6f3996b66d78ee85e0a54fee8f"
     },
     "repo-activity-notify": {
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 38752,
-      "sourceDigest": "b48ee20b6e8c297fb4c5367bbf1e09db78458549fb4c4f48b87360d295c0984c"
+      "files": 7,
+      "bytes": 38985,
+      "sourceDigest": "41c2fba44019b1fbc8fee8cc608fe823fbef1f0bc3a66e9ba0382f08e3b50376"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 7831,
-      "sourceDigest": "fdae7ceeaccf6348b979d264778a1f707a68e2bbbb47ae0a054156d2dbccd914"
+      "files": 5,
+      "bytes": 8085,
+      "sourceDigest": "7d530ade57686b488272bfc726d96d9c50047170b17b41889a00d5376bbb2b1e"
     },
     "sample-loop": {
       "directory": "docs/extensions/examples/sample-loop",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 30940,
-      "sourceDigest": "3ccc610152a5d55b416a0a9ed1d2077462cb671339e0e2e11ded2134f72c2d0d"
+      "files": 9,
+      "bytes": 31122,
+      "sourceDigest": "2ce1276cb85f1a98a41711aba7919bd46db5dc5e2069be8abe4c9402f5b7821a"
     },
     "scratchpad": {
       "directory": "docs/extensions/examples/scratchpad",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 19095,
-      "sourceDigest": "0cc82183f20160b7f41450b9d92af4775b8db7794f27fbfa2f733eae2c6b6f41"
+      "files": 7,
+      "bytes": 19341,
+      "sourceDigest": "d302f670a804e60408cc8cc6470fa8ec6063dadf79ec0b0f483fa1e28d124fb3"
     },
     "seo-watcher": {
       "directory": "docs/extensions/examples/seo-watcher",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 101220,
-      "sourceDigest": "296709f80663dbab4cfa6ca8f72a2ff2fa37bfe918e2852754b1de663c684de9"
+      "files": 9,
+      "bytes": 101223,
+      "sourceDigest": "fbcff57a8d8c67bfd0eb25d190928a754bb38afa6e45c47919928ed10847e39c"
     },
     "substack-engagement": {
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
-      "files": 27,
-      "bytes": 210159,
-      "sourceDigest": "acc0af696a4efbc9f5046b729b7450054ea914065044c06f51558f853c4998c3"
+      "files": 28,
+      "bytes": 210423,
+      "sourceDigest": "49a1f04e55701a17af2d98bef95fecc5c5b8bcf38b4a590c5fc304e7bf831d9a"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
-      "files": 32,
-      "bytes": 173482,
-      "sourceDigest": "d80186b54c02151b79a374952388b97c62630ef832c05b558caf497c6b6aadaa"
+      "files": 33,
+      "bytes": 173712,
+      "sourceDigest": "9c97b7a34a22712492965ba821f3e29e8ed50bb599d175e9ac3b7311545a2de4"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
       "entrypoint": "extension.ts",
-      "files": 12,
-      "bytes": 48918,
-      "sourceDigest": "4de116bf01200c12cb592a3abb687cf44a701e45e3c57ebfcdec4bf9ebff3562"
+      "files": 13,
+      "bytes": 49178,
+      "sourceDigest": "06b541f920ed0db3b2376bc769e4e275570df2533eefadc03ff1913e502fcc06"
     },
     "task-stack": {
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 91289,
-      "sourceDigest": "598d812c6abac4b0143d2c0f86825db8c884d8bc93db89e04ef9ffdbe3bb66cc"
+      "files": 8,
+      "bytes": 91523,
+      "sourceDigest": "da0072e8bdc2d25a7839cdea5384f36fe67be00e445d712c57683030038d24e3"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 83086,
-      "sourceDigest": "56328b3a14c86e70fddce9ebd63063728a044d5fd8b4fce3cb493e9640f50610"
+      "files": 6,
+      "bytes": 83338,
+      "sourceDigest": "b743652b74c5de3461c60e00f91f1e66f5a6480b35ba9a555c4ba69ad8b1c6c0"
     },
     "test-agent-configs": {
       "directory": "docs/extensions/examples/test-agent-configs",
       "entrypoint": "extension.ts",
-      "files": 3,
-      "bytes": 2431,
-      "sourceDigest": "5b8090d6d5dd1c318015886d00a206ebc7bb5a10215501c97d971556fe22c9ac"
+      "files": 4,
+      "bytes": 2693,
+      "sourceDigest": "06c9e3b27cabd445282469203dd9e2d26287c9badb6f4beb5feaccaecd0fd706"
     },
     "test-event-subscriber": {
       "directory": "docs/extensions/examples/test-event-subscriber",
       "entrypoint": "extension.ts",
-      "files": 3,
-      "bytes": 2106,
-      "sourceDigest": "1f5c5e6e978a78826590feaf661214cf38272c350fc90d68e7e825571d53267f"
+      "files": 4,
+      "bytes": 2374,
+      "sourceDigest": "101d06ad90db4c0810cc4560c5e8c5ac52eee0f6cc5611a53fd95bbc518e7267"
     },
     "test-spawn-assignment": {
       "directory": "docs/extensions/examples/test-spawn-assignment",
       "entrypoint": "extension.ts",
-      "files": 3,
-      "bytes": 4369,
-      "sourceDigest": "5897ed7c2fd1d034013a2679ab21d4b21b7832ea9e75f9dc6bbaae7759a5c61d"
+      "files": 4,
+      "bytes": 4637,
+      "sourceDigest": "d9d69833f310cd7d4b697775c1abbd7500bb5860a1e3fe0a0de08426e1677fa0"
     },
     "test-task-events": {
       "directory": "docs/extensions/examples/test-task-events",
       "entrypoint": "extension.ts",
-      "files": 3,
-      "bytes": 3144,
-      "sourceDigest": "edce81bfd4a83296c41e6b37578c382ff163bd9d565ab4488d4402022dfaafb9"
+      "files": 4,
+      "bytes": 3402,
+      "sourceDigest": "034748b2b49465234012deeb652485dba9607449627e6bd45574fe9b851d3a12"
     },
     "todo-tracker": {
       "directory": "docs/extensions/examples/todo-tracker",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 40085,
-      "sourceDigest": "1b20d1f56b3bf3f3346e7a050a0459a17840865b3528a09f364158bf294c2685"
+      "files": 8,
+      "bytes": 40323,
+      "sourceDigest": "c5a46d49e0750a7a4d150fd61d7b5e33bb579a7d88387882d1d56e79e3ba6f71"
     },
     "weather": {
       "directory": "docs/extensions/examples/weather",
       "entrypoint": "extension.ts",
-      "files": 5,
-      "bytes": 19555,
-      "sourceDigest": "659404d6e803f0cd0f9907f38ba66ee7ffa09b403f2dd75b0e42ce2117c876f5"
+      "files": 6,
+      "bytes": 19795,
+      "sourceDigest": "f2adbc3e96fca78c67a2a389f675c83dd8998d3eaf07d27455ed4721b3982851"
     },
     "web-search": {
       "directory": "docs/extensions/examples/web-search",
       "entrypoint": "extension.ts",
-      "files": 9,
-      "bytes": 98747,
-      "sourceDigest": "55ffd59d35bdf67f086bce2f399becdd21d67840c6e4807689b0643ed14a7890"
+      "files": 10,
+      "bytes": 98941,
+      "sourceDigest": "e1f9770e72f6a8a29c24c68678588c173115ef6b966a427c81a329618e731618"
     },
     "webhook-ticket-loop": {
       "directory": "docs/extensions/examples/webhook-ticket-loop",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 22409,
-      "sourceDigest": "81b89f73c01c82b16db05409c114973514cf81a05d13c63d85731a59b084a771"
+      "files": 8,
+      "bytes": 22640,
+      "sourceDigest": "1bd3b1933f6e3cf0911ebeec2ef80c3435768ef08c40ae9e88357c67efaf9400"
     },
     "ez-factory": {
       "directory": "extensions/ez-factory",
       "entrypoint": "extension.ts",
-      "files": 34,
-      "bytes": 781258,
-      "sourceDigest": "369f7a8b5802724b8f2e3660a38a9f608235c04f4d174beeb201938f9a730cd8"
+      "files": 35,
+      "bytes": 781486,
+      "sourceDigest": "d254410473ba4275f6d39caf75eec205a435f139335229a262ee2f89fcb28e95"
     },
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 82702,
-      "sourceDigest": "3a34890492d30ccaf76a88afd7d3a1bc2b8184e0ffa0ba5a279c0a11bc4f4ef0"
+      "files": 7,
+      "bytes": 82962,
+      "sourceDigest": "937f009e62a9dcffe607a4634a989df5bb7b001e5c36594fef2572fe6c419c54"
     },
     "memory-extractor": {
       "directory": "extensions/memory-extractor",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 77226,
-      "sourceDigest": "1ce630266330e727858fb4ec157bc1f43855b2334fb404a60cb60a7c5632e3ef"
+      "files": 8,
+      "bytes": 77484,
+      "sourceDigest": "10766ce6497810546a10b17111603cedd7ef3489b7ea2f2147b8425974e953e6"
     },
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",

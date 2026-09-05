@@ -43,7 +43,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import { buildHarnessEnv, wireFsHandler } from "../_harness/pipeline-harness";
+import { buildHarnessEnv, wireFsHandler } from "@ezcorp/sdk/test";
 
 const AUTO_NOTE_ENTRYPOINT = join(import.meta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `auto-note-e2e-pipeline-${Date.now()}`);

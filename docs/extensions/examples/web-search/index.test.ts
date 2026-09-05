@@ -67,7 +67,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
 }));
 
 import { buildHandlers, createDeps, makeReadHandler, makeSearchHandler } from "./index";
-import type { ToolCallResult } from "../../../../packages/@ezcorp/sdk/src/types";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
 function textOf(r: ToolCallResult): string {
   const first = r.content[0];

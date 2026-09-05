@@ -36,7 +36,7 @@ import {
   isValidForField,
   migrateManifestV2ToV3,
 } from "../../../../../src/extensions/manifest";
-import type { SettingsField } from "../../../../../src/extensions/types";
+import type { SettingsField } from "@ezcorp/sdk";
 
 describe("clampLlmPermission against the substack-pilot manifest", () => {
   const manifestLlm = manifest.permissions.llm;

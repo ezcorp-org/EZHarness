@@ -31,7 +31,7 @@ import {
 // Phase 3 fs hardening: the vault now routes IO through host-mediated
 // `fs*` reverse-RPC. In-process tests have no host, so we stub the channel
 // against real disk under TMP_DIR (see the shared `_harness` helper).
-import { installFsChannelStub, makeFsRpcHandler } from "../_harness/pipeline-harness";
+import { installFsChannelStub, makeFsRpcHandler } from "@ezcorp/sdk/test";
 
 // ── Test helpers ────────────────────────────────────────────────
 
