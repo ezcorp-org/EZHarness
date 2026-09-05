@@ -4,8 +4,9 @@ import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import type { WorkspaceFiles, WorkspaceRecord } from "@ezcorp/extension-contract";
+import { chromium, devices } from "@playwright/test";
 
-test.use({ actionTimeout: 15000, navigationTimeout: 30000, launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } });
+test.use({ hasTouch: true, actionTimeout: 15000, navigationTimeout: 30000, launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } });
 
 test("real sealed scanner uses approved tools and explicit host camera without session access @evidence", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(360000);
@@ -33,6 +34,7 @@ test("real sealed scanner uses approved tools and explicit host camera without s
     const frame = page.frameLocator("iframe");
     await expect(frame.getByRole("heading", { name: "Graded Card Scanner" })).toBeVisible();
     await expect(frame.getByTestId("gcs-empty")).toBeVisible();
+    await expect(frame.getByRole("main")).toHaveAttribute("aria-busy", "false");
     const security = await frame.locator("body").evaluate(() => {
       let parentDenied = false;
       let cookieDenied = false;
@@ -41,7 +43,7 @@ test("real sealed scanner uses approved tools and explicit host camera without s
       return { parentDenied, cookieDenied };
     });
     expect(security).toEqual({ parentDenied: true, cookieDenied: true });
-    await frame.getByTestId("gcs-pause").press("Enter");
+    await frame.getByTestId("gcs-pause").click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Start camera", exact: true }).click();
@@ -50,11 +52,23 @@ test("real sealed scanner uses approved tools and explicit host camera without s
     await captureEvidence(page, testInfo, "extension-scanner-trusted-camera", { fullPage: true });
     await page.getByRole("button", { name: "Stop camera", exact: true }).first().click();
     await expect(frame.getByTestId("gcs-pause")).toHaveText("Start scanning");
-    await page.setViewportSize({ width: 390, height: 844 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await captureEvidence(page, testInfo, "extension-scanner-protected-mobile", { fullPage: true });
+    const mobileBrowser = await chromium.launch({ args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
+    try {
+      const mobile = await mobileBrowser.newPage({ ...devices["Pixel 5"], storageState: await page.context().storageState() });
+      await mobile.goto(page.url());
+      const mobileFrame = mobile.frameLocator("iframe");
+      await expect(mobileFrame.getByRole("main")).toHaveAttribute("aria-busy", "false");
+      expect(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await mobileFrame.getByTestId("gcs-pause").tap();
+      await expect(mobile.getByRole("dialog")).toBeVisible();
+      await mobile.getByRole("button", { name: "Start camera", exact: true }).tap();
+      await expect.poll(() => mobileFrame.getByTestId("gcs-video").getAttribute("src")).toMatch(/^data:image\/jpeg;base64,/);
+      await mobile.getByRole("button", { name: "Stop camera", exact: true }).first().tap();
+      await expect(mobileFrame.getByTestId("gcs-pause")).toHaveText("Start scanning");
+      await captureEvidence(mobile, testInfo, "extension-scanner-protected-mobile", { fullPage: true });
+    } finally { await mobileBrowser.close(); }
     await client.extensionControl("extensions_release", { action: "disable", installationId: created.installation.id, idempotencyKey: crypto.randomUUID() });
-    await frame.getByTestId("gcs-pause").press("Enter");
+    await frame.getByTestId("gcs-pause").click();
     await expect(page.getByText("Preview closed because access changed or its document navigated. Reopen it to continue.", { exact: true })).toBeVisible();
   } finally {
     await client.extensionControl("extensions_release", { action: "uninstall", installationId: created.installation.id, idempotencyKey: crypto.randomUUID() });
