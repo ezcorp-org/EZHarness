@@ -70,7 +70,7 @@ test("staging writes only redacted source and workspace-scoped auth before build
   expect(lifecycle.build).toHaveBeenCalledTimes(1);
 });
 
-test("unapproved actors and unsupported network stdio profiles never stage", async () => {
+test("unapproved actors and unsafe native source profiles never stage", async () => {
   const server = { transport: "stdio" as const, name: "offline", command: "/opt/mcp/server" };
   for (const change of [() => { role = "member"; }, () => { role = "admin"; active = false; }]) {
     change();
@@ -78,10 +78,14 @@ test("unapproved actors and unsupported network stdio profiles never stage", asy
   }
   active = true;
   await expect(stageMcpExtension({ ...actor, kind: "agent" }, { name: "offline", server })).rejects.toThrow("human administrator");
-  for (const unsupported of [{ ...server, args: ["https://example.com"] }, { ...server, env: { TOKEN: "secret" } }, { ...server, command: "npx" }]) await expect(stageMcpExtension(actor, { name: "offline", server: unsupported })).rejects.toThrow();
+  for (const unsupported of [{ ...server, env: { TOKEN: "secret" } }, { ...server, command: "npx" }]) await expect(stageMcpExtension(actor, { name: "offline", server: unsupported })).rejects.toThrow();
   expect(lifecycle.createWorkspace).not.toHaveBeenCalled();
   await stageMcpExtension(actor, { name: "offline", server });
   expect(lifecycle.createWorkspace).toHaveBeenCalledTimes(1);
+  await stageMcpExtension(actor, { name: "networked", server: { ...server, args: ["https://example.com/api", "--endpoint=https://example.com/api", "http://plain.example/api"] } });
+  const manifest = JSON.parse(recordedFiles["mcp.manifest.json"]!);
+  expect(manifest.permissions).toEqual({ network: ["example.com", "plain.example"], networkTcp: ["example.com:443"], mcpInvoke: true });
+  expect(lifecycle.createWorkspace).toHaveBeenCalledTimes(2);
 });
 
 test("restaging keeps the active connection unchanged and uses its scoped credentials", async () => {

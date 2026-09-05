@@ -10,7 +10,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { getExtension } from "../db/queries/extensions";
 import { persistMcpWorkspaceCredentials, rehydrateMcpWorkspaceCredentials } from "./mcp-workspace-credentials";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
-import { mcpManifestPermissions, mcpNetworkHosts, withMcpToolCapabilities } from "./mcp-capabilities";
+import { mcpManifestPermissions, withMcpToolCapabilities } from "./mcp-capabilities";
 import { mcpServerHasPlaintextSecret, mergeMcpServerSecrets, redactMcpServer } from "./mcp-secret-redaction";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
 import type { McpServerDefinition } from "./types";
@@ -46,7 +46,7 @@ export async function stageMcpExtension(actor: LifecycleActor, input: { name: st
   const permissions = mcpManifestPermissions(input.server);
   let manifest = validateManifest({ schemaVersion: 4, name: input.name, version: "1.0.0", description: input.description ?? "MCP extension", author: { name: actor.principalId }, kind: "mcp", permissions, mcpServers: [redactMcpServer(input.server)], tools: [] });
   if (input.server.transport === "stdio") {
-    if (mcpNetworkHosts(input.server).length || mcpServerHasPlaintextSecret(input.server)) throw new LifecycleError("unsupported_mcp_profile", "The offline stdio profile cannot use network or credentials. Use HTTP/SSE, or package an offline server in an approved image.");
+    if (mcpServerHasPlaintextSecret(input.server)) throw new LifecycleError("unsupported_mcp_profile", "Plaintext credentials cannot be stored in MCP source. Use approved invocation credential grants; discovery must work without credentials or network.");
     if (["npx", "npm", "bunx"].includes(input.server.command)) throw new LifecycleError("unsupported_mcp_profile", "Package a pinned offline executable before building. Runtime package installation is not supported.");
   } else {
     try {

@@ -31,6 +31,27 @@ test("env returns opaque scoped handles and rejects raw host env access", async 
   expect((await handleCredentialBroker(deps, "ext-a", request("ezcorp/env.get", { name: "OPENAI_API_KEY" }))).error).toBeDefined();
 });
 
+test("raw provider reads require their own grant, principal resolver and fresh invocation", async () => {
+  const value = fixture();
+  const request = value.request("ezcorp/credentials.read", { name: "OPENAI_API_KEY" });
+  const resolver = async () => "explicitly-reviewed-secret";
+  expect((await handleCredentialBroker(value.deps, "ext-a", request, { readRawCredential: resolver })).error).toBeDefined();
+  const deps = { ...value.deps, registry: { getManifest: () => ({ permissions: { secretRead: names } }), getGrantedPermissions: () => ({ secretRead: value.state.granted ? names : [] }) } } as unknown as RpcHandlerDeps;
+  expect((await handleCredentialBroker(deps, "ext-a", request, { resolveCredential: resolver })).result).toBeNull();
+  expect((await handleCredentialBroker(deps, "ext-a", request, { readRawCredential: resolver })).result).toBe("explicitly-reviewed-secret");
+  for (const bad of ["", "bad\r\nsecret", "x".repeat(16385)]) {
+    const result = await handleCredentialBroker(deps, "ext-a", request, { readRawCredential: async () => bad });
+    expect(result.error).toBeDefined();
+    expect(result.result).toBeUndefined();
+  }
+  value.state.allowed = false;
+  expect((await handleCredentialBroker(deps, "ext-a", request, { readRawCredential: resolver })).error).toBeDefined();
+  value.state.allowed = true;
+  expect((await handleCredentialBroker(deps, "ext-a", request, { readRawCredential: async () => { value.state.granted = false; return "must-not-escape"; } })).error).toBeDefined();
+  value.state.granted = true;
+  expect((await handleCredentialBroker(deps, "ext-a", request, { readRawCredential: async () => { releaseCallProvenance(value.token); return "must-not-escape"; } })).error).toBeDefined();
+});
+
 test("configured host credential resolver never returns secret bytes to the caller", async () => {
   const { deps, request } = fixture();
   configureCredentialResolver(async () => "configured-host-secret");

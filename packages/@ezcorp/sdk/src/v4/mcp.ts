@@ -5,6 +5,8 @@ import type { ToolDefinitionV4 } from "@ezcorp/extension-contract";
 import { defineExtension } from "./index";
 import type { DefinedExtension, ExtensionHandler } from "./index";
 import { defineRuntimeManifest } from "./runtime";
+import { startNativeProxy } from "./native-proxy";
+import { readGrantedCredential, withExtensionContext } from "./context";
 
 export async function readMcpCatalog(instance: Pick<Client, "listTools">): Promise<ToolDefinitionV4[]> {
   const tools: unknown[] = [];
@@ -34,12 +36,12 @@ export async function createMcpExtension(options: { manifest: unknown }): Promis
   }
   if (!server.command || server.command.length > 240 || server.command.includes("\0")) throw new ContractError("INVALID_MCP", "Invalid packaged MCP command");
   const { command, args, env } = server;
-  function client() {
+  function client(proxyEnvironment: Record<string, string> = {}) {
     const instance = new Client({ name: "ezcorp-extension-v4", version: "4.0.0" }, {
       capabilities: {},
       jsonSchemaValidator: valueSchemaValidator,
     });
-    const transport = new StdioClientTransport({ command, args: args ?? [], env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...env }, stderr: "ignore" });
+    const transport = new StdioClientTransport({ command, args: args ?? [], env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...env, ...proxyEnvironment }, stderr: "ignore" });
     return { instance, transport };
   }
   const discovery = client();
@@ -51,15 +53,26 @@ export async function createMcpExtension(options: { manifest: unknown }): Promis
   const approvedCatalog = canonicalJson(tools);
   const handlers: Record<string, ExtensionHandler> = {};
   for (const tool of tools) handlers[tool.name] = async (input, context) => {
-    const execution = client();
+    const proxy = await startNativeProxy(context);
+    const credentials: Record<string, string> = {};
+    let execution: ReturnType<typeof client> | undefined;
     try {
+      for (const name of manifest.permissions.secretRead ?? []) {
+        const value = await withExtensionContext(context, () => readGrantedCredential(name));
+        if (value === null) throw new ContractError("CREDENTIAL_DENIED", "The current caller cannot read a required provider credential");
+        credentials[name] = value;
+      }
+      execution = client({ ...credentials, ...proxy.environment });
       await execution.instance.connect(execution.transport, { timeout: Math.max(1, context.invocation.deadline - Date.now()) });
       if (canonicalJson(await readMcpCatalog(execution.instance)) !== approvedCatalog) throw new ContractError("CATALOG_MISMATCH", "MCP tool catalog changed after release discovery");
       const result = await execution.instance.callTool({ name: tool.name, arguments: input as Record<string, unknown> }, undefined, { signal: context.signal, timeout: Math.max(1, context.invocation.deadline - Date.now()) });
       if (tool.mcpOutputSchema && !result.isError) compileValueSchema(tool.mcpOutputSchema)(result.structuredContent);
       return { ...result, isError: result.isError === true };
-    } finally { await execution.instance.close(); }
+    } finally {
+      try { await execution?.instance.close(); }
+      finally { for (const name of Object.keys(credentials)) delete credentials[name]; await proxy.close(); }
+    }
   };
-  const declaredTools = tools.map(tool => ({ ...tool, capabilities: { ...(manifest.permissions.network?.length ? { network: { hosts: manifest.permissions.network } } : {}), custom: { "ezcorp:mcp:invoke": true } } }));
+  const declaredTools = tools.map(tool => ({ ...tool, capabilities: { ...(manifest.permissions.network?.length ? { network: { hosts: manifest.permissions.network } } : {}), custom: { "ezcorp:mcp:invoke": true, ...(manifest.permissions.networkTcp?.length ? { "ezcorp:network:tcp": manifest.permissions.networkTcp } : {}), ...(manifest.permissions.secretRead?.length ? { "ezcorp:credentials:read": manifest.permissions.secretRead } : {}) } } }));
   return defineExtension({ manifest: { ...manifest, tools: declaredTools }, tools: handlers });
 }

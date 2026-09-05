@@ -17,4 +17,12 @@ export async function resolveExtensionCredential(name: string, scope: Credential
   return getSecret("github-projects", conversation.projectId, "apiToken");
 }
 
-export function initializeExtensionCredentials(): void { configureCredentialResolver(resolveExtensionCredential); }
+export async function readExtensionCredential(name: string, scope: CredentialScope): Promise<string | null> {
+  const user = await getUserById(scope.userId);
+  if (user?.status !== "active" || user.role !== "admin") return null;
+  const value = await resolveExtensionCredential(name, scope);
+  const current = await getUserById(scope.userId);
+  return current?.status === "active" && current.role === "admin" ? value : null;
+}
+
+export function initializeExtensionCredentials(): void { configureCredentialResolver(resolveExtensionCredential, readExtensionCredential); }

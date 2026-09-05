@@ -30,6 +30,8 @@ export type CapabilityKind =
   | "ezcorp:api:request"
   | "ezcorp:api:events"
   | "network"
+  | "network.tcp"
+  | "secret.read"
   | "fs.read"
   | "fs.write"
   | "fs.list"
@@ -438,6 +440,16 @@ export function intersectPermissions(
     if (list.length > 0) out.network = list;
   }
 
+  if (a.networkTcp && b.networkTcp) {
+    const allowed = new Set(b.networkTcp);
+    const destinations = [...new Set(a.networkTcp)].filter(destination => allowed.has(destination));
+    if (destinations.length) out.networkTcp = destinations;
+  }
+  if (a.secretRead && b.secretRead) {
+    const names = [...new Set(a.secretRead)].filter(name => b.secretRead!.includes(name));
+    if (names.length) out.secretRead = names;
+  }
+
   // filesystem — path-prefix intersection (a path survives if it's in
   // BOTH allowlists' prefix-cover relations). The narrower of two
   // prefix-overlapping paths wins (e.g. `/foo` vs `/foo/bar` →
@@ -735,6 +747,8 @@ export function intersectPermissions(
   for (const key of Object.keys({ ...aAt, ...bAt })) {
     const survived =
       (key === "network" && out.network) ||
+      (key === "networkTcp" && out.networkTcp) ||
+      (key === "secretRead" && out.secretRead) ||
       (key === "filesystem" && out.filesystem) ||
       (key === "shell" && out.shell) ||
       (key === "env" && out.env) ||
@@ -866,6 +880,9 @@ export function grantsToCapabilitySet(
       caps.push({ kind: "network", value: host.toLowerCase() });
     }
   }
+
+  for (const destination of grants.networkTcp ?? []) caps.push({ kind: "network.tcp", value: destination });
+  for (const name of grants.secretRead ?? []) caps.push({ kind: "secret.read", value: name });
 
   if (grants.filesystem) {
     for (const path of grants.filesystem) {
@@ -1033,6 +1050,10 @@ function tighterMissedRunPolicy(
 /** Map manifest-level custom keys to namespaced capability kinds. */
 function customToKind(key: string): CapabilityKind | null {
   switch (key) {
+    case "ezcorp:network:tcp":
+      return "network.tcp";
+    case "ezcorp:credentials:read":
+      return "secret.read";
     case "appendMessages":
     case "ezcorp:chat:append":
       return "ezcorp:chat:append";

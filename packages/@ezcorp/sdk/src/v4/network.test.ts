@@ -1,11 +1,21 @@
 import { expect, test } from "bun:test";
-import { getGrantedEnv, getInvocationContext, withExtensionContext } from "./context";
+import { getGrantedEnv, getInvocationContext, readGrantedCredential, withExtensionContext } from "./context";
 import { brokeredFetch, installNetworkShim } from "./network";
 import type { ExtensionContext } from "./index";
 
 function context(call: ExtensionContext["call"], signal = new AbortController().signal): ExtensionContext {
   return { call, signal, invocation: { invocationId: "invocation", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 30_000 } };
 }
+
+test("raw credential helper is explicit, bounded and invocation-only", async () => {
+  await expect(readGrantedCredential("GITHUB_TOKEN")).rejects.toThrow("active invocation");
+  await withExtensionContext(context(async (method, input) => { expect(method).toBe("ezcorp/credentials.read"); expect(input).toEqual({ name: "GITHUB_TOKEN" }); return "reviewed-credential"; }), async () => {
+    expect(await readGrantedCredential("GITHUB_TOKEN")).toBe("reviewed-credential");
+    await expect(readGrantedCredential("DATABASE_URL")).rejects.toThrow("Unsupported");
+  });
+  for (const invalid of [42, "", "bad\nsecret", "x".repeat(16385)]) await withExtensionContext(context(async () => invalid), async () => { await expect(readGrantedCredential("GITHUB_TOKEN")).rejects.toThrow("response"); });
+  await withExtensionContext(context(async () => null), async () => expect(await readGrantedCredential("GITHUB_TOKEN")).toBeNull());
+});
 
 test("credential handles are invocation scoped and never use process environment", async () => {
   expect(getInvocationContext()).toBeUndefined();

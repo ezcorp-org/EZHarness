@@ -38,6 +38,14 @@ test("stdio MCP discovery and invocation use a fresh protocol client and checked
   await expect(createMcpExtension({ manifest: { ...extension.manifest, kind: "tool" } })).rejects.toThrow();
 });
 
+test("native credentials are resolved only for invocation, with explicit denial and cleanup", async () => {
+  const extension = await createMcpExtension({ manifest: { schemaVersion: 4, name: "mcp-credentials", version: "1.0.0", description: "Credential fixture", author: { name: "Tests" }, permissions: { secretRead: ["OPENAI_API_KEY"] }, kind: "mcp", mcpServers: [{ name: "fixture", transport: "stdio", command: process.execPath, args: [new URL("./__tests__/mcp-fixture.ts", import.meta.url).pathname] }] } });
+  const context = { invocation: { invocationId: "test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 30_000 }, signal: new AbortController().signal, call: async (method: string, input: unknown) => { expect(method).toBe("ezcorp/credentials.read"); expect(input).toEqual({ name: "OPENAI_API_KEY" }); return "fixture-only-credential"; } };
+  expect(extension.manifest.tools?.[0]?.capabilities?.custom?.["ezcorp:credentials:read"]).toEqual(["OPENAI_API_KEY"]);
+  expect(await extension.invoke("echo", { text: "credential scoped" }, context)).toMatchObject({ content: [{ type: "text", text: "credential scoped" }] });
+  await expect(extension.invoke("echo", { text: "denied" }, { ...context, call: async () => null })).rejects.toThrow("cannot read");
+});
+
 test("MCP catalogs reject unsafe schemas, duplicates and invalid data", () => {
   const tool = { name: "echo", inputSchema: { type: "object" } };
   expect(normalizeMcpCatalog([tool])[0]?.description).toBe("echo");

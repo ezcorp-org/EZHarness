@@ -32,6 +32,8 @@ import { askLine } from "../ui/prompt";
 const GRANT_PERMISSION_KEYS = [
   "hostApi",
   "network",
+  "networkTcp",
+  "secretRead",
   "filesystem",
   "shell",
   "env",
@@ -156,6 +158,8 @@ export function manifestRequestedGrant(
   const requested: Partial<ExtensionPermissions> = {};
   if (p.hostApi) requested.hostApi = p.hostApi;
   if (p.network) requested.network = p.network;
+  if (p.networkTcp) requested.networkTcp = p.networkTcp;
+  if (p.secretRead) requested.secretRead = p.secretRead;
   if (p.filesystem) requested.filesystem = p.filesystem;
   if (p.shell !== undefined) requested.shell = p.shell;
   if (p.env) requested.env = p.env;

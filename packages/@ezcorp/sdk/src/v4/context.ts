@@ -17,3 +17,14 @@ export async function getGrantedEnv(name: string): Promise<string | null> {
   if (value !== null && typeof value !== "string") throw new ContractError("INVALID_ENV", "Invalid credential response");
   return value;
 }
+
+export async function readGrantedCredential(name: string): Promise<string | null> {
+  const context = active.getStore();
+  if (!context) throw new ContractError("NO_INVOCATION", "Raw credentials require an active invocation");
+  context.signal.throwIfAborted();
+  if (!["OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN", "GITHUB_TOKEN"].includes(name)) throw new ContractError("INVALID_CREDENTIAL", "Unsupported provider credential");
+  const value = await context.call("ezcorp/credentials.read", { name });
+  context.signal.throwIfAborted();
+  if (value !== null && (typeof value !== "string" || !value || value.length > 16384 || /[\r\n]/.test(value))) throw new ContractError("INVALID_CREDENTIAL", "Invalid credential response");
+  return value;
+}

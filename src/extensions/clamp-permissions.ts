@@ -869,6 +869,12 @@ export function clampExtensionPermissions(
     const allowed = submitted.network.filter((d) => manifest.network!.includes(d));
     if (allowed.length > 0) clamped.network = allowed;
   }
+  for (const field of ["networkTcp", "secretRead"] as const) {
+    if (submitted[field] && manifest[field]) {
+      const allowed = [...new Set(submitted[field])].filter(value => manifest[field]!.includes(value));
+      if (allowed.length) clamped[field] = allowed;
+    }
+  }
 
   if (submitted.filesystem && manifest.filesystem) {
     const allowed = submitted.filesystem.filter((p) => manifest.filesystem!.includes(p));

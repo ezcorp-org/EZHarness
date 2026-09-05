@@ -16,6 +16,16 @@ function pageData(approval = false, canApprove = true): ComponentProps<typeof Au
   return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
 }
 
+test("human approval shows explicit opaque TCP and raw secret disclosure warnings", () => {
+  const data = pageData(true);
+  data.state!.releases.release = { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", releaseDigest: "exact-release-digest", policyDigest: "policy", runnerProfile: "podman", createdAt: "2026-09-04", evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, manifest: { schemaVersion: 4, name: "native-network", version: "1.0.0", author: { name: "tests" }, description: "Native fixture", permissions: { networkTcp: ["example.com:443"], secretRead: ["GITHUB_TOKEN"] } } };
+  const view = render(AuthorPage, { data });
+  expect(view.getByText("Opaque TCP access:")).toBeVisible();
+  expect(view.getByText("Raw credential extraction:")).toBeVisible();
+  expect(view.getByText(/Only active administrators can use this grant/)).toBeVisible();
+  expect(view.getByRole("button", { name: "Approve exact release" })).toBeDisabled();
+});
+
 test("human project binding uses exact active generation and explicit write scope", async () => {
   const data = pageData();
   data.state!.installation = { ...installation, activeReleaseId: "release", enabled: true, generation: 4, status: "active" };

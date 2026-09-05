@@ -48,6 +48,7 @@ import { handleProjectPullRequest } from "../project-pr-broker";
 import { handleProjectGit } from "../project-git-broker";
 import { handleProjectPullRequestReview } from "../project-pull-request-broker";
 import { handleNetworkBroker } from "../network-broker";
+import { handleNetworkTunnel } from "../network-tunnel-broker";
 import { handleCredentialBroker } from "../credential-broker";
 import { PermissionDeniedError, type ArgsResolver, type ToolExecutorOptions } from "./errors";
 import { resolveReverseRpcMeta as provResolveReverseRpcMeta } from "./provenance";
@@ -1303,6 +1304,10 @@ export class ToolExecutor {
 
   async handlePiNetworkBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
     return handleNetworkBroker(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiNetworkTunnel(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleNetworkTunnel(this.rpcDeps(), extensionId, request);
   }
 
   async handlePiCredentialBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {

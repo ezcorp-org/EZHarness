@@ -526,6 +526,8 @@ export interface ExtensionManifestV2 {
   permissions: {
     hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
     network?: string[];
+    networkTcp?: string[];
+    secretRead?: string[];
     filesystem?: string[];
     shell?: boolean;
     env?: string[];
@@ -981,6 +983,8 @@ export interface JsonRpcNotification {
 export interface ExtensionPermissions {
   hostApi?: import("@ezcorp/extension-contract").ExtensionManifestV4["permissions"]["hostApi"];
   network?: string[];
+  networkTcp?: string[];
+  secretRead?: string[];
   filesystem?: string[];
   shell?: boolean;
   env?: string[];

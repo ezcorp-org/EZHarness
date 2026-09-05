@@ -58,6 +58,7 @@
  */
 
 import { deriveCapsFromExtensionPerms } from "./manifest";
+import { parseTcpDestination } from "@ezcorp/extension-contract";
 // One regex for "what is a URL inside a command-line token", shared with the
 // credential redactor. It must not drift: `redactMcpServer` blanks a URL's
 // query values while deliberately PRESERVING its host, precisely so the
@@ -76,7 +77,7 @@ import type {
  * flag (`--verbose`), a package name (`@modelcontextprotocol/server-github`),
  * a path, or a URL with no authority (`file:///srv/mcp`) all yield `null`.
  */
-function hostOfToken(token: unknown): string | null {
+function urlOfToken(token: unknown): URL | null {
   if (typeof token !== "string") return null;
   const match = TOKEN_URL_RE.exec(token);
   if (!match) return null;
@@ -87,7 +88,12 @@ function hostOfToken(token: unknown): string | null {
     return null;
   }
   if (parsed.hostname.length === 0) return null;
-  return normalizeHostname(parsed.hostname);
+  return parsed;
+}
+
+function hostOfToken(token: unknown): string | null {
+  const target = urlOfToken(token);
+  return target ? normalizeHostname(target.hostname) : null;
 }
 
 /**
@@ -121,7 +127,15 @@ export function mcpNetworkHosts(server: McpServerDefinition): string[] {
 export function mcpManifestPermissions(
   server: McpServerDefinition,
 ): ExtensionManifestV2["permissions"] {
-  return { network: mcpNetworkHosts(server), mcpInvoke: true };
+  const networkTcp: string[] = [];
+  if (server.transport === "stdio") {
+    for (const token of [server.command, ...(server.args ?? [])]) {
+      const target = urlOfToken(token);
+      if (target?.protocol !== "https:") continue;
+      networkTcp.push(parseTcpDestination(`${target.hostname}:${target.port || "443"}`).destination);
+    }
+  }
+  return { network: mcpNetworkHosts(server), mcpInvoke: true, ...(networkTcp.length ? { networkTcp: [...new Set(networkTcp)] } : {}) };
 }
 
 /**

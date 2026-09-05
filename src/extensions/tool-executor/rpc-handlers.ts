@@ -944,6 +944,7 @@ export interface ReverseRpcDispatch {
   handlePiProjectGit(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiProjectPullRequestReview(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiNetworkBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiNetworkTunnel(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiInvoke(callerExtId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFsRead(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse>;
@@ -991,7 +992,12 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/project.origin": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
   "ezcorp/project.pullRequest": (self, extensionId, request) => self.handlePiProjectPullRequestReview(extensionId, request),
   "ezcorp/network.fetch": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
+  "ezcorp/network.tunnel.open": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.write": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.read": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.close": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
   "ezcorp/env.get": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
+  "ezcorp/credentials.read": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
   "ezcorp/network.read": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/invoke": (s, e, r) => s.handlePiInvoke(e, r),
   // Phase 3: per-operation fs.* handlers come BEFORE the legacy path-check
