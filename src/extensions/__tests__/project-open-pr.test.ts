@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, mkdir, rm, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openProjectPullRequest, type ProjectCommandRunner } from "../project-open-pr";
+import { createProjectCommandRunner, openProjectPullRequest, type ProjectCommandRunner } from "../project-open-pr";
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -42,10 +42,18 @@ async function fixture() {
 }
 
 describe("host pull request capability", () => {
+  test("scopes provider credentials to the fixed host Git environment", async () => {
+    const result = await createProjectCommandRunner("controlled-fixture-token")([process.execPath, "-e", 'const expected = "Authorization: Basic " + Buffer.from("x-access-token:controlled-fixture-token").toString("base64"); if (process.env.GH_TOKEN !== "controlled-fixture-token" || process.env.GIT_CONFIG_COUNT !== "1" || process.env.GIT_CONFIG_KEY_0 !== "http.https://github.com/.extraheader" || process.env.GIT_CONFIG_VALUE_0 !== expected || process.env.HOME !== "/nonexistent") process.exit(1); console.log("validated");'], tmpdir());
+    expect(result).toEqual({ exitCode: 0, stdout: "validated\n", stderr: "" });
+  });
+
   test("copies pending changes, preserves source, and removes the temporary worktree", async () => {
     const fixtureData = await fixture();
     await writeFile(join(fixtureData.root, "tracked.txt"), "after\n");
     await writeFile(join(fixtureData.root, "new.txt"), "added\n");
+    await mkdir(join(fixtureData.root, "docs", "nested"), { recursive: true });
+    await writeFile(join(fixtureData.root, "docs", "nested", "first.md"), "first\n");
+    await writeFile(join(fixtureData.root, "docs", "nested", "second.md"), "second\n");
     const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId: "run-1", title: "Change", body: "Details" }, { run: fixtureData.run });
     expect(result).toEqual({ ok: true, url: "https://github.com/example/project/pull/1" });
     expect(fixtureData.committed()).toBe("after\n");
