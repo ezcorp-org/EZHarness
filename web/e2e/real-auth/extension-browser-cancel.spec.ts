@@ -22,7 +22,14 @@ test("private browser cancellation reaches the actual HTTP worker and prevents l
     await page.goto(`/extensions/${name}/preview`);
     const select = page.getByLabel("New conversation project");
     await select.selectOption((await select.locator("option:not([disabled])").first().getAttribute("value"))!);
-    await page.getByRole("button", { name: "Create preview conversation", exact: true }).click();
+    const denied = await request.post(`/extensions/${name}/preview?/create`, { form: { projectId: await select.inputValue() }, headers: { Origin: "https://foreign.example" }, maxRedirects: 0 });
+    expect(denied.status()).toBe(403);
+    expect(await denied.text()).toBe("Cross-site POST form submissions are forbidden");
+    const [createdConversation] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === "POST" && response.url().includes("?/create")),
+      page.getByRole("button", { name: "Create preview conversation", exact: true }).click(),
+    ]);
+    expect(createdConversation.status()).toBe(303);
     await expect(page).toHaveURL(/conversationId=/);
     const conversationId = new URL(page.url()).searchParams.get("conversationId")!;
     await client.wireExtensions(conversationId, [name]);

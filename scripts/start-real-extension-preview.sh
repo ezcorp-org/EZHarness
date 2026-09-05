@@ -43,6 +43,7 @@ cd web
 bun run build
 export PORT="${EZCORP_PORT:-4173}"
 export HOST=127.0.0.1
+export ORIGIN="${ORIGIN:-http://localhost:$PORT}"
 export BODY_SIZE_LIMIT="${BODY_SIZE_LIMIT:-134217728}"
 unset SOCKET_PATH
 bun build/index.js &

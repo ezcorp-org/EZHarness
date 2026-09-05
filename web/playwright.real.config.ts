@@ -131,6 +131,7 @@ export default defineConfig({
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
       EZCORP_PORT: new URL(baseURL).port || "4173",
+      ORIGIN: new URL(baseURL).origin,
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is

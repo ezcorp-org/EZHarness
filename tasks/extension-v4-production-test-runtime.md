@@ -15,3 +15,12 @@
 ## Decision
 
 Real-auth tests use the same `web/build/index.js` entrypoint as production, not Vite's test-only preview server. This improves deployment fidelity; it does not claim to fix the unresolved Vite pre-listen failure. The normal build, fresh database, authenticated rootless runner, auth setup, assertions, retries and timeouts are unchanged. The server binds only to `127.0.0.1`, uses `EZCORP_PORT` (default 4173), and cannot be redirected to an inherited Unix socket. The request body default matches the production Docker image; route-specific limits still apply. Test-only routes retain their explicit non-production opt-in.
+
+## Native form origin
+
+- [x] Reproduce the native preview form failure over actual HTTP. With no explicit origin, the production adapter assumes HTTPS. An HTTP browser form therefore receives 403, `Cross-site POST form submissions are forbidden`, before the action executes. The full-lane trace has the same status and body length; this is not a malformed 303 response.
+- [x] Set the trusted server origin from the configured real-auth base URL. Direct script launch defaults to `http://localhost:$PORT`. Do not change application CSRF checks, trust forwarded headers, or change the production adapter's defaults.
+- [x] Verify an actual foreign-origin form remains 403 and the matching-origin native browser form returns 303, then completes the existing cancellation/effect test.
+  Evidence: `/tmp/v4-origin-browser.log`: the actual production-entry browser cancellation test passes in 1.2 minutes including build, private runner, sealed candidate and approval. It asserts foreign-origin denial, native-form redirect, acknowledged cancellation and no later storage effect. `/tmp/v4-origin-unit.log`: both launch tests pass (11 assertions), including explicit and default origins.
+
+The final-source boot loop was stopped for this correction. Its first probe was started before the build completed and is invalid (`build/index.js` absent), not evidence of an application failure. Later probes passed, but no completed final 40-boot claim is made for that interrupted batch.
