@@ -100,3 +100,12 @@ Types34 and lint12 pass (lint has warnings). Backend9 is running. Web6 and compo
 - Backend run 10: 24,254 pass and three failures. The failures named missing browser E2E lane/evidence registrations; those are fixed, and the 16 registration tests pass. A final full backend run remains required.
 - Full parent coverage, mock browser gate, all 50 sealed candidates, protected browser flows, and final production image checks are running. No final full-suite success is claimed yet.
 - The latest fetch is incorporated: zero commits behind origin/main. Gate integrity still requires maintainer approval for the test migrations. No push or PR has occurred.
+
+### Closure review, 2026-09-05 06:10 UTC
+
+- Backend run 11 passes: 24,262 tests, 1,540 files. Full coverage run 1 passes: 25,521 tests, 1,234 enforced source files. All 126 new source files are gated. Changed-line coverage still found 21 files with gaps; tests and required coverage-lane registrations now address them, with a full rerun in progress. No threshold or exclusion was weakened.
+- A final review reproduced a file-organizer Hub authorization bypass through real HTTP and SQL. The shortcut now checks the live release, exact owner, event grants, project binding, and current membership before any host action. Nine regression cases and an independent rerun pass; valid actions still write host state. This invalidates the prior full-suite snapshot, so backend and coverage run again.
+- Types43, lint18, web9, component11, and build4 pass with that source fix. Component tests: 7,024 in 543 files. Plain web: 4,142 in 223 files; moved coverage membership accounts for the changed plain-web pool. Lint still reports warnings.
+- All 84 gate-integrity findings have numbered mappings to replacement tests and explicit behavior changes in `src/__tests__/extension-v4-migration-coverage.md`. This is evidence for maintainer review, not approval. Removed automatic watching, inline grant controls, configurable per-capability expiry issuance, and other unsupported legacy behaviors are not claimed as equivalent replacements.
+- Actual durable browser cancellation now uses a causal test latch: cancellation is acknowledged before a separate worker releases the held effect. The old fixed-delay test raced with real build load and is replaced, not retried until green.
+- Protected scanner pointer behavior remains unresolved. Keyboard and controlled-frame checks are not accepted as substitutes. The real desktop/mobile pointer diagnosis continues without forced clicks or weakened sandbox controls.
