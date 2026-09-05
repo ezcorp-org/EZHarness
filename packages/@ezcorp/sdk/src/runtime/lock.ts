@@ -16,6 +16,7 @@
  * same entry for every subsequent caller without caring what they return.
  */
 import { getExtensionContext } from "../v4/context";
+import { setTimeout as delay } from "node:timers/promises";
 import { ContractError, validateRuntimeLockKey } from "@ezcorp/extension-contract";
 
 const tails = new Map<string, Promise<unknown>>();
@@ -48,6 +49,7 @@ async function hostLock<T>(key: string, fn: () => Promise<T>, waitDeadline: numb
   validateRuntimeLockKey(key);
   const deadline = Math.min(context.invocation.deadline, waitDeadline);
   let fence: string | undefined;
+  let retryDelay = 50;
   while (!fence) {
     context.signal.throwIfAborted();
     if (Date.now() >= deadline) throw new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline");
@@ -56,7 +58,10 @@ async function hostLock<T>(key: string, fn: () => Promise<T>, waitDeadline: numb
     if (response.acquired) {
       if (!("fence" in response) || typeof response.fence !== "string" || response.fence.length > 128 || !response.fence) throw new ContractError("INVALID_LOCK", "Invalid lock fence");
       fence = response.fence;
-    } else await new Promise<void>((resolve) => setTimeout(resolve, Math.min(50, Math.max(0, deadline - Date.now()))));
+    } else {
+      await delay(Math.min(retryDelay, Math.max(0, deadline - Date.now())), undefined, { signal: context.signal });
+      retryDelay = Math.min(1000, retryDelay * 2);
+    }
   }
   try { context.signal.throwIfAborted(); return await fn(); }
   finally { if (!context.signal.aborted && Date.now() < context.invocation.deadline) await context.call("ezcorp/lock.release", { key, fence }); }

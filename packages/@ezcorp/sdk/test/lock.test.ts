@@ -47,6 +47,29 @@ test("v4 mutexes require stable keys while standalone mutexes retain local behav
   expect(await createMutex("standalone")(async () => 3)).toBe(3);
 });
 
+test("contended host polling backs off without extending the invocation deadline", async () => {
+  let attempts = 0;
+  let entered = false;
+  const context = hostContext(async () => { attempts++; return { acquired: false }; });
+  context.invocation.deadline = Date.now() + 1800;
+  await expect(withExtensionContext(context, () => withLock("busy", async () => { entered = true; }))).rejects.toThrow("bounded deadline");
+  expect(attempts).toBeLessThanOrEqual(6);
+  expect(attempts).toBeGreaterThan(1);
+  expect(entered).toBe(false);
+});
+
+test("cancelling a host polling delay prevents another acquisition", async () => {
+  const controller = new AbortController();
+  let attempts = 0;
+  const context = hostContext(async () => {
+    attempts++;
+    queueMicrotask(() => controller.abort());
+    return { acquired: false };
+  }, { signal: controller.signal });
+  await expect(withExtensionContext(context, () => withLock("cancel-poll", async () => true))).rejects.toThrow();
+  expect(attempts).toBe(1);
+});
+
 test("v4 lock validation rejects malformed responses, unsafe keys and expired waits", async () => {
   for (const response of [null, [], {}, { acquired: "yes" }, { acquired: true }, { acquired: true, fence: "" }, { acquired: true, fence: "x".repeat(129) }]) {
     await expect(withExtensionContext(hostContext(async () => response), () => withLock("counter", async () => 1))).rejects.toThrow("Invalid lock");
