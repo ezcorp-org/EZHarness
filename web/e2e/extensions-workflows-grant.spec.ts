@@ -180,6 +180,9 @@ test.describe("Extensions review dialog — workflows grant", () => {
 		await expect(permissions).toBeVisible();
 		await expect(permissions).toContainText("workflows");
 		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4");
+		// Live approval behavior is covered by the real-auth release-gate lane.
+		await page.getByTestId("review-extension-release").click();
+		await expect(page).toHaveURL("/extensions/author?installation=ext-wf");
 
 		// Assert the capture contract in BOTH modes (mirrors extensions-sort)
 		// so the test is meaningful without the flag, not a bare screenshot.

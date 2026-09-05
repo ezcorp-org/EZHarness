@@ -1,8 +1,8 @@
 /**
- * Bundled permission drift is an approval flow, not a stale-manifest dead end.
- * The city-conditions release adds Atlanta Allergy's website; this spec pins
- * that the host is visible as website access and that approval reaches the
- * dedicated on-disk-manifest re-approval endpoint.
+ * The city-conditions release adds Atlanta Allergy's website. This spec pins
+ * the supported v4 review entry point: the exact release declaration is
+ * visible and the review action opens the author flow. Real-auth release-gate
+ * coverage proves the approval submission against the live backend.
  *
  * The `@evidence`-tagged case satisfies the Visual evidence CI gate (this diff
  * adds the drift banner to the extension detail page); the spec is mapped to
@@ -43,7 +43,7 @@ function cityConditionsDetail(enabled: boolean, hosts: string[]) {
 	});
 }
 
-test("bundled city-conditions shows Atlanta website access and can approve it @evidence", async ({
+test("bundled city-conditions shows Atlanta website access and opens release review @evidence", async ({
 	page,
 	mockApi,
 }, testInfo) => {
@@ -64,22 +64,6 @@ test("bundled city-conditions shows Atlanta website access and can approve it @e
 		if (route.request().method() !== "GET") return route.fallback();
 		await route.fulfill({ json: cityConditionsDetail(false, CURRENT_HOSTS) });
 	});
-	await page.route("**/api/extensions/ext-city-conditions/reapprove-drift", async (route) => {
-		if (route.request().method() === "GET") {
-			await route.fulfill({
-				json: {
-					version: "0.2.0",
-					permissions: { network: CURRENT_HOSTS },
-				diffs: [{ field: "network", oldValue: OLD_HOSTS, newValue: CURRENT_HOSTS }],
-				},
-			});
-			return;
-		}
-		await route.fulfill({
-			json: { extension: cityConditionsDetail(true, CURRENT_HOSTS), diffs: [] },
-		});
-	});
-
 	await page.goto("/extensions/ext-city-conditions");
 	const preview = page.getByTestId("release-permissions");
 	await expect(preview).toBeVisible({ timeout: 5000 });
@@ -87,6 +71,8 @@ test("bundled city-conditions shows Atlanta website access and can approve it @e
 	await expect(preview).toContainText("www.atlantaallergy.com");
 	await expect(page.getByTestId("review-extension-release")).toBeVisible();
 	await captureEvidence(page, testInfo, "bundled-release-permissions-v4");
+	await page.getByTestId("review-extension-release").click();
+	await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-city-conditions$/);
 });
 
 /**
