@@ -34,6 +34,7 @@
 		modifiable?: boolean;
 		isBundled?: boolean;
 		manifest: {
+			schemaVersion?: number;
 			// Manifest schema defines author as an object; old installs may
 			// still carry a bare string.
 			author?: string | { name: string; id?: string };
@@ -1044,6 +1045,14 @@
 				class="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--color-border)] pt-4"
 				data-testid="modify-extension-section"
 			>
+				{#if ext.manifest.schemaVersion === 4}
+					{#if ext.creatorUserId && ext.creatorUserId === currentUserId}
+						<button onclick={reopenForEdit} disabled={modifyBusy} data-testid="modify-extension-button" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50">{modifyBusy ? "Opening…" : "Prepare changes"}</button>
+						<span class="text-xs text-[var(--color-text-secondary)]">Prepare a new revision for review. The active release stays unchanged until approval and activation.</span>
+					{:else}
+						<span class="text-xs text-[var(--color-text-secondary)]">The owner can prepare changes for review.</span>
+					{/if}
+				{:else}
 				{#if ext.creatorUserId && ext.creatorUserId === currentUserId && ext.modifiable}
 					<button
 						onclick={reopenForEdit}
@@ -1104,6 +1113,7 @@
 						<span class="text-[var(--color-text-tertiary)]">(admin only)</span>
 					{/if}
 				</label>
+				{/if}
 			</div>
 		</section>
 

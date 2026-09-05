@@ -133,6 +133,31 @@ afterEach(() => {
 });
 
 describe("Extension detail — MCP Connection panel (secret-not-rendered)", () => {
+	test.each(["u1", "another-owner"])("v4 change preparation uses actual owner %s, not a modifiable flag", async (creatorUserId) => {
+		const id = `v4-${creatorUserId}`;
+		pageStore.params.id = id;
+		const extension = localExt(id);
+		restoreFetch = installFetch(id, { ...extension, creatorUserId, modifiable: false, manifest: { ...extension.manifest, schemaVersion: 4 } });
+		const { findByTestId, queryByTestId, findByRole } = render(ExtensionDetailPage);
+		await findByTestId("modify-extension-section");
+		expect(queryByTestId("modifiable-toggle")).toBeNull();
+		if (creatorUserId === "u1") {
+			await fireEvent.click(await findByRole("button", { name: "Prepare changes" }));
+			expect(goto).toHaveBeenCalledWith(`/extensions/author?installation=${id}`);
+		} else {
+			expect(queryByTestId("modify-extension-button")).toBeNull();
+		}
+		expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method && init.method !== "GET")).toBe(false);
+	});
+	test("legacy modification controls remain distinct from v4 approval", async () => {
+		const id = "legacy-owner";
+		pageStore.params.id = id;
+		restoreFetch = installFetch(id, { ...localExt(id), creatorUserId: "u1", modifiable: true });
+		const { findByRole, getByTestId } = render(ExtensionDetailPage);
+		await findByRole("button", { name: "Modify this extension" });
+		expect(getByTestId("modifiable-toggle")).toBeChecked();
+		expect(getByTestId("modifiable-toggle")).toBeDisabled();
+	});
 	test("permission changes navigate to the exact release review without direct grant writes", async () => {
 		const id = "release-review";
 		pageStore.params.id = id;

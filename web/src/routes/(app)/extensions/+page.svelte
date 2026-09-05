@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, untrack } from "svelte";
   import { goto } from "$app/navigation";
   import { extensionReviewLocation } from "$lib/api";
+	import { isPickableDependency } from "$lib/dependency-picker";
 	import { addToast } from "$lib/toast.svelte.js";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
@@ -101,13 +102,14 @@
 	// Filtered views over `extensions` — both tabs share the install form
 	// and the auto-disabled banner, but show only the cards belonging to
 	// the active tab.
-	let bundledExtensions = $derived(extensions.filter((e) => e.isBundled === true));
-	let installedExtensions = $derived(extensions.filter((e) => e.isBundled !== true));
+	let libraryExtensions = $derived(extensions.filter(isPickableDependency));
+	let bundledExtensions = $derived(libraryExtensions.filter((e) => e.isBundled === true));
+	let installedExtensions = $derived(libraryExtensions.filter((e) => e.isBundled !== true));
 	// MCP extensions are surfaced as their own filter tab (kind === "mcp"),
 	// matching the "MCP · {transport}" badge condition. They also still appear
 	// under Installed/Built-ins per their isBundled flag — the MCP tab is a
 	// focused view, not an exclusive bucket.
-	let mcpExtensions = $derived(extensions.filter((e) => e.manifest?.kind === "mcp"));
+	let mcpExtensions = $derived(libraryExtensions.filter((e) => e.manifest?.kind === "mcp"));
 	let visibleExtensions = $derived(
 		sortExtensions(
 			activeTab === "builtins"
@@ -120,11 +122,7 @@
 	);
 
 	// Install form state
-	let installMode = $state<"local" | "github" | "git" | "mcp">("local");
-	let localPath = $state("");
-	let githubRepo = $state("");
-	let gitUrl = $state("");
-	let gitRef = $state("");
+	let installMode = $state<"source" | "mcp">("source");
 	let installing = $state(false);
 
 	// MCP install form state
@@ -227,62 +225,6 @@
 			}
 		}
 		return res.statusText || fallback;
-	}
-
-	async function startInstall() {
-		errorMsg = "";
-		if (installMode === "local" && !localPath.trim()) {
-			errorMsg = "Please enter a local path";
-			return;
-		}
-		if (installMode === "github" && !githubRepo.trim()) {
-			errorMsg = "Please enter a GitHub repo (user/repo)";
-			return;
-		}
-		if (installMode === "git" && !gitUrl.trim()) {
-			errorMsg = "Please enter a git URL (https:// or git@host:owner/repo)";
-			return;
-		}
-		if (installMode === "mcp") {
-			return startMcpInstall();
-		}
-
-		// For simplicity, approve all requested permissions on install
-		// A more advanced flow would show a review dialog
-		installing = true;
-		try {
-			const body: Record<string, unknown> = {
-				source: installMode,
-				permissions: { grantedAt: { install: Date.now() } },
-			};
-			if (installMode === "local") body.path = localPath.trim();
-			else if (installMode === "github") body.repo = githubRepo.trim();
-			else {
-				body.url = gitUrl.trim();
-				if (gitRef.trim()) body.ref = gitRef.trim();
-			}
-
-			const res = await fetch("/api/extensions", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			});
-
-			if (!res.ok) {
-				throw new Error(await extractError(res, "Install failed"));
-			}
-
-			localPath = "";
-			githubRepo = "";
-			gitUrl = "";
-			gitRef = "";
-			addToast({ type: "success", message: "Extension installed successfully" });
-			await loadExtensions();
-		} catch (e) {
-			addToast({ type: "error", message: e instanceof Error ? e.message : "Install failed" });
-		} finally {
-			installing = false;
-		}
 	}
 
 	function parseHeaders(raw: string): Record<string, string> {
@@ -516,22 +458,10 @@
 		<h3 class="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">Install Extension</h3>
 		<div class="mb-3 flex gap-2">
 			<button
-				onclick={() => (installMode = "local")}
-				class="rounded-md px-3 py-1.5 text-sm transition-colors {installMode === 'local' ? 'bg-blue-600 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'}"
+				onclick={() => (installMode = "source")}
+				class="rounded-md px-3 py-1.5 text-sm transition-colors {installMode === 'source' ? 'bg-blue-600 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'}"
 			>
-				Local Path
-			</button>
-			<button
-				onclick={() => (installMode = "github")}
-				class="rounded-md px-3 py-1.5 text-sm transition-colors {installMode === 'github' ? 'bg-blue-600 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'}"
-			>
-				GitHub
-			</button>
-			<button
-				onclick={() => (installMode = "git")}
-				class="rounded-md px-3 py-1.5 text-sm transition-colors {installMode === 'git' ? 'bg-blue-600 text-white' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-border)]'}"
-			>
-				Git URL
+				Extension source
 			</button>
 			<button
 				onclick={() => (installMode = "mcp")}
@@ -541,65 +471,11 @@
 			</button>
 		</div>
 
-		{#if installMode === "local"}
-			<div class="flex gap-2">
-				<input
-					type="text"
-					bind:value={localPath}
-					placeholder="/path/to/extension"
-					class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-				/>
-				<button
-					onclick={startInstall}
-					disabled={installing}
-					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-				>
-					{installing ? "Installing..." : "Install"}
-				</button>
-			</div>
-		{:else if installMode === "github"}
-			<div class="flex gap-2">
-				<input
-					type="text"
-					bind:value={githubRepo}
-					placeholder="user/repo or user/repo@v1.0.0"
-					class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-				/>
-				<button
-					onclick={startInstall}
-					disabled={installing}
-					class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-				>
-					{installing ? "Installing..." : "Install from GitHub"}
-				</button>
-			</div>
-		{:else if installMode === "git"}
-			<div class="space-y-2">
-				<div class="flex gap-2">
-					<input
-						type="text"
-						bind:value={gitUrl}
-						placeholder="https://github.com/owner/repo.git or git@host:owner/repo.git"
-						class="flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-					/>
-					<input
-						type="text"
-						bind:value={gitRef}
-						placeholder="ref (optional)"
-						class="w-32 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
-					/>
-					<button
-						onclick={startInstall}
-						disabled={installing}
-						class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-					>
-						{installing ? "Installing..." : "Install from Git"}
-					</button>
-				</div>
-				<p class="text-xs text-[var(--color-text-muted)]">
-					Clones any branch or tag — no GitHub release required. Accepts http(s) or ssh URLs.
-				</p>
-			</div>
+		{#if installMode === "source"}
+			<p class="text-sm text-[var(--color-text-secondary)]">
+				Import GitHub or marketplace source to build a release for review. Administrators can also import local or bundled source. Nothing is activated before approval.
+			</p>
+			<a href="/extensions/import-source" class="mt-3 inline-block rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">Choose source</a>
 		{:else}
 			<div class="space-y-2">
 				<div class="grid grid-cols-2 gap-2">
@@ -664,7 +540,7 @@
 				{/if}
 				<div class="flex justify-end">
 					<button
-						onclick={startInstall}
+						onclick={startMcpInstall}
 						disabled={installing}
 						class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
 					>
