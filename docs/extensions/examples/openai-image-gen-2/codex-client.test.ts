@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test, beforeEach, afterEach, moc
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { stubChannel } from "./test-channel-stub";
 
 // Mock fetchPermitted so tests don't hit the real network. Each test can

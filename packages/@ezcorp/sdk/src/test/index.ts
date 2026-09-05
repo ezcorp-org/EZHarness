@@ -1,4 +1,9 @@
-// @ezcorp/sdk/test — test harness barrel.
-// Populated in Phase 2; keep empty barrel here so the `./test` exports entry
-// resolves under Bun's exports-map check from day one.
-export {};
+import { mock } from "bun:test";
+import * as runtime from "../runtime";
+
+const runtimeExports = { ...runtime };
+
+export function restoreModuleMocks(): void {
+  mock.restore();
+  mock.module("@ezcorp/sdk/runtime", () => runtimeExports);
+}

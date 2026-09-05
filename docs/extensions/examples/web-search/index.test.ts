@@ -10,7 +10,7 @@
  *   - maps SearchDisabledError + generic errors to toolError.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 
 afterAll(() => {
   restoreModuleMocks();

@@ -5,8 +5,8 @@
       "directory": "docs/extensions/examples/ask-user",
       "entrypoint": "extension.ts",
       "files": 5,
-      "bytes": 37617,
-      "sourceDigest": "a697582abd1b6fa6c8cc63d475c32381588e774a7ff76b6286dee3eaca347b72"
+      "bytes": 37587,
+      "sourceDigest": "d4f985acad2a9b0f822c2d52d199c8474c7b6500df6c4f353c4c60740dfcac93"
     },
     "auto-note": {
       "directory": "docs/extensions/examples/auto-note",
@@ -19,8 +19,8 @@
       "directory": "docs/extensions/examples/cash-recovery-agent",
       "entrypoint": "extension.ts",
       "files": 15,
-      "bytes": 157362,
-      "sourceDigest": "4dd06a89a1d6b0f2754baa7b835a3372f2626d51434214429d0826365eb35a75"
+      "bytes": 157332,
+      "sourceDigest": "dc7bad088f1956c2e76b279a8d43c424cf6bb7314618758fbc47caf3778721c3"
     },
     "city-conditions": {
       "directory": "docs/extensions/examples/city-conditions",
@@ -61,8 +61,8 @@
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 124339,
-      "sourceDigest": "6634e0f157a52e80d97afc199a0a91300ab74cdd83882b0f4059705a76c046a7"
+      "bytes": 124309,
+      "sourceDigest": "f84a41879f8ea70ba05ee3e7b3522c983999696e4ebc403903744f83fe1abf82"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -159,8 +159,8 @@
       "directory": "docs/extensions/examples/openai-image-gen-2",
       "entrypoint": "extension.ts",
       "files": 17,
-      "bytes": 150515,
-      "sourceDigest": "3fa2672524aa0e2bb7c962d3bcf8013d66c438d41e0927bb54f1fa77a69b0317"
+      "bytes": 150425,
+      "sourceDigest": "b64b902a3dd8357bd081dbf85e8fef442c9ae62ddebac6548372603c3d319498"
     },
     "orchestration": {
       "directory": "docs/extensions/examples/orchestration",
@@ -194,15 +194,15 @@
       "directory": "docs/extensions/examples/property-intelligence-agent",
       "entrypoint": "extension.ts",
       "files": 19,
-      "bytes": 364102,
-      "sourceDigest": "b5cdffcf8465abf29a53eb91cb8c2098ab82129e16465a945a2e0462042b2682"
+      "bytes": 364072,
+      "sourceDigest": "82714dd6454103f595d38dc5dd75131cdff4366c26f2b54b3c6f7977b19a603c"
     },
     "repo-activity-notify": {
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 38782,
-      "sourceDigest": "a5c2d9a0b6f86e5972b8e7b859f37a36403996dd1cc7063a7c993c385bf043ea"
+      "bytes": 38752,
+      "sourceDigest": "b48ee20b6e8c297fb4c5367bbf1e09db78458549fb4c4f48b87360d295c0984c"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
@@ -215,22 +215,22 @@
       "directory": "docs/extensions/examples/sample-loop",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 31000,
-      "sourceDigest": "fa119a43b5256c2ad7001dd01c8a4093f1c8e14cbc0b600496a722073a5386fb"
+      "bytes": 30940,
+      "sourceDigest": "3ccc610152a5d55b416a0a9ed1d2077462cb671339e0e2e11ded2134f72c2d0d"
     },
     "scratchpad": {
       "directory": "docs/extensions/examples/scratchpad",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 19125,
-      "sourceDigest": "f08e5711903734dad2ac6e8e45803d5398f8ad3a689b5f001148c565500cfe38"
+      "bytes": 19095,
+      "sourceDigest": "0cc82183f20160b7f41450b9d92af4775b8db7794f27fbfa2f733eae2c6b6f41"
     },
     "seo-watcher": {
       "directory": "docs/extensions/examples/seo-watcher",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 101250,
-      "sourceDigest": "3cfec97a6361a19e2a06ae7987b8ffdcb179ab09fc1368c6b3831e056e5c7b6c"
+      "bytes": 101220,
+      "sourceDigest": "296709f80663dbab4cfa6ca8f72a2ff2fa37bfe918e2852754b1de663c684de9"
     },
     "substack-engagement": {
       "directory": "docs/extensions/examples/substack-engagement",
@@ -243,22 +243,22 @@
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 32,
-      "bytes": 173512,
-      "sourceDigest": "692c8dccd397316150f0b0275eae2b6c1c3de91dd031e321f0d904b07bfe1c22"
+      "bytes": 173482,
+      "sourceDigest": "d80186b54c02151b79a374952388b97c62630ef832c05b558caf497c6b6aadaa"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
       "entrypoint": "extension.ts",
       "files": 12,
-      "bytes": 48948,
-      "sourceDigest": "7b900d5f7eb7079263319dce24d302a566a7bcc4a85bc7e035202791e4839dca"
+      "bytes": 48918,
+      "sourceDigest": "4de116bf01200c12cb592a3abb687cf44a701e45e3c57ebfcdec4bf9ebff3562"
     },
     "task-stack": {
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 91319,
-      "sourceDigest": "5aa81f2523d72a98e7622e296c932ca2f2330bfbf0efa95fe6b222731ef6e502"
+      "bytes": 91289,
+      "sourceDigest": "598d812c6abac4b0143d2c0f86825db8c884d8bc93db89e04ef9ffdbe3bb66cc"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",
@@ -299,8 +299,8 @@
       "directory": "docs/extensions/examples/todo-tracker",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 40115,
-      "sourceDigest": "a00399e345d99df9aa10c4889284052eeddbae97a30fa64f443dc242ab9f4241"
+      "bytes": 40085,
+      "sourceDigest": "1b20d1f56b3bf3f3346e7a050a0459a17840865b3528a09f364158bf294c2685"
     },
     "weather": {
       "directory": "docs/extensions/examples/weather",
@@ -313,36 +313,36 @@
       "directory": "docs/extensions/examples/web-search",
       "entrypoint": "extension.ts",
       "files": 9,
-      "bytes": 98777,
-      "sourceDigest": "73773dba77cda904e70f404d6d7d1023d1bef21bee407fb6f34cbc06abdaff74"
+      "bytes": 98747,
+      "sourceDigest": "55ffd59d35bdf67f086bce2f399becdd21d67840c6e4807689b0643ed14a7890"
     },
     "webhook-ticket-loop": {
       "directory": "docs/extensions/examples/webhook-ticket-loop",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 22439,
-      "sourceDigest": "7e16ee2be0ef046a46dfdad59f9e20ea96493ea1f341681c3929efdb445e4f19"
+      "bytes": 22409,
+      "sourceDigest": "81b89f73c01c82b16db05409c114973514cf81a05d13c63d85731a59b084a771"
     },
     "ez-factory": {
       "directory": "extensions/ez-factory",
       "entrypoint": "extension.ts",
       "files": 34,
-      "bytes": 781282,
-      "sourceDigest": "afa3b429eb1c4abbb2af1097150cc253fe3f44096569cce486895e97fc88fb49"
+      "bytes": 781258,
+      "sourceDigest": "369f7a8b5802724b8f2e3660a38a9f608235c04f4d174beeb201938f9a730cd8"
     },
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 82726,
-      "sourceDigest": "58b0742a552262041ef6218b14e770ea4cc05a0691dffdb10051e295a275a67e"
+      "bytes": 82702,
+      "sourceDigest": "3a34890492d30ccaf76a88afd7d3a1bc2b8184e0ffa0ba5a279c0a11bc4f4ef0"
     },
     "memory-extractor": {
       "directory": "extensions/memory-extractor",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 77250,
-      "sourceDigest": "4393e1a4f3cda7d34bed4eb421b5fb18e28cc30ccd6f40bc63920a209b718a12"
+      "bytes": 77226,
+      "sourceDigest": "1ce630266330e727858fb4ec157bc1f43855b2334fb404a60cb60a7c5632e3ef"
     },
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",

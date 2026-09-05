@@ -29,7 +29,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { buildHarnessEnv, makeFsRpcHandler } from "../_harness/pipeline-harness";
 import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
 

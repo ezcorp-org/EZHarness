@@ -12,7 +12,7 @@
 // in `afterAll` hands the real channel back to sibling test files.
 
 import { afterAll, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import * as realRuntime from "@ezcorp/sdk/runtime";
 
 afterAll(() => {

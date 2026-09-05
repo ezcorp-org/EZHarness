@@ -14,7 +14,7 @@
 // back to sibling files in a local directory run.
 
 import { afterAll, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import * as realRuntime from "@ezcorp/sdk/runtime";
 
 afterAll(() => {
