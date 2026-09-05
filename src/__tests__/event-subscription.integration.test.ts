@@ -126,7 +126,10 @@ function spawnExtension(): TestProc {
 
 // ── Host-side: stub registry that writes to the subprocess's stdin ──
 
-function makeStubRegistry(proc: TestProc): ExtensionRegistry {
+function makeStubRegistry(
+  proc: TestProc,
+  getGrantedPermissions: () => { grantedAt: Record<string, number>; eventSubscriptions?: string[] } | null = () => null,
+): ExtensionRegistry {
   // Minimal ExtensionProcess-shaped object. The dispatcher only ever
   // calls `sendNotification(method, params)` — wire it through stdin.
   const wrappedProc = {
@@ -141,8 +144,9 @@ function makeStubRegistry(proc: TestProc): ExtensionRegistry {
   };
   return {
     getProcessIfRunning: (extId: string) => (extId === EXT_ID ? wrappedProc : null),
-    getManifest: () => undefined,
-    getGrantedPermissions: () => null,
+    getManifest: () => ({ name: EXT_ID, permissions: { eventSubscriptions: ["task:snapshot"] } }),
+    getAllManifests: () => [[EXT_ID, { name: EXT_ID, permissions: { eventSubscriptions: ["task:snapshot"] } }]],
+    getGrantedPermissions,
   } as unknown as ExtensionRegistry;
 }
 
@@ -168,6 +172,34 @@ async function drain(toolCallId: number): Promise<unknown[]> {
 }
 
 describe("event-subscription integration: real subprocess + real dispatcher", () => {
+  test("an ungranted subscription delivers nothing, then the same release receives its allowed event once", async () => {
+    const bus = new EventBus<AgentEvents>();
+    let granted = false;
+    const registry = makeStubRegistry(proc!, () => granted
+      ? { grantedAt: { eventSubscriptions: Date.now() }, eventSubscriptions: ["task:snapshot"] }
+      : { grantedAt: {} });
+    const wiring = async (conversationId: string) => conversationId === CONV_WIRED ? [EXT_ID] : [];
+    const payload = { conversationId: CONV_WIRED, tasks: [], activeTaskId: undefined };
+
+    const dispatcher = new EventSubscriptionDispatcher(bus, registry, wiring);
+    dispatcher.reconcileFromRegistry();
+    dispatcher.start();
+    bus.emit("task:snapshot", payload);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await drain(90)).toEqual([]);
+
+    // Reconcile the allowed grant against the same dispatcher and running release.
+    granted = true;
+    dispatcher.reconcileFromRegistry();
+    bus.emit("task:snapshot", payload);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const allowed = await drain(91);
+    expect(allowed).toHaveLength(1);
+    expect(allowed[0]).toMatchObject({ conversationId: CONV_WIRED, tasks: [] });
+    expect(await drain(92)).toEqual([]);
+    dispatcher.stop();
+  }, 10_000);
+
   test("task:snapshot delivered within 200ms; cross-conversation events dropped", async () => {
     const bus = new EventBus<AgentEvents>();
     const registry = makeStubRegistry(proc!);
