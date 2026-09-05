@@ -47,6 +47,14 @@ mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBi
 
 const mockBusEmit = mock((..._args: unknown[]) => {});
 const mockBus = { emit: mockBusEmit };
+mock.module("$server/extensions/domain-event-outbox", () => ({
+  admitConversationExtensionAction: async (principalId: string, extensionId: string, type: string, key: string, payload: unknown, bus: typeof mockBus) => {
+    expect(principalId).toBe("user-1");
+    expect(extensionId).toBeTruthy();
+    expect(key).toBeTruthy();
+    bus.emit(type, payload);
+  },
+}));
 // The route's spawn-path re-wire (out-of-turn wirer fix) also imports
 // getExecutor; a partial mock that omits it fails EVERY import from the
 // module at load ("Export named 'getExecutor' not found"). Default: a
@@ -243,7 +251,7 @@ function makeEvent(
     url: null,
     request: {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: typeof body === "string" ? body : JSON.stringify(body),
       },
     locals: {

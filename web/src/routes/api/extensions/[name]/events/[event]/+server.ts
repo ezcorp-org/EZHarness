@@ -11,6 +11,7 @@ import { getProject } from "$server/db/queries/projects";
 import { getExtensionProjectBinding } from "$server/extensions/project-binding";
 import { validateEventActionKey } from "$server/db/queries/extension-event-receipts";
 import { LifecycleError } from "$server/extensions/v4/types";
+import { admitConversationExtensionAction } from "$server/extensions/domain-event-outbox";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import {
@@ -721,11 +722,22 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // `conversation_extensions` wiring + per-extension rate limit).
   // The SSE filter treats this event as a direct carrier because
   // `isRegisteredExtensionEvent` returned true.
-  getBus().emit(fullEventName as never, {
-    ...(typeof toolCallId === "string" ? { toolCallId } : {}),
-    conversationId,
-    ...userData,
-  } as never);
+  try {
+    const key = validateEventActionKey(request.headers.get("Idempotency-Key"));
+    await admitConversationExtensionAction(user.id, name, fullEventName, key, {
+      ...userData,
+      ...(typeof toolCallId === "string" ? { toolCallId } : {}),
+      conversationId,
+    }, getBus());
+  } catch (error) {
+    if (error instanceof LifecycleError) {
+      if (error.code === "invalid_event_key" || error.code === "event_payload_limit") return errorJson(400, error.message);
+      if (error.code === "event_not_found") return errorJson(404, "Not found");
+      if (error.code === "event_conflict") return errorJson(409, error.message);
+      if (error.code === "event_admission_full" || error.code === "event_queue_full") return errorJson(503, error.message);
+    }
+    throw error;
+  }
 
   return json({ ok: true });
 };

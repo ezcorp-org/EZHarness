@@ -15,6 +15,8 @@ import type { AgentEvents } from "../../../src/types";
 import { extensions } from "../../../src/db/schema";
 import { eq } from "drizzle-orm";
 import { setExtensionProjectBinding } from "../../../src/extensions/project-binding";
+import { addConversationExtensions } from "../../../src/db/queries/conversation-extensions";
+import { drainExtensionDeliveries } from "../../../src/extensions/delivery-runtime";
 
 mockDbConnection();
 const bus = new EventBus<AgentEvents>();
@@ -76,6 +78,30 @@ test("conversationless Hub action reaches one isolated worker and receipt retrie
   expect(delivery?.input).toMatchObject({ origin: "hub", provenance: { onBehalfOf: session.userId, conversationId: null } });
   expect((delivery!.input as { provenance: object }).provenance).not.toHaveProperty("projectId");
   expect((delivery!.input as { provenance: object }).provenance).not.toHaveProperty("projectBindingId");
+}, 60_000);
+
+test("conversation card actions admit once and survive delivery runtime restart", async () => {
+  await addConversationExtensions(session.conversationId, [{ extensionId: session.id }]);
+  const starts = session.starts();
+  const request = (key: string, value: string) => POST(makeRequestEvent("http://localhost/api/extensions/hub-proof/events/save", {
+    params: { name: "hub-proof", event: "save" },
+    request: { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: JSON.stringify({ conversationId: session.conversationId, toolCallId: "card", payload: { value } }) },
+    locals: { user: { id: session.userId, role: "member" } },
+  }));
+  await stopExtensionDeliveryRuntime();
+  expect((await request("conversation-action", "accepted")).status).toBe(200);
+  expect((await request("conversation-action", "accepted")).status).toBe(200);
+  expect((await request("conversation-action", "changed")).status).toBe(409);
+  expect(session.starts()).toBe(starts);
+  const receipt = await getEventReceipt(getTestDb(), { principalId: session.userId, namespace: "hub-proof:save", key: "conversation-action" });
+  expect(receipt?.deliveryIds).toHaveLength(1);
+  startExtensionDeliveryRuntime(wire);
+  await drainExtensionDeliveries();
+  expect(session.starts()).toBe(starts + 1);
+  expect(await session.storage("saved")).toEqual({ value: "accepted" });
+  expect((await request("conversation-action", "accepted")).status).toBe(200);
+  await drainExtensionDeliveries();
+  expect(session.starts()).toBe(starts + 1);
 }, 60_000);
 
 test("unrecognized actions and pages fail before admission, and queued grant revocation precedes worker start", async () => {

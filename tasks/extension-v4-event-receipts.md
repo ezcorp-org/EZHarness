@@ -54,7 +54,20 @@ Actual PostgreSQL 16 proof: `/tmp/lifecycle-postgres-receipts.log`. `scripts/ver
 
 The browser adds one bounded `Idempotency-Key` per logical extension action. An explicit key survives transport wrappers. The route requires the key for Hub actions, validates the declared page and own event namespace, and waits for durable delivery completion. Current grants and host project approval are checked again before the worker starts. Receipts use the same owner quota and retention rules as other admitted actions.
 
-This leaf does not yet add receipts to specialized host-rendered file-organizer actions or the generic conversation event branch. Their source transactions are separate follow-up leaves. These Hub tests use a trusted sealed release fixture; the separate author control-flow E2E proves the human approval UI.
+This leaf does not yet add receipts to specialized host-rendered file-organizer actions. Their source transactions are a separate follow-up leaf. These Hub tests use a trusted sealed release fixture; the separate author control-flow E2E proves the human approval UI.
+
+## Conversation Custom Actions
+
+- [x] The generic conversation card event route admits a receipt and all eligible deliveries before HTTP success or UI bus emission.
+  CHECK: cd web && bun test ./src/__tests__/hub-isolated-action.integration.test.ts
+  EXPECT: 5 tests pass.
+  EVIDENCE: /tmp/lifecycle-custom-isolated.log: 5 tests, 37 assertions. The runtime stops before admission, restarts after commit, and executes one real worker despite repeated equal HTTP requests. Changed payloads return 409.
+- [x] Custom event admission rejects platform namespace forgery, missing source extensions, foreign owners, and revoked project membership. Zero-recipient retries remain deduplicated.
+  CHECK: bun test ./src/extensions/domain-event-outbox.test.ts ./src/__tests__/ask-user-answer-durable.test.ts --coverage
+  EXPECT: 21 tests pass; both production modules have 100% line coverage.
+  EVIDENCE: /tmp/lifecycle-custom-coverage.log: 21 tests, 97 assertions; publisher and ask-user module each 100% lines.
+
+Only a registered event in the enabled source extension's own namespace may enter this route. Each recipient must have that namespace and the exact current, scoped, and sealed event grant. Conversation ownership and current project membership are read inside the admission transaction. HTTP success means accepted durable delivery, not completed worker execution; the Hub action route remains the explicit synchronous completion API. Both use the same bounded owner receipt policy. Specialized append/finalize handlers keep their separate state transaction contracts.
 
 The answer route now calls `acceptAskUserAnswer`, which binds the question to the current active conversation owner and current project membership. Receipt admission and extension delivery insertion commit before the host bus event. A repeated equal answer does not emit again. A changed answer returns HTTP 409, including after the in-memory pending question entry is removed. Invalid bodies return 400; foreign, inactive, or revoked owners return 404; persistence failures are not acknowledged as success.
 

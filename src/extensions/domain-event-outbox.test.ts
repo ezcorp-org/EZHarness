@@ -4,14 +4,16 @@ import { validateManifest } from "@ezcorp/extension-contract";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
-import { users, projects, conversations, conversationExtensions, extensions, runs, toolCalls } from "../db/schema";
+import { users, projects, projectMembers, conversations, conversationExtensions, extensions, runs, toolCalls } from "../db/schema";
 import { up } from "../db/migrations/add-extension-releases";
 import { createExtension } from "../db/queries/extensions";
 import { insertRun, updateRun } from "../db/queries/runs";
 import { persistToolCall } from "../db/queries/tool-calls";
 import { buildFullGrantFromManifest } from "./install-grant";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
-import { publishDomainEvent, emitPersistedDomainEvent, isPersistedDomainEvent, sanitizeDomainEvent, type DomainExtensionEvent } from "./domain-event-outbox";
+import { admitConversationExtensionAction, publishDomainEvent, emitPersistedDomainEvent, isPersistedDomainEvent, sanitizeDomainEvent, type DomainExtensionEvent } from "./domain-event-outbox";
+import { registerExtensionEvent } from "../runtime/sse-conversation-filter";
+import { getEventReceipt } from "../db/queries/extension-event-receipts";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import { emitTerminalRun } from "../runtime/domain-events";
@@ -20,13 +22,13 @@ mockDbConnection();
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
-async function fixture(full = false) {
+async function fixture(full = false, events = ["run:complete", "tool:complete", "tool:error"]) {
   const database = getTestDb();
   await up(database);
   const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@example.test`, passwordHash: "unused", name: "Owner", status: "active" }).returning();
   const [project] = await database.insert(projects).values({ name: "Event project", path: `/tmp/${crypto.randomUUID()}` }).returning();
   const [conversation] = await database.insert(conversations).values({ userId: owner!.id, projectId: project!.id, title: "Event" }).returning();
-  const manifest = validateManifest({ schemaVersion: 4, name: "outbox-fixture", version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: { eventSubscriptions: full ? { events: ["run:complete", "tool:complete", "tool:error"], includeFullPayload: true } : ["run:complete", "tool:complete", "tool:error"] } });
+  const manifest = validateManifest({ schemaVersion: 4, name: "outbox-fixture", version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: { eventSubscriptions: full ? { events, includeFullPayload: true } : events } });
   const runtime = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: owner!.id });
   const repository = new DatabaseLifecycleRepository(database);
   await repository.create({ installation: runtime.snapshot.installation, releases: { [runtime.snapshot.release.id]: runtime.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
@@ -37,6 +39,39 @@ async function fixture(full = false) {
   const queue = new ExtensionDeliveryQueue(database);
   return { database, repository, id, owner: owner!, conversation: conversation!, event, queue };
 }
+
+test("conversation custom actions commit one durable receipt and reject revoked owners or forged namespaces", async () => {
+  const context = await fixture(false, ["outbox-fixture:save"]);
+  await context.database.insert(projectMembers).values({ projectId: context.conversation.projectId!, userId: context.owner.id, role: "member" });
+  registerExtensionEvent("outbox-fixture", "save");
+  const bus = new EventBus<AgentEvents>();
+  let emitted = 0;
+  bus.on("outbox-fixture:save" as never, payload => { emitted++; expect(isPersistedDomainEvent(payload)).toBe(true); });
+  const payload = { conversationId: context.conversation.id, toolCallId: "card", input: "choice" };
+  const admit = (key: string, input: Record<string, unknown> = payload, type = "outbox-fixture:save", principal = context.owner.id) => admitConversationExtensionAction(principal, "outbox-fixture", type, key, input, bus);
+  await admit("choice");
+  await admit("choice");
+  expect(emitted).toBe(1);
+  const receipt = await getEventReceipt(context.database, { principalId: context.owner.id, namespace: "outbox-fixture:save", key: "choice" });
+  expect(receipt?.deliveryIds).toHaveLength(1);
+  expect((await new ExtensionDeliveryQueue(context.database).claim())?.input).toMatchObject({ params: payload, provenance: { onBehalfOf: context.owner.id } });
+  await expect(admit("choice", { ...payload, input: "changed" })).rejects.toHaveProperty("code", "event_conflict");
+  await expect(admit("foreign", payload, "other:save")).rejects.toHaveProperty("code", "event_not_found");
+  await expect(admit("platform", payload, "run:complete")).rejects.toHaveProperty("code", "event_not_found");
+  await expect(admit("invalid", {})).rejects.toHaveProperty("code", "invalid_event");
+  await expect(admit("foreign-owner", payload, "outbox-fixture:save", "someone-else")).rejects.toHaveProperty("code", "event_not_found");
+  await context.database.update(extensions).set({ name: "other-extension" }).where(eq(extensions.id, context.id));
+  expect(await context.database.transaction(transaction => publishDomainEvent(transaction, { ...context.event, type: "outbox-fixture:save" as never, sourceExtensionName: "outbox-fixture" }))).toEqual([]);
+  await expect(admit("missing-source")).rejects.toHaveProperty("code", "event_not_found");
+  await context.database.update(extensions).set({ name: "outbox-fixture" }).where(eq(extensions.id, context.id));
+  await context.database.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, context.conversation.id));
+  await admit("zero-recipients");
+  await admit("zero-recipients");
+  expect((await getEventReceipt(context.database, { principalId: context.owner.id, namespace: "outbox-fixture:save", key: "zero-recipients" }))?.deliveryIds).toEqual([]);
+  await context.database.delete(projectMembers).where(eq(projectMembers.userId, context.owner.id));
+  await expect(admit("revoked")).rejects.toHaveProperty("code", "event_not_found");
+  expect(emitted).toBe(2);
+});
 
 test("rollback before commit removes both domain mutation and every queued recipient", async () => {
   const context = await fixture();

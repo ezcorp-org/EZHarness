@@ -1,9 +1,7 @@
 import { sha256 } from "@ezcorp/extension-contract";
-import { sql } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../db/connection";
 import { admitEventInTransaction, getEventReceipt } from "../db/queries/extension-event-receipts";
-import { releaseRows } from "../db/queries/extension-releases";
-import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../extensions/domain-event-outbox";
+import { assertConversationEventOwner, emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../extensions/domain-event-outbox";
 import { LifecycleError } from "../extensions/v4/types";
 import type { AgentEvents } from "../types";
 import type { EventBus } from "./events";
@@ -19,8 +17,7 @@ export async function acceptAskUserAnswer(principalId: string, toolCallId: strin
     const previous = await getEventReceipt(transaction, identity);
     const conversationId = pending?.conversationId ?? previous?.scope;
     if (!conversationId) return false;
-    const owners = releaseRows<{ id: string }>(await transaction.execute(sql`SELECT c.id FROM conversations c JOIN users u ON u.id = c.user_id WHERE c.id = ${conversationId} AND c.user_id = ${principalId} AND u.status = 'active' AND (u.role = 'admin' OR c.project_id IS NULL OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = c.project_id AND pm.user_id = u.id AND pm.role IN ('member', 'owner'))) FOR SHARE OF c, u`));
-    if (!owners.length) throw new LifecycleError("event_not_found", "Question not found.");
+    await assertConversationEventOwner(transaction, principalId, conversationId);
     const payload = { toolCallId, conversationId, answer };
     const result = await admitEventInTransaction(transaction, { ...identity, scope: conversationId, payload }, async id => {
       event = { id, type: "ask-user:answer", conversationId, payload };
