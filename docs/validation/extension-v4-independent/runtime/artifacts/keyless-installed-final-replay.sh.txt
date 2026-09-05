@@ -18,4 +18,5 @@ PY
 sed "s#/home/dev/work/EZCorp/extension-v4-audit-runtime#$repo#g" "$test_file" > "$tmp_test"
 EXTENSION_TEST_BUN="${EXTENSION_TEST_BUN:-/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun}"
 "$EXTENSION_TEST_BUN" test "$tmp_test"
+cp "$backup" "$helper"
 cmp -s "$helper" "$backup" || { echo "helper restoration failed" >&2; exit 1; }
