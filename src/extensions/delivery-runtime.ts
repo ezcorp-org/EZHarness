@@ -8,7 +8,7 @@ import { capabilityToolsDisabled } from "./capability-flags";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 
 const log = extensionLogger("delivery", "runtime");
-let wireProcess: ((extensionId: string, process: ExtensionProcess) => void) | undefined;
+let wireProcess: ((extensionId: string, process: ExtensionProcess) => void | Promise<void>) | undefined;
 let timer: ReturnType<typeof setInterval> | undefined;
 let draining: Promise<void> | undefined;
 
@@ -72,7 +72,7 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
   if (project.projectId !== input.provenance.projectId || project.projectBindingId !== input.provenance.projectBindingId) throw new LifecycleError("delivery_revoked", "Delivery project approval changed.");
   const { ExtensionRegistry } = await import("./registry");
   const process = await ExtensionRegistry.getInstance().getProcess(delivery.installationId);
-  wireProcess(delivery.installationId, process);
+  await wireProcess(delivery.installationId, process);
   const token = registerCallProvenance(input.provenance);
   try {
     const response = await process.call(input.method, { ...delivery.transportContext, ...input.params, _meta: { ezCallId: token, releaseId: delivery.releaseId, expectedGeneration: delivery.generation } });

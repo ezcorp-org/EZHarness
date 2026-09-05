@@ -52,6 +52,21 @@ function token(ownerless = false) { return registerCallProvenance({ actorExtensi
 afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; eventWired = true; eventGranted = true; paused = false; });
 afterAll(() => restoreModuleMocks());
 
+test("worker cannot start until asynchronous host RPC wiring completes", async () => {
+  let complete: (() => void) | undefined;
+  startExtensionDeliveryRuntime(() => new Promise<void>(resolve => { complete = resolve; }));
+  const ezCallId = token();
+  try {
+    const pending = enqueueExtensionNotification("installation", "ezcorp/event/test", { _meta: { ezCallId } });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    const premature = invocations.length;
+    complete?.();
+    await pending;
+    expect(premature).toBe(0);
+    expect(invocations).toHaveLength(1);
+  } finally { releaseCallProvenance(ezCallId); }
+});
+
 test("queued payloads cannot cross revoked conversation grants or project membership", async () => {
   startExtensionDeliveryRuntime(() => {});
   for (const revocation of ["scoped", "membership"] as const) {

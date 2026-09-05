@@ -4,7 +4,7 @@ import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { configureReleaseRuntime } from "../extensions/release-process";
 import { buildFullGrantFromManifest } from "../extensions/install-grant";
 import { getExtensionLifecycle } from "../extensions/extension-lifecycle-service";
-import { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "../extensions/delivery-runtime";
+import { drainExtensionDeliveries, enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "../extensions/delivery-runtime";
 import { and, eq } from "drizzle-orm";
 import {
   setupTestDb,
@@ -117,6 +117,7 @@ import type { JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
 
 let release: Awaited<ReturnType<typeof buildFirstPartyRelease>>;
 let session: Awaited<ReturnType<typeof release.session>>;
+let wireRpc: Parameters<typeof startExtensionDeliveryRuntime>[0];
 const deliveries: Promise<void>[] = [];
 let OWNER_ID: string;
 const OTHER_ID = "user-distill-bystander";
@@ -196,7 +197,7 @@ beforeAll(async () => {
   bus = new EventBus<import("../types").AgentEvents>();
   const bootExecutor = new ToolExecutor(registry, createStubPermissionEngine("allow-all"), { bus, eventDriven: true });
 
-  const wireRpc = async (
+  wireRpc = async (
     extId: string,
     proc: import("../extensions/subprocess").ExtensionProcess,
   ) => {
@@ -228,7 +229,7 @@ beforeAll(async () => {
       await delivery;
     },
   });
-  startExtensionDeliveryRuntime((id, process) => { void wireRpc(id, process); });
+  startExtensionDeliveryRuntime(wireRpc);
 
   dispatcher = new EventSubscriptionDispatcher(
     bus,
@@ -318,6 +319,30 @@ function reset(): void {
 }
 
 describe("lessons-distiller ↔ host — the seam, end to end", () => {
+  test("boot remains lazy and restarted delivery starts one fresh owner-bound worker per event", async () => {
+    reset();
+    await setOwnerSettings({ enabled: false, provider: "google", model: "" });
+    expect(session.starts()).toBe(0);
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(0);
+    await fireRunComplete("run-boot-first", RUN_STARTED_MS);
+    expect(session.starts()).toBe(1);
+    expect(settingsResolutions).toHaveLength(1);
+    expect(settingsResolutions[0]).toMatchObject({ extensionId: EXT_ID, userId: OWNER_ID });
+    await stopExtensionDeliveryRuntime();
+    startExtensionDeliveryRuntime(wireRpc);
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(1);
+    expect(settingsResolutions).toHaveLength(1);
+    await fireRunComplete("run-boot-second", RUN_STARTED_MS);
+    expect(session.starts()).toBe(2);
+    expect(settingsResolutions).toHaveLength(2);
+    expect(settingsResolutions[1]).toMatchObject({ extensionId: EXT_ID, userId: OWNER_ID });
+    await drainExtensionDeliveries();
+    expect(session.starts()).toBe(2);
+    expect(settingsResolutions).toHaveLength(2);
+  }, 60_000);
+
   test("bug 1: the fire resolves the CONVERSATION OWNER's settings, and their off switch suppresses the distill", async () => {
     reset();
     // Manifest default is `enabled: true`. The owner turned it OFF.
