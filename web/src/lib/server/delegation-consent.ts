@@ -25,7 +25,7 @@
  */
 import { getCachedWorkflows, getExecutor } from "$lib/server/context";
 import { errorJson } from "$lib/server/http-errors";
-import { delegationPrincipal } from "$server/runtime/workflow-delegation-consent";
+import { delegationPrincipal, delegationWorkflowResolver } from "$server/runtime/workflow-delegation-consent";
 import {
   computeDelegationConsentRecord,
   type DelegationConsentRecord as SharedConsentRecord,
@@ -33,9 +33,12 @@ import {
 import type { ConsentHashMaterial } from "$server/runtime/workflow-capability-hash";
 import type { CachedWorkflow } from "$server/runtime/workflow-scope";
 import type { DelegationOwnerKind } from "$server/db/schema";
-import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess, workflowReleaseCanConsentService, workflowDelegationReleaseBinding } from "$server/runtime/workflow-release-assets";
+import { captureWorkflowConsentOrigin, filterAccessibleWorkflowEntries, workflowReleaseCanAccess, workflowReleaseCanConsentService } from "$server/runtime/workflow-release-assets";
+import { buildWorkflowReleaseConsent, type WorkflowConsentOrigin } from "$server/runtime/workflow-release-consent";
+import { canonicalJson } from "@ezcorp/extension-contract";
 
 export interface DelegationConsentRequest {
+  originInstallationId: string;
   /** Already authorized for the delegation's principal by the caller. */
   entry: CachedWorkflow;
   /** Registry-resolved, never off the wire. */
@@ -75,10 +78,18 @@ export async function buildDelegationConsent(
   request: DelegationConsentRequest,
 ): Promise<DelegationConsentRecord | Response> {
   const principalId = request.ownerKind === "user" ? request.ownerId : request.consenterId ?? null;
+  if (!principalId) return errorJson(404, "Workflow is not available to this principal.");
+  let origin: WorkflowConsentOrigin;
+  try {
+    origin = await captureWorkflowConsentOrigin(request.originInstallationId, request.workflowName, request.ownerKind, request.ownerId, principalId, request.projectId);
+  } catch { return errorJson(404, "Workflow is not available to this principal."); }
   if (request.ownerKind === "service" && !await workflowReleaseCanConsentService(request.entry, request.ownerId, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (!await workflowReleaseCanAccess(request.entry, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
-  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), principalId, request.projectId);
-  const sameReleaseNames = entries.filter(entry => entry.extensionRelease?.binding === request.entry.extensionRelease?.binding && entry.extensionRelease?.installationId === request.entry.extensionRelease?.installationId).map(entry => entry.definition.name);
+  const accessible = await filterAccessibleWorkflowEntries(getCachedWorkflows(), principalId, request.projectId);
+  const entries: CachedWorkflow[] = [];
+  for (const entry of accessible) if (request.ownerKind !== "service" || await workflowReleaseCanConsentService(entry, request.ownerId, principalId, request.projectId)) entries.push(entry);
+  const principal = delegationPrincipal(request.ownerKind, request.ownerId);
+  const resolve = delegationWorkflowResolver(entries, principal);
   const record: SharedConsentRecord = await computeDelegationConsentRecord({
     entry: request.entry,
     extensionName: request.extensionName,
@@ -86,17 +97,25 @@ export async function buildDelegationConsent(
     projectId: request.projectId,
     runAs: { kind: request.ownerKind, id: request.ownerId },
     trigger: request.trigger,
-    principal: delegationPrincipal(request.ownerKind, request.ownerId, workflowDelegationReleaseBinding(request.entry, sameReleaseNames)),
+    principal,
+    workflowResolver: name => request.ownerKind === "service" ? entries.find(entry => entry.source === "extension" && entry.definition.name === name)?.definition ?? resolve(name) : resolve(name),
     entries,
     agents: getExecutor().listAgents(),
   });
   const includedNames = new Set(record.material.graph.map(entry => entry.name));
   const usedEntries = new Set([request.entry, ...entries.filter(entry => includedNames.has(entry.definition.name))]);
-  for (const entry of usedEntries) if (!await workflowReleaseCanAccess(entry, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
+  for (const entry of usedEntries) if (!await workflowReleaseCanAccess(entry, principalId, request.projectId) || request.ownerKind === "service" && !await workflowReleaseCanConsentService(entry, request.ownerId, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (request.ownerKind === "service" && !await workflowReleaseCanConsentService(request.entry, request.ownerId, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (!record.pin.ok) return errorJson(409, record.pin.message);
+  try {
+    const currentOrigin = await captureWorkflowConsentOrigin(request.originInstallationId, request.workflowName, request.ownerKind, request.ownerId, principalId, request.projectId);
+    if (canonicalJson(currentOrigin) !== canonicalJson(origin)) return errorJson(404, "Workflow is not available to this principal.");
+  } catch { return errorJson(404, "Workflow is not available to this principal."); }
+  let extensionReleaseBinding: string;
+  try { extensionReleaseBinding = buildWorkflowReleaseConsent(origin, [...usedEntries]); }
+  catch { return errorJson(400, "Workflow release consent exceeds its bounds or changed during review."); }
   return {
-    extensionReleaseBinding: workflowDelegationReleaseBinding(request.entry, sameReleaseNames.filter(name => includedNames.has(name))),
+    extensionReleaseBinding,
     definitionVersionId: record.pin.definitionVersionId,
     consentHash: record.consentHash,
     definitionHash: record.definitionHash,

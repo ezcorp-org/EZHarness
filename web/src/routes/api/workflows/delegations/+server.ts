@@ -139,6 +139,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (resolved instanceof Response) return resolved;
 
   const consent = await buildDelegationConsent({
+    originInstallationId: body.extensionId,
     entry: resolved.entry,
     extensionName: manifest.name,
     workflowName: body.workflowName,

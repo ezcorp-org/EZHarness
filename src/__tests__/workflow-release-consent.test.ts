@@ -3,7 +3,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import { buildWorkflowReleaseConsent, parseWorkflowReleaseConsent, workflowDelegationReleaseAllows, workflowDelegationReleaseBinding, MAX_WORKFLOW_CONSENT_BYTES } from "../runtime/workflow-release-consent";
 import { systemCachedWorkflow, type CachedWorkflow } from "../runtime/workflow-scope";
 
-function entry(name = "source:task", installationId = "source"): CachedWorkflow {
+function entry(name = "source:task", installationId = "source"): CachedWorkflow & { extensionRelease: NonNullable<CachedWorkflow["extensionRelease"]> } {
   return { ...systemCachedWorkflow({ name, description: "Task", steps: [] }, "extension"), extensionRelease: { installationId, binding: "exact-release", ownerId: "owner", scope: "global" } };
 }
 const origin = { release: entry().extensionRelease!, workflowName: "host-root", ownerKind: "user" as const, ownerId: "owner", projectId: null };

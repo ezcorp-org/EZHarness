@@ -14,6 +14,59 @@ const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
+test("service consent validates current human ownership and service project scope", async () => {
+  const { db, release } = await fixture();
+  const { workflowReleaseCanConsentService, captureWorkflowConsentOrigin } = await import("../runtime/workflow-release-assets");
+  expect(await workflowReleaseCanConsentService(release.entry, "service", "owner")).toBe(true);
+  expect(await workflowReleaseCanConsentService({ ...release.entry, source: "yaml", extensionRelease: undefined }, "service", "owner")).toBe(true);
+  expect(await workflowReleaseCanConsentService({ ...release.entry, extensionRelease: undefined }, "service", "owner")).toBe(false);
+  expect(await workflowReleaseCanConsentService(release.entry, "service", "admin")).toBe(false);
+  expect(await workflowReleaseCanConsentService(release.entry, "missing", "owner")).toBe(false);
+  await db.insert(projects).values({ id: "scope-project", name: "Scope", path: "/tmp/scope" });
+  await db.update(serviceAccounts).set({ projectId: "scope-project" }).where(eq(serviceAccounts.id, "service"));
+  expect(await workflowReleaseCanConsentService(release.entry, "service", "owner", null)).toBe(false);
+  await expect(captureWorkflowConsentOrigin("installation", "host", "service", "service", "owner", null)).rejects.toThrow("not available");
+  await db.update(serviceAccounts).set({ projectId: null, enabled: false }).where(eq(serviceAccounts.id, "service"));
+  await expect(captureWorkflowConsentOrigin("installation", "host", "service", "service", "owner", null)).rejects.toThrow("not available");
+  await expect(captureWorkflowConsentOrigin("installation", "host", "user", "other", "owner", null)).rejects.toThrow("not available");
+});
+
+for (const hostRoot of [false, true]) test(`human delegated ${hostRoot ? "host" : "sealed"} root executes another owned release only with exact consent`, async () => {
+  const { db, release } = await fixture();
+  const { workflowReleaseFixture } = await import("./helpers/workflow-release");
+  const { configureReleaseRuntime } = await import("../extensions/release-process");
+  const { buildWorkflowReleaseConsent } = await import("../runtime/workflow-release-consent");
+  const { captureWorkflowConsentOrigin } = await import("../runtime/workflow-release-assets");
+  const target = workflowReleaseFixture({ name: "target:child", description: "Target", steps: [{ name: "result", kind: "transform", output: { value: "done" } }] }, "owner", "target");
+  configureReleaseRuntime({ runner: async () => release.runner, resolve: async id => id === "installation" ? release.snapshot : id === "target" ? target.snapshot : null });
+  const root: CachedWorkflow = { ...release.entry, ...(hostRoot ? { source: "yaml", extensionRelease: undefined } : {}), definition: { name: hostRoot ? "host-root" : "sealed:task", description: "Root", steps: [{ name: "child", kind: "workflow", workflow: target.entry.definition.name, input: {} }] } };
+  const origin = await captureWorkflowConsentOrigin("installation", root.definition.name, "user", "owner", "owner", null);
+  const binding = buildWorkflowReleaseConsent(origin, [root, target.entry]);
+  await db.update(workflowDelegations).set({ ownerKind: "user", ownerUserId: "owner", ownerServiceAccountId: null, workflowName: root.definition.name, extensionReleaseBinding: binding }).where(eq(workflowDelegations.id, "delegation"));
+  const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const bus = new EventBus<import("../types").AgentEvents>();
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, workflowResolver: makeNestedWorkflowResolver(() => [root, target.entry]) });
+  registerWorkflowRuntime({ getCachedWorkflows: () => [root, target.entry], getWorkflows: () => [root.definition, target.entry.definition], workflowExecutor: executor });
+  const authority = { userId: "owner", runAsKind: "user" as const, runAs: "owner", delegationId: "delegation", projectId: null };
+  try {
+    const result = await executor.runWorkflow(root.definition, {}, undefined, "owner", undefined, { delegationId: "delegation", runAsKind: "user", runAs: "owner" });
+    expect(result.result?.error).toBeUndefined();
+    expect(result.status).toBe("success");
+    expect(await workflowReleaseCanExecute(target.entry, authority)).toBe(true);
+    target.snapshot.installation.enabled = false;
+    expect(await workflowReleaseCanExecute(root, authority)).toBe(false);
+    target.snapshot.installation.enabled = true;
+    target.snapshot.installation.ownerId = "admin";
+    expect(await workflowReleaseCanExecute(target.entry, authority)).toBe(false);
+    target.snapshot.installation.ownerId = "owner";
+    await db.update(workflowDelegations).set({ extensionReleaseBinding: buildWorkflowReleaseConsent({ ...origin, ownerId: "admin" }, [root, target.entry]) }).where(eq(workflowDelegations.id, "delegation"));
+    expect(await workflowReleaseCanExecute(target.entry, authority)).toBe(false);
+  } finally { _resetWorkflowRuntimeForTests(); }
+});
+
 test("versioned consent resolves the source origin independently of a host workflow root", async () => {
   const { db, release, authority } = await fixture();
   const { captureWorkflowConsentOrigin, resolveWorkflowServiceOrigin } = await import("../runtime/workflow-release-assets");

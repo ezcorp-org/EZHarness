@@ -23,15 +23,18 @@ async function canExecuteInProject(principalId: string, projectId: string | null
   return user?.status === "active" && (user.role === "admin" || await readWorkflowAuthorityMembership(user.id, projectId, database));
 }
 
+async function readService(serviceId: string, database?: MigrationDb) {
+  return database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : findLiveServiceAccount(serviceId);
+}
+
 export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
   if (!entry.extensionRelease || consenterId !== entry.extensionRelease.ownerId) return false;
-  const readService = async () => database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : await findLiveServiceAccount(serviceId);
-  const service = await readService();
+  const service = await readService(serviceId, database);
   if (!service || (service.projectId !== null && service.projectId !== projectId)) return false;
   if (!await workflowReleaseCanAccess(entry, consenterId, projectId, database)) return false;
   if (!await canExecuteInProject(consenterId, projectId, database)) return false;
-  const current = await readService();
+  const current = await readService(serviceId, database);
   return Boolean(current && current.projectId === service.projectId && await workflowReleaseIsCurrent(entry, undefined, database));
 }
 
@@ -56,15 +59,20 @@ function matchesDelegation(row: DelegationAuthorityRow | undefined | null, autho
   return Boolean(row?.enabled && !row.revokedAt && row.ownerKind === authority.runAsKind && (row.ownerKind === "service" ? row.ownerServiceAccountId : row.ownerUserId) === authority.runAs && row.projectId === (authority.projectId ?? null));
 }
 
-async function liveDelegation(authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<DelegationAuthorityRow | null> {
+async function liveDelegation(authority: WorkflowExecutionAuthority, database?: MigrationDb, legacyHost = false): Promise<DelegationAuthorityRow | null> {
   if (!authority.delegationId || !authority.runAs || (authority.runAsKind !== "service" && authority.runAsKind !== "user") || (authority.runAsKind === "service" ? Boolean(authority.userId) : authority.userId !== authority.runAs)) return null;
   const row = await readDelegation(authority.delegationId, database);
   if (!matchesDelegation(row, authority)) return null;
+  if (legacyHost && row.extensionReleaseBinding === null) {
+    if (row.ownerKind === "user") return (await readWorkflowAuthorityUser(authority.runAs, database))?.status === "active" ? row : null;
+    const service = await readService(authority.runAs, database);
+    return service && (service.projectId === null || service.projectId === row.projectId) ? row : null;
+  }
   const human = await readWorkflowAuthorityUser(row.consentedByUserId, database);
   if (human?.status !== "active" || !await canExecuteInProject(human.id, row.projectId, database)) return null;
   if (row.ownerKind === "user" && row.consentedByUserId !== authority.userId) return null;
   if (row.ownerKind === "service") {
-    const service = database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${authority.runAs} AND enabled=true FOR SHARE`))[0] : await findLiveServiceAccount(authority.runAs!);
+    const service = await readService(authority.runAs, database);
     if (!service || service.projectId !== null && service.projectId !== row.projectId) return null;
   }
   return row;
@@ -98,14 +106,19 @@ export async function captureWorkflowConsentOrigin(installationId: string, workf
   const snapshot = await resolveActiveRelease(installationId, getReleaseRuntime());
   const release = { installationId, binding: releaseBinding(snapshot), ownerId: snapshot.installation.ownerId, scope: snapshot.installation.scope };
   if (ownerKind === "service" && release.ownerId !== consenterId || !await releaseStampCanAccess(release, consenterId, projectId) || !await canExecuteInProject(consenterId, projectId)) throw new Error("Workflow origin is not available to this principal.");
+  if (ownerKind === "service") {
+    const service = await readService(ownerId);
+    if (!service || service.projectId !== null && service.projectId !== projectId) throw new Error("Workflow origin is not available to this principal.");
+  } else if (ownerId !== consenterId) throw new Error("Workflow origin is not available to this principal.");
   return { release, workflowName, ownerKind, ownerId, projectId };
 }
 
 async function canExecuteRelease(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
+  if (entry.source !== "extension" && !authority.runAsKind && !authority.runAs) return true;
   if (!authority.delegationId && !authority.runAsKind && !authority.runAs) return entry.source !== "extension" || await workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database) && await canExecuteInProject(authority.userId!, authority.projectId, database) && await workflowReleaseIsCurrent(entry, undefined, database);
   const verified = await verifiedDelegationOrigin(authority, database);
   if (!verified) {
-    const legacy = entry.source !== "extension" && await liveDelegation(authority, database);
+    const legacy = entry.source !== "extension" && await liveDelegation(authority, database, true);
     return Boolean(legacy && legacy.extensionReleaseBinding === null);
   }
   return entry.source !== "extension" || workflowDelegationReleaseAllows(entry, verified.row.extensionReleaseBinding) && await workflowReleaseIsCurrent(entry, undefined, database);
