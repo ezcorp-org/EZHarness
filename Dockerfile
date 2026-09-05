@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM oven/bun:1.3.14 AS builder
+FROM docker.io/oven/bun:1.3.14 AS builder
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
@@ -25,14 +25,16 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && 
 
 # Copy source and build
 COPY . .
-# Explicitly build the SDK now that source + tsconfig are present. SvelteKit's
-# build (next line) needs the dist/ to exist for any non-bun-condition import
-# resolver. Skipped at install-time above due to layer-cache constraints.
-RUN bun run --cwd packages/@ezcorp/sdk build
+# Explicitly build workspace packages imported by SvelteKit now that their
+# source and tsconfigs are present. The web bundler follows each package's
+# `import` export to dist/, while Bun at runtime follows the `bun` export to
+# src/. Skipped at install-time above due to layer-cache constraints.
+RUN bun run --cwd packages/@ezcorp/sdk build \
+  && bun run --cwd packages/@ezcorp/harness-client build
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM oven/bun:1.3.14-slim
+FROM docker.io/oven/bun:1.3.14-slim
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
@@ -193,6 +195,8 @@ RUN apt-get update \
 # dist/ yet (Phase 3 will add the build step).
 COPY --from=builder /app/packages/@ezcorp/sdk/src ./packages/@ezcorp/sdk/src
 COPY --from=builder /app/packages/@ezcorp/sdk/dist ./packages/@ezcorp/sdk/dist
+COPY --from=builder /app/packages/@ezcorp/harness-client/src ./packages/@ezcorp/harness-client/src
+COPY --from=builder /app/packages/@ezcorp/harness-client/dist ./packages/@ezcorp/harness-client/dist
 COPY --from=builder /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src
 COPY --from=builder /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src
 COPY --from=builder /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts
