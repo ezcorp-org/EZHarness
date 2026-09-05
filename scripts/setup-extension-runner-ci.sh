@@ -21,7 +21,6 @@ if [[ "$mode" == "--install" ]]; then
   sudo apt-get update
   sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux ca-certificates
   runner_user="$(id -un)"
-  runner_uid="$(id -u)"
   for mapping in subuid subgid; do
     if ! awk -F: -v account="$runner_user" '$1 == account { found = 1 } END { exit !found }' "/etc/$mapping"; then
       range_start="$(awk -F: 'BEGIN { start = 100000 } { end = $2 + $3; if (end > start) start = end } END { print start }' "/etc/$mapping")"
@@ -29,11 +28,8 @@ if [[ "$mode" == "--install" ]]; then
       if [[ "$mapping" == "subuid" ]]; then sudo usermod --add-subuids "$range_start-$range_end" "$runner_user"; else sudo usermod --add-subgids "$range_start-$range_end" "$runner_user"; fi
     fi
   done
-  sudo loginctl enable-linger "$runner_user"
-  sudo systemctl start "user@$runner_uid.service"
-  sudo systemctl set-property --runtime "user@$runner_uid.service" Delegate=yes
-  export XDG_RUNTIME_DIR="/run/user/$runner_uid"
-  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+  source "$repo_root/scripts/lib/extension-runner-delegation.sh"
+  configure_extension_runner_delegation
   if [[ -n "${GITHUB_ENV:-}" ]]; then
     printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
   fi
