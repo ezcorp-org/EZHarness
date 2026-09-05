@@ -353,6 +353,7 @@ run_legs() {
   (
   set +e
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
+      src/__tests__/bounded-json.server.test.ts \
       src/__tests__/extension-author-page-server-load.server.test.ts \
       src/__tests__/extension-author-page.component.test.ts \
       src/__tests__/extension-control-routes.server.test.ts \
@@ -616,6 +617,8 @@ run_legs() {
       src/__tests__/api-conversations-id-agent-chat.server.test.ts \
       src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+      --coverage.include='src/lib/server/security/bounded-json.ts' \
+      --coverage.include='src/lib/server/security/payload.ts' \
       --coverage.include='src/lib/server/extensions/*.ts' \
       --coverage.include='**/extensions/author/+page.svelte' \
       --coverage.include='**/extensions/author/+page.server.ts' \
