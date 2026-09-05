@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, resolveDependencies } from "../src";
-import { provision, source } from "./helpers";
+import { manifest, provision, source } from "./helpers";
 import { command } from "../src/core";
 import { createExtensionFiles } from "../../../../src/extensions/extension-control";
 
@@ -42,6 +42,19 @@ test("real isolated build, typecheck, feature tests, discovery, invocation and r
   try { expect(await worker.request("extension/invoke", { name: "echo", input: { text: "hello" }, context })).toEqual({ text: "hello", broker: "value" }); } finally { await worker.close(); }
   const restarted = new PodmanRunner({ root });
   expect(await restarted.collectArtifacts(artifactDigest)).toEqual(await runner.collectArtifacts(artifactDigest));
+}, 120_000);
+
+test("public SDK subpaths share runtime registration and ship checked declarations", async () => {
+  const files = source();
+  files["extension.ts"] = `import {serve} from '@ezcorp/sdk/v4'; import {createRuntimeExtension} from '@ezcorp/sdk/v4/runtime'; import {createToolDispatcher,toolResult} from '@ezcorp/sdk/runtime'; await serve(await createRuntimeExtension({manifest:${JSON.stringify(manifest)},register:()=>createToolDispatcher({echo:()=>toolResult('shared runtime')})}));`;
+  const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(result.diagnostics).toEqual([]);
+  expect(result.state).toBe("succeeded");
+  const workerId = randomUUID();
+  const context = { workerId, invocationId: randomUUID(), releaseId: result.artifactDigest!, principalId: "owner", scopeId: "global", token: "runtime-test", deadline: Date.now() + 30_000 };
+  const execution = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("Unexpected reverse request"); });
+  try { expect(await execution.request("extension/invoke", { name: "echo", input: {}, context })).toMatchObject({ content: [{ type: "text", text: "shared runtime" }] }); }
+  finally { await execution.close(); }
 }, 120_000);
 
 test("same frozen input produces identical artifacts", async () => {

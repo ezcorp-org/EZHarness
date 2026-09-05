@@ -373,8 +373,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Run coverage legs
         env:
+          EZCORP_RUN_PODMAN_TESTS: "1"
           COVERAGE_LEGS_ONLY: "1"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
@@ -450,8 +452,10 @@ jobs:
         with:
           web: "true"
           sync: "true"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Run residual pass/fail set
         env:
+          EZCORP_RUN_PODMAN_TESTS: "1"
           RESIDUAL_ONLY: "1"
         run: bash scripts/test.sh
 
