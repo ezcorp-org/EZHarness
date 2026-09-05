@@ -101,12 +101,12 @@ export async function enqueueExtensionNotification(extensionId: string, method: 
   const queue = await getExtensionDeliveryQueue();
   const delivery = await queue.enqueue({ installationId: extensionId, releaseId: installation.activeReleaseId, generation: installation.generation, principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: method.includes("webhook") ? "webhook" : method.includes("schedule") || method.includes("trigger-fire") ? "schedule" : "event", input: { method, params: cleanParams, provenance: owned } satisfies DeliveryInput, transportContext });
   const deadline = Date.now() + 60000;
-  for (;;) {
+  while (Date.now() < deadline) {
     await drainExtensionDeliveries();
     const current = await queue.inspect(extensionId, delivery.id);
     if (current?.state === "delivered") return;
     if (!current || ["cancelled", "dead_letter", "outcome_unknown"].includes(current.state)) throw new LifecycleError("delivery_outcome_unknown", "Delivery did not complete. It will not repeat uncertain effects.");
-    if (Date.now() >= deadline) throw new LifecycleError("delivery_pending", "Delivery remains durably queued.");
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
   }
+  throw new LifecycleError("delivery_pending", "Delivery remains durably queued.");
 }

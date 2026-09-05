@@ -82,7 +82,7 @@ test("service evidence reports tested and unexercised capabilities and cannot hi
   let closed = 0;
   const runner = { async start(input: StartRequest, reverseRpc: ReverseRpc) { return { workerId: input.workerId, onNotification: () => () => {}, close: async () => { closed++; }, request: async (method: string) => {
     if (method === "extension/discover") return release.manifest;
-    if (hideDenied) { try { await reverseRpc("ezcorp/shell", { context: input.context, input: { command: "dangerous" } }); } catch {} }
+    if (hideDenied) await expect(reverseRpc("ezcorp/shell", { context: input.context, input: { command: "dangerous" } })).rejects.toMatchObject({ code: "test_effect_denied" });
     else await reverseRpc("ezcorp/storage", { context: input.context, input: { action: "set", key: "test", value: 1 } });
     return {};
   } }; } } as unknown as Runner;

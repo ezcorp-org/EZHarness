@@ -1,4 +1,4 @@
-import { afterAll, afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { ExtensionProjectBinding } from "../project-binding";
 import { registerCallProvenance, releaseCallProvenance, resolveCallProvenance } from "../call-provenance";
@@ -138,4 +138,21 @@ test("missing, foreign and retired delivery identities fail closed", async () =>
     active = false;
     await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_revoked");
   } finally { releaseCallProvenance(ezCallId); }
+});
+
+test("a pending delivery timeout preserves queued work without inventing completion", async () => {
+  const initialTime = Date.now();
+  const clock = spyOn(Date, "now").mockReturnValue(initialTime);
+  let inspections = 0;
+  const inspect = queue.inspect;
+  const inspection = spyOn(queue, "inspect").mockImplementation(async (installationId, id) => {
+    if (++inspections === 3) clock.mockReturnValue(initialTime + 60_001);
+    return inspect(installationId, id);
+  });
+  const ezCallId = token();
+  try {
+    await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_pending");
+    expect(jobs[0]?.state).toBe("queued");
+    expect(invocations).toHaveLength(0);
+  } finally { releaseCallProvenance(ezCallId); clock.mockRestore(); inspection.mockRestore(); }
 });
