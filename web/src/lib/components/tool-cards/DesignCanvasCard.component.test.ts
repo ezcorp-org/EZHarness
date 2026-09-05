@@ -511,6 +511,9 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 			],
 			knobValues: { primaryColor: "#ff0066", secondaryColor: "#00ff00" },
 		});
+		// Runtime hydration may supply an already-parsed object. Keep that
+		// exact identity through an unrelated metadata update.
+		initialCall.output = JSON.parse(String(initialCall.output));
 		const { getByTestId, queryByTestId, rerender } = render(DesignCanvasCard, {
 			toolCall: initialCall,
 			conversationId: "conv-1",
