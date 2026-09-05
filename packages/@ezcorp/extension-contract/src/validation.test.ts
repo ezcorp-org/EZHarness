@@ -9,7 +9,8 @@ describe("data contracts", () => {
     expect(validateArtifactFiles(files)).toBe(files);
     expect(() => validateWorkspaceFiles(files)).toThrow();
     expect(() => validateArtifactFiles({ "node_modules/evil": "x" })).toThrow();
-    expect(() => validateArtifactFiles(Object.fromEntries(Array.from({ length: 2005 }, (_, index) => [`file${index}`, ""])))).toThrow();
+    expect(() => validateArtifactFiles(Object.fromEntries(Array.from({ length: 2006 }, (_, index) => [`file${index}`, ""])))).not.toThrow();
+    expect(() => validateArtifactFiles(Object.fromEntries(Array.from({ length: 2007 }, (_, index) => [`file${index}`, ""])))).toThrow();
   });
   test("published releases bind source, catalog, checksums and runner artifacts", async () => {
     const sourceFiles = { "extension.ts": "source" };

@@ -7,6 +7,7 @@ import { canonicalJson, validateInvocationContext, validateManifest, workspaceFi
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
+import { browserBuild, browserBuilderProgram } from "./browser";
 
 export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
@@ -162,6 +163,16 @@ export class PodmanRunner implements Runner {
       await this.remove(input.operationId);
       if (typeof compiled.code !== "string") throw new RunnerError("build_output_invalid", "Compiler returned invalid output");
       result.evidence.tests.push({ name: "compile", passed: true });
+      const browser = browserBuild(input.files);
+      const browserArtifacts: WorkspaceFiles = {};
+      if (browser) {
+        const compiledBrowser = JSON.parse(await this.run(input.operationId, limits, staged, ["-e", browserBuilderProgram, canonicalJson(browser)], 20 * 1024 ** 2));
+        await this.remove(input.operationId);
+        if (typeof compiledBrowser.html !== "string" || Buffer.byteLength(compiledBrowser.html) > 12 * 1024 ** 2) throw new RunnerError("browser_build_invalid", "Browser compiler returned invalid output");
+        browserArtifacts[".runner/browser.html"] = compiledBrowser.html;
+        browserArtifacts[".runner/browser.json"] = canonicalJson(browser);
+        result.evidence.tests.push({ name: "browser-compile", passed: true });
+      }
       const testFiles = Object.keys(input.files).filter(path => /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path));
       if (testFiles.length === 0) throw new RunnerError("tests_missing", "At least one feature test is required", "test");
       for (const test of testFiles) {
@@ -170,7 +181,7 @@ export class PodmanRunner implements Runner {
         await this.remove(input.operationId);
         result.evidence.tests.push({ name: `feature:${test}`, passed: true });
       }
-      const artifacts = { ...input.files, ".runner/extension.js": compiled.code, ".runner/recipe.json": canonicalJson({ image: this.image, sdkDigest: filesDigest(sdk), toolchainDigest: filesDigest(toolchain), seccompDigest: sha256(await readFile(this.seccompPath)), limits, entrypoint: input.entrypoint }), ".runner/executables.json": JSON.stringify(dependencies.executable), ".runner/dependencies.json": JSON.stringify(Object.fromEntries(Object.entries(dependencies.binary).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]))) };
+      const artifacts = { ...input.files, ...browserArtifacts, ".runner/extension.js": compiled.code, ".runner/recipe.json": canonicalJson({ image: this.image, sdkDigest: filesDigest(sdk), toolchainDigest: filesDigest(toolchain), seccompDigest: sha256(await readFile(this.seccompPath)), limits, entrypoint: input.entrypoint }), ".runner/executables.json": JSON.stringify(dependencies.executable), ".runner/dependencies.json": JSON.stringify(Object.fromEntries(Object.entries(dependencies.binary).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]))) };
       const artifactDigest = filesDigest(artifacts);
       await this.storeArtifact(artifactDigest, artifacts);
       const workerId = `discovery-${randomUUID()}`;
@@ -179,6 +190,7 @@ export class PodmanRunner implements Runner {
       const worker = await this.startExecution({ workerId, artifactDigest, context: { invocationId: workerId, workerId, releaseId: artifactDigest, principalId: "verification", scopeId: "verification", token: "", deadline: Date.now() + Math.min(limits.timeoutMs, 60_000) }, limits: executionLimits }, async () => { throw new RunnerError("startup_effect_denied", "Discovery cannot access host capabilities"); }, true);
       try {
         const manifest = validateManifest(await worker.request("extension/discover", {}));
+        if (browser?.tools.some(name => !manifest.tools?.some(tool => tool.name === name))) throw new RunnerError("browser_tool_undeclared", "Browser tools must be declared in the verified extension manifest");
         result.manifest = manifest;
         result.evidence.discoveryDigest = sha256(canonicalJson(manifest));
         result.evidence.tests.push({ name: "metadata-discovery", passed: true });

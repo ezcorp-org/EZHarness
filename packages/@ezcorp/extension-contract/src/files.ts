@@ -17,7 +17,7 @@ export function validateWorkspaceFiles(value: unknown): WorkspaceFiles {
 }
 
 export function validateArtifactFiles(value: unknown): WorkspaceFiles {
-  return validateFileMap(value, 2004, 160, 192);
+  return validateFileMap(value, 2006, 160, 192);
 }
 
 export function workspaceFileBytes(value: WorkspaceFile): Uint8Array {
