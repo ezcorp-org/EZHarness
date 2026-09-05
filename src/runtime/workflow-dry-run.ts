@@ -75,14 +75,15 @@ import type {
 import type { AgentExecutor } from "./executor";
 import { EventBus } from "./events";
 import { WorkflowExecutor } from "./workflow-executor";
+import { conditionRefs, evaluateCondition } from "./workflow-condition";
+import { resolveConditionRef, type RefContext } from "./workflow-refs";
+import { stepKind } from "./workflow-validator";
+
 const pureExecutors = new WeakSet<WorkflowExecutor>();
 
 export function isPureWorkflowExecutor(executor: WorkflowExecutor): boolean {
   return pureExecutors.has(executor);
 }
-import { conditionRefs, evaluateCondition } from "./workflow-condition";
-import { resolveConditionRef, type RefContext } from "./workflow-refs";
-import { stepKind } from "./workflow-validator";
 
 /**
  * A dry run reached something that would have had a real effect.
