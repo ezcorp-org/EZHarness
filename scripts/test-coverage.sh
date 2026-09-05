@@ -92,6 +92,15 @@ EXIT_TESTS_FAILED=2
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
+# Runs before any mode (full/host-shard/legs-only) branches below — a wrong
+# bun corrupts coverage instrumentation, not just timing. No-op on CI: every
+# workflow installs bun from the same .bun-version this reads. No-op fallback
+# defined FIRST, then overridden by sourcing the real helper only if it
+# exists — see scripts/lib/bun-version-check.sh's REGRESSION note.
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$SCRIPT_DIR/lib/bun-version-check.sh" ] && source "$SCRIPT_DIR/lib/bun-version-check.sh"
+check_bun_version_skew
 
 # Pool width: min(nproc, 6) — see default_parallel in lib/test-file-sets.sh.
 PARALLEL=${PARALLEL:-$(default_parallel)}

@@ -13,6 +13,25 @@
  *   The setup-git-hooks.sh tests assert its guarded wire-up: no-op under CI or
  *   outside a git work tree, otherwise sets core.hooksPath. CI is passed
  *   explicitly per-case because the ambient env may or may not set it.
+ *
+ *   REGRESSION (PR #240): `repoWithPreCommit()` deliberately does NOT mirror
+ *   this whole repo — no scripts/, no .bun-version — because the hook is
+ *   meant to work in any minimal git repo that reuses it. When the bun
+ *   version-skew check was added to .githooks/pre-commit, it unconditionally
+ *   sourced scripts/lib/bun-version-check.sh; that file doesn't exist in this
+ *   fixture, so the source failed, check_bun_version_skew was never defined,
+ *   and calling it read as "command not found" (exit 127) — which the hook's
+ *   `if ! check_bun_version_skew; then fail; fi` treated as a genuine skew
+ *   and blocked EVERY commit, lint-clean or not. Caught by the "ALLOWS a
+ *   commit" test below going red for the wrong reason (a "bun version skew"
+ *   banner instead of a lint pass). The fix made the hook define a no-op
+ *   fallback before conditionally sourcing the real helper (see
+ *   .githooks/pre-commit and scripts/lib/bun-version-check.sh's REGRESSION
+ *   note) — the "pre-commit hook > bun version skew" describe block below
+ *   exercises BOTH the missing-helper no-op path (implicitly, via the
+ *   existing plain-fixture tests above) and the enforcing path (explicitly,
+ *   via `repoWithBunVersionCheck`) so a future change can't silently make
+ *   the check permanently inert either.
  */
 import { test, expect, describe, afterAll } from "bun:test";
 import {
@@ -26,6 +45,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { parseBunVersion } from "../../scripts/check-bun-version.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const PRE_COMMIT = join(REPO_ROOT, ".githooks/pre-commit");
@@ -34,6 +54,8 @@ const SETUP = join(REPO_ROOT, "scripts/setup-git-hooks.sh");
 const BIOME_JSON = join(REPO_ROOT, "biome.json");
 const GITIGNORE = join(REPO_ROOT, ".gitignore");
 const NODE_MODULES = join(REPO_ROOT, "node_modules");
+const CHECK_BUN_VERSION_TS = join(REPO_ROOT, "scripts/check-bun-version.ts");
+const BUN_VERSION_CHECK_SH = join(REPO_ROOT, "scripts/lib/bun-version-check.sh");
 
 // Env with CI + EZ_SKIP_HOOKS stripped so the ambient runner (which may set CI)
 // can't mask the "hooks actually run / setup actually wires" default paths.
@@ -85,6 +107,24 @@ function repoWithPreCommit(): string {
   symlinkSync(NODE_MODULES, join(dir, "node_modules"));
   sh(["git", "config", "core.hooksPath", ".githooks"], { cwd: dir });
   return dir;
+}
+
+/**
+ * Add the real bun-version-check machinery to a `repoWithPreCommit()`
+ * fixture, at the exact relative layout .githooks/pre-commit and
+ * scripts/lib/bun-version-check.sh expect (scripts/lib/bun-version-check.sh
+ * + scripts/check-bun-version.ts + a repo-root .bun-version pinning
+ * `pinnedVersion`). Without this call, a fixture repo has NEITHER file —
+ * that absence is exactly the PR #240 regression case, and is exercised
+ * implicitly by the plain `repoWithPreCommit()` tests above. WITH this call,
+ * the hook's enforcing path runs for real, so a future change can't make the
+ * check permanently inert without a test noticing.
+ */
+function withBunVersionCheck(dir: string, pinnedVersion: string): void {
+  mkdirSync(join(dir, "scripts/lib"), { recursive: true });
+  copyFileSync(CHECK_BUN_VERSION_TS, join(dir, "scripts/check-bun-version.ts"));
+  copyFileSync(BUN_VERSION_CHECK_SH, join(dir, "scripts/lib/bun-version-check.sh"));
+  writeFileSync(join(dir, ".bun-version"), `${pinnedVersion}\n`);
 }
 
 /** Repo with an initial commit — required before `git worktree add`. */
@@ -161,6 +201,76 @@ describe("pre-commit hook", () => {
     const log = sh(["git", "log", "--oneline"], { cwd: dir });
     expect(log.out).toContain("skip hooks");
   });
+});
+
+// PR #240 regression coverage: the plain repoWithPreCommit() tests above have
+// NEITHER scripts/lib/bun-version-check.sh NOR scripts/check-bun-version.ts,
+// so they exercise the "checker missing → silent no-op" path (that absence
+// used to block every commit — see the file header). These tests add the
+// real checker via withBunVersionCheck() and drive it end-to-end THROUGH the
+// hook, so the enforcing path (warn on patch, block on major, bypassable via
+// EZ_SKIP_HOOKS) has a regression test of its own — not just the CLI-level
+// coverage in src/__tests__/check-bun-version.test.ts, which never spawns
+// .githooks/pre-commit at all and so could not have caught this.
+describe("pre-commit hook > bun version skew", () => {
+  const running = parseBunVersion(Bun.version);
+  if (!running) {
+    throw new Error(`could not parse the running Bun.version="${Bun.version}" — test setup is broken`);
+  }
+
+  test("a matching pin is silent — no skew banner, commit lands", () => {
+    const dir = repoWithPreCommit();
+    withBunVersionCheck(dir, Bun.version);
+    writeFileSync(join(dir, "good.ts"), CLEAN_TS);
+    sh(["git", "add", "good.ts"], { cwd: dir });
+
+    const res = sh(["git", "commit", "-m", "add good"], { cwd: dir });
+    expect(res.exitCode).toBe(0);
+    expect(res.out).not.toContain("bun version skew");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("add good");
+  }, BIOME_TIMEOUT_MS);
+
+  test("a patch-level pin mismatch warns but the commit still lands", () => {
+    const dir = repoWithPreCommit();
+    withBunVersionCheck(dir, `${running.major}.${running.minor}.${running.patch + 1}`);
+    writeFileSync(join(dir, "good.ts"), CLEAN_TS);
+    sh(["git", "add", "good.ts"], { cwd: dir });
+
+    const res = sh(["git", "commit", "-m", "add good"], { cwd: dir });
+    expect(res.exitCode).toBe(0);
+    expect(res.out).toContain("bun version skew (patch)");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("add good");
+  }, BIOME_TIMEOUT_MS);
+
+  test("a major-level pin mismatch BLOCKS the commit, even for a lint-clean file", () => {
+    const dir = repoWithPreCommit();
+    withBunVersionCheck(dir, `${running.major + 1}.0.0`);
+    writeFileSync(join(dir, "good.ts"), CLEAN_TS);
+    sh(["git", "add", "good.ts"], { cwd: dir });
+
+    const res = sh(["git", "commit", "-m", "add good"], { cwd: dir });
+    expect(res.exitCode).not.toBe(0);
+    expect(res.out).toContain("bun version skew (major)");
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).not.toContain("add good");
+  }, BIOME_TIMEOUT_MS);
+
+  test("EZ_SKIP_HOOKS=1 bypasses a blocking major-level pin mismatch", () => {
+    const dir = repoWithPreCommit();
+    withBunVersionCheck(dir, `${running.major + 1}.0.0`);
+    writeFileSync(join(dir, "good.ts"), CLEAN_TS);
+    sh(["git", "add", "good.ts"], { cwd: dir });
+
+    const res = sh(["git", "commit", "-m", "add good"], {
+      cwd: dir,
+      env: { ...baseEnv, EZ_SKIP_HOOKS: "1" },
+    });
+    expect(res.exitCode).toBe(0);
+    const log = sh(["git", "log", "--oneline"], { cwd: dir });
+    expect(log.out).toContain("add good");
+  }, BIOME_TIMEOUT_MS);
 });
 
 describe("pre-push hook", () => {
