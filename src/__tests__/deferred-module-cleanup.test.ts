@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { deferredModuleFunctions, deferredWorkflowAccess } from "./helpers/mock-cleanup";
+import { deferredModuleFunctions } from "./helpers/mock-cleanup";
 
 test("deferred module cleanup loads only on call and forwards exact arguments and results", async () => {
   let loads = 0;
@@ -34,11 +34,4 @@ test("deferred module cleanup loads only on call and forwards exact arguments an
 test("deferred cleanup rejects a runtime module whose function export disappeared", () => {
   const deferred = deferredModuleFunctions(() => ({ run: null }) as unknown as { run(): void }, { run: true });
   expect(() => deferred.run()).toThrow("Expected module function run");
-});
-
-test("workflow access cleanup exposes its complete function surface without loading it", () => {
-  expect(Object.keys(deferredWorkflowAccess()).sort()).toEqual([
-    "callerFor", "denyVisibilityOr", "listVisibleWorkflows", "resolveDelegationConsentOr",
-    "resolveWorkflowOr", "toWire", "validateWorkflowForCaller",
-  ]);
 });

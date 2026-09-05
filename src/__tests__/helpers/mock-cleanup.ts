@@ -30,23 +30,6 @@ export function deferredModuleFunctions<Module>(
   }])) as Module;
 }
 
-type WorkflowAccessModule = typeof import("../../../web/src/lib/server/workflow-access");
-
-export function deferredWorkflowAccess(): WorkflowAccessModule {
-  return deferredModuleFunctions<WorkflowAccessModule>(
-    () => require("../../../web/src/lib/server/workflow-access"),
-    {
-      toWire: true,
-      callerFor: true,
-      resolveWorkflowOr: true,
-      denyVisibilityOr: true,
-      resolveDelegationConsentOr: true,
-      validateWorkflowForCaller: true,
-      listVisibleWorkflows: true,
-    } satisfies { [Name in keyof WorkflowAccessModule]: true },
-  );
-}
-
 // Paths relative to THIS file (src/__tests__/helpers/mock-cleanup.ts).
 // ../../ goes up from helpers/ → __tests__/ → src/
 // mock.module() resolves relative to the calling file, so we use ../../

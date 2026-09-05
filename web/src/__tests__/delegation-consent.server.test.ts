@@ -25,6 +25,19 @@ vi.mock("$server/db/queries/users", () => ({ getUserById: async (id: string) => 
 const service = vi.hoisted(() => ({ enabled: true }));
 vi.mock("$server/db/queries/service-accounts", () => ({ findLiveServiceAccount: async (id: string) => service.enabled ? { id, projectId: null } : undefined }));
 
+const originCapture = vi.hoisted(() => ({ calls: 0, rejectAt: 0 }));
+vi.mock("$server/runtime/workflow-release-assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$server/runtime/workflow-release-assets")>();
+  return {
+    ...actual,
+    captureWorkflowConsentOrigin: async (...args: Parameters<typeof actual.captureWorkflowConsentOrigin>) => {
+      originCapture.calls++;
+      if (originCapture.calls === originCapture.rejectAt) throw new Error("release changed during review");
+      return actual.captureWorkflowConsentOrigin(...args);
+    },
+  };
+});
+
 const cache = vi.hoisted(() => ({ getCachedWorkflows: vi.fn(), getExecutor: vi.fn() }));
 vi.mock("$lib/server/context", () => ({
   getCachedWorkflows: cache.getCachedWorkflows,
@@ -105,6 +118,8 @@ function request(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   releaseRuntimeFixture("installation", { schemaVersion: 4, name: "ext", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" }).configure();
   service.enabled = true;
+  originCapture.calls = 0;
+  originCapture.rejectAt = 0;
   cache.getCachedWorkflows.mockReset().mockReturnValue([ROOT]);
   cache.getExecutor.mockReset().mockReturnValue({ listAgents: () => [] });
   registry.getRegisteredTool.mockReset().mockReturnValue(null);
@@ -143,6 +158,16 @@ test("human consent for a host root records its referenced private extension rel
   if (result instanceof Response) throw new Error("Expected human consent");
   expect(result.material.graph.map(graph => graph.name).sort()).toEqual(["root", "sealed:child"]);
   expect(result.extensionReleaseBinding).not.toBeNull();
+});
+
+test("consent refuses an origin that disappears during the final review check", async () => {
+  originCapture.rejectAt = 2;
+  const result = await buildDelegationConsent(request());
+  expect(result).toBeInstanceOf(Response);
+  if (!(result instanceof Response)) throw new Error("Expected final origin refusal");
+  expect(result.status).toBe(404);
+  expect(await result.json()).toEqual({ error: "Workflow is not available to this principal." });
+  expect(originCapture.calls).toBe(2);
 });
 
 test("service host roots consent to owned target releases, omit foreign metadata, and reject oversized maps", async () => {
