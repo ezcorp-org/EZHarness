@@ -51,6 +51,7 @@
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { execFileSync } from "node:child_process";
+import { importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
 
@@ -71,13 +72,13 @@ const CONFIG_PATH = "/app/.ezcorp/extension-data/file-organizer/config.json";
 // `EZCORP_PROJECT_ROOT ?? process.cwd()` (= /app/web in dev), and
 // /app/projects was outside it. Under the current bind Browse works, so
 // typing the path is a choice for determinism, not a workaround.
-const WATCH_DIR = "/app/web/.ezcorp/projects/fo-test-watched";
+const WATCH_DIR = "/app/data/file-organizer-test/fo-test-watched";
 // A SECOND reachable dir used by the config-mutation round-trip so we can
 // add → mutate → remove it without disturbing WATCH_DIR. It must be a
 // SIBLING (not an ancestor/descendant) of WATCH_DIR — `addFolder` drops a
 // watched descendant when you add its ancestor, which would corrupt the
 // WATCH_DIR entry mid-suite. `beforeAll` mkdir -p's both in the container.
-const MUTATE_DIR = "/app/web/.ezcorp/projects/fo-verify-new";
+const MUTATE_DIR = "/app/data/file-organizer-test/fo-verify-new";
 
 const FOLDERS_PAGE = "ext:file-organizer:overview";
 
@@ -185,7 +186,19 @@ test.describe(
     // timeout would otherwise abort.
     test.describe.configure({ mode: "serial", timeout: 90_000 });
     let configSnapshot: string | null = null;
-    test.beforeAll(() => {
+    test.beforeAll(async ({ browser, request, baseURL }) => {
+			test.setTimeout(300_000);
+			const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+			try {
+				await importAndActivateBundledExtension({
+					page: await context.newPage(),
+					request,
+					baseURL: baseURL!,
+					name: "file-organizer",
+				});
+			} finally {
+				await context.close();
+			}
       configSnapshot = snapshotWriterConfig();
       // Ensure the scratch dirs the spec adds/probes exist in the container
       // (idempotent — harmless test scratch under the projects bind). Makes
