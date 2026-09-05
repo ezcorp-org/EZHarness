@@ -221,9 +221,10 @@ run_legs() {
   # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
-  # semantics: the SDK + suggest legs are pass/fail-TOLERATED
-  # (coverage-only), the harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
-  # node-vitest (VITEST_EXIT) legs gate. A leg that dies without writing its
+  # semantics: the suggest leg is pass/fail-tolerated here because its tests
+  # also gate in the residual job. The SDK (SDK_LEG_EXIT), harness-client
+  # (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest (VITEST_EXIT) legs gate. A
+  # leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
   local legs="$TMPDIR/legs"
   mkdir -p "$legs"
@@ -247,7 +248,8 @@ run_legs() {
   # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
   # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
   # so bundling preserves the 100% module-load instrumentation parity.
-  # Pass/fail tolerated (coverage-only).
+  # Pass/fail gates. SDK tests include runtime and rootless isolation contracts;
+  # coverage output is not a substitute for their assertions passing.
   # DIR args are LOAD-BEARING: bun discovers test/ before entities/__tests__
   # here; feeding the same files as a sorted explicit list reorders entities
   # first and 12 entities tests fail (order-dependent state in the bundled
@@ -921,6 +923,12 @@ run_legs() {
     tally "$(cat "$legs/$leg.out" 2>/dev/null)"
   done
 
+  SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo 1)
+  if [ "$SDK_LEG_EXIT" != "0" ]; then
+    FAILED_FILES+=("sdk coverage leg")
+    echo "--- FAIL: sdk coverage leg (exit $SDK_LEG_EXIT) ---"
+  fi
+
   HC_EXIT=$(cat "$legs/hc.code" 2>/dev/null || echo 1)
   if [ "$HC_EXIT" != "0" ]; then
     FAILED_FILES+=("harness-client coverage leg")
@@ -933,13 +941,10 @@ run_legs() {
     echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
   fi
 
-  # Tolerated legs: their exit codes are LOGGED, never gated — sdk + suggest
-  # are coverage-only here (thresholds are their gate; suggest additionally
-  # pass/fail-gates via the residual job). Printing the codes keeps the
-  # tolerance VISIBLE instead of silently discarding the written .code files.
-  SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo "?")
+  # The suggest leg is pass/fail-gated by the residual job. Keep its local
+  # tolerance visible instead of silently discarding the written exit code.
   SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
-  echo "tolerated leg exit codes (not gated): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT"
+  echo "tolerated leg exit code (not gated here): suggest=$SUGGEST_LEG_EXIT"
 
   VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
@@ -1042,13 +1047,13 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   check_leg_lcov || LEG_LCOV_EXIT=1
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  # The harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest
-  # (VITEST_EXIT) legs GATE here — the SDK + suggest legs stay
-  # pass/fail-tolerant (coverage-only; suggest also gates via the residual
-  # job). A MISSING LCOV gates for every leg regardless: pass/fail tolerance
+  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
+  # node-vitest (VITEST_EXIT) legs GATE here. Suggest stays pass/fail-tolerant
+  # because it also gates via the residual job. A MISSING LCOV gates for every
+  # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
   # the exit status the cov-extras CI job reports.
-  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
+  if [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
      [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
@@ -1297,7 +1302,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
@@ -1311,11 +1316,11 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi
-echo "  tolerated (not gated here): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT leg exit codes; host files outside P"
+echo "  tolerated (not gated here): suggest=$SUGGEST_LEG_EXIT leg exit code; host files outside P"
 echo "================================"
 
 if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi

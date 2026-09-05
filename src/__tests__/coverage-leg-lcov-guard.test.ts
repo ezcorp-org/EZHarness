@@ -727,6 +727,21 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(src).not.toContain("Failed files (visibility only");
     expect(src).not.toContain("coverage gate below is authoritative");
   });
+
+  test("SDK assertion failures gate both leg-only and full coverage modes", async () => {
+    const src = await runner;
+    const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
+    const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
+    expect(legsOnlyStart).toBeGreaterThan(-1);
+    expect(shardStart).toBeGreaterThan(legsOnlyStart);
+    const legsOnly = src.slice(legsOnlyStart, shardStart);
+    expect(legsOnly).toContain('[ "$SDK_LEG_EXIT" != "0" ]');
+
+    const tail = await fullModeTail();
+    const verdict = tail.slice(tail.indexOf("COVERAGE_FAILED=0"));
+    expect(verdict).toContain('[ "$SDK_LEG_EXIT" != "0" ]');
+    expect(verdict).not.toContain("tolerated (not gated here): sdk=");
+  });
 });
 
 // ── vitest-leg allowlist integrity ──────────────────────────────────────────
