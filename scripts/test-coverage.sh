@@ -580,6 +580,7 @@ run_legs() {
       src/__tests__/api-ez-actions-distill.server.test.ts \
       src/__tests__/api-ez-actions-generic.server.test.ts \
       src/__tests__/api-audit.server.test.ts \
+      src/__tests__/api-extensions-id-audit.server.test.ts \
       src/__tests__/api-extensions-id-audit-stats.server.test.ts \
       src/__tests__/api-extensions-id-confirm.server.test.ts \
       src/__tests__/extensions-reapprove-route.server.test.ts \

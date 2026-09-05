@@ -34,8 +34,6 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
 import { recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
-import { initializeHostApiTransport } from "$lib/server/extensions/host-api-transport";
-import { initializeExtensionCredentials } from "$lib/server/extensions/credential-resolver";
 import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
 import {
   ExtensionStateMediator,
@@ -133,6 +131,8 @@ export async function ensureInitialized(): Promise<void> {
     stopBackups();
   });
   const registry = ExtensionRegistry.getInstance();
+  const { initializeHostApiTransport } = await import("$lib/server/extensions/host-api-transport");
+  const { initializeExtensionCredentials } = await import("$lib/server/extensions/credential-resolver");
   initializeHostApiTransport();
   initializeExtensionCredentials();
   await recoverExtensionLifecycle().catch((error) => {
