@@ -45,6 +45,8 @@ test("resolver locks transitive ranges and reuses matching ancestor packages", a
   expect(nestedLock.packages["node_modules/is-odd/node_modules/is-number"].version).toBe("6.0.0");
   const shared = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "is-number": "6.0.0", "is-odd": "3.0.1" } }) });
   expect(JSON.parse(shared["package-lock.json"]!).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
+  const reversed = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "is-odd": "3.0.1", "is-number": "6.0.0" } }) });
+  expect(JSON.parse(reversed["package-lock.json"]!).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
 }, 60_000);
 
 test("locked command packages preserve only declared executable paths", async () => {

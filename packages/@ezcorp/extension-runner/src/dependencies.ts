@@ -41,6 +41,16 @@ function declaredDependencies(files: WorkspaceFiles): Record<string, string> {
   return dependencies;
 }
 
+function ancestorSatisfies(name: string, constraint: string, requester: string, packages: PackageLock["packages"]): boolean {
+  const ancestors = requester.split("/node_modules/");
+  for (let depth = ancestors.length; depth >= 0; depth--) {
+    const candidate = depth === 0 ? `node_modules/${name}` : `${ancestors.slice(0, depth).join("/node_modules/")}/node_modules/${name}`;
+    const existing = packages[candidate];
+    if (existing && "version" in existing) return Bun.semver.satisfies(existing.version, constraint);
+  }
+  return false;
+}
+
 export async function resolveDependencies(files: WorkspaceFiles): Promise<WorkspaceFiles> {
   const dependencies = declaredDependencies(files);
   const packages: PackageLock["packages"] = { "": { dependencies } };
@@ -49,6 +59,8 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
     if (Object.keys(packages).length > 200) throw new RunnerError("dependency_limit", "Dependency count exceeds policy", "dependencies");
     const next = pending.shift();
     if (!next) break;
+    const parent = next.path.lastIndexOf("/node_modules/");
+    if (parent >= 0 && ancestorSatisfies(next.name, next.version, next.path.slice(0, parent), packages)) continue;
     if (!packageName.test(next.name) || next.name.startsWith("@ezcorp/")) throw new RunnerError("dependency_denied", "Dependency name is reserved or invalid", "dependencies");
     const metadata = JSON.parse(new TextDecoder().decode(await registryBytes(`${registry}${encodeURIComponent(next.name)}`, maximumArchive)));
     const versions = Object.keys(metadata.versions ?? {});
@@ -60,14 +72,7 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
     packages[next.path] = locked;
     for (const [name, constraint] of Object.entries(release.dependencies ?? {})) {
       if (typeof constraint !== "string") throw new RunnerError("invalid_dependency", "Invalid dependency constraint", "dependencies");
-      const ancestors = next.path.split("/node_modules/");
-      let alreadyResolved = false;
-      for (let depth = ancestors.length; depth >= 0; depth--) {
-        const candidate = depth === 0 ? `node_modules/${name}` : `${ancestors.slice(0, depth).join("/node_modules/")}/node_modules/${name}`;
-        const existing = packages[candidate];
-        if (existing && "version" in existing && Bun.semver.satisfies(existing.version, constraint)) { alreadyResolved = true; break; }
-      }
-      if (!alreadyResolved) pending.push({ name, version: constraint, path: `${next.path}/node_modules/${name}` });
+      if (!ancestorSatisfies(name, constraint, next.path, packages)) pending.push({ name, version: constraint, path: `${next.path}/node_modules/${name}` });
     }
   }
   return { ...files, "package-lock.json": `${JSON.stringify({ lockfileVersion: 3, packages }, null, 2)}\n` };
