@@ -52,3 +52,11 @@ All install and test commands used the shared validation lock. Final test comman
 | `git diff --exit-code HEAD -- src/extensions/v4/lifecycle.ts src/extensions/v4/blobs.ts` | 0 | Both deliberate faults are fully restored. |
 
 The fault commands changed one protection at a time. They did not change tests, fixtures, runner configuration, gates, or approvals. No deliberate fault is committed.
+
+### Local Ollama extension-handler check
+
+```sh
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock env PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH /tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun /tmp/extension-v4-policy-ollama-live.ts
+```
+
+Exit `0`. The live production adapter returned `gemma4:e2b` text twice. The real extension handlers accepted it and produced one process-local lesson and one process-local memory. No paid provider, download, application database, or application storage was used.
