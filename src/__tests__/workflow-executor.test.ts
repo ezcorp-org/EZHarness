@@ -22,8 +22,8 @@ test("database-free nested workflows retain the parent's effect guard", async ()
   const effects: string[] = [];
   const bus = new EventBus<AgentEvents>();
   const agents = new AgentExecutor(loadAgentsStatic([
-    makeAgent("revoke", async () => { effects.push("first"); active = false; return { success: true }; }),
-    makeAgent("forbidden", async () => { effects.push("forbidden"); return { success: true }; }),
+    makeAgent("revoke", async () => { effects.push("first"); active = false; return { success: true, output: null }; }),
+    makeAgent("forbidden", async () => { effects.push("forbidden"); return { success: true, output: null }; }),
   ]), bus);
   const child: WorkflowDefinition = { name: "child", description: "Child", steps: [{ name: "first", agent: "revoke" }, { name: "second", agent: "forbidden" }] };
   const workflow = new WorkflowExecutor(agents, bus, { workflowResolver: name => name === child.name ? child : undefined });
