@@ -1,5 +1,6 @@
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+afterAll(() => restoreModuleMocks());
 import type { RegisteredTool } from "../extensions/registry";
 import { ToolExecutor, PermissionDeniedError, _resetToolCallsCounterForTests } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";

@@ -2998,6 +2998,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upMcpWorkspaceCredentials(db);
   const { up: addExtensionReleases } = await import("./migrations/add-extension-releases");
   await addExtensionReleases(db);
+  const { up: addExtensionEventReceipts } = await import("./migrations/add-extension-event-receipts");
+  await addExtensionEventReceipts(db);
   const { up: addExtensionProjectAuthority } = await import("./migrations/add-extension-project-authority");
   await addExtensionProjectAuthority(db);
   const { up: addManagedExtensionAgents } = await import("./migrations/add-managed-extension-agents");

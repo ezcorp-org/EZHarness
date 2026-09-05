@@ -644,5 +644,7 @@
   "web/src/lib/components/DelegationConsentDialog.svelte": 100,
   "web/src/routes/api/service-accounts/[id]/daily-cap/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/caller-tools/+server.ts": 100,
-  "web/src/routes/api/conversations/[id]/caller-tools/schema.ts": 100
+  "web/src/routes/api/conversations/[id]/caller-tools/schema.ts": 100,
+  "src/db/migrations/add-extension-event-receipts.ts": 100,
+  "src/db/queries/extension-event-receipts.ts": 100
 }
