@@ -79,7 +79,7 @@ test("revoked users and changed conversation ownership cannot receive effects", 
 
 test("project authority comes from host records, not event parameters or caller hints", async () => {
   startExtensionDeliveryRuntime(() => {});
-  binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "2026-09-04T00:00:00.000Z" };
+  binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "2026-09-04T00:00:00.000Z", writePaths: ["docs/"] };
   const ezCallId = token(true);
   try { await enqueueExtensionNotification("installation", "ezcorp/schedule-fire", { projectId: "attacker", repo_path: "/private", _meta: { ezCallId } }); } finally { releaseCallProvenance(ezCallId); }
   expect(jobs[0]!.input).toMatchObject({ provenance: { projectId: "project", projectBindingId: "approval", onBehalfOf: "owner" } });
@@ -93,7 +93,7 @@ test("project authority comes from host records, not event parameters or caller 
 test("queued work cannot retain a revoked or replaced project approval", async () => {
   startExtensionDeliveryRuntime(() => {});
   for (const mutation of ["revoke", "rebind", "membership", "project"] as const) {
-    binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "same-time" };
+    binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "same-time", writePaths: ["docs/"] };
     projectMember = true;
     beforeDispatch = () => {
       if (mutation === "revoke") binding = null;
@@ -108,7 +108,7 @@ test("queued work cannot retain a revoked or replaced project approval", async (
 });
 
 test("wrong project owners and missing membership fail before enqueue", async () => {
-  binding = { id: "approval", projectId: "project", ownerId: "other", releaseId: "release", generation: 3, approvedAt: "time" };
+  binding = { id: "approval", projectId: "project", ownerId: "other", releaseId: "release", generation: 3, approvedAt: "time", writePaths: ["docs/"] };
   const ezCallId = token(true);
   try {
     await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_revoked");
