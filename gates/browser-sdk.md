@@ -7,6 +7,6 @@
 - [x] Keep camera subscription data bounded; no camera or session credentials in the frame.
 - [x] Test real MessagePorts, wrong nonce, malformed response, capacity, timeout and cancellation.
 - [x] Verify a browser-target bundle and SDK declarations.
-- [ ] Scanner consumes this client; host and browser E2E are coordinated leaves.
+- [x] Scanner consumes this client; real host and browser E2E pass together in `/tmp/ez-extension-v4-real-final10.log` (nine tests). The private browser cancellation test also proves durable cancellation prevents a later isolated-worker storage effect; see protected-browser-validation.md.
 
 Cancellation stops pending work where possible. It cannot undo committed effects.

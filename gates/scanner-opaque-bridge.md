@@ -13,8 +13,8 @@ Scope: Preserve scanner camera and scan-tool flows through the trusted host brid
 - [x] G3: The complete scanner source suite and sealed candidate build pass.
   EVIDENCE: /tmp/v4-scanner-private-source.log — 262 tests, 2732 assertions; /tmp/v4-scanner-lifecycle-private-port.jsonl — sealed candidate verified, artifact 7144133417c4e2f9b0292dd6f62d3f9901d81ab1e330bb2cc2cecf17730a7d03. Catalog verification does not claim live network/storage exercise.
 
-- [ ] G4: Real browser camera and scan flow pass through the host bridge; desktop/mobile screenshots pass visual review.
-  EVIDENCE: Production host bridge proof pending with runner owner. Controlled opaque-frame feature suite passes eight desktop/mobile tests, including real barcode pixels from upload and host camera frames: /tmp/v4-scanner-private-browser.log. Desktop list and mobile list/detail screenshots reviewed at /tmp/scanner-final-{1,3,4}.png; corrected missing fixture viewport before review. Controlled fixture is not production authorization evidence.
+- [x] G4: Real browser camera and scan flow pass through the host bridge; desktop/mobile screenshots pass visual review.
+  EVIDENCE: /tmp/ez-protected-browser-pointer20.log and /tmp/ez-extension-v4-real-final10.log prove the real sealed scanner, approved user-storage call, native desktop click/mobile tap, explicit host camera start/JPEG frames/stop, session isolation, and revocation. Desktop/mobile PNGs /tmp/extension-scanner-trusted-camera.png and /tmp/extension-scanner-protected-mobile.png pass visual review with 24px mobile gutters. Controlled opaque-frame feature tests separately prove barcode decoding from real upload and camera pixels: /tmp/v4-scanner-private-browser.log. Controlled decoding is not a claim of a live external card-provider response. See protected-browser-validation.md for the explicit mobile browser channel and native scrollend contract.
 
 - [x] G5: Source metadata lock is current and the integrated typecheck passes.
   EVIDENCE: regenerate-manifest-lock --check passes; /tmp/v4-scanner-private-types.log — complete typecheck passes.
