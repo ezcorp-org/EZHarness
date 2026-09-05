@@ -194,14 +194,31 @@ test.describe(
 			test.setTimeout(300_000);
 			const onboarding = await request.post("/api/onboarding/complete");
 			expect(onboarding.status(), await onboarding.text()).toBe(204);
+			execFileSync("docker", ["exec", CONTAINER, "mkdir", "-p", WATCH_DIR, MUTATE_DIR, `${WATCH_DIR}/sub-verify`]);
+			const projectResponse = await request.post("/api/projects", {
+				data: { name: "File Organizer production fixture", path: "/app/data/file-organizer-test" },
+			});
+			expect(projectResponse.status(), await projectResponse.text()).toBe(201);
+			const project = (await projectResponse.json()) as { id: string };
 			const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
 			try {
-				await importAndActivateBundledExtension({
+				const { state } = await importAndActivateBundledExtension({
 					page: await context.newPage(),
 					request,
 					baseURL: baseURL!,
 					name: "file-organizer",
 				});
+				const binding = await request.post(
+					`/api/extensions/releases/${state.installation.id}/project`,
+					{
+						data: {
+							projectId: project.id,
+							releaseId: state.installation.activeReleaseId,
+							generation: state.installation.generation,
+						},
+					},
+				);
+				expect(binding.status(), await binding.text()).toBe(200);
 			} finally {
 				await context.close();
 			}
