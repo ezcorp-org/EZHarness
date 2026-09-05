@@ -183,6 +183,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
+    if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || canonicalJson([...new Set(current.grants)].sort()) !== canonicalJson(requestedReleaseGrants(release.manifest)))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));
       const [projection] = await transaction.select({ name: extensions.name }).from(extensions).where(eq(extensions.id, installation.id));

@@ -87,7 +87,7 @@ vi.mock("$server/db/queries/extensions", () => ({
   resetFailures: async () => {},
   serializeJsonbFields: (value: unknown) => value,
 }));
-const installation: InstallationRecord = { id: "ext-uuid-1", ownerId: "admin-1", scope: "global", activeReleaseId: "release-1", generation: 1, enabled: true, uninstalled: false, status: "reconciling", acknowledgedGeneration: 0, grants: ["webhooks:tickets"] };
+const installation: InstallationRecord = { id: "ext-uuid-1", ownerId: "admin-1", scope: "global", activeReleaseId: "release-1", generation: 1, enabled: true, uninstalled: false, status: "reconciling", acknowledgedGeneration: 0, grants: [] };
 const transaction = {
   execute: async () => [{ payload: JSON.stringify(installation) }],
   insert: () => ({ values: () => ({ onConflictDoUpdate: async () => {} }) }),
@@ -107,8 +107,11 @@ vi.mock("$server/extensions/npm-deps", () => ({
 }));
 
 const { publishExtensionGeneration } = await import("$server/extensions/extension-lifecycle-service");
+const { requestedReleaseGrants } = await import("$server/extensions/extension-control");
 async function publish() {
-  await publishExtensionGeneration(installation, { id: "release-1", manifest: storedExtension.manifest } as ReleaseRecord);
+  const release = { id: "release-1", installationId: installation.id, manifest: storedExtension.manifest } as ReleaseRecord;
+  installation.grants = requestedReleaseGrants(release.manifest);
+  await publishExtensionGeneration(installation, release);
 }
 const { POST, __resetWebhookLimiterForTests } = await import(
   "../routes/api/hooks/[extensionId]/[slug]/+server"

@@ -95,3 +95,25 @@ The PostgreSQL check creates and removes its own random schema. It verifies JSON
 fidelity, competing writes, transaction rollback, the storage write gate, and
 delivery cancellation. Candidate protocol tests do not replace product parity
 tests or real runner isolation tests.
+
+Workspace creation, revision editing, inspection, and empty delivery polling
+work without runner configuration. Execution resolves the authenticated runner
+connection when needed and fails closed with `runner_unconfigured` if absent.
+The CLI and production service use the same configuration checks.
+
+Release consent is exact, not a subset of manifest permissions. Publication
+checks the durable approved permission set again before changing projections.
+Approval and lifecycle mutation audits commit in the same database transaction;
+an audit write failure rolls back the mutation. Repeated disable or uninstall
+does not create another mutation or audit event.
+
+Publication commits entity seeds, webhook rows and encrypted secrets, and
+schedule rows under the installation generation fence. Failed publication rolls
+back all of them. Successful publication invalidates only that installation's
+page cache. Disable and uninstall stop triggers but retain source, releases,
+user data, and secrets. Uninstalled rows are hidden from installed catalogs.
+
+Legacy permission, reapproval, and drift endpoints cannot restore grants or
+evaluate source. They return HTTP 410 with the release review URL. Current
+database grants also bound each running release capability call: an old caller
+grant or cached conversation override cannot revive a revoked permission.

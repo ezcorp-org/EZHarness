@@ -59,6 +59,13 @@ test("superseded generations cannot seed or publish any projection", async () =>
   expect((await getExtension(installation.id))?.version).toBe("1.0.0");
 });
 
+test("publication cannot turn an incomplete approved grant into full manifest authority", async () => {
+  const { installation, release, repository } = await fixture();
+  await repository.transact(installation.id, (state) => { state.installation.grants = []; });
+  await expect(publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" })).rejects.toMatchObject({ code: "grant_mismatch" });
+  expect((await getExtension(installation.id))?.version).toBe("1.0.0");
+});
+
 test("immutable placeholder resolution never falls back to host paths", () => {
   expect(resolveFilePlaceholders({ values: ["{file:./present.txt}"] }, "/", { "present.txt": "bound source" })).toEqual({ values: ["bound source"] });
   for (const path of ["../etc/passwd", "/etc/passwd", "missing.txt"]) expect(() => resolveFilePlaceholders(`{file:${path}}`, "/", {})).toThrow();
