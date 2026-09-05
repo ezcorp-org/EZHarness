@@ -70,7 +70,8 @@ test("bundled city-conditions shows Atlanta website access and opens release rev
 	await expect(preview).toContainText("Declared permissions");
 	await expect(preview).toContainText("www.atlantaallergy.com");
 	await expect(page.getByTestId("review-extension-release")).toBeVisible();
-	await captureEvidence(page, testInfo, "bundled-release-permissions-v4");
+	await preview.scrollIntoViewIfNeeded();
+	await captureEvidence(page, testInfo, "bundled-release-permissions-v4", { fullPage: true });
 	await page.getByTestId("review-extension-release").click();
 	await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-city-conditions$/);
 });

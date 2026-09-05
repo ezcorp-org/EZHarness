@@ -11,7 +11,7 @@ async function launch(overrides: Record<string, string>) {
   const executable = join(directory, "bun");
   await writeFile(executable, `#!${process.execPath}
 import { appendFile, writeFile } from "node:fs/promises";
-await appendFile(process.env.LAUNCH_RECORD, JSON.stringify({args:process.argv.slice(2),port:process.env.PORT,host:process.env.HOST,origin:process.env.ORIGIN,socket:process.env.SOCKET_PATH,bodySize:process.env.BODY_SIZE_LIMIT,cwd:process.cwd()})+"\\n");
+await appendFile(process.env.LAUNCH_RECORD, JSON.stringify({args:process.argv.slice(2),port:process.env.PORT,host:process.env.HOST,origin:process.env.ORIGIN,socket:process.env.SOCKET_PATH,...(process.argv.includes("packages/@ezcorp/extension-runner/src/main.ts")?{runnerSocket:process.env.EZ_EXTENSION_RUNNER_SOCKET}:{}),bodySize:process.env.BODY_SIZE_LIMIT,cwd:process.cwd()})+"\\n");
 if(process.argv[2]==="-e" && process.argv[3].includes("randomBytes")) await writeFile(process.env.EZ_EXTENSION_RUNNER_TOKEN_FILE,"test-credential");
 `);
   await chmod(executable, 0o700);
@@ -26,7 +26,7 @@ if(process.argv[2]==="-e" && process.argv[3].includes("randomBytes")) await writ
     expect(stderr).toBe("");
     expect(status).toBe(0);
     return (await readFile(record, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as {
-      args: string[]; port?: string; host?: string; origin?: string; socket?: string; bodySize?: string; cwd: string;
+      args: string[]; port?: string; host?: string; origin?: string; socket?: string; runnerSocket?: string; bodySize?: string; cwd: string;
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -49,5 +49,13 @@ describe("real-auth production adapter launch", () => {
   test("uses the preview port default and retains an explicit body limit", async () => {
     const calls = await launch({ EZCORP_PORT: "", PORT: "9999", ORIGIN: "", BODY_SIZE_LIMIT: "1048576" });
     expect(calls.find((call) => call.args.join(" ") === "build/index.js")).toMatchObject({ port: "4173", host: "127.0.0.1", origin: "http://localhost:4173", bodySize: "1048576" });
+  });
+
+  test("keeps runner socket paths short when the inherited TMPDIR is long", async () => {
+    const calls = await launch({ TMPDIR: `/tmp/${"long-segment-".repeat(10)}` });
+    const runner = calls.find((call) => call.args.includes("packages/@ezcorp/extension-runner/src/main.ts"));
+    expect(runner?.runnerSocket).toStartWith("/tmp/ez-real-runner-");
+    // The service adds `/.private-<UUID>/runner.sock` below this path.
+    expect(runner!.runnerSocket!.length + 58).toBeLessThan(108);
   });
 });

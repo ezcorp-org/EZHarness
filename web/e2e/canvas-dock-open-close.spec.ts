@@ -43,6 +43,27 @@ async function assertDock(page: Page): Promise<void> {
 	await expect(page.getByLabel("modified")).toHaveCount(0);
 }
 
+async function assertCanvasThemeTokens(page: Page): Promise<void> {
+	const colors = await page.getByRole("complementary", { name: "Preview controls" }).evaluate((sidebar) => {
+		const probe = document.createElement("div");
+		probe.style.background = "var(--color-surface-secondary)";
+		probe.style.color = "var(--color-text-primary)";
+		document.body.append(probe);
+		const expected = getComputedStyle(probe);
+		const actualHeader = getComputedStyle(sidebar.querySelector("header")!);
+		const result = {
+			background: getComputedStyle(sidebar).backgroundColor,
+			expectedBackground: expected.backgroundColor,
+			header: actualHeader.color,
+			expectedHeader: expected.color,
+		};
+		probe.remove();
+		return result;
+	});
+	expect(colors.background).toBe(colors.expectedBackground);
+	expect(colors.header).toBe(colors.expectedHeader);
+}
+
 test.describe("Canvas Dock — live open and persisted restore", () => {
 	test("live SSE tool completion opens the dock and renders its opaque iframe @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
@@ -65,7 +86,17 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			data: { conversationId: "conv-1", extensionId: "claude-design", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify(payload) }] }, duration: 50, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-live" },
 		});
 		await assertDock(page);
-		await captureEvidence(page, testInfo, "extension-iframe-live-dock");
+		await assertCanvasThemeTokens(page);
+		await captureEvidence(page, testInfo, "extension-iframe-live-dock-light");
+		await page.evaluate(() => {
+			localStorage.setItem("ezcorp-theme", "dark");
+			document.documentElement.classList.add("dark");
+		});
+		await assertCanvasThemeTokens(page);
+		await captureEvidence(page, testInfo, "extension-iframe-live-dock-dark");
+		await page.setViewportSize({ width: 393, height: 851 });
+		await expect(page.getByTestId("dock-host")).toBeVisible();
+		await captureEvidence(page, testInfo, "extension-iframe-live-dock-mobile-dark");
 		await page.getByTestId("dock-close").click();
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 	});

@@ -106,7 +106,7 @@ async function openDetail(
 }
 
 test.describe("Extensions — MCP network permission", () => {
-	test("@evidence shows the derived host as a granted, revocable permission", async ({
+	test("@evidence shows the derived host in the current release grant", async ({
 		page,
 		mockApi,
 	}, testInfo) => {

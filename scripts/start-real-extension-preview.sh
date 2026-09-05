@@ -5,7 +5,11 @@ export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 umask 077
-run_root="$(mktemp -d "${TMPDIR:-/tmp}/ez-real-runner-XXXXXXXX")"
+# The runner service creates a private socket below this directory. Unix socket
+# paths are limited to 108 bytes on Linux; long inherited TMPDIR values (for
+# example a Nix shell build directory) made the gateway accept connections but
+# reset them because its private upstream path was too long.
+run_root="$(mktemp -d "/tmp/ez-real-runner-XXXXXXXX")"
 runner_pid=""
 preview_pid=""
 cleanup() {
