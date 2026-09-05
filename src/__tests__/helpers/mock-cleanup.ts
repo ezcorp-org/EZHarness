@@ -326,6 +326,7 @@ const MODULE_PATHS = [
   // `$lib/...` form is also restored below via `LIB_ALIAS_PREFIXES`.
   "../../../web/src/lib/server/security/api-keys",
   "../../../web/src/lib/server/extensions/mcp-request",
+  "../../../web/src/lib/server/extensions/legacy-endpoint",
   "../../../web/src/lib/server/security/validation",
   "../../../web/src/lib/server/security/resource-quotas",
   "../../../web/src/lib/server/security/rate-limiter",

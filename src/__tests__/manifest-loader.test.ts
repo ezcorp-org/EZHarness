@@ -25,21 +25,14 @@ const VALID_MANIFEST = {
 };
 
 describe("loadManifest", () => {
-  test("loads a valid ezcorp.config.ts", async () => {
+  test("rejects a valid config rather than evaluating it on the host", async () => {
     const dir = await makeTempDir();
     try {
       await Bun.write(
         join(dir, "ezcorp.config.ts"),
         `export default ${JSON.stringify(VALID_MANIFEST)};\n`,
       );
-      const manifest = await loadManifest(dir);
-      expect(manifest.name).toBe("test-ext");
-      // Phase 1: the loader auto-promotes v2 manifests to v3 shape so
-      // every downstream consumer (registry, tool-executor, PDP) sees
-      // per-tool capability declarations. The on-disk manifest is
-      // still v2; the loader marks the result `_inheritedFromV2`.
-      expect(manifest.schemaVersion).toBe(3);
-      expect((manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
+      await expect(loadManifest(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -48,7 +41,7 @@ describe("loadManifest", () => {
   test("throws when ezcorp.config.ts is missing", async () => {
     const dir = await makeTempDir();
     try {
-      await expect(loadManifest(dir)).rejects.toThrow(/No ezcorp\.config\.ts found/);
+      await expect(loadManifest(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -61,7 +54,7 @@ describe("loadManifest", () => {
         join(dir, "ezcorp.config.ts"),
         `export default { schemaVersion: 2 };\n`,
       );
-      await expect(loadManifest(dir)).rejects.toThrow(/Invalid manifest/);
+      await expect(loadManifest(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -74,13 +67,13 @@ describe("loadManifest", () => {
         join(dir, "ezcorp.config.ts"),
         `export default "not an object";\n`,
       );
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
+      await expect(loadManifest(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("strips function-valued properties from tools", async () => {
+  test("rejects function-valued tools without importing them", async () => {
     const dir = await makeTempDir();
     try {
       await Bun.write(
@@ -101,10 +94,7 @@ describe("loadManifest", () => {
           }],
         };\n`,
       );
-      const manifest = await loadManifest(dir);
-      const tool = manifest.tools![0] as unknown as Record<string, unknown>;
-      expect(tool.name).toBe("my-tool");
-      expect(tool.handler).toBeUndefined();
+      await expect(loadManifest(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -112,15 +102,14 @@ describe("loadManifest", () => {
 });
 
 describe("loadManifestFresh", () => {
-  test("loads manifest with cache-busting", async () => {
+  test("cache-busting cannot enable host configuration evaluation", async () => {
     const dir = await makeTempDir();
     try {
       await Bun.write(
         join(dir, "ezcorp.config.ts"),
         `export default ${JSON.stringify(VALID_MANIFEST)};\n`,
       );
-      const manifest = await loadManifestFresh(dir);
-      expect(manifest.name).toBe("test-ext");
+      await expect(loadManifestFresh(dir)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
