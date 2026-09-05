@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
 	import HubComponentRenderer from "$lib/components/hub/HubComponentRenderer.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
@@ -285,8 +286,11 @@
 		// this the bar keeps offering a tab whose render call now 404s.
 		// `loadTabs` is unconditional (no cache to drop), so the handler is
 		// just the refetch.
-		function onExtensionsChanged() {
-			void loadTabs();
+		async function onExtensionsChanged() {
+			await loadTabs();
+			if (tabs.some((tab) => tab.id === pageId)) return;
+			const fallback = tabs[0];
+			if (fallback) await goto(`${hubBase}/${encodeURIComponent(fallback.id)}`);
 		}
 		window.addEventListener("extensions:changed", onExtensionsChanged);
 
