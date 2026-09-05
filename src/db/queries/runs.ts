@@ -4,6 +4,7 @@ import { runs, runLogs, activeRuns } from "../schema";
 import type { AgentRun, AgentLog, AgentResult } from "../../types";
 import { publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
 import { canonicalJson } from "@ezcorp/extension-contract";
+import { consumeRunCompletionIntent } from "../../runtime/briefing/completion-intents";
 
 /**
  * Resolve the ROOT conversation owner for a chat run.
@@ -120,20 +121,22 @@ export async function getRunConversationId(id: string): Promise<string | undefin
 
 export async function updateRun(run: AgentRun, event?: DomainExtensionEvent): Promise<void> {
   const values = { status: run.status, finishedAt: run.finishedAt ? new Date(run.finishedAt) : null, result: run.result ?? null };
-  if (!event) { await getDb().update(runs).set(values).where(and(eq(runs.id, run.id), eq(runs.status, "running"))); return; }
   await getDb().transaction(async (transaction: DbTransaction) => {
     const [current] = await transaction.select({ status: runs.status, conversationId: runs.conversationId, result: runs.result }).from(runs).where(eq(runs.id, run.id)).for("update");
     if (!current) { if (event) throw new Error("Terminal event has no stored run"); return; }
     const expectedType = run.status === "success" ? "run:complete" : run.status === "error" ? "run:error" : run.status === "cancelled" ? "run:cancel" : undefined;
     if (event && (event.type !== expectedType || event.conversationId !== current.conversationId || event.id !== `run:${run.id}:${run.status}`)) throw new Error("Terminal event does not match its stored run");
-    if (event && current.status !== "running") {
-      if (current.status !== run.status || canonicalJson(current.result) !== canonicalJson(run.result ?? null)) throw new Error("Terminal run event conflicts with its committed state");
+    if (current.status !== "running") {
+      if (event && (current.status !== run.status || canonicalJson(current.result) !== canonicalJson(run.result ?? null))) throw new Error("Terminal run event conflicts with its committed state");
       return;
     }
     await transaction.update(runs).set(values).where(eq(runs.id, run.id));
-    const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, run.id));
-    if (active && active.conversationId !== current.conversationId) throw new Error("Active run belongs to another conversation");
-    await transaction.delete(activeRuns).where(eq(activeRuns.id, run.id));
+    if (expectedType) {
+      const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, run.id));
+      if (active && active.conversationId !== current.conversationId) throw new Error("Active run belongs to another conversation");
+      await transaction.delete(activeRuns).where(eq(activeRuns.id, run.id));
+      await consumeRunCompletionIntent(transaction, { runId: run.id, status: run.status, conversationId: current.conversationId });
+    }
     if (event && current.status === "running") await publishDomainEvent(transaction, event);
   });
 }
@@ -179,6 +182,7 @@ export async function finalizeRunRow(
     const [active] = await transaction.select().from(activeRuns).where(eq(activeRuns.id, runId));
     if (active && active.conversationId !== row.conversationId) throw new Error("Active run belongs to another conversation");
     await transaction.update(activeRuns).set({ status: "interrupted" }).where(and(eq(activeRuns.id, runId), eq(activeRuns.status, "running")));
+    await consumeRunCompletionIntent(transaction, { runId, status, conversationId: row.conversationId });
     if (row.conversationId) {
       const run: AgentRun = { id: row.id, agentName: row.agentName, status, startedAt: row.startedAt.getTime(), finishedAt: row.finishedAt!.getTime(), logs: [], ...(row.result ? { result: row.result } : {}) };
       const payload = { run, runId, conversationId: row.conversationId, ...(status === "error" ? { error: error ?? "Run interrupted" } : {}) };

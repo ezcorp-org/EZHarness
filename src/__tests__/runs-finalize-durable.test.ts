@@ -8,9 +8,10 @@ import { createExtension } from "../db/queries/extensions";
 import { finalizeRunRow, terminalizeOrphanedRuns, updateRun } from "../db/queries/runs";
 import { emitTerminalRun } from "../runtime/domain-events";
 import { EventBus } from "../runtime/events";
+import { registerBriefingCompletionIntent } from "../runtime/briefing/completion-intents";
 import type { AgentEvents, AgentRun } from "../types";
 import { up } from "../db/migrations/add-extension-releases";
-import { users, projects, conversations, conversationExtensions, runs, activeRuns } from "../db/schema";
+import { users, projects, conversations, conversationExtensions, runs, activeRuns, messages, runDomainEventIntents } from "../db/schema";
 import { buildFullGrantFromManifest } from "../extensions/install-grant";
 import { ExtensionDeliveryQueue } from "../extensions/v4/deliveries";
 
@@ -24,7 +25,7 @@ async function fixture() {
   const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@test.local`, passwordHash: "unused", name: "Owner", role: "admin" }).returning();
   const [project] = await database.insert(projects).values({ name: "Terminal fixture", path: `/tmp/${crypto.randomUUID()}` }).returning();
   const [conversation] = await database.insert(conversations).values({ userId: owner!.id, projectId: project!.id, title: "Terminal recovery" }).returning();
-  const manifest = validateManifest({ schemaVersion: 4, name: "terminal-observer", version: "1.0.0", description: "Terminal events", author: { name: "Test" }, permissions: { eventSubscriptions: ["run:cancel", "run:error"] } });
+  const manifest = validateManifest({ schemaVersion: 4, name: "terminal-observer", version: "1.0.0", description: "Terminal events", author: { name: "Test" }, permissions: { eventSubscriptions: ["run:cancel", "run:error", "conversation:created", "briefing:delivered"] } });
   const { snapshot } = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: owner!.id });
   await new DatabaseLifecycleRepository(database).create({ installation: snapshot.installation, releases: { [snapshot.release.id]: snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
   await createExtension({ id: snapshot.installation.id, name: manifest.name, version: manifest.version, manifest, grantedPermissions: buildFullGrantFromManifest(manifest), enabled: true, source: "release-v4", creatorUserId: owner!.id });
@@ -81,6 +82,54 @@ function terminalEvent(context: Awaited<ReturnType<typeof fixture>>) {
   const run: AgentRun = { id: context.runId, agentName: "chat", status: "error", startedAt: Date.now(), finishedAt: Date.now(), logs: [], result: { success: false, output: "partial", error: "stopped" } };
   return { id: `run:${run.id}:error`, type: "run:error" as const, conversationId: context.conversation.id, payload: { run, runId: run.id, conversationId: context.conversation.id, error: "stopped" } };
 }
+
+async function registerCompletion(context: Awaited<ReturnType<typeof fixture>>) {
+  await registerBriefingCompletionIntent({ runId: context.runId, conversationId: context.conversation.id, userId: context.conversation.userId!, projectId: context.conversation.projectId });
+  await context.database.insert(messages).values({ conversationId: context.conversation.id, role: "assistant", content: "Your daily briefing." });
+}
+
+for (const withRunEvent of [true, false]) test(`successful terminal transaction consumes briefing intent with run event=${withRunEvent}`, async () => {
+  const context = await fixture();
+  await registerCompletion(context);
+  const run: AgentRun = { ...terminalEvent(context).payload.run, status: "success", result: { success: true, output: "delivered" } };
+  const event = { id: `run:${run.id}:success`, type: "run:complete" as const, conversationId: context.conversation.id, payload: { run, conversationId: context.conversation.id } };
+  await updateRun(run, withRunEvent ? event : undefined);
+  expect(await context.database.select().from(runDomainEventIntents)).toHaveLength(0);
+  expect(await context.database.select().from(activeRuns)).toHaveLength(0);
+  const delivered = [await context.queue.claim(), await context.queue.claim()].map(item => item?.input);
+  expect(delivered).toEqual(expect.arrayContaining([expect.objectContaining({ method: "ezcorp/event/briefing:delivered" }), expect.objectContaining({ method: "ezcorp/event/conversation:created" })]));
+  await updateRun(run, withRunEvent ? event : undefined);
+  expect(await context.queue.claim()).toBeNull();
+});
+
+for (const status of ["error", "cancelled"] as const) test(`${status} consumes briefing intent without publishing delivery`, async () => {
+  const context = await fixture();
+  await registerCompletion(context);
+  expect(await finalizeRunRow(context.runId, status)).toBe(1);
+  expect(await context.database.select().from(runDomainEventIntents)).toHaveLength(0);
+  expect((await context.queue.claim())?.input).toMatchObject({ method: `ezcorp/event/run:${status === "error" ? "error" : "cancel"}` });
+  expect(await context.queue.claim()).toBeNull();
+});
+
+test("failed briefing admission rolls back terminal state, active row and consumed intent", async () => {
+  const context = await fixture();
+  await registerCompletion(context);
+  await context.database.execute(sql`DROP TABLE extension_release_deliveries`);
+  const run: AgentRun = { ...terminalEvent(context).payload.run, status: "success", result: { success: true, output: "delivered" } };
+  await expect(updateRun(run)).rejects.toThrow();
+  expect((await context.database.select().from(runs))[0]?.status).toBe("running");
+  expect((await context.database.select().from(activeRuns))[0]?.status).toBe("running");
+  expect(await context.database.select().from(runDomainEventIntents)).toHaveLength(1);
+});
+
+test("nonterminal updates retain pending intent and active row", async () => {
+  const context = await fixture();
+  await registerCompletion(context);
+  await updateRun({ ...terminalEvent(context).payload.run, status: "running" });
+  expect(await context.database.select().from(runDomainEventIntents)).toHaveLength(1);
+  expect((await context.database.select().from(activeRuns))[0]?.status).toBe("running");
+  expect(await context.queue.claim()).toBeNull();
+});
 
 test("normal completion removes its active row in the terminal transaction", async () => {
   const context = await fixture();
