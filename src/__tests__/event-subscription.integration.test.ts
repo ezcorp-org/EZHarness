@@ -175,11 +175,20 @@ describe("event-subscription integration: real subprocess + real dispatcher", ()
   test("an ungranted subscription delivers nothing, then the same process receives its allowed event once", async () => {
     const bus = new EventBus<AgentEvents>();
     let granted = false;
+    const getGrantedPermissions: () => {
+      grantedAt: Record<string, number>;
+      eventSubscriptions?: string[];
+    } = () => {
+      const grantedAt: Record<string, number> = {};
+      if (!granted) return { grantedAt };
+      return {
+        grantedAt: { eventSubscriptions: Date.now() },
+        eventSubscriptions: ["task:snapshot"],
+      };
+    };
     const registry = makeStubRegistry(
       proc!,
-      () => granted
-        ? { grantedAt: { eventSubscriptions: Date.now() }, eventSubscriptions: ["task:snapshot"] }
-        : { grantedAt: {} },
+      getGrantedPermissions,
     );
     const wiring = async (conversationId: string) => conversationId === CONV_WIRED ? [EXT_ID] : [];
     const payload = { conversationId: CONV_WIRED, tasks: [], activeTaskId: undefined };
