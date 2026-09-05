@@ -20,6 +20,15 @@ test("catalog pagination is bounded and rejects repeated cursors", async () => {
   await expect(readMcpCatalog({ listTools: async () => ({ tools: Array.from({ length: 129 }, (_, index) => ({ name: `tool${index}`, inputSchema: { type: "object" as const } })) }) })).rejects.toThrow("bounds");
 });
 
+test("empty catalog pages and cursor bytes have independent limits", async () => {
+  let pages = 0;
+  await expect(readMcpCatalog({ listTools: async () => ({ tools: [], nextCursor: String(++pages) }) })).rejects.toThrow("page bounds");
+  expect(pages).toBe(128);
+  await expect(readMcpCatalog({ listTools: async () => ({ tools: [], nextCursor: "é".repeat(513) }) })).rejects.toThrow("cursor exceeds bounds");
+  let calls = 0;
+  expect(await readMcpCatalog({ listTools: async () => ({ tools: [], nextCursor: ++calls === 1 ? "é".repeat(512) : undefined }) })).toEqual([]);
+});
+
 test("stdio MCP discovery and invocation use a fresh protocol client and checked schemas", async () => {
   const extension = await createMcpExtension({ manifest: { schemaVersion: 4, name: "mcp-test", version: "1.0.0", description: "Fixture", author: { name: "Tests" }, permissions: {}, kind: "mcp", mcpServers: [{ name: "fixture", transport: "stdio", command: process.execPath, args: [new URL("./__tests__/mcp-fixture.ts", import.meta.url).pathname] }] } });
   expect(extension.manifest.tools?.map(tool => tool.name)).toEqual(["echo"]);

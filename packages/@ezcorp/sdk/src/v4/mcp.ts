@@ -10,8 +10,11 @@ export async function readMcpCatalog(instance: Pick<Client, "listTools">): Promi
   const tools: unknown[] = [];
   const cursors = new Set<string>();
   let cursor: string | undefined;
+  let pages = 0;
   do {
+    if (++pages > 128) throw new ContractError("DATA_LIMIT", "MCP catalog exceeds page bounds");
     const list = await instance.listTools(cursor ? { cursor } : undefined);
+    if (list.nextCursor && new TextEncoder().encode(list.nextCursor).byteLength > 1024) throw new ContractError("DATA_LIMIT", "MCP catalog cursor exceeds bounds");
     tools.push(...list.tools);
     if (tools.length > 128 || (list.nextCursor && cursors.has(list.nextCursor))) throw new ContractError("DATA_LIMIT", "MCP catalog exceeds bounds or repeats a cursor");
     cursor = list.nextCursor;

@@ -6,6 +6,7 @@ import { getDb } from "../../db/connection";
 import { encryptWithAad } from "../../providers/encryption";
 import { persistMcpWorkspaceCredentials, rehydrateMcpWorkspaceCredentials, deleteMcpWorkspaceCredentials } from "../mcp-workspace-credentials";
 import { redactMcpServer } from "../mcp-secret-redaction";
+import { up } from "../../db/migrations/add-mcp-workspace-credentials";
 mockDbConnection();
 beforeAll(setupTestDb);
 afterAll(closeTestDb);
@@ -14,6 +15,8 @@ test("workspace credentials are encrypted, immutable, scope-bound and removable"
   const server = { name: "remote", transport: "http" as const, url: "https://example.com/mcp?token=secret-query", headers: { Authorization: "Bearer secret-header" } };
   const redacted = redactMcpServer(server);
   await persistMcpWorkspaceCredentials("installation", "workspace", server);
+  await up(getDb());
+  await up(getDb());
   const rows = await getDb().execute(sql`SELECT * FROM extension_mcp_credentials`);
   expect(rows.rows).toHaveLength(1);
   expect(JSON.stringify(rows.rows)).not.toContain("secret-query");
