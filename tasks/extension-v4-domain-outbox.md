@@ -39,7 +39,7 @@ These paths retain their previous bus behavior, not a new no-loss guarantee. Do 
 | `run:complete`, `run:error`, `run:cancel` outside stream-chat finalization | `src/runtime/executor.ts`, `src/runtime/executor-watchdog.ts`, `src/db/queries/runs.ts` (`finalizeRunRow`, `terminalizeOrphanedRuns`), `web/src/routes/api/conversations/[id]/active-run/+server.ts` |
 | `tool:complete` from preview detection | `src/runtime/preview/preview-detection-bridge.ts`; synthetic preview notification, not a persisted tool call |
 | `task:snapshot`, `task:assignment_update` | `src/extensions/task-events-handler.ts`, `src/runtime/start-assignment.ts`, `src/runtime/boot-reconcile-assignments.ts`, `web/src/lib/server/task-helpers.ts`; terminal assignment notifications are high-priority follow-up work |
-| `ask-user:answer` | `web/src/routes/api/ask-user/answer/+server.ts` |
+| `ask-user:answer` | Completed by `src/runtime/ask-user-answer.ts`: durable accepted-answer receipt and queue transaction; pending question process resumption remains transient. See `tasks/extension-v4-event-receipts.md`. |
 | Extension-owned `<name>:<event>` | `web/src/routes/api/extensions/[name]/events/[event]/+server.ts`; keep existing namespace/provenance checks when moving its accepted event into a transaction |
 | `run:turn_saved` | `src/runtime/stream-chat/subscribe-bridge.ts`, extension event route above; combine message/tree changes and delivery insertion |
 | `goal:update` | `src/runtime/goal-host.ts` |

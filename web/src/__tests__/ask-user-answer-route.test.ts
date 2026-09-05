@@ -45,28 +45,13 @@ mock.module("$lib/server/context", () => ({
   getBus: () => mockBus,
 }));
 
-// ── Mock the host-side ask-user-registry ──────────────────────────
-//
-// The endpoint reads pending entries via `getPendingAskUser(id)`; we
-// drive the test by setting `mockPending` per-case. This replaces the
-// previous DB-lookup mock, matching the production change that moved
-// off `tool_calls` SELECT (the row doesn't exist while the gate is
-// open — see ask-user-registry.ts).
-
-let mockPending:
-  | { conversationId: string; userId: string | null }
-  | undefined = undefined;
-const mockGetPendingAskUser = mock(
-  (_toolCallId: string) => mockPending,
-);
-
-mock.module("$server/runtime/ask-user-registry", () => ({
-  getPendingAskUser: mockGetPendingAskUser,
-  // Provide stubs for the other surface in case any transient import
-  // path resolves through the same module under the same alias.
-  registerPendingAskUser: mock((_id: string, _conv: string, _user: string | null) => {}),
-  clearPendingAskUser: mock((_id: string) => {}),
-}));
+import { LifecycleError } from "$server/extensions/v4/types";
+let admissionFailure: Error | undefined;
+const mockAcceptAnswer = mock(async (_principalId: string, _toolCallId: string, _answer: string, _bus: unknown) => {
+  if (admissionFailure) throw admissionFailure;
+  return true;
+});
+mock.module("$server/runtime/ask-user-answer", () => ({ acceptAskUserAnswer: mockAcceptAnswer }));
 
 // ── Mock errorJson + json ─────────────────────────────────────────
 //
@@ -114,9 +99,9 @@ function makeEvent(body: unknown): RequestEventLike {
 describe("POST /api/ask-user/answer", () => {
   beforeEach(() => {
     mockScopeResponse = null;
-    mockPending = undefined;
+    admissionFailure = undefined;
     mockBusEmit.mockClear();
-    mockGetPendingAskUser.mockClear();
+    mockAcceptAnswer.mockClear();
   });
 
   test("scope rejection short-circuits before registry and bus are touched", async () => {
@@ -127,7 +112,7 @@ describe("POST /api/ask-user/answer", () => {
     );
 
     expect(res.status).toBe(403);
-    expect(mockGetPendingAskUser).not.toHaveBeenCalled();
+    expect(mockAcceptAnswer).not.toHaveBeenCalled();
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
 
@@ -136,7 +121,7 @@ describe("POST /api/ask-user/answer", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("Invalid body");
-    expect(mockGetPendingAskUser).not.toHaveBeenCalled();
+    expect(mockAcceptAnswer).not.toHaveBeenCalled();
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
 
@@ -169,7 +154,7 @@ describe("POST /api/ask-user/answer", () => {
   });
 
   test("toolCallId not in registry (late POST) → 200 ok, no emit", async () => {
-    mockPending = undefined;
+    admissionFailure = undefined;
 
     const res = await POST(
       makeEvent({ toolCallId: "tc-gone", answer: "stale" }) as never,
@@ -180,7 +165,7 @@ describe("POST /api/ask-user/answer", () => {
   });
 
   test("registry entry with null userId → 404, no emit (no anonymous answers)", async () => {
-    mockPending = { conversationId: "conv-A", userId: null };
+    admissionFailure = new LifecycleError("event_not_found", "Question not found.");
 
     const res = await POST(
       makeEvent({ toolCallId: "tc-orphan", answer: "x" }) as never,
@@ -192,7 +177,7 @@ describe("POST /api/ask-user/answer", () => {
   });
 
   test("toolCallId belongs to a different user → 404, no emit (auth boundary)", async () => {
-    mockPending = { conversationId: "conv-A", userId: "someone-else" };
+    admissionFailure = new LifecycleError("event_not_found", "Question not found.");
 
     const res = await POST(
       makeEvent({ toolCallId: "tc-stranger", answer: "intruder" }) as never,
@@ -203,8 +188,8 @@ describe("POST /api/ask-user/answer", () => {
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
 
-  test("happy path → 200 + emits exactly one ask-user:answer with correct shape", async () => {
-    mockPending = { conversationId: "conv-A", userId: "user-1" };
+  test("happy path → 200 only after owner-bound durable admission", async () => {
+    admissionFailure = undefined;
 
     const res = await POST(
       makeEvent({ toolCallId: "tc-live", answer: "blue" }) as never,
@@ -212,13 +197,25 @@ describe("POST /api/ask-user/answer", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 
-    expect(mockBusEmit).toHaveBeenCalledTimes(1);
-    const [eventName, payload] = mockBusEmit.mock.calls[0] as [string, unknown];
-    expect(eventName).toBe("ask-user:answer");
-    expect(payload).toEqual({
-      toolCallId: "tc-live",
-      conversationId: "conv-A",
-      answer: "blue",
-    });
+    expect(mockAcceptAnswer).toHaveBeenCalledTimes(1);
+    expect(mockAcceptAnswer).toHaveBeenCalledWith("user-1", "tc-live", "blue", mockBus);
+    expect(mockBusEmit).not.toHaveBeenCalled();
+  });
+
+  test("changed answer on the same question returns conflict without another event", async () => {
+    admissionFailure = new LifecycleError("event_conflict", "Changed answer");
+    const response = await POST(makeEvent({ toolCallId: "tc-live", answer: "changed" }) as never);
+    expect(response.status).toBe(409);
+    expect(mockBusEmit).not.toHaveBeenCalled();
+  });
+
+  test("host byte bounds return 400 while persistence failures remain explicit", async () => {
+    admissionFailure = new LifecycleError("invalid_answer", "Oversized encoded answer");
+    expect((await POST(makeEvent({ toolCallId: "tc-live", answer: "answer" }) as never)).status).toBe(400);
+    for (const failure of [new Error("Database offline"), new LifecycleError("event_queue_full", "Queue full")]) {
+      admissionFailure = failure;
+      await expect(POST(makeEvent({ toolCallId: "tc-live", answer: "answer" }) as never)).rejects.toBe(failure);
+    }
+    expect(mockBusEmit).not.toHaveBeenCalled();
   });
 });
