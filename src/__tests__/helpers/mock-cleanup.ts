@@ -338,6 +338,7 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/security/rate-limiter",
   "../../../web/src/lib/server/security/payload",
   "../../../web/src/lib/server/context",
+  "../../../web/src/lib/server/workflow-access",
   "../../../web/src/lib/server/oauth-config",
   "../../../web/src/lib/server/http-errors",
   // conversation-extensions-route.test.ts (web route __tests__) mocks
