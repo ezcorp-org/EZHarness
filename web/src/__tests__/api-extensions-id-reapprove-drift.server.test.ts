@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { makeRequestEvent, expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mocks = vi.hoisted(() => ({ previewBundledDrift: vi.fn(), reapproveBundledDrift: vi.fn(), updateExtension: vi.fn() }));
 vi.mock("$server/extensions/bundled-drift-reapprove", () => mocks);
@@ -19,6 +19,8 @@ for (const [method, handler] of [["GET", GET], ["POST", POST]] as const) {
     expect(mocks.updateExtension).not.toHaveBeenCalled();
   });
   test(`${method} requires authentication`, async () => {
-    await expectThrownResponse(() => handler(makeRequestEvent("http://localhost/api/extensions/ext-1/reapprove-drift", { params: { id: "ext-1" }, request: { method } })), 401);
+    const response = await handler(makeRequestEvent("http://localhost/api/extensions/ext-1/reapprove-drift", { params: { id: "ext-1" }, request: { method } }));
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Authentication required" });
   });
 }

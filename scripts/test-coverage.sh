@@ -357,6 +357,9 @@ run_legs() {
       src/__tests__/extension-author-page.component.test.ts \
       src/__tests__/extension-control-routes.server.test.ts \
       src/__tests__/extension-project-binding.server.test.ts \
+      src/__tests__/project-proposal-fixture.server.test.ts \
+      src/__tests__/project-proposal-review.server.test.ts \
+      src/__tests__/project-proposal-review.component.test.ts \
       src/__tests__/extension-review-location.server.test.ts \
       src/__tests__/mcp-control-request.server.test.ts \
       src/__tests__/extension-credential-resolver.server.test.ts \
@@ -615,6 +618,9 @@ run_legs() {
       --coverage.include='src/lib/server/extensions/*.ts' \
       --coverage.include='**/extensions/author/+page.svelte' \
       --coverage.include='**/extensions/author/+page.server.ts' \
+      --coverage.include='src/routes/(app)/extensions/project-proposals/**/+page.server.ts' \
+      --coverage.include='src/routes/(app)/extensions/project-proposals/**/+page.svelte' \
+      --coverage.include='src/routes/api/__test/project-proposal/+server.ts' \
       --coverage.include='src/routes/api/extensions/control/+server.ts' \
       --coverage.include='src/routes/api/extensions/releases/**/+server.ts' \
       --coverage.include='src/routes/api/extensions/import-source/+server.ts' \

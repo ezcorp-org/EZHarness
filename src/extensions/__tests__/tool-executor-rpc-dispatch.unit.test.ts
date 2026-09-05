@@ -29,6 +29,7 @@ const HANDLER_NAMES = [
   "handlePiHostApi",
   "handlePiProjectPullRequest",
   "handlePiProjectGit",
+  "handlePiProjectPullRequestReview",
   "handlePiNetworkBroker",
   "handlePiCredentialBroker",
   "handlePiInvoke",

@@ -448,6 +448,7 @@ describe("thrown-Response denials (500-instead-of-403 regression guard)", () => 
 describe("registry ⇄ filesystem parity", () => {
   const controlDisk = disk.filter((r) => !r.path.startsWith("/api/__test/"));
   const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));
+  const allDiskKeys = new Set(disk.map((r) => `${r.method} ${r.path}`));
   const registeredKeys = apiRegistry.map((e) => `${e.method} ${e.path}`);
 
   // KNOWN_STALE is GONE. It held four registry entries that described no
@@ -461,7 +462,7 @@ describe("registry ⇄ filesystem parity", () => {
   test("no stale registry entry — every registered route exists on disk", () => {
     // Keeps the generated OpenAPI contract honest — a registry entry with no
     // matching handler advertises a route that 404s.
-    const stale = registeredKeys.filter((k) => !diskKeys.has(k)).sort();
+    const stale = registeredKeys.filter((k) => !allDiskKeys.has(k)).sort();
     expect(stale).toEqual([]);
   });
 
@@ -749,6 +750,7 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/service-accounts/:id",
       "PATCH /api/service-accounts/:id/daily-cap",
       "PATCH /api/workflows/delegations/:id",
+      "POST /api/__test/project-proposal",
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
