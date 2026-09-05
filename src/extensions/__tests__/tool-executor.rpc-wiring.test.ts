@@ -294,7 +294,7 @@ describe("ensureSubprocessRpcWired — state-mediator singleton fallback", () =>
 
   const VALID_TREE = {
     title: "Ping Loop",
-    nodes: [{ type: "heading", level: 2, text: "Runs" }],
+    nodes: [{ type: "heading" as const, level: 2 as const, text: "Runs" }],
   };
 
   let registry: ExtensionRegistry;
