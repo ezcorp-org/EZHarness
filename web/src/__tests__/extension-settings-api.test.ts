@@ -94,6 +94,7 @@ mock.module("$server/db/queries/extension-settings", () => ({
 const mockAudit = mock(async (..._args: unknown[]) => {});
 mock.module("$server/db/queries/audit-log", () => ({
   insertAuditEntry: mockAudit,
+  insertTransactionalAuditEntry: mockAudit,
 }));
 
 // Secret-settings host helpers — in-memory store keyed by
