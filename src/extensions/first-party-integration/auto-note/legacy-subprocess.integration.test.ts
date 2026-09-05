@@ -7,39 +7,56 @@ import { FramedExecution } from "@ezcorp/extension-runner";
 import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { makeFsRpcHandler } from "@ezcorp/sdk/test";
 import { CATEGORIES } from "../../../../docs/extensions/examples/auto-note/lib/types";
+import { closeTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/helpers/test-pglite";
+import { domainEventSourceFixture } from "../../../__tests__/helpers/domain-event-source";
+import { InvocationLocks } from "../../runtime-locks";
+mockDbConnection();
+beforeEach(setupTestDb);
+afterAll(closeTestDb);
 const TMP_DIR = join("/tmp", `auto-note-subprocess-${Date.now()}`);
 afterAll(() => rmSync(TMP_DIR, { recursive: true, force: true }));
 async function spawnExtension(opts: { cwd: string; env?: Record<string, string> } = { cwd: TMP_DIR }) {
+  const fixture = await domainEventSourceFixture([]);
+  const locks = new Map<string, InvocationLocks>();
   const entrypoint = join(fixtureImportMeta.dir, "extension.ts");
   const proc = spawn(process.execPath, [entrypoint], { cwd: opts.cwd, stdio: "pipe", env: { PATH: process.env.PATH, ...opts.env } });
   const fsHandler = makeFsRpcHandler(opts.cwd);
   const notifications: Array<{ method: string; params: any }> = [];
   const execution = new FramedExecution("auto-note-test", proc, async (method, envelope) => {
     const input = (envelope as { input: Record<string, unknown> }).input;
-    if (method === "ezcorp/state") { notifications.push({ method, params: input }); return null; }
-    const params = { ...input };
-    for (const key of ["path", "src", "dest"]) {
-      const path = params[key];
-      if (typeof path !== "string") continue;
-      if (path === "/data" || path.startsWith("/data/")) params[key] = join(opts.cwd, ".ezcorp", "extension-data", "auto-note", path.slice(5));
-      else if (path === "/project" || path.startsWith("/project/")) params[key] = join(opts.cwd, path.slice(8));
-      else throw new Error("Fixture refuses non-virtual filesystem path");
-    }
-    const response = fsHandler({ jsonrpc: "2.0", id: 1, method, params });
-    if (!response || response.error) throw new Error(response?.error?.message ?? `Unsupported fixture RPC: ${method}`);
-    return response.result;
+    const invocationId = (envelope as { context: { invocationId: string } }).context.invocationId;
+    const owner = locks.get(invocationId);
+    if (!owner) throw new Error("Fixture refuses inactive invocation");
+    if (method === "ezcorp/lock.acquire" || method === "ezcorp/lock.release") return owner.request(method, input);
+    return owner.effect(method, async () => {
+      if (method === "ezcorp/state") { notifications.push({ method, params: input }); return null; }
+      const params = { ...input };
+      for (const key of ["path", "src", "dest"]) {
+        const path = params[key];
+        if (typeof path !== "string") continue;
+        if (path === "/data" || path.startsWith("/data/")) params[key] = join(opts.cwd, ".ezcorp", "extension-data", "auto-note", path.slice(5));
+        else if (path === "/project" || path.startsWith("/project/")) params[key] = join(opts.cwd, path.slice(8));
+        else throw new Error("Fixture refuses non-virtual filesystem path");
+      }
+      const response = fsHandler({ jsonrpc: "2.0", id: 1, method, params });
+      if (!response || response.error) throw new Error(response?.error?.message ?? `Unsupported fixture RPC: ${method}`);
+      return response.result;
+    });
   }, async () => { proc.kill("SIGKILL"); }, 4 * 1024 * 1024, 5000);
   try { await execution.request("extension/discover", {}); } catch (error) { await execution.close(); throw error; }
   let sequence = 0;
   return {
     send: async (request: { method: string; params?: any }) => {
       const context = { invocationId: `auto-note-${++sequence}`, workerId: "worker", releaseId: "release", principalId: "user", scopeId: "project", token: "fixture", deadline: Date.now() + 5000 };
+      const owner = new InvocationLocks(fixture.installationId, context, 1);
+      locks.set(context.invocationId, owner);
       try {
         const result = request.method === "tools/call"
           ? await execution.request("extension/invoke", { name: request.params.name, input: request.params.arguments ?? {}, context })
           : await execution.request("extension/dispatch", { method: request.method, input: request.params ?? {}, context });
         return { result } as any;
       } catch (error) { return { error: { message: error instanceof Error ? error.message : String(error) } } as any; }
+      finally { await owner.close(); locks.delete(context.invocationId); }
     },
     readNotifications: () => [...notifications],
     close: () => execution.close(),

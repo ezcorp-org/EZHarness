@@ -104,6 +104,7 @@ test("known SQL failure drains safely but uncertain non-SQL failure quarantines"
   const session = data.create();
   const fence = await acquire(session);
   await expect(session.effect("ezcorp/storage", async () => { throw new Error("rollback"); })).rejects.toThrow("rollback");
+  for (const method of ["ezcorp/fs.read", "ezcorp/fs.list", "ezcorp/fs.stat", "ezcorp/fs.exists"]) await expect(session.effect(method, async () => { throw new Error("read unavailable"); })).rejects.toThrow("read unavailable");
   await session.request("ezcorp/lock.release", { key: "counter", fence });
   await acquire(session);
   await expect(session.effect("ezcorp/fs.write", async () => { throw new Error("unknown write"); })).rejects.toThrow("unknown write");

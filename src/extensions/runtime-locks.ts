@@ -14,6 +14,7 @@ const activeEffects = new AsyncLocalStorage<readonly Fence[]>();
 const sessions = new Map<string, InvocationLocks>();
 export { MAX_RUNTIME_LOCK_KEYS, validateRuntimeLockRequest } from "@ezcorp/extension-contract";
 const maxEffects = 32;
+const safeFailedEffects = new Set(["ezcorp/storage", "ezcorp/fs.read", "ezcorp/fs.list", "ezcorp/fs.stat", "ezcorp/fs.exists"]);
 
 async function rowsFor(database: MigrationDb, fence: Pick<Fence, "installationId" | "key">): Promise<LockRow | undefined> {
   return releaseRows<LockRow>(await database.execute(sql`SELECT ${columns} FROM extension_runtime_locks WHERE installation_id = ${fence.installationId} AND lock_key = ${fence.key} FOR UPDATE`))[0];
@@ -93,7 +94,7 @@ export class InvocationLocks {
         if (result && typeof result === "object" && "error" in result && JSON.stringify(result.error).includes("outcome_unknown")) this.uncertain = true;
         return result;
       } catch (error) {
-        if (method !== "ezcorp/storage") this.uncertain = true;
+        if (!safeFailedEffects.has(method)) this.uncertain = true;
         throw error;
       } finally {
         for (const fence of fences) await getDb().execute(sql`UPDATE extension_runtime_locks SET effects = effects - 1 WHERE installation_id = ${fence.installationId} AND lock_key = ${fence.key} AND fence = ${fence.fence} AND effects > 0`);
