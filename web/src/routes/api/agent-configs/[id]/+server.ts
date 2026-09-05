@@ -67,6 +67,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   } else if (config.userId !== user.id) return errorJson(404, "Not found");
 
   const parsed = updateAgentConfigSchema.safeParse(await request.json().catch(() => ({})));
+  if (config.managedByExtensionId) return errorJson(409, "Managed extension agents require release publication.");
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
   }
@@ -117,6 +118,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
     if (adminErr) return adminErr;
   } else if (config.userId !== user.id) return errorJson(404, "Not found");
 
+  if (config.managedByExtensionId) return errorJson(409, "Managed extension agents require release publication.");
   await agentConfigQueries.deleteAgentConfig(params.id);
   getExecutor().unregisterAgent(config.name);
 

@@ -58,6 +58,19 @@ const admin = { id: "a1", email: "a@x", name: "a", role: "admin" };
 // agent minted at boot) — readable by everyone, mutable by admins only.
 const systemConfig = { id: "cfg-sys", userId: null, name: "Daily Briefing" };
 
+test("even an administrator cannot edit or delete a release-managed agent through generic routes", async () => {
+  vi.clearAllMocks();
+  vi.mocked(getAgentConfig).mockResolvedValue({ ...systemConfig, managedByExtensionId: "installation" } as Awaited<ReturnType<typeof getAgentConfig>>);
+  const edit = await PUT(makeEvent({ id: "cfg-sys", locals: { user: admin }, body: { prompt: "Unapproved", managedByExtensionId: null } }));
+  const removal = await DELETE(makeEvent({ id: "cfg-sys", locals: { user: admin } }));
+  expect(edit.status).toBe(409);
+  expect(removal.status).toBe(409);
+  expect(updateAgentConfig).not.toHaveBeenCalled();
+  expect(deleteAgentConfig).not.toHaveBeenCalled();
+  expect(registerAgent).not.toHaveBeenCalled();
+  expect(unregisterAgent).not.toHaveBeenCalled();
+});
+
 describe("GET /api/agent-configs/[id]", () => {
   beforeEach(() => vi.mocked(getAgentConfig).mockReset());
 

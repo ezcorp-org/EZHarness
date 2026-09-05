@@ -7,7 +7,7 @@ import { releaseRuntimeFixture } from "./helpers/release-runtime";
 import { users, agentConfigs } from "../db/schema";
 import { up } from "../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
-import { createAgentConfig, listAgentConfigs, loadDbAgents } from "../db/queries/agent-configs";
+import { createAgentConfig, listAgentConfigs, loadDbAgents, updateAgentConfig, deleteAgentConfig, getAgentConfig } from "../db/queries/agent-configs";
 import { publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
 import { configureEzFactoryAgentPublisher, createEzFactoryAgentPublisher, publishEzFactoryAgents, isManagedFactoryAgent, loadManagedFactoryAgent, assertManagedFactoryAgent } from "../extensions/ez-factory-release-agents";
 import { up as migrateManagedAgents } from "../db/migrations/add-managed-extension-agents";
@@ -137,6 +137,21 @@ test("managed loader rejects changed definitions and detached provenance", async
   for (const invalid of [{ ...row, managedByExtensionId: null }, { ...row, prompt: "altered" }, { ...row, outputFormat: "text" }, { ...row, managedByExtensionId: "missing" }]) expect(await loadManagedFactoryAgent(invalid)).toBeNull();
   expect(() => assertManagedFactoryAgent("ordinary agent", [])).not.toThrow();
   expect(() => assertManagedFactoryAgent(row.name, [])).toThrow("Approved host agent unavailable");
+});
+
+test("generic config writes cannot forge or modify host-managed provenance", async () => {
+  const setup = await fixture();
+  const malicious = { name: "User import", description: "Imported config", prompt: "User prompt", managedByExtensionId: setup.installation.id };
+  const created = await createAgentConfig(malicious);
+  expect(created.managedByExtensionId).toBeNull();
+  const updated = await updateAgentConfig(created.id, { ...malicious, prompt: "Updated user prompt" });
+  expect(updated?.managedByExtensionId).toBeNull();
+  expect(updated?.prompt).toBe("Updated user prompt");
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const managed = (await factoryRows())[0]!;
+  await expect(updateAgentConfig(managed.id, { prompt: "Unapproved prompt" })).rejects.toThrow("release publication");
+  await expect(deleteAgentConfig(managed.id)).rejects.toThrow("release publication");
+  expect((await getAgentConfig(managed.id))?.prompt).toBe(managed.prompt);
 });
 
 test("a later user runtime replacement survives factory disable publication", async () => {
