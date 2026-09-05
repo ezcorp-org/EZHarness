@@ -42,7 +42,7 @@ import type { AddressInfo } from "node:net";
 // Relative import: the package isn't a web dependency; Playwright's TS
 // loader resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
-import { sandboxSpawnAvailable } from "./sandbox-probe";
+import { importAndActivateBundledExtension } from "../fixtures/extension-v4";
 
 test.describe.configure({ mode: "serial" });
 
@@ -98,20 +98,23 @@ async function startSearxngStub(): Promise<StubHandle> {
 }
 
 test.describe("web search — real end-to-end", () => {
-  test("web-search is installed AND enabled (phantom-drift regression)", async ({ request }) => {
-    // The outage was silent precisely because nothing asserted this. A
-    // bundled extension left disabled-pending-re-approval registers no
-    // tools at all, so `search-web` / `read-url` vanish from every agent
-    // while the app looks perfectly healthy.
-    //
-    // No sandbox needed — this is a DB/registry fact, so it runs on every
-    // runner including ones that can't spawn extension subprocesses.
+  test.beforeAll(async ({ browser, request, baseURL }) => {
+    test.setTimeout(300000);
+    const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+    try {
+      await importAndActivateBundledExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: "web-search" });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the explicitly approved web-search release is installed AND enabled", async ({ request }) => {
     const res = await request.get("/api/extensions?name=web-search");
     expect(res.status(), await res.text()).toBe(200);
     const list = (await res.json()) as Array<{ name: string; enabled: boolean }>;
 
     const webSearch = list.find((e) => e.name === "web-search");
-    expect(webSearch, "web-search must be installed as a bundled extension").toBeDefined();
+    expect(webSearch, "the approved bundled web-search release must be installed").toBeDefined();
     expect(
       webSearch!.enabled,
       "web-search is DISABLED — likely stranded pending re-approval; its tools reach no agent",
@@ -122,15 +125,6 @@ test.describe("web search — real end-to-end", () => {
     request,
     baseURL,
   }) => {
-    // The invoke spawns a REAL extension subprocess through the sandbox
-    // (prlimit + Landlock). Where the jail can't exec bun (GitHub hosted
-    // runners) the subprocess dies at bring-up. Conditional skip is the
-    // repo's sanctioned capability-gate pattern (scripts/gate-integrity.ts).
-    test.skip(
-      !sandboxSpawnAvailable(),
-      "extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
-    );
-
     const stub = await startSearxngStub();
     try {
       // Point the resolver at the stub through the ADMIN API — this also
@@ -203,11 +197,6 @@ test.describe("web search — real end-to-end", () => {
     // external network: neither Jina (it cannot route to our loopback) nor
     // the direct reader (the guard rejects 127.0.0.1 before connect) can
     // reach the stub, so the hit count is always 0.
-    test.skip(
-      !sandboxSpawnAvailable(),
-      "extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
-    );
-
     const secret = `ezcorp-internal-secret-${Date.now()}`;
     const hits: string[] = [];
     const server: Server = createServer((req, res) => {
