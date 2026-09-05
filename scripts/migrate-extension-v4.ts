@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import { constants, type Dirent } from "node:fs";
+import { lstat, open, opendir, readdir, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 
 export interface FirstPartyExtensionSource {
@@ -55,11 +55,17 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
   let bytes = 0;
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let directories = 0;
+  let entryCount = 0;
 
   async function collect(directory: Awaited<ReturnType<typeof open>>, prefix = "", depth = 0): Promise<void> {
     if (depth > 128 || ++directories > MAX_FILES) throw new Error("Extension source directory limit exceeded");
     const anchoredDirectory = `/proc/self/fd/${directory.fd}`;
-    for (const entry of (await readdir(anchoredDirectory, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    const entries: Dirent[] = [];
+    for await (const entry of await opendir(anchoredDirectory)) {
+      if (++entryCount > MAX_FILES) throw new Error("Extension source entry limit exceeded");
+      entries.push(entry);
+    }
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (EXCLUDED_DIRECTORIES.has(entry.name) || entry.name === ".env" || entry.name.startsWith(".env.")) continue;
       const path = join(anchoredDirectory, entry.name);
       const filePath = prefix + entry.name;
@@ -74,6 +80,7 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
       try {
         const stat = await handle.stat();
         if (!stat.isFile() || stat.size > MAX_FILE_BYTES) throw new Error(`Invalid source file or file limit exceeded: ${filePath}`);
+        if (stat.nlink !== 1) throw new Error(`Hard-linked source files are not permitted: ${filePath}`);
         const chunks: Buffer[] = [];
         let fileBytes = 0;
         for (;;) {

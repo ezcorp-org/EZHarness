@@ -10,6 +10,7 @@ import { listProjects } from "../db/queries/projects";
 import { allowedInstallRoots } from "./install-roots";
 import { getProjectRoot } from "./project-root";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
+import { guardedFetch, type ResolveHost } from "../search/egress";
 
 export type ExtensionSourceInput =
   | { kind: "marketplace"; versionId: string }
@@ -50,16 +51,15 @@ async function readBounded(response: Response, limit: number): Promise<Uint8Arra
   } finally { reader.releaseLock(); }
 }
 
-export async function collectGitHubSource(input: Extract<ExtensionSourceInput, { kind: "github" }>, options: { token?: string; fetch?: typeof fetch; signal?: AbortSignal } = {}): Promise<WorkspaceFiles> {
-  if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(input.repository)) throw new LifecycleError("invalid_source", "Use an owner/repository GitHub identifier");
+export async function collectGitHubSource(input: Extract<ExtensionSourceInput, { kind: "github" }>, options: { token?: string; fetch?: typeof fetch; resolveHost?: ResolveHost; signal?: AbortSignal } = {}): Promise<WorkspaceFiles> {
+  if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(input.repository) || input.repository.split("/").some(part => part === "." || part === "..")) throw new LifecycleError("invalid_source", "Use an owner/repository GitHub identifier");
   const ref = input.ref ?? "HEAD";
-  if (!ref || ref.length > 200 || [...ref].some((character) => character.charCodeAt(0) <= 32)) throw new LifecycleError("invalid_ref", "Use a bounded Git branch, tag, or commit");
+  if (!ref || ref.length > 200 || ref.split("/").some(part => part === "." || part === "..") || [...ref].some((character) => character.charCodeAt(0) <= 32)) throw new LifecycleError("invalid_ref", "Use a bounded Git branch, tag, or commit");
   const prefix = input.directory ? `${input.directory.replace(/\/$/, "")}/` : "";
   if (prefix.startsWith("/") || prefix.split("/").some((part) => part === ".." || part === ".") || prefix.includes("\\")) throw new LifecycleError("invalid_source", "Use a relative source directory without traversal");
-  const fetcher = options.fetch ?? fetch;
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000);
   async function request(path: string, limit: number): Promise<unknown> {
-    const response = await fetcher(`https://api.github.com/repos/${input.repository}/${path}`, { redirect: "error", signal, headers: { accept: "application/vnd.github+json", "user-agent": "ezcorp-extension-import", ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) } });
+    const response = await guardedFetch(`https://api.github.com/repos/${input.repository}/${path}`, { redirect: "error", signal, headers: { accept: "application/vnd.github+json", "user-agent": "ezcorp-extension-import", ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) } }, { mode: "read", maxRedirects: 0, maxBodyBytes: limit, timeoutMs: 30_000, retryConnectionFailures: false, fetchImpl: options.fetch, resolveHost: options.resolveHost });
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBounded(response, limit)));
   }
   const commit = await request(`commits/${encodeURIComponent(ref)}`, 1024 * 1024) as { commit?: { tree?: { sha?: unknown } } };

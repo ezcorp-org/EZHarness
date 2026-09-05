@@ -62,3 +62,9 @@ test("bounds directory depth even when empty directories consume no file bytes",
   await mkdir(join(extension, ...Array.from({ length: 130 }, () => "nested")), { recursive: true });
   await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("directory limit");
 });
+
+test("bounds entries even when excluded files consume no source bytes", async () => {
+  const { root, extension } = await fixture();
+  for (let index = 0; index < 4096; index++) await writeFile(join(extension, `.env.${index}`), "");
+  await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("entry limit");
+});

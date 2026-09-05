@@ -1,6 +1,22 @@
 import { expect, test } from "bun:test";
 import { collectGitHubSource } from "../source-import";
 
+test("source credentials never reach private DNS answers or a redirect destination", async () => {
+  const input = { kind: "github" as const, repository: "owner/repo" };
+  for (const address of ["127.0.0.1", "169.254.169.254", "10.0.0.1", "::1", "fd00::1"]) {
+    const { calls, fetcher } = fixture();
+    await expect(collectGitHubSource(input, { token: "fixture-secret", fetch: fetcher, resolveHost: async () => [address] })).rejects.toMatchObject({ reason: "private-ip" });
+    expect(calls).toHaveLength(0);
+  }
+  const calls: Array<{ url: string; authorization: string | null }> = [];
+  const fetcher = (async (url, init) => {
+    calls.push({ url: String(url), authorization: new Headers(init?.headers).get("authorization") });
+    return new Response(null, { status: 302, headers: { location: "https://attacker.example/collect" } });
+  }) as typeof fetch;
+  await expect(collectGitHubSource(input, { token: "fixture-secret", fetch: fetcher, resolveHost: async () => ["93.184.216.34"] })).rejects.toMatchObject({ reason: "redirect-limit" });
+  expect(calls).toEqual([{ url: "https://93.184.216.34/repos/owner/repo/commits/HEAD", authorization: "Bearer fixture-secret" }]);
+});
+
 function fixture(entry: Record<string, unknown> = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -16,30 +32,32 @@ function fixture(entry: Record<string, unknown> = {}) {
 
 test("fetches a pinned Git tree without checkout, redirects, or executable config", async () => {
   const { calls, fetcher } = fixture();
-  const files = await collectGitHubSource({ kind: "github", repository: "example/extension", ref: "feature/new" }, { fetch: fetcher });
+  const files = await collectGitHubSource({ kind: "github", repository: "example/extension", ref: "feature/new" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] });
   expect(files["extension.ts"]).toContain("extension = 4");
   expect(calls).toHaveLength(3);
   expect(calls[0]!.url).toContain("feature%2Fnew");
-  expect(calls.every((call) => call.url.startsWith("https://api.github.com/repos/example/extension/") && call.init?.redirect === "error")).toBe(true);
+  expect(calls.every((call) => call.url.startsWith("https://93.184.216.34/repos/example/extension/") && new Headers(call.init?.headers).get("host") === "api.github.com" && call.init?.redirect === "manual")).toBe(true);
 });
 
 test("rejects links and submodules before fetching their contents", async () => {
   for (const entry of [{ mode: "120000" }, { type: "commit", mode: "160000" }]) {
     const { calls, fetcher } = fixture(entry);
-    await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher })).rejects.toThrow("links and submodules");
+    await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] })).rejects.toThrow("links and submodules");
     expect(calls).toHaveLength(2);
   }
 });
 
 test("rejects arbitrary hosts, traversal, and oversized blobs", async () => {
   const { fetcher } = fixture({ size: 5 * 1024 * 1024 });
-  await expect(collectGitHubSource({ kind: "github", repository: "https://localhost/repo" }, { fetch: fetcher })).rejects.toThrow("owner/repository");
-  await expect(collectGitHubSource({ kind: "github", repository: "example/extension", directory: "../private" }, { fetch: fetcher })).rejects.toThrow("traversal");
-  await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher })).rejects.toThrow("oversized");
+  await expect(collectGitHubSource({ kind: "github", repository: "https://localhost/repo" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] })).rejects.toThrow("owner/repository");
+  for (const repository of ["../repo", "owner/..", "./repo"]) await expect(collectGitHubSource({ kind: "github", repository }, { fetch: fetcher })).rejects.toThrow("owner/repository");
+  for (const ref of ["..", ".", "branch/../private"]) await expect(collectGitHubSource({ kind: "github", repository: "owner/repo", ref }, { fetch: fetcher })).rejects.toThrow("bounded Git");
+  await expect(collectGitHubSource({ kind: "github", repository: "example/extension", directory: "../private" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] })).rejects.toThrow("traversal");
+  await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] })).rejects.toThrow("oversized");
 });
 
 test("excludes environment files and requires a v4 entrypoint", async () => {
   const { calls, fetcher } = fixture({ path: ".env" });
-  await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher })).rejects.toThrow("v4 extension.ts");
+  await expect(collectGitHubSource({ kind: "github", repository: "example/extension" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] })).rejects.toThrow("v4 extension.ts");
   expect(calls).toHaveLength(2);
 });

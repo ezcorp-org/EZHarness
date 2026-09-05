@@ -1,9 +1,15 @@
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, link, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestObject } from "../v4/blobs";
 import type { LifecycleActor } from "../v4";
+import * as egress from "../../search/egress";
+import type { GuardedFetchOptions } from "../../search/egress";
+
+const originalEgress = { ...egress };
+const guardedSourceFetch = egress.guardedFetch;
+mock.module("../../search/egress", () => ({ ...originalEgress, guardedFetch: (url: string, init: RequestInit, options: GuardedFetchOptions) => guardedSourceFetch(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }) }));
 
 let root: string;
 let local: string;
@@ -36,7 +42,7 @@ beforeEach(() => {
   configureGitHubSourceCredentials(async () => null);
   globalThis.fetch = originalFetch;
 });
-afterAll(async () => { globalThis.fetch = originalFetch; mock.restore(); await rm(root, { recursive: true, force: true }); });
+afterAll(async () => { globalThis.fetch = originalFetch; mock.restore(); mock.module("../../search/egress", () => originalEgress); await rm(root, { recursive: true, force: true }); });
 
 for (const kind of ["local", "bundled"] as const) test(`${kind}: preserves complete source without evaluating metadata or enabling execution`, async () => {
   const result = await importExtensionSource(actor, kind === "local" ? { kind, path: local } : { kind, name: "bundled" });
@@ -63,6 +69,17 @@ test("relative paths, files and symlink aliases cannot become local source roots
   await symlink(local, alias);
   for (const path of ["relative", join(local, "extension.ts"), alias]) await expect(importExtensionSource(actor, { kind: "local", path })).rejects.toThrow("regular source directory");
   expect(workspace).not.toHaveBeenCalled();
+});
+
+test("hard-linked host files cannot enter an imported workspace", async () => {
+  const secret = join(root, "outside-source-secret");
+  const linked = join(local, "linked-source.ts");
+  await writeFile(secret, "host-only-content");
+  await link(secret, linked);
+  try {
+    await expect(importExtensionSource(actor, { kind: "local", path: local })).rejects.toThrow("Hard-linked");
+    expect(workspace).not.toHaveBeenCalled();
+  } finally { await rm(linked); }
 });
 
 test("missing or ambiguous bundled names cannot stage another extension", async () => {
@@ -98,7 +115,7 @@ test("GitHub import pins collection and uses only an explicit scoped source cred
   }) as unknown as typeof fetch;
   await importExtensionSource(actor, { kind: "github", repository: "owner/repo", ref: "main" });
   expect(seen).toHaveLength(3);
-  expect(seen.every((request) => request.url.startsWith("https://api.github.com/repos/owner/repo/") && request.authorization === "Bearer fixture-scoped-token")).toBe(true);
+  expect(seen.every((request) => request.url.startsWith("https://93.184.216.34/repos/owner/repo/") && request.authorization === "Bearer fixture-scoped-token")).toBe(true);
   expect(JSON.stringify(workspace.mock.calls[0]![1].files)).not.toContain("fixture-scoped-token");
 });
 
