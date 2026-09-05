@@ -154,7 +154,7 @@ export function createScanner({ videoEl, onText, onError, onStop, bridge = canva
       const requested = ++generation;
       try {
         const result = await bridge.request("camera.start", {});
-        if (typeof result?.sessionId !== "string" || result.sessionId.length > 128) throw new Error("Invalid camera session.");
+        if (!result || typeof result !== "object" || !("sessionId" in result) || typeof result.sessionId !== "string" || result.sessionId.length > 128) throw new Error("Invalid camera session.");
         if (requested !== generation) {
           await bridge.request("camera.stop", { sessionId: result.sessionId });
           return;
