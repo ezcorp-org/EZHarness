@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { users } from "../db/schema";
-import { getExtensionDeliveryQueue, getExtensionLifecycle } from "./extension-lifecycle-service";
+import { getExtensionDeliveryQueue, getExtensionLifecycle, recoverExtensionLifecycle } from "./extension-lifecycle-service";
+import { ReleaseProcess } from "./release-process";
 
 mockDbConnection();
 
@@ -29,6 +30,9 @@ test("production lifecycle edits and empty delivery polling work offline while b
     expect(result.state).toBe("failed");
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "runner_unconfigured" }));
     expect(Object.keys((await lifecycle.inspect(actor, created.installation.id)).releases)).toHaveLength(0);
+    await recoverExtensionLifecycle();
+    expect((await lifecycle.inspect(actor, created.installation.id)).operations[operation.id]?.state).toBe("failed");
+    await expect(new ReleaseProcess(created.installation.id).call("tools/list", {})).rejects.toMatchObject({ code: "RELEASE_NOT_ACTIVE" });
   } finally {
     for (const [key, value] of [["EZCORP_EXTENSION_RUNNER_SOCKET", previous.socket], ["EZCORP_EXTENSION_RUNNER_TOKEN", previous.token], ["EZCORP_EXTENSION_BLOB_ROOT", previous.blobs]] as const) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
     await closeTestDb();
