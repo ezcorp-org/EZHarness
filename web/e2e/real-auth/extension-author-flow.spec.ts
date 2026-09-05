@@ -41,6 +41,12 @@ test("nested workspace → isolated build → exact human approval → activatio
   expect(active.installation.enabled).toBe(true);
   expect(active.installation.activeReleaseId).toBe(Object.values(state.releases)[0]!.id);
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/extensions");
+  const card = page.locator(`[data-testid="ext-card"][data-ext-id="${created.installation.id}"]`);
+  await expect(card).toBeVisible();
+  await expect(card.getByRole("button", { name: "Disable", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Import source", exact: true })).toBeVisible();
+  await captureEvidence(page, testInfo, "extensions-approved-installation-list", { fullPage: true });
   await page.goto(`/extensions/${created.installation.id}`);
   await expect(page.getByTestId("review-extension-release")).toBeVisible();
   await page.getByTestId("release-permissions").scrollIntoViewIfNeeded();

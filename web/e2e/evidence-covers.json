@@ -17,7 +17,12 @@
     "web/src/routes/(app)/extensions/project-proposals/**"
   ],
   "web/e2e/real-auth/extension-author-flow.spec.ts": [
-    "web/src/routes/(app)/extensions/author/+page.svelte"
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/extensions/UninstallDialog.svelte",
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/hub.spec.ts": [
+    "web/src/lib/components/hub/HubPageView.svelte"
   ],
   "web/e2e/real-auth/extension-binary-assets.spec.ts": [
     "web/src/routes/(app)/extensions/author/+page.svelte",
