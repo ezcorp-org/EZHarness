@@ -46,9 +46,9 @@ describe("isBundledExtensionName — task-tracking is recognized", () => {
 
 test("task-tracking actual v4 worker preserves its complete tool catalog and declared capabilities", async () => {
   const manifest = await discoverFirstPartyManifest(join(getProjectRoot(), "docs/extensions/examples/task-tracking"));
-  expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(["task_add","task_assign","task_complete","task_fail","task_list","task_list_agents","task_plan","task_resume","task_set_dependencies","task_start","task_stop","task_subtask_toggle","task_unassign","task_update"]);
+  expect((manifest.tools ?? []).map((tool) => tool.name).sort()).toEqual(["task_add","task_assign","task_complete","task_fail","task_list","task_list_agents","task_plan","task_resume","task_set_dependencies","task_start","task_stop","task_subtask_toggle","task_unassign","task_update"]);
   const entry = resolveBundledExtensions({}).find((candidate) => candidate.name === "task-tracking")!;
   const { grantedAt, ...capabilities } = entry.permissions;
-  expect(manifest.permissions).toEqual(capabilities);
+  expect(manifest.permissions as unknown).toEqual(capabilities);
   expect(manifest.version.startsWith("1.")).toBe(true);
 });

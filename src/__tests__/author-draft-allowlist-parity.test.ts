@@ -25,7 +25,7 @@ describe("draft import compatibility and v4 authoring boundary", () => {
   test("the bundled diagnostic has no authority to edit drafts or install releases", async () => {
     const manifest = await discoverFirstPartyManifest(join(root, "docs/extensions/examples/extension-author"));
     expect(manifest.permissions).toEqual({});
-    expect(manifest.tools.map((tool) => tool.name)).toEqual(["migration_status"]);
+    expect((manifest.tools ?? []).map((tool) => tool.name)).toEqual(["migration_status"]);
     expect(manifest.smokeTest?.expect?.textIncludes).toBe("EXTENSION_AUTHOR_MOVED_TO_HOST");
   });
 

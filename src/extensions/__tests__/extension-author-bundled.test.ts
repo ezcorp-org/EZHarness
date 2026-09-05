@@ -32,7 +32,7 @@ describe("extension-author migration diagnostic wiring", () => {
 
   test("no extension-side create, modify, validate, or install tool survives", async () => {
     const manifest = await discoverFirstPartyManifest(extensionDirectory);
-    expect(manifest.tools.map((tool) => tool.name)).toEqual(["migration_status"]);
+    expect((manifest.tools ?? []).map((tool) => tool.name)).toEqual(["migration_status"]);
   });
 
   test("the worker cannot request host capabilities", async () => {

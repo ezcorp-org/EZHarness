@@ -8,7 +8,7 @@ test("web-search bundled source requests only the shared host search capability"
   expect(entry?.path).toBe("docs/extensions/examples/web-search");
   const manifest = await discoverFirstPartyManifest(join(getProjectRoot(), entry!.path));
   expect(manifest.permissions).toEqual({ search: "inherit" });
-  expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(["read-url", "search-web"]);
+  expect((manifest.tools ?? []).map((tool) => tool.name).sort()).toEqual(["read-url", "search-web"]);
   expect(entry?.permissions.search).toBe("inherit");
   for (const capability of ["network", "env", "filesystem"] as const) {
     expect(manifest.permissions[capability]).toBeUndefined();

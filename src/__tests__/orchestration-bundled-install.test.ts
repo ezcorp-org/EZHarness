@@ -52,9 +52,9 @@ describe("isBundledExtensionName — orchestration is recognized", () => {
 
 test("orchestration actual v4 worker preserves its complete tool catalog and declared capabilities", async () => {
   const manifest = await discoverFirstPartyManifest(join(getProjectRoot(), "docs/extensions/examples/orchestration"));
-  expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(["collect_agent_result","invoke_agent","send_to_agent"]);
+  expect((manifest.tools ?? []).map((tool) => tool.name).sort()).toEqual(["collect_agent_result","invoke_agent","send_to_agent"]);
   const entry = resolveBundledExtensions({}).find((candidate) => candidate.name === "orchestration")!;
   const { grantedAt, ...capabilities } = entry.permissions;
-  expect(manifest.permissions).toEqual(capabilities);
+  expect(manifest.permissions as unknown).toEqual(capabilities);
   expect(manifest.version.startsWith("1.")).toBe(true);
 });

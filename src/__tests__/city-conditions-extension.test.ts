@@ -179,7 +179,7 @@ describe("manifest", () => {
         input: smoke.input,
         context: { invocationId: "city-smoke", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "project", token: "fixture", deadline: Date.now() + 5000 },
       }) as ToolCallResult;
-      expect(result.isError).toBe(smoke.expect?.isError);
+      expect(result.isError === true).toBe(smoke.expect?.isError === true);
       expect(result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n")).toContain(expectedText);
     });
   }, 30_000);
