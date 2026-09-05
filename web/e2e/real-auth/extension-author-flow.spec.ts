@@ -26,10 +26,12 @@ test("nested workspace → isolated build → exact human approval → activatio
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
   await expect(approve).toBeDisabled();
   await page.getByText("Permissions and test evidence", { exact: true }).click();
+  await approve.scrollIntoViewIfNeeded();
   await captureEvidence(page, testInfo, "extension-release-desktop", { fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await approve.scrollIntoViewIfNeeded();
   await captureEvidence(page, testInfo, "extension-release-mobile", { fullPage: true });
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
