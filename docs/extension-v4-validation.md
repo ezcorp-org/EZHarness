@@ -24,6 +24,8 @@ Commands use the repository's Bun 1.3.14 environment. Backend tests run through 
 | `bun run typecheck` | Backend, web, backend-test and E2E-test checks pass | `/tmp/ez-types45.log` |
 | `bun run --cwd web check` | Zero errors; 13 warnings in five files | `/tmp/ez-svelte-final2.log` |
 | `bun run lint` | Zero errors; 105 warnings and 11 informational findings | `/tmp/ez-lint20.log` |
+| `bun run test` | 24,398 tests in 1,546 files pass | `/tmp/ez-extension-v4-backend13.log` |
+| `bash scripts/test-web.sh` | 4,125 tests in 222 files pass | `/tmp/ez-extension-v4-web10.log` |
 | `bun run --cwd web test:component` | 7,024 tests in 543 files pass | `/tmp/ez-extension-v4-vitest11.log` |
 | `bun run build` | Production build passes, including final preview CSS | `/tmp/ez-v4-build-final5.log` |
 | `bun run test:coverage` | 25,657 tests pass; zero failures; 1,239 enforced files pass | `/tmp/ez-coverage-parent-final3.log` |
@@ -33,7 +35,7 @@ Commands use the repository's Bun 1.3.14 environment. Backend tests run through 
 | Actual authenticated extension browser lane | All nine specifications pass together | `/tmp/ez-extension-v4-real-final10.log` |
 | Source lock verification | Pass | `/tmp/ez-source-lock-final.log` |
 
-The full backend and plain-web wrapper results are recorded in `gates/final-validation.md`. The coverage run includes the newly wired tests in the required pass/fail set; the shared file list prevents a coverage-only test from losing its pass/fail gate.
+The coverage run includes the newly wired tests in the required pass/fail set; the shared file list prevents a coverage-only test from losing its pass/fail gate.
 
 The SDK passes 1,023 tests with 2,332 assertions. The contract package passes 22 tests with 278 assertions. Both build successfully. The runner passes 36 tests with 266 assertions; the final stricter host-path probe also passes separately.
 

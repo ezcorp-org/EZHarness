@@ -4,10 +4,10 @@
   CHECK: bun run typecheck && bun run --cwd web check
   EXPECT: 0 errors
   EVIDENCE: `/tmp/ez-types45.log` passes all four typecheck lanes. `/tmp/ez-svelte-final2.log` reports zero errors and 13 warnings in five files.
-- [ ] G2: Backend and plain web tests pass.
+- [x] G2: Backend and plain web tests pass.
   CHECK: bun run test && bash scripts/test-web.sh
   EXPECT: 0 fail
-  EVIDENCE: pending
+  EVIDENCE: `/tmp/ez-extension-v4-backend13.log`: 24,398 pass, zero failures, 1,546 files. `/tmp/ez-extension-v4-web10.log`: 4,125 pass, zero failures, 222 files. These runs include the final shared test-lane membership.
 - [x] G3: Web component tests pass.
   CHECK: bun run --cwd web test:component
   EXPECT: Test Files
