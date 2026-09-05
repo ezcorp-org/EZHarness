@@ -46,6 +46,8 @@
 
 import { sql } from "drizzle-orm";
 import { logger } from "../logger";
+import type { EventBus } from "../runtime/events";
+import type { AgentEvents } from "../types";
 import { getDb } from "../db/connection";
 import {
   TTL_CONFIG,
@@ -152,6 +154,7 @@ function isDisabledByKillSwitch(): boolean {
 // ── Options + class ──────────────────────────────────────────────────
 
 export interface HostMaintenanceDaemonOptions {
+  getBus?: () => EventBus<AgentEvents> | null | undefined;
   /** Wake interval (ms). Default `EZCORP_PERM_SWEEP_INTERVAL_MS` env or
    *  3_600_000 (1h). Clamped to ≥1000ms. */
   wakeIntervalMs?: number;
@@ -218,6 +221,7 @@ const NO_TRIGGER_SWEEP: SweepAllResult = {
 
 export class HostMaintenanceDaemon {
   private readonly opts: {
+    getBus?: () => EventBus<AgentEvents> | null | undefined;
     wakeIntervalMs: number;
     now: () => number;
     skipLockfile: boolean;
@@ -245,6 +249,7 @@ export class HostMaintenanceDaemon {
     // the resolved value is clamped to MIN_WAKE_MS.
     const requested = options?.wakeIntervalMs ?? getSweepIntervalMs();
     this.opts = {
+      ...(options?.getBus ? { getBus: options.getBus } : {}),
       wakeIntervalMs: Math.max(MIN_WAKE_MS, requested),
       now: options?.now ?? (() => Date.now()),
       skipLockfile: options?.skipLockfile ?? false,
@@ -501,6 +506,12 @@ export class HostMaintenanceDaemon {
         await db.transaction((transaction: import("../db/migrations/types").MigrationDb) => purgeExpiredEventReceipts(transaction, now));
       } catch (cause) {
         log.warn("tick: event receipt cleanup failed", { error: String(cause), tickCount: this.tickCount });
+      }
+      try {
+        const { reconcileInterruptedAssignments } = await import("../runtime/boot-reconcile-assignments");
+        await reconcileInterruptedAssignments(this.opts.getBus?.() ?? undefined, 50);
+      } catch (cause) {
+        log.warn("tick: task assignment reconciliation failed", { error: String(cause), tickCount: this.tickCount });
       }
       return { ...outcome, approvalTimeouts, triggerSweep };
     } catch (err) {

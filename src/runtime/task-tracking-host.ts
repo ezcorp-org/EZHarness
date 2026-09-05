@@ -4,9 +4,8 @@
 // task-panel API routes + `start-assignment.ts` + the spawn-assignment
 // handler used to reach into that built-in's in-memory Map of
 // `TaskSnapshot`s and its `emitSnapshot` / `persistToDb` helpers. After
-// the cutover, state lives inside the extension subprocess and is
-// persisted via the host's `extension_storage` table under the
-// task-tracking extension's real DB id.
+// the cutover, the host commits task state and matching extension deliveries
+// together in `extension_storage` under the task-tracking extension's id.
 //
 // This file is the one server-side place that reaches into that
 // storage table. Consumers call the exposed helpers instead of reaching
@@ -19,7 +18,14 @@
 // simply re-export so "host code" has a stable import path that doesn't
 // reach into `docs/extensions/examples/...`.
 
-import { getDb } from "../db/connection";
+import { getDb, type DbTransaction } from "../db/connection";
+import { sql } from "drizzle-orm";
+import { assertConversationEventOwner, emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../extensions/domain-event-outbox";
+import type { AgentEvents } from "../types";
+import type { EventBus } from "./events";
+import { LifecycleError } from "../extensions/v4/types";
+import { verifyInvocationLocks } from "../extensions/runtime-locks";
+import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import { conversationExtensions } from "../db/schema";
 import { getExtensionByName } from "../db/queries/extensions";
 import {
@@ -63,6 +69,7 @@ export const STORAGE_KEY = "tasks";
 // ── Extension-id resolution (cached) ────────────────────────────────
 
 let cachedExtId: string | undefined;
+const snapshotRevisions = new WeakMap<object, string>();
 
 /**
  * Thrown when the bundled task-tracking extension has no row yet.
@@ -121,11 +128,13 @@ export async function getTaskSnapshotForConversation(
   const row = await getStorageValue(extId, "conversation", conversationId, STORAGE_KEY);
   if (!row?.value) return undefined;
   const v = row.value as Partial<PersistedSnapshot> & { activeTaskId?: string };
-  return {
+  const snapshot: TaskSnapshot = {
     conversationId,
     tasks: Array.isArray(v.tasks) ? v.tasks : [],
     ...(v.activeTaskId !== undefined ? { activeTaskId: v.activeTaskId } : {}),
   };
+  snapshotRevisions.set(snapshot, await sha256(canonicalJson(row.value)));
+  return snapshot;
 }
 
 /**
@@ -136,15 +145,62 @@ export async function getTaskSnapshotForConversation(
 export async function writeTaskSnapshotForConversation(
   conversationId: string,
   snapshot: Pick<TaskSnapshot, "tasks" | "activeTaskId">,
+  options: { bus?: EventBus<AgentEvents>; principalId?: string; expectedRevision?: string; assignments?: Omit<AgentEvents["task:assignment_update"], "conversationId">[] } = {},
 ): Promise<void> {
+  const frozen = JSON.parse(JSON.stringify(snapshot)) as typeof snapshot;
+  const assignments = JSON.parse(JSON.stringify(options.assignments ?? [])) as NonNullable<typeof options.assignments>;
+  const expectedRevision = options.expectedRevision ?? snapshotRevisions.get(snapshot);
   const extId = await getTaskTrackingExtensionId();
-  const value: PersistedSnapshot = {
-    tasks: snapshot.tasks,
-    schemaVersion: 1,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  };
+  const events = await getDb().transaction(async (transaction: DbTransaction) => {
+    await verifyInvocationLocks(transaction);
+    await transaction.execute(sql`SELECT id FROM conversations WHERE id = ${conversationId} FOR UPDATE`);
+    if (options.principalId !== undefined) await assertConversationEventOwner(transaction, options.principalId, conversationId);
+    if (expectedRevision !== undefined) {
+      const current = await getStorageValue(extId, "conversation", conversationId, STORAGE_KEY, transaction);
+      if (expectedRevision !== await sha256(canonicalJson(current?.value ?? null))) throw new LifecycleError("task_conflict", "Task state changed; reload before retrying.");
+    }
+    return persistTaskSnapshot(transaction, extId, conversationId, frozen, assignments);
+  });
+  snapshotRevisions.set(snapshot, await sha256(canonicalJson(taskSnapshotValue(frozen))));
+  for (const event of events) emitPersistedDomainEvent(options.bus, event);
+}
+
+function taskSnapshotValue(snapshot: Pick<TaskSnapshot, "tasks" | "activeTaskId">): PersistedSnapshot {
+  return { tasks: snapshot.tasks, schemaVersion: 1, ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}) };
+}
+
+async function persistTaskSnapshot(transaction: DbTransaction, extId: string, conversationId: string, snapshot: Pick<TaskSnapshot, "tasks" | "activeTaskId">, assignments: Omit<AgentEvents["task:assignment_update"], "conversationId">[]): Promise<DomainExtensionEvent[]> {
+  for (const update of assignments) {
+    const task = snapshot.tasks.find(candidate => candidate.id === update.taskId);
+    const assignment = task?.assignments.find(candidate => candidate.id === update.assignment.id) ?? task?.subtasks.flatMap(subtask => subtask.assignments ?? []).find(candidate => candidate.id === update.assignment.id);
+    if (!assignment || canonicalJson(assignment) !== canonicalJson(update.assignment)) throw new LifecycleError("invalid_task_update", "Assignment event must match committed task state.");
+  }
+  const value = taskSnapshotValue(snapshot);
   const sizeBytes = Buffer.byteLength(JSON.stringify(value), "utf-8");
-  await setStorageValue(extId, "conversation", conversationId, STORAGE_KEY, value, false, sizeBytes);
+  await setStorageValue(extId, "conversation", conversationId, STORAGE_KEY, value, false, sizeBytes, undefined, transaction);
+  const events: DomainExtensionEvent[] = [{ id: crypto.randomUUID(), type: "task:snapshot", conversationId, payload: { ...snapshot, conversationId } }, ...assignments.map(assignment => ({ id: crypto.randomUUID(), type: "task:assignment_update" as const, conversationId, payload: { ...assignment, conversationId } }))];
+  for (const event of events) await publishDomainEvent(transaction, event);
+  return events;
+}
+
+export async function writeTaskAssignmentForConversation(conversationId: string, update: Omit<AgentEvents["task:assignment_update"], "conversationId">, bus?: EventBus<AgentEvents>, principalId?: string): Promise<void> {
+  const frozen = JSON.parse(JSON.stringify(update)) as typeof update;
+  const extId = await getTaskTrackingExtensionId();
+  const events = await getDb().transaction(async (transaction: DbTransaction) => {
+    await verifyInvocationLocks(transaction);
+    await transaction.execute(sql`SELECT id FROM conversations WHERE id = ${conversationId} FOR UPDATE`);
+    const row = await getStorageValue(extId, "conversation", conversationId, STORAGE_KEY, transaction);
+    if (principalId !== undefined) await assertConversationEventOwner(transaction, principalId, conversationId);
+    const snapshot = row?.value as PersistedSnapshot | undefined;
+    const task = snapshot?.tasks?.find(candidate => candidate.id === frozen.taskId);
+    if (!task) throw new LifecycleError("task_not_found", "Assignment task does not exist.");
+    const assignments = task.assignments.find(candidate => candidate.id === frozen.assignment.id) ? task.assignments : task.subtasks.find(subtask => subtask.assignments?.some(candidate => candidate.id === frozen.assignment.id))?.assignments;
+    const existing = assignments?.find(candidate => candidate.id === frozen.assignment.id);
+    if (!existing) throw new LifecycleError("assignment_not_found", "Assignment does not exist.");
+    Object.assign(existing, frozen.assignment);
+    return persistTaskSnapshot(transaction, extId, conversationId, snapshot!, [frozen]);
+  });
+  for (const event of events) emitPersistedDomainEvent(bus, event);
 }
 
 /**

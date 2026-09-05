@@ -6,7 +6,6 @@ import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getExecutor } from "$lib/server/context";
 import {
-  broadcastAssignmentUpdate,
   findAssignment,
   loadSnapshotAndFindTask,
   writeAndBroadcastSnapshot,
@@ -69,8 +68,7 @@ const postHandler: RequestHandler = async ({ params, locals }) => {
     if (snapshot.activeTaskId === task.id) snapshot.activeTaskId = undefined;
   }
 
-  await writeAndBroadcastSnapshot(params.id, snapshot);
-  broadcastAssignmentUpdate(params.id, params.taskId, assignment);
+  await writeAndBroadcastSnapshot(params.id, snapshot, [{ taskId: params.taskId, assignment }]);
 
   return json({ stopped: true, cancelled, assignment });
 };

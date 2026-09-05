@@ -15,7 +15,7 @@
  * to streamChat (the options bundle).
  */
 
-import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -65,6 +65,12 @@ mock.module("../db/queries/settings", () => ({
 }));
 
 // Dynamic import AFTER mocks are installed.
+const taskState = await import("../runtime/task-tracking-host");
+const publication = spyOn(taskState, "writeTaskSnapshotForConversation").mockImplementation(async (conversationId, snapshot, options) => {
+  options?.bus?.emit("task:snapshot", { ...structuredClone(snapshot), conversationId });
+  for (const update of options?.assignments ?? []) options?.bus?.emit("task:assignment_update", { ...structuredClone(update), conversationId });
+});
+afterAll(() => publication.mockRestore());
 const {
   startAssignment,
   extractFullText,
@@ -467,6 +473,7 @@ describe("startAssignment — workingDir plumbing", () => {
       run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
       conversationId: subConversationId,
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(calls.length).toBe(2);
     expect(calls[1]!.options.workingDir).toBe("/tmp/wt/run_abc");
@@ -611,6 +618,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(assignment.status).toBe("failed");
     expect(assignment.resultPreview).toBe("Run was cancelled");
@@ -636,6 +644,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       conversationId: "conv-parent",
       runId: "some-other-run",
     } as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(assignment.status).toBe("running");
 
     const longErr = "x".repeat(500);
@@ -645,6 +654,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       conversationId: "conv-parent",
       runId: agentRunId,
     } as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(assignment.status).toBe("failed");
     expect(assignment.failedAt).toBeDefined();
@@ -665,6 +675,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       error: { code: 500 },
       conversationId: "conv-parent",
     } as unknown as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(assignment.status).toBe("failed");
     expect(assignment.resultPreview).toBe(String({ code: 500 }).slice(0, 200));
@@ -695,6 +706,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // The listener saw status !== "running" and left the assignment alone.
     expect(assignment.status).toBe("assigned");
@@ -738,6 +750,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // Branch (3) saw status !== "running" and preserved the resumable
     // Stop state instead of clobbering it back to "completed".
@@ -770,6 +783,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(assignment.status).toBe("failed");
     expect(assignment.resultPreview).toBe("Run was cancelled");
 
@@ -789,6 +803,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
       },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(assignment.status).toBe(cancelledSnapshot.status);
     expect(assignment.resultPreview).toBe(cancelledSnapshot.resultPreview);
     expect(assignment.completedAt).toBeUndefined();
@@ -880,6 +895,7 @@ describe("startAssignment — parentRunId child registration", () => {
       run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(calls).toHaveLength(2);
     const newRunId = calls[1]!.options.runId as string;
@@ -966,7 +982,7 @@ describe("startAssignment — P4 run-mode registration", () => {
     // A no-done-signal completion fires an autonomous cycle → a NEW run id that
     // must ALSO register the autonomous mode (a mid-run steer of ANY cycle would
     // break the run-boundary invariant, so every cycle is guarded).
-    emitComplete(bus, agentRunId, "still working");
+    await emitComplete(bus, agentRunId, "still working");
     expect(calls).toHaveLength(2);
     const cycleRunId = calls[1]!.options.runId as string;
     expect(cycleRunId).not.toBe(agentRunId);
@@ -1037,7 +1053,7 @@ describe("startAssignment — detached child outlives terminal parent", () => {
 
     // Cycle boundary: run completes with no sentinel → autonomous continuation
     // mints a new run whose registerChildRun now fails (parent gone).
-    emitComplete(bus, agentRunId, "still working");
+    await emitComplete(bus, agentRunId, "still working");
 
     // The child CONTINUED — a new cycle streamed despite the dead parent.
     expect(calls).toHaveLength(2);
@@ -1109,7 +1125,7 @@ describe("startAssignment — detached child outlives terminal parent", () => {
 
     // Parent terminalizes; the cycle's registerChildRun returns false.
     registerChildRunResult = false;
-    emitComplete(bus, agentRunId, "still working");
+    await emitComplete(bus, agentRunId, "still working");
 
     // The sync child was NOT started for the cycle — it force-failed.
     expect(calls).toHaveLength(1);
@@ -1170,7 +1186,7 @@ describe("startAssignment — emitTerminal double-fire guard", () => {
 
     // First terminal: a bus run:complete fires emitTerminal(true) and cleanup()
     // unsubscribes the sibling listeners.
-    emitComplete(bus, agentRunId, "done");
+    await emitComplete(bus, agentRunId, "done");
     expect(completes).toHaveLength(1);
     expect(completes[0]!.success).toBe(true);
     // One completion-notify enqueued for the parent.
@@ -1230,7 +1246,7 @@ describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () =>
     // Cycle 1: initial run completes with no sentinel → autonomous continuation
     // mints a new run. quota.release(agentRunId) fires first, THEN the
     // transition's onCycleRunIdChange swaps → the slot follows the live run.
-    emitComplete(bus, agentRunId, "still working");
+    await emitComplete(bus, agentRunId, "still working");
     expect(calls).toHaveLength(2);
     const newRunId = calls[1]!.options.runId as string;
     expect(newRunId).not.toBe(agentRunId);
@@ -1245,11 +1261,12 @@ describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () =>
       run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(quota._concurrentCount(ext)).toBe(1);
 
     // The live run completes → cap reached → terminal (no further cycle) →
     // the slot is released exactly once.
-    emitComplete(bus, newRunId, "done enough");
+    await emitComplete(bus, newRunId, "done enough");
     expect(calls).toHaveLength(2); // no further continuation
     expect(quota._concurrentCount(ext)).toBe(0);
     quota.dispose();
@@ -1387,6 +1404,7 @@ describe("startAssignment — goal pinning across cycles", () => {
       run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toBe("keep going please");
@@ -1433,7 +1451,7 @@ describe("startAssignment — full result on the assignment_update event", () =>
     const { agentRunId } = await startAssignment(opts);
 
     const longOutput = "Z".repeat(1000);
-    emitComplete(bus, agentRunId, longOutput);
+    await emitComplete(bus, agentRunId, longOutput);
 
     const terminal = updates.at(-1)!;
     expect(terminal.resultFull).toBe(longOutput);
@@ -1458,6 +1476,7 @@ describe("startAssignment — full result on the assignment_update event", () =>
       conversationId: "conv-parent",
       runId: agentRunId,
     } as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(assignment.resultPreview).toBe(longErr.slice(0, 200));
     expect(updates.at(-1)!.resultFull).toBe(longErr);
@@ -1474,7 +1493,7 @@ describe("startAssignment — full result on the assignment_update event", () =>
     const { agentRunId } = await startAssignment(opts);
 
     // output is a non-previewable object → no preview, no resultFull.
-    emitComplete(bus, agentRunId, { some: "object" });
+    await emitComplete(bus, agentRunId, { some: "object" });
 
     expect(updates.at(-1)!.resultFull).toBeUndefined();
   });
@@ -1482,7 +1501,7 @@ describe("startAssignment — full result on the assignment_update event", () =>
 
 // ── 9. Autonomous self-continuation ────────────────────────────────
 
-function emitComplete(
+async function emitComplete(
   bus: EventBusType<AgentEvents>,
   runId: string,
   output: unknown,
@@ -1495,6 +1514,7 @@ function emitComplete(
     },
     conversationId: "conv-parent",
   } as AgentEvents["run:complete"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 }
 
 describe("startAssignment — autonomous continuation", () => {
@@ -1505,7 +1525,7 @@ describe("startAssignment — autonomous continuation", () => {
     const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-a" });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "did the thing");
+    await emitComplete(bus, agentRunId, "did the thing");
 
     expect(calls).toHaveLength(1); // no recursion
     expect(assignment.status).toBe("completed");
@@ -1524,7 +1544,7 @@ describe("startAssignment — autonomous continuation", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "still working on it");
+    await emitComplete(bus, agentRunId, "still working on it");
 
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
@@ -1548,7 +1568,7 @@ describe("startAssignment — autonomous continuation", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "shipped it <<TASK_DONE>>");
+    await emitComplete(bus, agentRunId, "shipped it <<TASK_DONE>>");
 
     expect(calls).toHaveLength(1);
     expect(assignment.status).toBe("completed");
@@ -1566,7 +1586,7 @@ describe("startAssignment — autonomous continuation", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "cannot proceed <<TASK_BLOCKED: missing api key>>");
+    await emitComplete(bus, agentRunId, "cannot proceed <<TASK_BLOCKED: missing api key>>");
 
     expect(assignment.status).toBe("completed");
     expect(assignment.resultPreview).toBe("[blocked] missing api key cannot proceed");
@@ -1584,12 +1604,12 @@ describe("startAssignment — autonomous continuation", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Cycle 1: 0 < 1 → recurses.
-    emitComplete(bus, agentRunId, "round one");
+    await emitComplete(bus, agentRunId, "round one");
     expect(calls).toHaveLength(2);
     expect(assignment.autonomousCycle).toBe(1);
 
     // Cycle 2: autoCycle(1) < maxCycles(1) is false → terminal note.
-    emitComplete(bus, assignment.agentRunId!, "round two");
+    await emitComplete(bus, assignment.agentRunId!, "round two");
     expect(calls).toHaveLength(2); // no further recursion
     expect(assignment.status).toBe("completed");
     expect(assignment.resultPreview).toBe("[stopped after 1 autonomous cycle] round two");
@@ -1610,7 +1630,7 @@ describe("startAssignment — autonomous continuation", () => {
       messageId: "u1", content: "actually do X instead",
       createdAt: new Date().toISOString(),
     });
-    emitComplete(bus, agentRunId, "no sentinel here");
+    await emitComplete(bus, agentRunId, "no sentinel here");
 
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toBe("actually do X instead");
@@ -1636,8 +1656,9 @@ describe("startAssignment — autonomous continuation", () => {
       run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
     // Listeners cleaned up → a late run:complete must not re-loop.
-    emitComplete(bus, agentRunId, "late output");
+    await emitComplete(bus, agentRunId, "late output");
 
     expect(calls).toHaveLength(1);
     expect(assignment.autonomousCycle).toBeUndefined();
@@ -1673,6 +1694,7 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
       run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "x" } },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(calls).toHaveLength(2);
     expect(calls[1]!.options.system).toBe("you are alice");
@@ -1690,7 +1712,7 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "no sentinel, would have looped if enabled");
+    await emitComplete(bus, agentRunId, "no sentinel, would have looped if enabled");
 
     expect(calls).toHaveLength(1); // no autonomous recursion
     expect(assignment.status).toBe("completed");
@@ -1763,7 +1785,7 @@ describe("startAssignment — structured output", () => {
     expect(calls[0]!.userMessage).toContain("## Required Output Format");
     expect(calls[0]!.userMessage).toContain('"answer"');
 
-    emitComplete(bus, agentRunId, 'All set.\n```json\n{"answer":"42"}\n```');
+    await emitComplete(bus, agentRunId, 'All set.\n```json\n{"answer":"42"}\n```');
 
     expect(calls).toHaveLength(1); // no re-prompt
     const terminal = updates.at(-1)!;
@@ -1789,7 +1811,7 @@ describe("startAssignment — structured output", () => {
         outputSchema: SCHEMA,
       });
       const { agentRunId } = await startAssignment(opts);
-      emitComplete(bus, agentRunId, output);
+      await emitComplete(bus, agentRunId, output);
       expect(updates.at(-1)!.structuredResult).toEqual(expected);
     }
   });
@@ -1812,7 +1834,7 @@ describe("startAssignment — structured output", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Cycle 1: schema-invalid JSON (missing required "answer") → re-prompt.
-    emitComplete(bus, agentRunId, '{"wrong":"shape"}');
+    await emitComplete(bus, agentRunId, '{"wrong":"shape"}');
     expect(calls).toHaveLength(2);
     const newRunId = calls[1]!.options.runId as string;
     expect(newRunId).not.toBe(agentRunId);
@@ -1827,7 +1849,7 @@ describe("startAssignment — structured output", () => {
     expect(assignment.status).toBe("running");
 
     // Cycle 2: now valid → terminal with structuredResult, no further run.
-    emitComplete(bus, newRunId, '{"answer":"ok"}');
+    await emitComplete(bus, newRunId, '{"answer":"ok"}');
     expect(calls).toHaveLength(2);
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toEqual({ answer: "ok" });
@@ -1850,11 +1872,11 @@ describe("startAssignment — structured output", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Two re-prompts (MAX_SCHEMA_RETRIES = 2), then the third failure is terminal.
-    emitComplete(bus, agentRunId, '{"nope":1}');
+    await emitComplete(bus, agentRunId, '{"nope":1}');
     expect(calls).toHaveLength(2);
-    emitComplete(bus, assignment.agentRunId!, '{"still":"wrong"}');
+    await emitComplete(bus, assignment.agentRunId!, '{"still":"wrong"}');
     expect(calls).toHaveLength(3);
-    emitComplete(bus, assignment.agentRunId!, '{"final":"miss"}');
+    await emitComplete(bus, assignment.agentRunId!, '{"final":"miss"}');
     expect(calls).toHaveLength(3); // budget exhausted — no 4th run
 
     expect(assignment.status).toBe("completed");
@@ -1876,7 +1898,7 @@ describe("startAssignment — structured output", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "I finished but forgot to emit JSON.");
+    await emitComplete(bus, agentRunId, "I finished but forgot to emit JSON.");
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toContain("no JSON value found");
   });
@@ -1897,12 +1919,12 @@ describe("startAssignment — structured output", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Cycle 1: no sentinel → autonomous continues FIRST; schema not yet checked.
-    emitComplete(bus, agentRunId, "still working, no json yet");
+    await emitComplete(bus, agentRunId, "still working, no json yet");
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
 
     // Cycle 2: DONE sentinel + schema-valid JSON → autonomous stops, schema validates.
-    emitComplete(bus, assignment.agentRunId!, '<<TASK_DONE>>\n```json\n{"answer":"final"}\n```');
+    await emitComplete(bus, assignment.agentRunId!, '<<TASK_DONE>>\n```json\n{"answer":"final"}\n```');
     expect(calls).toHaveLength(2); // no further run
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toEqual({ answer: "final" });
@@ -1930,7 +1952,7 @@ describe("startAssignment — structured output", () => {
 
     // Cycle 1: DONE sentinel (autonomous stops) BUT invalid JSON → the schema
     // path fires exactly ONE correction cycle (not a continuation).
-    emitComplete(bus, agentRunId, '<<TASK_DONE>>\n{"wrong":"shape"}');
+    await emitComplete(bus, agentRunId, '<<TASK_DONE>>\n{"wrong":"shape"}');
     expect(calls).toHaveLength(2);
     expect(calls[1]!.userMessage).toContain("did not satisfy the required output schema");
     expect(calls[1]!.userMessage).not.toMatch(/Continue working toward the Pinned Objective/);
@@ -1940,7 +1962,7 @@ describe("startAssignment — structured output", () => {
     // Correction run: SENTINEL-LESS valid JSON. Without the in-flight gate,
     // branch (2) would treat the missing sentinel as "still working" and fire
     // a continuation, discarding this corrected output.
-    emitComplete(bus, assignment.agentRunId!, '{"answer":"fixed"}');
+    await emitComplete(bus, assignment.agentRunId!, '{"answer":"fixed"}');
     expect(calls).toHaveLength(2); // accepted — NO continuation dispatched
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toEqual({ answer: "fixed" });
@@ -1971,7 +1993,7 @@ describe("startAssignment — structured output", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, huge);
+    await emitComplete(bus, agentRunId, huge);
 
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResult).toBeUndefined();
@@ -2001,9 +2023,9 @@ describe("startAssignment — structured output", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Three invalid completions: initial + 2 corrective retries → exhausted.
-    emitComplete(bus, agentRunId, "not json at all");
-    emitComplete(bus, assignment.agentRunId!, "still not json");
-    emitComplete(bus, assignment.agentRunId!, "nope");
+    await emitComplete(bus, agentRunId, "not json at all");
+    await emitComplete(bus, assignment.agentRunId!, "still not json");
+    await emitComplete(bus, assignment.agentRunId!, "nope");
 
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResultError).toBeDefined();
@@ -2030,7 +2052,7 @@ describe("startAssignment — structured output", () => {
 
     // Invalid output (no sentinel matters: autonomous DONE + invalid JSON)
     // → correction cycle dispatched (schemaRepromptInFlight armed).
-    emitComplete(bus, agentRunId, "<<TASK_DONE>> not json");
+    await emitComplete(bus, agentRunId, "<<TASK_DONE>> not json");
     expect(calls).toHaveLength(2); // correction in flight
 
     // User steers while the correction is in flight → the correction run's
@@ -2040,7 +2062,7 @@ describe("startAssignment — structured output", () => {
       content: "actually, do something else",
       createdAt: new Date().toISOString(),
     });
-    emitComplete(bus, assignment.agentRunId!, `{"x": 1}`);
+    await emitComplete(bus, assignment.agentRunId!, `{"x": 1}`);
     // The pending-message branch won: a user-driven run started (3rd call).
     expect(calls).toHaveLength(3);
     expect(calls[2]!.userMessage).toBe("actually, do something else");
@@ -2048,7 +2070,7 @@ describe("startAssignment — structured output", () => {
     // The user run completes WITHOUT a sentinel: with the flag cleared,
     // the autonomous branch resumes (continuation fires) instead of being
     // suppressed by a stale re-prompt flag.
-    emitComplete(bus, assignment.agentRunId!, "made progress, not done yet");
+    await emitComplete(bus, assignment.agentRunId!, "made progress, not done yet");
     expect(calls).toHaveLength(4);
     expect(calls[3]!.userMessage).toMatch(/Continue working toward the Pinned Objective/);
   });
@@ -2076,7 +2098,7 @@ describe("startAssignment — agent:complete emission", () => {
     const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-ac1" });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "the full output");
+    await emitComplete(bus, agentRunId, "the full output");
 
     expect(events).toHaveLength(1);
     const e = events[0]!;
@@ -2106,6 +2128,7 @@ describe("startAssignment — agent:complete emission", () => {
       conversationId: "conv-parent",
       runId: agentRunId,
     } as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(events).toHaveLength(1);
     expect(events[0]!.success).toBe(false);
@@ -2127,6 +2150,7 @@ describe("startAssignment — agent:complete emission", () => {
       run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(events).toHaveLength(1);
     expect(events[0]!.success).toBe(false);
@@ -2149,6 +2173,7 @@ describe("startAssignment — agent:complete emission", () => {
       run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
       conversationId: "conv-parent",
     });
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(events).toHaveLength(0);
   });
 
@@ -2167,13 +2192,13 @@ describe("startAssignment — agent:complete emission", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Cycle 1: no sentinel → autonomous continuation mints a new run; NOT terminal.
-    emitComplete(bus, agentRunId, "cycle one");
+    await emitComplete(bus, agentRunId, "cycle one");
     expect(events).toHaveLength(0);
     const cycle2RunId = assignment.agentRunId!;
     expect(cycle2RunId).not.toBe(agentRunId);
 
     // Cycle 2: cap reached → terminal on the LIVE cycle run.
-    emitComplete(bus, cycle2RunId, "cycle two done");
+    await emitComplete(bus, cycle2RunId, "cycle two done");
     expect(events).toHaveLength(1);
     expect(events[0]!.runId).toBe(cycle2RunId);
     expect(events[0]!.agentRunId).toBe(cycle2RunId);
@@ -2234,7 +2259,7 @@ describe("startAssignment — background completion notify", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "the answer is 42");
+    await emitComplete(bus, agentRunId, "the answer is 42");
 
     expect(hasPending("conv-parent")).toBe(true);
     const [content, ...rest] = drainConvParent();
@@ -2264,6 +2289,7 @@ describe("startAssignment — background completion notify", () => {
       conversationId: "conv-parent",
       runId: agentRunId,
     } as AgentEvents["run:error"]);
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     const [content, ...rest] = drainConvParent();
     expect(rest).toHaveLength(0);
@@ -2286,7 +2312,7 @@ describe("startAssignment — background completion notify", () => {
 
     // resultPreview is itself already ≤200 chars, but assert the notify stays
     // bounded and terminates with the collect hint regardless.
-    emitComplete(bus, agentRunId, "Q".repeat(5000));
+    await emitComplete(bus, agentRunId, "Q".repeat(5000));
 
     const [content] = drainConvParent();
     expect(content).toBeDefined();
@@ -2312,7 +2338,7 @@ describe("startAssignment — background completion notify", () => {
     // notify's 400-char preview cap (the reason is prepended un-truncated), so
     // the notify must clip it and mark the clip with an ellipsis.
     const longReason = "R".repeat(600);
-    emitComplete(bus, agentRunId, `stuck here <<TASK_BLOCKED: ${longReason}>>`);
+    await emitComplete(bus, agentRunId, `stuck here <<TASK_BLOCKED: ${longReason}>>`);
 
     // Blocked terminates as completed (success), with a long preview.
     expect(assignment.status).toBe("completed");
@@ -2338,7 +2364,7 @@ describe("startAssignment — background completion notify", () => {
     const opts = baseOpts({ executor, bus, assignment, reuseSubConversationId: "sub-nfy4" });
     const { agentRunId } = await startAssignment(opts);
 
-    emitComplete(bus, agentRunId, "done, no notify");
+    await emitComplete(bus, agentRunId, "done, no notify");
 
     expect(events).toHaveLength(1); // agent:complete still emitted
     expect(hasPending("conv-parent")).toBe(false); // but no parent nudge

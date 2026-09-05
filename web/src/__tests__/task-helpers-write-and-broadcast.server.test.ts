@@ -16,15 +16,17 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { TaskSnapshot } from "$server/runtime/task-tracking-host";
+import { taskSnapshotPort } from "./helpers/task-state-port";
 
 const writeTaskSnapshotForConversation = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 const emit = vi.fn<(...args: unknown[]) => void>();
 const callOrder: string[] = [];
 
 vi.mock("$server/runtime/task-tracking-host", () => ({
-  writeTaskSnapshotForConversation: (...args: unknown[]) => {
+  writeTaskSnapshotForConversation: async (...args: Parameters<typeof taskSnapshotPort>) => {
     callOrder.push("write");
-    return writeTaskSnapshotForConversation(...args);
+    await writeTaskSnapshotForConversation(...args);
+    await taskSnapshotPort(...args);
   },
 }));
 
@@ -59,9 +61,10 @@ describe("writeAndBroadcastSnapshot — happy path", () => {
 
     expect(writeTaskSnapshotForConversation).toHaveBeenCalledTimes(1);
     expect(writeTaskSnapshotForConversation).toHaveBeenCalledWith("c1", {
+      conversationId: "c1",
       tasks: [],
       activeTaskId: "t1",
-    });
+    }, expect.objectContaining({ assignments: [] }));
 
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith("task:snapshot", {
@@ -95,7 +98,7 @@ describe("writeAndBroadcastSnapshot — activeTaskId conditional spread", () => 
       | undefined;
     expect(persisted).toBeDefined();
     expect("activeTaskId" in (persisted ?? {})).toBe(false);
-    expect(persisted).toEqual({ tasks: [] });
+    expect(persisted).toEqual({ conversationId: "c1", tasks: [] });
 
     const emitted = emit.mock.calls[0]?.[1] as
       | Record<string, unknown>
@@ -114,9 +117,10 @@ describe("writeAndBroadcastSnapshot — activeTaskId conditional spread", () => 
       activeTaskId: "",
     });
     expect(writeTaskSnapshotForConversation).toHaveBeenCalledWith("c1", {
+      conversationId: "c1",
       tasks: [],
       activeTaskId: "",
-    });
+    }, expect.objectContaining({ assignments: [] }));
     expect(emit).toHaveBeenCalledWith("task:snapshot", {
       conversationId: "c1",
       tasks: [],

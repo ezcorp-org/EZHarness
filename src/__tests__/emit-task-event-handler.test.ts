@@ -16,7 +16,7 @@
 // drizzle, mock only db/connection.
 
 import { test, expect, describe, beforeAll, afterAll, afterEach } from "bun:test";
-import { mock } from "bun:test";
+import { mock, spyOn } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -36,7 +36,10 @@ mock.module("../db/connection", () => ({
 
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { getDb } = await import("../db/connection");
-const { conversations, projects, conversationExtensions, users, auditLog, extensions } = await import("../db/schema");
+const { conversations, projects, projectMembers, conversationExtensions, users, auditLog, extensions } = await import("../db/schema");
+const { writeTaskSnapshotForConversation, _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
+const taskHost = await import("../runtime/task-tracking-host");
+const { LifecycleError } = await import("../extensions/v4/types");
 const { eq, desc, and } = await import("drizzle-orm");
 
 import type { JsonRpcRequest } from "../extensions/types";
@@ -84,6 +87,32 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
   return { jsonrpc: "2.0", id, method: "ezcorp/emit-task-event", params };
 }
 
+test("task mutation errors retain safe RPC categories and persistence failures fail closed", async () => {
+  const { bus, calls } = makeBus();
+  for (const [code, expected] of [["task_conflict", -32009], ["event_not_found", -32001], ["task_not_found", -32602]] as const) {
+    const failure = spyOn(taskHost, "writeTaskSnapshotForConversation").mockRejectedValueOnce(new LifecycleError(code, "State changed"));
+    try {
+      const response = await handleEmitTaskEventRpc(EXT_WIRED, rpc({ v: 1, type: "snapshot", payload: { tasks: [] } }), makeCtx(bus, { conversationId: CONV_WIRED }));
+      expect(response.error?.code).toBe(expected);
+    } finally { failure.mockRestore(); }
+  }
+  for (const error of [new Error("Database unavailable"), new LifecycleError("event_queue_full", "Queue full")]) {
+    const failure = spyOn(taskHost, "writeTaskSnapshotForConversation").mockRejectedValueOnce(error);
+    try { await expect(handleEmitTaskEventRpc(EXT_WIRED, rpc({ v: 1, type: "snapshot", payload: { tasks: [] } }), makeCtx(bus, { conversationId: CONV_WIRED }))).rejects.toBe(error); }
+    finally { failure.mockRestore(); }
+  }
+  expect(calls).toEqual([]);
+});
+
+test("task RPC rejects malformed revisions and assignment batches before persistence", async () => {
+  const { bus, calls } = makeBus();
+  for (const extra of [{ expectedRevision: "not-a-digest" }, { assignments: {} }, { assignments: [null] }, { assignments: Array(257).fill({}) }]) {
+    const response = await handleEmitTaskEventRpc(EXT_WIRED, rpc({ v: 1, type: "snapshot", payload: { tasks: [], ...extra } }), makeCtx(bus, { conversationId: CONV_WIRED }));
+    expect(response.error?.code).toBe(-32602);
+  }
+  expect(calls).toEqual([]);
+});
+
 async function insertUser(id: string): Promise<void> {
   await getDb().insert(users).values({
     id,
@@ -98,7 +127,7 @@ async function insertProject(id: string): Promise<void> {
 }
 
 async function insertConversation(id: string, projectId: string): Promise<void> {
-  await getDb().insert(conversations).values({ id, projectId, title: id } as any);
+  await getDb().insert(conversations).values({ id, projectId, title: id, userId: "user-alice" } as any);
 }
 
 async function ensureExtensionRow(id: string): Promise<void> {
@@ -153,10 +182,13 @@ const CONV_OTHER = "conv-te-other";
 
 beforeAll(async () => {
   await setupTestDb();
+  _resetTaskTrackingExtensionIdCache();
   await insertUser("user-alice");
 
   const projId = "proj-te";
   await insertProject(projId);
+  await getDb().insert(projectMembers).values({ projectId: projId, userId: "user-alice", role: "member" });
+  await ensureExtensionRow("task-tracking");
   await insertConversation(CONV_WIRED, projId);
   await insertConversation(CONV_OTHER, projId);
   await wireConversation(CONV_WIRED, EXT_WIRED);
@@ -292,14 +324,16 @@ describe("emit-task-event — assignment_update emit", () => {
   test("well-formed assignment_update → bus.emit task:assignment_update with host conversationId", async () => {
     const { bus, calls } = makeBus();
     const a = assignment("a-1");
+    await writeTaskSnapshotForConversation(CONV_WIRED, { tasks: [{ ...(snapshotTask("task-1") as AgentEvents["task:snapshot"]["tasks"][number]), assignments: [a as AgentEvents["task:assignment_update"]["assignment"]] }] });
     await handleEmitTaskEventRpc(
       EXT_WIRED,
       rpc({ v: 1, type: "assignment_update", payload: { taskId: "task-1", assignment: a } }, "u1"),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.event).toBe("task:assignment_update");
-    const emitted = calls[0]?.payload as { conversationId: string; taskId: string; assignment: unknown };
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.event).toBe("task:snapshot");
+    expect(calls[1]?.event).toBe("task:assignment_update");
+    const emitted = calls[1]?.payload as { conversationId: string; taskId: string; assignment: unknown };
     expect(emitted.conversationId).toBe(CONV_WIRED);
     expect(emitted.taskId).toBe("task-1");
     expect(emitted.assignment).toEqual(a as any);

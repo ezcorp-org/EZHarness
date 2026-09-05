@@ -380,6 +380,7 @@ export async function startBackgroundTimers(): Promise<void> {
   // registry would hold different processes and answer about nothing.
   try {
     permSweepDaemon = new HostMaintenanceDaemon({
+      getBus: getRegisteredPreviewBus,
       triggerRegistry: ExtensionRegistry.getInstance(),
     });
     const ok = await permSweepDaemon.start();

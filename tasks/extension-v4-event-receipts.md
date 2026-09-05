@@ -58,6 +58,18 @@ This leaf does not yet add receipts to specialized host-rendered file-organizer 
 
 ## Conversation Custom Actions
 
+## Task State Gates
+
+- [x] Snapshot storage and all matching task deliveries share one SQL transaction; injected publication failure leaves neither changed state nor a bus event.
+  CHECK: bun test ./src/__tests__/task-state-publication.test.ts
+  EXPECT: Real SQL rollback, committed restart recovery, assignment merge, and source ownership cases pass.
+- [x] Host assignment start, terminal callbacks, retry/stop routes and boot recovery use the shared writer, not a best-effort subscriber to persist state.
+  EVIDENCE: /tmp/lifecycle-task-host-regressions-final.log: 184 tests, 659 assertions. Same-boot recovery after rejected terminal admission passes in the actual SQL publication suite; another tick emits nothing.
+- [x] RPC task events persist the validated host-scoped task state before acknowledgement.
+  EVIDENCE: /tmp/lifecycle-task-writer-final.log: 52 tests, 161 assertions; task writer, RPC handler and recovery each have 100% line coverage. /tmp/lifecycle-task-isolated-serialized.log: real rootless workers, 1 test, 15 assertions; both concurrent changes persist under host locks without lost updates.
+
+Task source and host behavior: /tmp/lifecycle-task-final-coverage.log has 141 tests and 499 assertions. The source tests include an already committed terminal assignment, duplicate delivery, and a host-committed spawn result that must not be overwritten by an old source snapshot. Recovery limits and default hourly maintenance cadence are documented in `docs/extension-task-state-durability.md`.
+
 - [x] The generic conversation card event route admits a receipt and all eligible deliveries before HTTP success or UI bus emission.
   CHECK: cd web && bun test ./src/__tests__/hub-isolated-action.integration.test.ts
   EXPECT: 5 tests pass.

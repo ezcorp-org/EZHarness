@@ -162,6 +162,7 @@ export async function listStorageRowsForKey(
   extensionId: string,
   scope: Scope,
   key: string,
+  page?: { limit: number; afterScopeId: string },
 ): Promise<Array<{ scopeId: string | null; value: unknown }>> {
   const db = getDb();
   const rows = await db
@@ -172,9 +173,10 @@ export async function listStorageRowsForKey(
         eq(extensionStorage.extensionId, extensionId),
         eq(extensionStorage.scope, scope),
         eq(extensionStorage.key, key),
+        page ? sql`${extensionStorage.scopeId} > ${page.afterScopeId}` : undefined,
         sql`(${extensionStorage.expiresAt} IS NULL OR ${extensionStorage.expiresAt} >= NOW())`,
       ),
-    );
+    ).orderBy(extensionStorage.scopeId).limit(page ? Math.max(1, Math.min(500, Math.trunc(page.limit))) : 2147483647);
   return rows.map((r: { scopeId: string | null; value: unknown }) => ({
     scopeId: r.scopeId ?? null,
     value: r.value,

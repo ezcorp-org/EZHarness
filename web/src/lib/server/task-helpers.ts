@@ -17,6 +17,7 @@ import {
   ensureTaskTrackingWired,
   getTaskSnapshotForConversation,
   writeTaskSnapshotForConversation,
+  writeTaskAssignmentForConversation,
 } from "$server/runtime/task-tracking-host";
 import { getBus } from "$lib/server/context";
 
@@ -82,16 +83,9 @@ export function findAssignment(
 export async function writeAndBroadcastSnapshot(
   conversationId: string,
   snapshot: TaskSnapshot,
+  assignments: { taskId: string; assignment: TaskAssignment }[] = [],
 ): Promise<void> {
-  await writeTaskSnapshotForConversation(conversationId, {
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
-  getBus().emit("task:snapshot", {
-    conversationId,
-    tasks: snapshot.tasks,
-    ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
-  });
+  await writeTaskSnapshotForConversation(conversationId, snapshot, { bus: getBus(), assignments });
 }
 
 /**
@@ -107,16 +101,12 @@ export async function writeAndBroadcastSnapshot(
  * retry handler resetting N failed assignments) should call this once
  * per assignment.
  */
-export function broadcastAssignmentUpdate(
+export async function broadcastAssignmentUpdate(
   conversationId: string,
   taskId: string,
   assignment: TaskAssignment,
-): void {
-  getBus().emit("task:assignment_update", {
-    conversationId,
-    taskId,
-    assignment,
-  });
+): Promise<void> {
+  await writeTaskAssignmentForConversation(conversationId, { taskId, assignment }, getBus());
 }
 
 /**

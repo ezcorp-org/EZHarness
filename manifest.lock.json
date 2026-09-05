@@ -264,8 +264,8 @@
       "directory": "docs/extensions/examples/task-tracking",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 83442,
-      "sourceDigest": "272a403f50871574a1badd80a6036369e4f4d0e61812e553274f2c35674872a0"
+      "bytes": 85637,
+      "sourceDigest": "392bd3be715506e402c82d98810bf192d8635d28c5ad50692b9cb1ce260215d9"
     },
     "test-agent-configs": {
       "directory": "docs/extensions/examples/test-agent-configs",
