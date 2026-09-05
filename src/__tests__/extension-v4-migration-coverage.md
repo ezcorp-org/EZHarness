@@ -250,10 +250,12 @@ explicit cutover decision.
 - **R — Required discovery:** `scripts/lib/test-file-sets.sh` includes
   `find src -name "*.test.ts"` in pass/fail and coverage sets. The moved
   `src/extensions/first-party-integration/**` files do not match its two narrow
-  integration exclusions. All 25 rename pairs retain every test title and
-  assertion semantics; the four changed assertion strings in ez-factory
-  workflow tests only add TypeScript non-null assertions. Moving suites outside
-  extension build snapshots does not remove them from required host tests.
+  integration exclusions. Twenty-four rename pairs retain every direct
+  assertion line and test title after fixture-path normalization. The
+  ez-factory unattended-fire suite deliberately changes two release-consent
+  tests and adds an agent-capability drift case, as row 37 records. Moving
+  suites outside extension build snapshots does not remove them from required
+  host tests.
 
 ### Explicit cutover choices, not equivalent proof
 
@@ -328,7 +330,7 @@ source lock check passes. No other source or test change is implied by this ledg
 | 34 | Moved | `packages/@ezcorp/ai-kit/test/e2e/real-subprocess-obo.test.ts` | Moved to `src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
 | 35 | Moved | `packages/@ezcorp/ai-kit/test/unit/events.test.ts` | Moved to `src/extensions/first-party-integration/ai-kit/unit/events.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
 | 36 | Moved | `docs/extensions/examples/docs-updater/index.integration.test.ts` | Moved to `src/extensions/first-party-integration/docs-updater/index.integration.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
-| 37 | Moved | `extensions/ez-factory/__tests__/unattended-fire-e2e.test.ts` | Moved to `src/extensions/first-party-integration/ez-factory/__tests__/unattended-fire-e2e.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
+| 37 | Moved | `extensions/ez-factory/__tests__/unattended-fire-e2e.test.ts` | Moved to `src/extensions/first-party-integration/ez-factory/__tests__/unattended-fire-e2e.test.ts` and included by R. The suite changes from 31 to 32 test titles and from 92 to 99 direct assertions: a definition-only release now requires fresh human consent instead of silent reauthorization, a widened workflow still cannot use old consent, and a separate agent-capability drift case remains suspended with no invocation. |
 | 38 | Moved | `extensions/ez-factory/lib/sanitize.test.ts` | Moved to `src/extensions/first-party-integration/ez-factory/lib/sanitize.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
 | 39 | Moved | `extensions/ez-factory/workflow-templates.test.ts` | Moved to `src/extensions/first-party-integration/ez-factory/workflow-templates.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
 | 40 | Moved | `docs/extensions/examples/file-organizer/index.test.ts` | Moved to `src/extensions/first-party-integration/file-organizer/index.test.ts`. All old test titles and assertion semantics remain; fixture/import paths change. Included by required host test discovery (R). |
