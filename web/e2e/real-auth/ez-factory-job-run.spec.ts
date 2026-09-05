@@ -14,7 +14,7 @@
  * turned out not to be wired to anything at all.
  *
  * So this one runs against a built server, a real PGlite DB, the real
- * bundled-extension install, the real subprocess and the real executor, and
+ * source import, isolated build, human-approved release and real executor, and
  * asserts the chain end to end:
  *
  *   create a job through the console's own form
@@ -40,6 +40,8 @@
  */
 import type { Page, APIRequestContext } from "@playwright/test";
 import { test, expect } from "../fixtures/hydration.js";
+import { importAndActivateBundledExtension } from "../fixtures/extension-v4";
+import { acceptMemberInvitation } from "../fixtures/member-session";
 
 const FACTORY_PAGE = "ext:ez-factory:factory";
 const JOB_PAGE = "ext:ez-factory:job";
@@ -76,7 +78,23 @@ async function openConsole(page: Page, view?: string): Promise<void> {
 }
 
 test.describe("ez-factory — a job fired from the console produces a correlated run", () => {
-  test("create, run, and find the run again by its job", async ({ page, request }) => {
+  test("create, run, and find the run again by its job", async ({ page, request, browser, baseURL }) => {
+    test.setTimeout(360000);
+    const installed = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "ez-factory" });
+    try {
+    const member = await browser.newContext({ baseURL });
+    try {
+      await acceptMemberInvitation(request, member.request, "Workflow Privacy Member");
+      for (const query of ["type=workflow&q=ez-factory", "q=ez-factory"]) {
+        const ownerResponse = await request.get(`/api/mentions/search?${query}`);
+        expect(ownerResponse.status(), await ownerResponse.text()).toBe(200);
+        const ownerResults = await ownerResponse.json() as Array<{ name: string; kind: string }>;
+        expect(ownerResults.some(result => result.kind === "workflow" && result.name === "ez-factory:etl-factory")).toBe(true);
+        const memberResponse = await member.request.get(`/api/mentions/search?${query}`);
+        expect(memberResponse.status(), await memberResponse.text()).toBe(200);
+        expect((await memberResponse.json() as Array<{ name: string; kind: string }>).filter(result => result.kind === "workflow" && result.name.startsWith("ez-factory:"))).toEqual([]);
+      }
+    } finally { await member.close(); }
     // ── 1. Create a job through the console's own editor ──────────────
     //
     // Not seeded through storage: the point is that the console can be
@@ -114,10 +132,11 @@ test.describe("ez-factory — a job fired from the console produces a correlated
     await expect(globs).toHaveJSProperty("tagName", "TEXTAREA");
     await globs.fill("package.json");
 
+    const savedResponse = page.waitForResponse(response => response.url().endsWith("/api/extensions/ez-factory/events/job-save") && response.request().method() === "POST");
     await page.getByTestId("hub-inline-form-submit").click();
+    const saved = await savedResponse;
+    expect(saved.status(), await saved.text()).toBe(200);
 
-    // The job is written by the subprocess after the events route returns,
-    // so poll the console rather than assuming it landed synchronously.
     await openConsole(page);
     await expect(page.getByTestId("hub-node-table")).toContainText(jobName, {
       timeout: 30_000,
@@ -183,11 +202,11 @@ test.describe("ez-factory — a job fired from the console produces a correlated
       .poll(
         async () => {
           correlated = (await apiRuns(request)).find((r) => r.jobRef === jobId);
-          return correlated?.id ?? null;
+          return correlated && ["success", "error", "cancelled"].includes(correlated.status) ? correlated.id : null;
         },
         {
           timeout: RUN_APPEARS_TIMEOUT_MS,
-          message: "a workflow_runs row carrying this job's id as job_ref",
+          message: "a settled workflow_runs row carrying this job's id as job_ref before opening its render-time history snapshot",
         },
       )
       .not.toBeNull();
@@ -205,8 +224,6 @@ test.describe("ez-factory — a job fired from the console produces a correlated
     await expect(cells.nth(0)).toHaveText(jobName);
     await expect(cells.nth(1)).toHaveText("ez-factory:etl-factory");
 
-    // The rendered status is the HOST's status for that run, not a
-    // literal — re-read now, because the run keeps moving.
     const live = (await apiRuns(request)).find((r) => r.id === correlated?.id);
     expect(live, "the run is still readable").toBeTruthy();
     await expect(cells.nth(2)).toHaveText(live!.status);
@@ -217,5 +234,8 @@ test.describe("ez-factory — a job fired from the console produces a correlated
       "href",
       `/workflows/runs/${correlated!.id}`,
     );
+    } finally {
+      await installed.client.extensionControl("extensions_release", { action: "uninstall", installationId: installed.state.installation.id, idempotencyKey: crypto.randomUUID() });
+    }
   });
 });

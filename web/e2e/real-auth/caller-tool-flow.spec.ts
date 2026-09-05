@@ -15,6 +15,7 @@
  */
 import { test, expect } from "../fixtures/hydration.js";
 import { request as playwrightRequest } from "@playwright/test";
+import { acceptMemberInvitation } from "../fixtures/member-session";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
@@ -85,14 +86,9 @@ function drainOneCallerTool(ez: HarnessClient, conversationId: string) {
 
 /** Mint a member key and seed a conversation for it. */
 async function companion(request: import("@playwright/test").APIRequestContext, baseURL: string) {
-  const email = `caller-tools-${crypto.randomUUID()}@example.test`;
-  const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
-  expect(invitation.status(), await invitation.text()).toBe(201);
-  const { invite } = await invitation.json();
   const member = await playwrightRequest.newContext({ baseURL });
   try {
-    const accepted = await member.post(`/api/auth/invite/${invite.token}`, { data: { name: "Caller Tool Owner", email, password: "Caller-Tool-E2e-9x!" } });
-    expect(accepted.status(), await accepted.text()).toBe(201);
+    await acceptMemberInvitation(request, member, "Caller Tool Owner");
     const keyRes = await member.post("/api/settings/developer/api-keys", {
       data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
     });
