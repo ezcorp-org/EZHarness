@@ -57,6 +57,34 @@ async function stage(selectedEntries = entries): Promise<InstallationState> {
 }
 
 describe("host-owned bundled source staging", () => {
+  for (const name of ["orchestration", "task-tracking", "web-search"]) {
+    test(`${name}: first boot stages source once without capability grants or activation`, async () => {
+      const selected = [{ name, path: sourceDirectory }];
+      const state = await stage(selected);
+      expect(state.installation.id).toBe(bundledInstallationId(name));
+      expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null, grants: [], generation: 0 });
+      expect(state.approvals).toEqual({});
+      expect(state.releases).toEqual({});
+      expect(workspace).toHaveBeenCalledTimes(1);
+      expect(build).toHaveBeenCalledTimes(1);
+      await stage(selected);
+      expect(states.size).toBe(1);
+      expect(workspace).toHaveBeenCalledTimes(1);
+      expect(build).toHaveBeenCalledTimes(2);
+      expect(build.mock.calls[1]).toEqual(build.mock.calls[0]);
+    });
+    test(`${name}: revoked legacy grants and user disable remain closed on later boots`, async () => {
+      legacy.set(name, { id: `legacy-${name}`, enabled: true, disabledByUser: true, grantedPermissions: { search: "inherit", storage: true, spawnAgents: { maxConcurrent: 500 }, grantedAt: { search: "old" } } });
+      const state = await stage([{ name, path: sourceDirectory }]);
+      expect(state.installation.id).toBe(`legacy-${name}`);
+      expect(state.installation.grants).toEqual([]);
+      expect(legacy.get(name)).toMatchObject({ enabled: false, disabledByUser: true, grantedPermissions: { grantedAt: {} } });
+      await stage([{ name, path: sourceDirectory }]);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(state.installation.activeReleaseId).toBeNull();
+      expect(state.approvals).toEqual({});
+    });
+  }
   for (const name of ["ask-user", "task-tracking", "scratchpad"]) {
     for (const disabledByUser of [true, false]) test(`${name}: no critical or repair exemption can re-enable an unapproved installation (user disabled=${disabledByUser})`, async () => {
       legacy.set(name, { id: `legacy-${name}`, enabled: false, disabledByUser });

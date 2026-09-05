@@ -70,3 +70,19 @@ Direct remote update and arbitrary git clone are not silently emulated. The
 supported import surfaces and remaining gaps are recorded in
 docs/extensions/v4-imports.md. Uninstall retains source and user data; it never
 uses a caller-supplied host path for deletion.
+
+## Orchestration, Task Tracking, and Web Search
+
+Their bundled install suites keep source registration, opt-out behavior, all
+tool names, and exact capability declaration checks through actual worker
+discovery. Bundled name recognition no longer implies an integrity-check bypass.
+The shared bundled-v4-bootstrap suite adds first-boot and legacy-revocation
+cases for each of these three extensions. It verifies disabled installations,
+empty grants and approvals, preserved installation identity, one source snapshot,
+and the same durable build key on later boots. A user-disabled legacy row stays
+disabled, and stale grants are revoked once rather than restored.
+
+Storage migration is no longer invoked by host source staging. Release activation
+and its transactional migration tests own that boundary. Orchestration remains
+storage-free in its discovered manifest; staging cannot run its code or create
+extension-owned storage rows.
