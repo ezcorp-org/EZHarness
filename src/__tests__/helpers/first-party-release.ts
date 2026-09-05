@@ -54,7 +54,7 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
     return {
       async close() { await runner.close(); await rm(root, { recursive: true, force: true }); },
       manifest,
-      async session(options: { projectRoot?: string; settings?: Record<string, unknown>; denyNetwork?: boolean; networkHosts?: string[]; fetchImpl?: typeof fetch; credential?: string; persistRelease?: boolean; handler?: (request: JsonRpcRequest) => Promise<JsonRpcResponse | undefined> } = {}) {
+      async session(options: { projectRoot?: string; settings?: Record<string, unknown>; denyNetwork?: boolean | (() => boolean); networkHosts?: string[]; fetchImpl?: typeof fetch; credential?: string; persistRelease?: boolean; handler?: (request: JsonRpcRequest) => Promise<JsonRpcResponse | undefined> } = {}) {
         const database = getTestDb();
         const directory = options.projectRoot ?? await mkdtemp(join(tmpdir(), "first-party-project-"));
         const data = join(directory, ".ezcorp", "extension-data", name);
@@ -75,9 +75,10 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
         const registry = ExtensionRegistry.getInstance();
         registry.setManifestForTest(id, manifest);
         registry.setGrantedPermsForTest(id, grants);
-        const engine = createStubPermissionEngine(options.denyNetwork ? "deny-all" : "allow-all");
+        const engine = createStubPermissionEngine("allow-all");
         const authorize = engine.authorize;
-        if (options.networkHosts) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && (!capability.value || !options.networkHosts!.includes(capability.value))) ? { decision: "deny", reason: "fixture_network_policy", auditId: "fixture-network-policy" } : authorize(context, capabilities);
+        const denyNetwork = typeof options.denyNetwork === "function" ? options.denyNetwork : () => options.denyNetwork === true;
+        if (options.networkHosts || options.denyNetwork) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && (denyNetwork() || !capability.value || !options.networkHosts?.includes(capability.value))) ? { decision: "deny", reason: "fixture_network_policy", auditId: "fixture-network-policy" } : authorize(context, capabilities);
         const deps = { registry, engine, resolveExtensionScopeGrant: async () => true };
         let starts = 0;
         const failures: string[] = [];

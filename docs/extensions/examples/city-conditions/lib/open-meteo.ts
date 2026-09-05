@@ -206,17 +206,18 @@ export const MOLD_UNAVAILABLE: MoldReading = unavailableMold(NO_LOCAL_MOLD_REASO
 
 // ── Test seam ────────────────────────────────────────────────────────
 
-type FetchLike = typeof fetch;
-let fetchImpl: FetchLike = fetch;
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+const defaultFetch: FetchLike = (...args) => fetch(...args);
+let fetchImpl: FetchLike = defaultFetch;
 
 /** Redirect upstream calls in unit tests. The suite never hits the network. */
 export function _setFetchImplForTests(fake: FetchLike): void {
   fetchImpl = fake;
 }
 
-/** Restore the real (sandbox-wrapped) global fetch. */
+/** Restore the sandbox-mediated production fetch. */
 export function _resetBindingsForTests(): void {
-  fetchImpl = fetch;
+  fetchImpl = defaultFetch;
 }
 
 // ── WMO weather codes → human label ──────────────────────────────────

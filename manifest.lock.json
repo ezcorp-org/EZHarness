@@ -26,8 +26,8 @@
       "directory": "docs/extensions/examples/city-conditions",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 102835,
-      "sourceDigest": "8d4fe8fa7ed71e49944f45a8c45554a1bc4c91a2e4cc5b0ec9fe5ce12d274e46"
+      "bytes": 102968,
+      "sourceDigest": "e88ba9042cd25c29cc321253542bb55ffb6574366567ebaf65f92425d2b312f2"
     },
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
@@ -306,8 +306,8 @@
       "directory": "docs/extensions/examples/weather",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 19926,
-      "sourceDigest": "0ecd13004c75b74f124a002fc3156f188667a2d5d633b717c6015578f2050f6b"
+      "bytes": 20061,
+      "sourceDigest": "8f5f264301a393af41bb6c93170e2938014affb1c798416d86d6db1ba06fc69c"
     },
     "web-search": {
       "directory": "docs/extensions/examples/web-search",
