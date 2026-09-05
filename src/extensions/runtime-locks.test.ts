@@ -112,6 +112,40 @@ test("known SQL failure drains safely but uncertain non-SQL failure quarantines"
   expect((await inspectRuntimeLocks(data.installationId))[0]?.state).toBe("quarantined");
 });
 
+test("host cancellation before effect admission releases accounted fences without quarantine", async () => {
+  const data = await fixture();
+  const session = data.create();
+  await acquire(session);
+  let effects = 0;
+  let checked = false;
+  const controller = new AbortController();
+  controller.abort(new Error("caller stopped before admission"));
+  await expect(session.effect("ezcorp/fs.write", async () => { effects++; }, () => {
+    checked = true;
+    controller.signal.throwIfAborted();
+  })).rejects.toThrow("caller stopped before admission");
+  expect(checked).toBe(true);
+  expect(effects).toBe(0);
+  expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ state: "held", effects: 0 });
+  await session.close();
+  expect(await inspectRuntimeLocks(data.installationId)).toHaveLength(0);
+  await acquire(data.create());
+});
+
+test("a cancellation-shaped error after admission cannot clear an uncertain write", async () => {
+  const data = await fixture();
+  const session = data.create();
+  await acquire(session);
+  let admitted = false;
+  await expect(session.effect("ezcorp/fs.write", async () => {
+    admitted = true;
+    throw Object.assign(new Error("cancelled after write began"), { code: "CANCELLED" });
+  }, () => {})).rejects.toThrow("cancelled after write began");
+  expect(admitted).toBe(true);
+  await session.close();
+  expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ state: "quarantined", effects: 0 });
+});
+
 test("close times out waiting for effects and recovery cannot bypass a live pending write", async () => {
   const data = await fixture();
   const session = data.create();

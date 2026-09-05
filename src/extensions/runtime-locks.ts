@@ -80,7 +80,7 @@ export class InvocationLocks {
     return { released: true };
   }
 
-  async effect<Result>(method: string, action: () => Promise<Result>): Promise<Result> {
+  async effect<Result>(method: string, action: () => Promise<Result>, beforeEffect?: () => void): Promise<Result> {
     this.check();
     if (this.pending.size >= maxEffects) throw new ContractError("LOCK_CAPACITY", "Too many concurrent host effects");
     const fences = [...this.held.values()];
@@ -89,12 +89,15 @@ export class InvocationLocks {
         await verify(transaction, fences);
         for (const fence of fences) await transaction.execute(sql`UPDATE extension_runtime_locks SET effects = effects + 1 WHERE installation_id = ${fence.installationId} AND lock_key = ${fence.key} AND fence = ${fence.fence}`);
       });
+      let admitted = false;
       try {
+        beforeEffect?.();
+        admitted = true;
         const result = await activeEffects.run(fences, action);
         if (result && typeof result === "object" && "error" in result && JSON.stringify(result.error).includes("outcome_unknown")) this.uncertain = true;
         return result;
       } catch (error) {
-        if (!safeFailedEffects.has(method)) this.uncertain = true;
+        if (admitted && !safeFailedEffects.has(method)) this.uncertain = true;
         throw error;
       } finally {
         for (const fence of fences) await getDb().execute(sql`UPDATE extension_runtime_locks SET effects = effects - 1 WHERE installation_id = ${fence.installationId} AND lock_key = ${fence.key} AND fence = ${fence.fence} AND effects > 0`);

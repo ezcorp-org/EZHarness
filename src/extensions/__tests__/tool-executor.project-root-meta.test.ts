@@ -24,7 +24,7 @@ mockDbConnection();
 
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import { conversations, projects, users, extensions } from "../../db/schema";
+import { conversations, projects, users, extensions, messages } from "../../db/schema";
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../types";
 
@@ -49,15 +49,21 @@ function makeManifest(): ExtensionManifestV2 {
 
 /** Registry whose fake subprocess records the `_meta` handed to `callTool`
  *  (the 3rd arg) — that's where the host injects `ezProjectRoot`. */
-function makeRegistry(captured: { meta?: Record<string, unknown> }): ExtensionRegistry {
+interface CapturedCall { meta?: Record<string, unknown>; options?: { signal?: AbortSignal }; calls?: number }
+
+function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; beforeProcess?: () => Promise<void> } = {}): ExtensionRegistry {
   const manifest = makeManifest();
+  if (options.mcp) { manifest.kind = "mcp"; manifest.mcpServers = [{ name: "fixture", transport: "http", url: "https://fixture.test/mcp" }]; }
   const fakeProc = {
     callTool: async (
       _name: string,
       _args: unknown,
       meta?: Record<string, unknown>,
+      callOptions?: { signal?: AbortSignal },
     ): Promise<ToolCallResult> => {
       captured.meta = meta;
+      captured.options = callOptions;
+      captured.calls = (captured.calls ?? 0) + 1;
       return { content: [{ type: "text", text: "ok" }], isError: false };
     },
     setNotificationHandler: () => {},
@@ -71,9 +77,10 @@ function makeRegistry(captured: { meta?: Record<string, unknown> }): ExtensionRe
     },
     getManifest: () => manifest,
     getGrantedPermissions: () => ({ grantedAt: {} }) as unknown as ReturnType<ExtensionRegistry["getGrantedPermissions"]>,
-    getProcess: async () => fakeProc,
+    getProcess: async () => { await options.beforeProcess?.(); return fakeProc; },
     getInstallPath: () => "/tmp/ext",
     getMcpClient: async () => {
+      if (options.mcp) return fakeProc;
       throw new Error("not an mcp ext");
     },
     isBundled: () => false,
@@ -136,5 +143,61 @@ describe("ToolExecutor · conversation project-root → _meta.ezProjectRoot (B5)
     // Still forwards the conversation id, but no project resolved → no key.
     expect(captured.meta?.ezConversationId).toBe("conv-does-not-exist");
     expect(captured.meta && "ezProjectRoot" in captured.meta).toBe(false);
+  });
+
+  for (const mcp of [false, true]) test(`forwards the exact cancellation signal to ${mcp ? "MCP" : "subprocess"} dispatch`, async () => {
+    const captured: CapturedCall = {};
+    const controller = new AbortController();
+    const executor = new ToolExecutor(makeRegistry(captured, { mcp }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    const result = await executor.executeToolCall(TOOL, {}, projectConvId, null, { signal: controller.signal });
+    expect(result.isError).toBe(false);
+    expect(captured.calls).toBe(1);
+    expect(captured.options?.signal).toBe(controller.signal);
+    expect(captured.meta?.ezConversationId).toBe(projectConvId);
+  });
+
+  test("pre-aborted calls do not enter tool lookup or dispatch", async () => {
+    const captured: CapturedCall = {};
+    const controller = new AbortController();
+    controller.abort(new Error("caller stopped"));
+    const registry = makeRegistry(captured);
+    registry.getRegisteredTool = () => { throw new Error("lookup must not run"); };
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+    await expect(executor.executeToolCall(TOOL, {}, projectConvId, null, { signal: controller.signal })).rejects.toThrow("caller stopped");
+    expect(captured.calls ?? 0).toBe(0);
+  });
+
+  test("code-agent tools context keeps the caller cancellation signal", async () => {
+    const captured: CapturedCall = {};
+    const controller = new AbortController();
+    const executor = new ToolExecutor(makeRegistry(captured), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    const messageId = crypto.randomUUID();
+    await getTestDb().insert(messages).values({ id: messageId, conversationId: projectConvId, role: "assistant", content: "" });
+    const context = executor.createToolsContext(projectConvId, messageId, { signal: controller.signal });
+    expect(await context.invoke(TOOL, {})).toBe("ok");
+    expect(captured.calls).toBe(1);
+    expect(captured.options?.signal).toBe(controller.signal);
+    controller.abort(new Error("code agent stopped"));
+    await expect(context.invoke(TOOL, {})).rejects.toThrow("code agent stopped");
+    expect(captured.calls).toBe(1);
+  });
+
+  test("abort while resolving a process prevents later tool dispatch", async () => {
+    const captured: CapturedCall = {};
+    const controller = new AbortController();
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const executor = new ToolExecutor(makeRegistry(captured, { beforeProcess: async () => { entered.resolve(); await resume.promise; } }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    const pending = executor.executeToolCall(TOOL, {}, projectConvId, null, { signal: controller.signal });
+    await entered.promise;
+    controller.abort(new Error("caller stopped"));
+    resume.resolve();
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("caller stopped");
+    expect(captured.calls ?? 0).toBe(0);
   });
 });

@@ -5,6 +5,51 @@ import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../rele
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
 
+test("abort during a reverse RPC binding read prevents host effect admission", async () => {
+  const fixture = harness();
+  const controller = new AbortController();
+  const reading = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const reverseResult = Promise.withResolvers<unknown>();
+  const stopped = Promise.withResolvers<void>();
+  let suspend = false;
+  let effects = 0;
+  let closed = 0;
+  const runner: Runner = {
+    build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+    start: async (input, rpc) => ({
+      workerId: input.workerId,
+      close: async () => { closed++; await stopped.promise; },
+      onNotification: () => () => {},
+      request: async method => {
+        if (method === "extension/discover") return fixture.snapshot().release.manifest;
+        suspend = true;
+        try { const result = await rpc("ezcorp/storage", { context: input.context, input: { key: "late" } }); reverseResult.resolve(result); }
+        catch (error) { reverseResult.resolve(error); }
+        return { content: [], isError: false };
+      },
+    }),
+  };
+  const process = new ReleaseProcess("installation", {
+    runner: async () => runner,
+    resolve: async () => { if (suspend) { reading.resolve(); await resume.promise; } return structuredClone(fixture.snapshot()); },
+  });
+  process.setRequestHandler(async request => { effects++; return { jsonrpc: "2.0", id: request.id, result: {} }; });
+  try {
+    const call = process.callTool("read", {}, { ezCallId: fixture.token }, { signal: controller.signal });
+    void call.catch(() => undefined);
+    await reading.promise;
+    controller.abort();
+    resume.resolve();
+    expect(await reverseResult.promise).toMatchObject({ code: "CANCELLED" });
+    stopped.resolve();
+    await expect(call).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(effects).toBe(0);
+    expect(closed).toBe(1);
+    expect(process.inFlightCallCount).toBe(0);
+  } finally { resume.resolve(); stopped.resolve(); process.kill(); fixture.cleanup(); }
+});
+
 function harness() {
   let snapshot: ActiveExtensionRelease = {
     installation: { id: "installation", ownerId: "alice", scope: "project", activeReleaseId: "release", generation: 1, enabled: true, uninstalled: false, status: "active", grants: ["storage"], acknowledgedGeneration: 1 },
