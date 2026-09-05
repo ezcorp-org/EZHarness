@@ -28,7 +28,7 @@ import type {
   ToolCallResult,
 } from "./types";
 import type { PermissionEngine } from "./permission-engine";
-import { getDb } from "../db/connection";
+import { getDb, type DbTransaction } from "../db/connection";
 import { toolCalls } from "../db/schema";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
@@ -120,7 +120,7 @@ export async function handleFinalizeToolCallRpc(
   // also pull conversationId so the response gate matches the caller's
   // wired scope — defense-in-depth against a future bug that lets
   // append-message slip a row in for the wrong conversation.
-  return getDb().transaction(async transaction => {
+  return getDb().transaction(async (transaction: DbTransaction) => {
   await verifyInvocationLocks(transaction);
   const rows = await transaction
     .select({

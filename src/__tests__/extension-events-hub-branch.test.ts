@@ -18,9 +18,10 @@ import {
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import { getPageCache } from "../extensions/page-cache";
+import { LifecycleError } from "../extensions/v4/types";
 import {
   callProvenanceSize,
-  resolveCallProvenance,
+  resolveCallProvenance as resolveLiveCallProvenance,
   _resetCallProvenanceForTests,
 } from "../extensions/call-provenance";
 // The REAL logger module — remapped onto the `$server/logger` alias below so
@@ -34,6 +35,9 @@ interface SendCall { method: string; params: Record<string, unknown> }
 const sendCalls: SendCall[] = [];
 let spawnShouldFail = false;
 let wireCalls = 0;
+const observedProvenance = new Map<string, ReturnType<typeof resolveLiveCallProvenance>>();
+function resolveCallProvenance(token: unknown) { return typeof token === "string" ? observedProvenance.get(token) : undefined; }
+let approvedBinding = false;
 
 // ── Gate-push service-conversation fakes (ECF control plane, L1) ─────
 // A gate push carries `payload.projectRoot`; the route resolves it to a
@@ -59,9 +63,12 @@ const fakeProc = {
   // frame reached stdin (`src/extensions/subprocess.ts`). A fake that
   // returned `undefined` would model a permanently-dropped notification,
   // which is exactly what this route now (correctly) rejects.
-  sendNotification(method: string, params?: Record<string, unknown>): boolean {
+  async sendNotification(method: string, params?: Record<string, unknown>): Promise<void> {
     sendCalls.push({ method, params: params ?? {} });
-    return notificationDelivered;
+    const token = (params?._meta as { ezCallId?: string } | undefined)?.ezCallId;
+    if (!token) throw new Error("Host action token missing");
+    observedProvenance.set(token, resolveLiveCallProvenance(token));
+    if (!notificationDelivered) throw new LifecycleError("delivery_unavailable", "Worker rejected action");
   },
 };
 
@@ -131,9 +138,11 @@ mock.module("$server/db/queries/conversations", () => ({
   },
 }));
 mock.module("$server/db/queries/projects", () => ({
+  getProject: async (id: string) => mockProject?.id === id ? mockProject : undefined,
   getProjectByPath: async (path: string) =>
     mockProject && mockProject.path === path ? mockProject : undefined,
 }));
+mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => approvedBinding ? { ownerId: "user-1", projectId: "proj-1" } : null }));
 mock.module("$server/db/queries/tool-calls", () => ({
   getToolCallConversationById: async () => null,
 }));
@@ -159,7 +168,7 @@ mock.module("$server/extensions/finalize-tool-call-handler", () => ({
 // stub here would leak an always-authenticated requireAuth into any
 // test file sharing the process (briefing-api's 401/403 cases).
 mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
-mock.module("$server/auth/middleware", () => require("../auth/middleware"));
+mock.module("$server/auth/middleware", () => ({ ...require("../auth/middleware"), checkProjectRole: async () => null }));
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
 mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
 // REAL module — it materializes during this file and freezes its
@@ -206,7 +215,7 @@ function makeEvent(body: unknown, name = EXT_NAME, event = EVENT) {
   return {
     request: new Request(`http://localhost/api/extensions/${name}/events/${event}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify(body),
     }),
     locals: { user: { id: "user-1", email: "u@x.com", name: "U", role: "member" } },
@@ -240,6 +249,8 @@ beforeEach(() => {
   alreadyWiredExtIds = [];
   serviceConvThrows = false;
   notificationDelivered = true;
+  approvedBinding = false;
+  observedProvenance.clear();
 });
 
 describe("hub-source branch", () => {
@@ -274,7 +285,7 @@ describe("hub-source branch", () => {
     const res = await POST(makeEvent({ source: "hub", pageId: "dashboard" }));
     expect(res.status).toBe(200);
     expect(sendCalls.length).toBe(1);
-    expect(callProvenanceSize()).toBe(1);
+    expect(callProvenanceSize()).toBe(0);
   });
 
   test("200: spawns + wires, sends the namespaced notification with host-stamped userId + a resolvable provenance token", async () => {
@@ -318,7 +329,8 @@ describe("hub-source branch", () => {
 
   // ── Gate-push service-conversation owner (ECF control plane, L1) ────
 
-  test("gate push with a REGISTERED projectRoot: token carries the service conversation, ext wired", async () => {
+  test("host-approved project binding supplies service conversation authority", async () => {
+    approvedBinding = true;
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     const res = await POST(makeEvent({
       source: "hub",
@@ -348,12 +360,12 @@ describe("hub-source branch", () => {
     });
   });
 
-  test("gate push whose projectRoot is NOT a registered project: fails closed to null scope", async () => {
-    mockProject = null; // getProjectByPath returns undefined
+  test("a caller-supplied registered projectRoot does not grant project authority", async () => {
+    mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     const res = await POST(makeEvent({
       source: "hub",
       pageId: "dashboard",
-      payload: { projectRoot: "/repos/unknown", repoId: "abc123abc123", branch: "main" },
+      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
     }));
     expect(res.status).toBe(200);
     // No service conversation, no wiring — the token is null-scope, exactly as
@@ -364,7 +376,8 @@ describe("hub-source branch", () => {
     expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: null });
   });
 
-  test("service-conv resolution THROWING fails closed to null scope — never a 500, event still delivered", async () => {
+  test("failed service-conversation lookup rejects dispatch instead of dropping its approved scope", async () => {
+    approvedBinding = true;
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     serviceConvThrows = true; // resolver blows up (e.g. db down)
     const res = await POST(makeEvent({
@@ -372,21 +385,14 @@ describe("hub-source branch", () => {
       pageId: "dashboard",
       payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
     }));
-    // The catch is record-and-continue: the fire still dispatches…
-    expect(res.status).toBe(200);
-    expect(sendCalls).toHaveLength(1);
+    expect(res.status).toBe(500);
+    expect(sendCalls).toHaveLength(0);
     expect(serviceConvWiring).toHaveLength(0);
-    // …but the token stays conversationless (fail-closed — spawn will reject
-    // rather than borrow ambient scope).
-    const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
-    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({
-      onBehalfOf: "user-1",
-      conversationId: null,
-      ownerless: false,
-    });
+    expect(callProvenanceSize()).toBe(0);
   });
 
   test("gate push reuses an already-wired service conversation (no duplicate wiring)", async () => {
+    approvedBinding = true;
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     alreadyWiredExtIds = ["ext-cron"]; // extension already wired
     const res = await POST(makeEvent({
