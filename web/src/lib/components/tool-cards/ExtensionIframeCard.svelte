@@ -258,7 +258,7 @@
 	.iframe-wrap {
 		position: relative;
 		min-height: 320px;
-		background: var(--color-bg, #0d0d0d);
+		background: var(--color-surface, #0d0d0d);
 	}
 
 	.iframe-wrap iframe {
@@ -276,7 +276,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		background: var(--color-bg, #0d0d0d);
+		background: var(--color-surface, #0d0d0d);
 		color: var(--color-text-muted, #a0a0a0);
 		font-size: 0.875rem;
 		pointer-events: none;
@@ -291,7 +291,7 @@
 		max-width: 320px;
 		padding: 0.75rem;
 		border-left: 1px solid var(--color-border, #2a2a2a);
-		background: var(--color-surface-2, #141414);
+		background: var(--color-surface-secondary, #141414);
 		overflow-y: auto;
 	}
 

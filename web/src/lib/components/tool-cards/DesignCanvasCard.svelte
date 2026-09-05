@@ -575,7 +575,7 @@
 		font-weight: 600;
 		font-size: 0.875rem;
 		margin-bottom: 0.5rem;
-		color: var(--color-text, #e0e0e0);
+		color: var(--color-text-primary, #e0e0e0);
 	}
 
 	.knob {
@@ -645,7 +645,7 @@
 
 	.banner-success {
 		background: var(--color-surface-secondary, rgba(74, 114, 255, 0.1));
-		color: var(--color-text, #e0e0e0);
+		color: var(--color-text-primary, #e0e0e0);
 	}
 
 	.banner-error {
