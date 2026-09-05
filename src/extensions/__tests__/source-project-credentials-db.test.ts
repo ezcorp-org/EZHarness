@@ -37,7 +37,7 @@ test("production project lookup reads encrypted credentials and observes rotatio
   await setSecret("github-projects", project.id, "apiToken", "rotated-private-source-fixture");
   expect(await resolveProjectSourceCredential(actor, "owner/private", project.id)).toBe("rotated-private-source-fixture");
   await expect(resolveProjectSourceCredential(actor, "owner/other", project.id)).rejects.toThrow("exact GitHub repository");
-  await database.update(users).set({ status: "suspended" }).where(eq(users.id, user!.id));
+  await database.update(users).set({ status: "inactive" }).where(eq(users.id, user!.id));
   await expect(resolveProjectSourceCredential(actor, "owner/private", project.id)).rejects.toThrow("active user");
   await database.update(users).set({ status: "active" }).where(eq(users.id, user!.id));
   await deleteSecret("github-projects", project.id, "apiToken");

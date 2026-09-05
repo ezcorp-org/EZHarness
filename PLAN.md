@@ -33,6 +33,14 @@ Every leaf runs in its own worktree. No edits to primary checkout. Do not revert
 
 ## Status
 
+### Integrated validation, 2026-09-05 UTC
+
+- Snapshot c36932a2: plain web suite 4,222 pass; mock browser lane 210 pass and 12 pre-existing skips. The long-host permission display first failed its real geometry test, then passed after wrapping was fixed; screenshot inspected.
+- Snapshot 4d442b73: web component/server suite 6,961 tests in 534 files pass. SDK tool, skill, agent and multi scaffolds now build and verify in the actual isolated runner.
+- Snapshot 03f1592d: source import uses a selected project credential, with current account, membership and exact repository checks before each request. Real Git and controlled network regression tests pass; real encrypted-store lookup, rotation, deletion and suspended-account checks pass.
+- Backend run 5, type check 17 and four real browser extension flows run against frozen 03f1592d. No claim of final validation while later leaves remain unmerged.
+- New bounded completion leaves: lifecycle owns transactional domain-event enqueue; runner owns native MCP network proxy; contract/SDK owns binary source representation and round-trip behavior; integration owns remaining legacy cohorts and removal of the stale modifiable flag from immutable lifecycle operations. All require executable security and parity checks before integration.
+
 - Worktree created from fetched origin/main; original dirty checkout preserved.
 - Real rootless-runner editor and external-client flows pass. A third real chat-loop test creates source and submits an isolated build. These results do not replace the final full-suite gate.
 - Full backend rerun: 23,404 passed and 526 failed across 1,486 files. Remaining failures include legacy install/registry expectations and integration gaps. Log: `/tmp/ez-extension-v4-backend2.log`.
