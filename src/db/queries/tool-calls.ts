@@ -225,7 +225,7 @@ export async function listToolCallExtensionIdsForMessage(
  * records the step, and the observability event for the same call carries
  * `data.workflowRunId`.
  */
-export async function persistToolCall(row: ToolCallRow, event?: DomainExtensionEvent): Promise<void> {
+export async function persistToolCall(row: ToolCallRow, event?: DomainExtensionEvent, transaction?: DbTransaction): Promise<void> {
   try {
     const insert = async (database: Pick<DbTransaction, "insert">) => database.insert(toolCalls).values({
       // `row.id`, when set, is a HOST-MINTED uuid (see the doc above) — the
@@ -252,8 +252,10 @@ export async function persistToolCall(row: ToolCallRow, event?: DomainExtensionE
     });
     if (event) {
       if (event.conversationId !== row.conversationId) throw new LifecycleError("invalid_event", "Tool event does not match its stored conversation.");
-      await getDb().transaction(async (transaction: DbTransaction) => { await insert(transaction); await publishDomainEvent(transaction, event); });
-    } else await insert(getDb());
+      const write = async (database: DbTransaction) => { await insert(database); await publishDomainEvent(database, event); };
+      if (transaction) await write(transaction);
+      else await getDb().transaction(write);
+    } else await insert(transaction ?? getDb());
   } catch (err) {
     // Never-throw contract preserved: a DB persistence failure must not break
     // tool execution (the caller has already returned data to the LLM/user).
@@ -310,6 +312,6 @@ export async function persistToolCall(row: ToolCallRow, event?: DomainExtensionE
         error: redactForAudit(String(err)).redacted,
       },
     });
-    if (event) throw new LifecycleError("event_persist_failed", "Tool result and its extension event were not committed.");
+    if (event || transaction) throw new LifecycleError("event_persist_failed", "Tool result and its extension event were not committed.");
   }
 }

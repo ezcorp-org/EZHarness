@@ -670,7 +670,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       };
     }
 
-    test("auto-wires + calls append-message in-process and emits run:turn_saved", async () => {
+    test("auto-wires and delegates the saved-turn bus to the atomic append writer", async () => {
       mockRegisteredEvents.add("kokoro-tts:speak");
       mockConv = { id: "c-1", userId: "user-1" };
       mockExt = kokoroExt();
@@ -714,10 +714,8 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       const turnSavedCalls = mockBusEmit.mock.calls.filter(
         (c) => c[0] === "run:turn_saved",
       );
-      expect(turnSavedCalls).toHaveLength(1);
-      const payload = turnSavedCalls[0]?.[1] as { runId: string; messageId: string };
-      expect(payload.runId).toBe("ext:ext-kokoro:new-msg-1");
-      expect(payload.messageId).toBe("new-msg-1");
+      expect(turnSavedCalls).toHaveLength(0);
+      expect((call.ctx as { bus: unknown }).bus).toBe(mockBus);
     });
 
     test("an un-booted executor (getExecutor throws) degrades to the unwired spawn path — event still 200s", async () => {

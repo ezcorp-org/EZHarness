@@ -21,6 +21,9 @@
  * orchestration of conversation + run + events and reports a status.
  */
 import type { BriefingConfig } from "../../db/queries/briefing-configs";
+import { briefingCompletionEvents, registerBriefingCompletionIntent } from "./completion-intents";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { getDb, type DbTransaction } from "../../db/connection";
 import {
   createConversation,
   createMessage,
@@ -312,6 +315,8 @@ export async function runBriefingForUser(
     });
 
     const runId = crypto.randomUUID();
+    const completionIntent = { runId, conversationId: conversation.id, userId: config.userId, projectId };
+    await registerBriefingCompletionIntent(completionIntent);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<{ kind: "timeout" }>((resolve) => {
       timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
@@ -382,17 +387,7 @@ export async function runBriefingForUser(
       return { status: "error", conversationId: conversation.id, error: "run completed without assistant content" };
     }
 
-    deps.bus.emit("conversation:created", {
-      conversationId: conversation.id,
-      projectId,
-      userId: config.userId,
-      source: "briefing",
-    });
-    deps.bus.emit("briefing:delivered", {
-      userId: config.userId,
-      conversationId: conversation.id,
-      projectId,
-    });
+    for (const event of briefingCompletionEvents(completionIntent)) emitPersistedDomainEvent(deps.bus, event);
 
     log.info("briefing delivered", { userId: config.userId, conversationId: conversation.id });
     return { status: "ok", conversationId: conversation.id };
@@ -428,19 +423,24 @@ export async function notifyBriefingAutoDisabled(
       userId: config.userId,
       agentConfigId: agent.id,
     });
-    await createMessage(conversation.id, {
-      role: "assistant",
-      content:
-        `Your Daily Briefing was automatically disabled after ${consecutiveErrors} consecutive failed runs ` +
-        `(last status: error). This usually means a provider credential is missing or invalid. ` +
-        `Fix the underlying issue, then re-enable the briefing in Settings → Briefing.`,
+    const event = await getDb().transaction(async (transaction: DbTransaction) => {
+      const message = await createMessage(conversation.id, {
+        role: "assistant",
+        content:
+          `Your Daily Briefing was automatically disabled after ${consecutiveErrors} consecutive failed runs ` +
+          `(last status: error). This usually means a provider credential is missing or invalid. ` +
+          `Fix the underlying issue, then re-enable the briefing in Settings → Briefing.`,
+      }, transaction);
+      const event: DomainExtensionEvent = { id: message.id, type: "conversation:created", conversationId: conversation.id, payload: {
+        conversationId: conversation.id,
+        projectId,
+        userId: config.userId,
+        source: "briefing",
+      } };
+      await publishDomainEvent(transaction, event);
+      return event;
     });
-    deps?.bus.emit("conversation:created", {
-      conversationId: conversation.id,
-      projectId,
-      userId: config.userId,
-      source: "briefing",
-    });
+    emitPersistedDomainEvent(deps?.bus, event);
     log.info("auto-disable notification posted", { userId: config.userId, conversationId: conversation.id });
   } catch (err) {
     log.warn("auto-disable notification failed", { userId: config.userId, error: String(err) });

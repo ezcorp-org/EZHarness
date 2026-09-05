@@ -619,7 +619,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       // .planning/phases/54-security-backbone-hardening-cc1-cc5-claim-1/54-03-PLAN.md
       engine: getPermissionEngine(),
     };
-    const response = await handleAppendMessageRpc(ext.id, rpcReq, ctx);
+    const response = await handleAppendMessageRpc(ext.id, rpcReq, { ...ctx, bus: getBus() });
     const respHasError = "error" in response && response.error;
     if (respHasError) {
       recordStage("[messageToolbar] append-message response", {
@@ -645,17 +645,6 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     // recognises the synthetic `ext:` runId and calls
     // `loadMessages()` to fetch the new row + its tool-card.
     const runId = `ext:${ext.id}:${result.messageId}`;
-    getBus().emit("run:turn_saved", {
-      runId,
-      conversationId,
-      messageId: result.messageId,
-      parentMessageId: messageId,
-      content: headerContent,
-      // Extension-authored turns are one-shot and route through
-      // handleExtensionTurnSaved on the client, not the streaming
-      // placeholder path.
-      final: true,
-    });
     recordStage("[messageToolbar] run:turn_saved emitted", {
       runId,
       messageId: result.messageId,

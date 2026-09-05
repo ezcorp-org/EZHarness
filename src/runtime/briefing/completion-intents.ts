@@ -16,7 +16,7 @@ export function briefingCompletionEvents(intent: Intent): DomainExtensionEvent[]
 }
 
 export async function registerBriefingCompletionIntent(intent: Intent): Promise<void> {
-  if (Object.values(intent).some(value => typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(value))) throw new LifecycleError("invalid_event", "Invalid host briefing identity.");
+  if ([intent.runId, intent.conversationId, intent.userId, intent.projectId].some(value => typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(value))) throw new LifecycleError("invalid_event", "Invalid host briefing identity.");
   await getDb().transaction(async (transaction: DbTransaction) => {
     await transaction.execute(sql`LOCK TABLE run_domain_event_intents IN SHARE ROW EXCLUSIVE MODE`);
     const owners = releaseRows<{ userId: string; projectId: string }>(await transaction.execute(sql`SELECT c.user_id AS "userId", c.project_id AS "projectId" FROM conversations c JOIN users u ON u.id = c.user_id WHERE c.id = ${intent.conversationId} AND u.status = 'active' FOR SHARE OF c, u`));

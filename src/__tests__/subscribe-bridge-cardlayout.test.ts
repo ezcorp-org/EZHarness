@@ -12,6 +12,7 @@
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { createUnsubscribedBridgeDatabase } from "./helpers/subscribe-bridge-db";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { LifecycleError } from "../extensions/v4/types";
 
@@ -27,11 +28,7 @@ mock.module("../db/queries/tool-calls", () => ({
 	listToolCallOutputsForMessages: async () => [],
 	getToolCallConversationById: async () => null,
 }));
-mock.module("../db/connection", () => ({
-	getDb: () => ({
-		update: () => ({ set: () => ({ where: async () => {} }) }),
-	}),
-}));
+mock.module("../db/connection", () => ({ getDb: createUnsubscribedBridgeDatabase }));
 mock.module("../db/queries/extensions", () => ({
 	listExtensions: async () => [],
 }));

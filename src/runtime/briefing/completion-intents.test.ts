@@ -3,9 +3,16 @@ import { eq, sql } from "drizzle-orm";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { domainEventSourceFixture } from "../../__tests__/helpers/domain-event-source";
 import { createMessage } from "../../db/queries/conversations";
-import { conversations, runs, runDomainEventIntents, users } from "../../db/schema";
+import { conversations, runs, runDomainEventIntents, users, conversationExtensions } from "../../db/schema";
 import { up } from "../../db/migrations/add-run-domain-event-intents";
 import { briefingCompletionEvents, registerBriefingCompletionIntent, consumeRunCompletionIntent, recoverRunCompletionIntents } from "./completion-intents";
+import { runBriefingForUser } from "./run";
+import { upsertBriefingConfig } from "../../db/queries/briefing-configs";
+import { insertRun, updateRun } from "../../db/queries/runs";
+import { EventBus } from "../events";
+import type { AgentEvents, AgentRun } from "../../types";
+import type { BriefingExecutor } from "./runtime-registry";
+import { isPersistedDomainEvent } from "../../extensions/domain-event-outbox";
 
 mockDbConnection();
 beforeEach(setupTestDb);
@@ -22,6 +29,7 @@ test("migration is idempotent and registration is host-bound, bounded, and immut
   await up(context.database);
   await up(context.database);
   await expect(registerBriefingCompletionIntent({ ...context.intent, runId: "../forged" })).rejects.toMatchObject({ code: "invalid_event" });
+  await expect(registerBriefingCompletionIntent({ ...context.intent, runId: undefined } as unknown as Parameters<typeof registerBriefingCompletionIntent>[0])).rejects.toMatchObject({ code: "invalid_event" });
   await expect(registerBriefingCompletionIntent({ ...context.intent, userId: "foreign" })).rejects.toMatchObject({ code: "invalid_event" });
   await registerBriefingCompletionIntent(context.intent);
   await registerBriefingCompletionIntent(context.intent);
@@ -59,7 +67,7 @@ for (const reason of ["error", "cancelled", "empty", "owner-changed", "owner-ina
   await registerBriefingCompletionIntent(context.intent);
   await createMessage(context.conversation.id, { role: "assistant", content: reason === "empty" ? " \n\t" : "Daily briefing" });
   if (reason === "owner-changed") await context.database.update(conversations).set({ userId: null }).where(eq(conversations.id, context.conversation.id));
-  if (reason === "owner-inactive") await context.database.update(users).set({ status: "disabled" }).where(eq(users.id, context.owner.id));
+  if (reason === "owner-inactive") await context.database.update(users).set({ status: "inactive" }).where(eq(users.id, context.owner.id));
   await context.database.transaction(transaction => consumeRunCompletionIntent(transaction, { ...context.intent, status: reason === "error" || reason === "cancelled" ? reason : "success" }));
   expect(await context.queue.claim()).toBeNull();
   expect(await context.database.select().from(runDomainEventIntents)).toEqual([]);
@@ -80,4 +88,35 @@ test("recovery replays terminal intents and expires pre-run orphans, but retains
   expect(await recoverRunCompletionIntents()).toBe(0);
   expect((await context.queue.dispatch(async () => {}))?.state).toBe("delivered");
   expect((await context.queue.dispatch(async () => {}))?.state).toBe("delivered");
+});
+
+test("real briefing pipeline registers before execution and terminal commit owns both events before UI delivery", async () => {
+  const context = await fixture();
+  const config = await upsertBriefingConfig(context.owner.id, { enabled: true, projectId: context.project.id });
+  const bus = new EventBus<AgentEvents>();
+  const emitted: object[] = [];
+  bus.on("conversation:created", payload => emitted.push(payload));
+  bus.on("briefing:delivered", payload => emitted.push(payload));
+  const executor: BriefingExecutor = {
+    cancelRun: () => true,
+    async streamChat(conversationId, _message, options = {}) {
+      expect((await context.database.select().from(runDomainEventIntents))[0]).toMatchObject({ runId: options.runId, conversationId, userId: context.owner.id });
+      await context.database.insert(conversationExtensions).values({ conversationId, extensionId: context.installationId });
+      const run: AgentRun = { id: options.runId!, agentName: "briefing", status: "running", startedAt: Date.now(), logs: [] };
+      await insertRun(run, context.project.id, undefined, conversationId, context.owner.id);
+      await createMessage(conversationId, { role: "assistant", content: "Durable daily briefing", runId: run.id });
+      const completed: AgentRun = { ...run, status: "success", finishedAt: Date.now() };
+      await updateRun(completed);
+      expect(await context.database.select().from(runDomainEventIntents)).toEqual([]);
+      expect(emitted).toEqual([]);
+      return completed;
+    },
+  };
+  const result = await runBriefingForUser(config, {}, { executor, bus });
+  expect(result.status).toBe("ok");
+  expect(emitted).toHaveLength(2);
+  expect(emitted.every(isPersistedDomainEvent)).toBe(true);
+  const methods: string[] = [];
+  while (await context.queue.dispatch(async delivery => { methods.push((delivery.input as { method: string }).method); })) {}
+  expect(methods.sort()).toEqual(["ezcorp/event/briefing:delivered", "ezcorp/event/conversation:created"]);
 });

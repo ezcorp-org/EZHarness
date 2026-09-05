@@ -853,45 +853,9 @@ export async function handlePiAppendMessage(
     grantedPermissions: base.granted,
     // Phase 6: thread the PDP for the canonical permission decision.
     engine: deps.engine,
+    bus: deps.bus,
   };
   const response = await handleAppendMessageRpc(extensionId, req, ctx);
-
-  // On success, broadcast `run:turn_saved` so the chat UI's
-  // existing `ez:turn_saved` listener picks up the new turn. Without
-  // this, the row sits in the DB but the user never sees it — the
-  // frontend only re-hydrates messages on initial page load and on
-  // run completion. The conversationId comes from the same source
-  // the handler uses (params if ctx is unbound, otherwise ctx).
-  if (deps.bus && "result" in response && response.result) {
-    const result = response.result as { messageId?: unknown; toolCallIds?: unknown };
-    if (typeof result.messageId === "string") {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      const convId =
-        ctx.conversationId !== "unknown"
-          ? ctx.conversationId
-          : (typeof params.conversationId === "string" ? params.conversationId : null);
-      const parentId = typeof params.parentMessageId === "string"
-        ? params.parentMessageId
-        : null;
-      const content = typeof params.content === "string" ? params.content : "";
-      if (convId) {
-        deps.bus.emit("run:turn_saved", {
-          // No host-driven run for extension-authored turns. Use a
-          // synthetic id so SSE consumers that key on runId don't
-          // collide with a real run.
-          runId: `ext:${extensionId}:${result.messageId}`,
-          conversationId: convId,
-          messageId: result.messageId,
-          parentMessageId: parentId,
-          content,
-          // Extension-authored turns are one-shot (no agent tool-loop
-          // continuation) and route through handleExtensionTurnSaved on
-          // the client, not the streaming-placeholder path.
-          final: true,
-        });
-      }
-    }
-  }
 
   return response;
 }

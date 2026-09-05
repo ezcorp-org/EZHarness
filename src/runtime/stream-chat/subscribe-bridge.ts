@@ -3,11 +3,12 @@ import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "../../types";
 import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
+import type { DbTransaction } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
-import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
 import { LifecycleError } from "../../extensions/v4/types";
 import { persistToolCall } from "../../db/queries/tool-calls";
-import { appendSavedMessageEntry } from "../../db/session-sync";
+import { appendSavedMessageEntry, appendSavedMessageEntryInTransaction, withConvSessionLock } from "../../db/session-sync";
 import {
   computeTurnCacheStats,
   aggregateCacheStats,
@@ -129,7 +130,7 @@ export function subscribeBridge(
   // Serialize async DB operations from the sync subscribe callback.
   // Closure over `ctx.dbQueue` so the success/cancel paths can `await ctx.dbQueue`.
   const queueDb = (fn: () => Promise<void>) => {
-    ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => { log.error("DB error", { error: String(err) }); if (err instanceof LifecycleError && err.code === "event_persist_failed") ctx.domainEventFailure = err; });
+    ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => { log.error("DB error", { error: String(err) }); ctx.domainEventFailure = err instanceof LifecycleError ? err : new LifecycleError("event_persist_failed", "Conversation state and its event were not committed."); });
   };
 
   // Subscribe to AgentEvents and bridge to local EventBus
@@ -458,96 +459,99 @@ export function subscribeBridge(
               // state that the next turn_start resets; lastSavedMessageId is
               // never reset, only advanced forward by queued task completions.)
               const capturedParent = ctx.lastSavedMessageId;
-              const { createMessage } = await import("../../db/queries/conversations");
-              const turnMsg = await createMessage(conversationId, {
-                role: "assistant",
-                content: capturedText,
-                thinkingContent: capturedThinking,
-                model: options.model,
-                provider: options.provider,
-                usage: {
-                  inputTokens: am.usage.input,
-                  outputTokens: am.usage.output,
-                  cacheReadTokens: cacheStats.cachedTokens,
-                  cacheWriteTokens: cacheStats.cacheWriteTokens,
-                  cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
-                  cacheHitRate: cacheStats.hitRate,
-                  // Routing provenance (WS3) — written only when the caller
-                  // (the executor's subscribe seam) supplied it, so direct
-                  // subscribeBridge callers keep today's usage shape. The
-                  // SERVED identity is NOT duplicated here — it lives in the
-                  // message row's model/provider columns above.
-                  ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
-                  ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
-                  ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
-                  ...(options.failover !== undefined ? { failover: options.failover } : {}),
-                  // WS5 routing provenance — same conditional-spread contract
-                  // as the fields above: a pinned turn (and any direct
-                  // subscribeBridge caller) writes no key at all, so legacy
-                  // rows and pinned rows stay distinguishable from routed ones.
-                  ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
-                  ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
-                },
-                runId: run.id,
-                parentMessageId: capturedParent ?? undefined,
-              });
+              const committed = await withConvSessionLock<{ messageId: string; event: DomainExtensionEvent }>(conversationId, () => getDb().transaction(async (transaction: DbTransaction) => {
+                const { createMessage } = await import("../../db/queries/conversations");
+                const turnMsg = await createMessage(conversationId, {
+                  role: "assistant",
+                  content: capturedText,
+                  thinkingContent: capturedThinking,
+                  model: options.model,
+                  provider: options.provider,
+                  usage: {
+                    inputTokens: am.usage.input,
+                    outputTokens: am.usage.output,
+                    cacheReadTokens: cacheStats.cachedTokens,
+                    cacheWriteTokens: cacheStats.cacheWriteTokens,
+                    cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
+                    cacheHitRate: cacheStats.hitRate,
+                    // Routing provenance (WS3) — written only when the caller
+                    // (the executor's subscribe seam) supplied it, so direct
+                    // subscribeBridge callers keep today's usage shape. The
+                    // SERVED identity is NOT duplicated here — it lives in the
+                    // message row's model/provider columns above.
+                    ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
+                    ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
+                    ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
+                    ...(options.failover !== undefined ? { failover: options.failover } : {}),
+                    // WS5 routing provenance — same conditional-spread contract
+                    // as the fields above: a pinned turn (and any direct
+                    // subscribeBridge caller) writes no key at all, so legacy
+                    // rows and pinned rows stay distinguishable from routed ones.
+                    ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
+                    ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
+                  },
+                  runId: run.id,
+                  parentMessageId: capturedParent ?? undefined,
+                }, transaction);
 
-              // Anchor unanchored tool calls to this turn's message. Both the
-              // built-in path (tool_execution_end above) and the extension
-              // path (`extensionToAgentTool`'s `messageId` — see its doc
-              // comment) insert with `messageId: null` because the turn's
-              // assistant message doesn't exist yet at tool-call time; this
-              // is the single re-parent step that anchors ALL of them once
-              // it does. (A prior "also handle extension tools that used
-              // run.id as placeholder" second UPDATE was removed here: that
-              // never matched anything — `tool_calls.message_id` is a
-              // non-deferrable FK to `messages(id)`, so an insert carrying
-              // `run.id` — never a real message id — always violated the
-              // constraint and the row never landed, rather than landing
-              // with a stale id for this step to fix up.)
-              await getDb()
-                .update(toolCalls)
-                .set({ messageId: turnMsg.id })
-                .where(and(
-                  eq(toolCalls.conversationId, conversationId),
-                  isNull(toolCalls.messageId),
-                ));
+                // Anchor unanchored tool calls to this turn's message. Both the
+                // built-in path (tool_execution_end above) and the extension
+                // path (`extensionToAgentTool`'s `messageId` — see its doc
+                // comment) insert with `messageId: null` because the turn's
+                // assistant message doesn't exist yet at tool-call time; this
+                // is the single re-parent step that anchors ALL of them once
+                // it does. (A prior "also handle extension tools that used
+                // run.id as placeholder" second UPDATE was removed here: that
+                // never matched anything — `tool_calls.message_id` is a
+                // non-deferrable FK to `messages(id)`, so an insert carrying
+                // `run.id` — never a real message id — always violated the
+                // constraint and the row never landed, rather than landing
+                // with a stale id for this step to fix up.)
+                await transaction
+                  .update(toolCalls)
+                  .set({ messageId: turnMsg.id })
+                  .where(and(
+                    eq(toolCalls.conversationId, conversationId),
+                    isNull(toolCalls.messageId),
+                  ));
 
-              // Anchor agent sub-conversations created during this turn to the assistant message
-              await getDb()
-                .update(conversations)
-                .set({ parentMessageId: turnMsg.id })
-                .where(and(
-                  eq(conversations.parentConversationId, conversationId),
-                  isNull(conversations.parentMessageId),
-                ));
+                // Anchor agent sub-conversations created during this turn to the assistant message
+                await transaction
+                  .update(conversations)
+                  .set({ parentMessageId: turnMsg.id })
+                  .where(and(
+                    eq(conversations.parentConversationId, conversationId),
+                    isNull(conversations.parentMessageId),
+                  ));
 
-              ctx.lastSavedMessageId = turnMsg.id;
+                // Live-append this assistant turn to the pi session tree
+                // (design §5) so the session mirror stays hot for the next
+                // run's read. Keyed by the row id (mirror invariant), parented
+                // on the SAME structural parent the messages row got. Gated on
+                // the run's history-producer flag.
+                if (options.sessionHistoryProducer) {
+                  await appendSavedMessageEntryInTransaction(
+                    transaction,
+                    conversationId,
+                    { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
+                    capturedParent,
+                  );
+                }
 
-              // Live-append this assistant turn to the pi session tree
-              // (design §5) so the session mirror stays hot for the next
-              // run's read. Keyed by the row id (mirror invariant), parented
-              // on the SAME structural parent the messages row got. Gated on
-              // the run's history-producer flag; fail-open — the replay-
-              // authority catch-up on the next loadHistory is the backstop
-              // for a dropped append.
-              if (options.sessionHistoryProducer) {
-                await appendSavedMessageEntry(
+                const event: DomainExtensionEvent = { id: turnMsg.id, type: "run:turn_saved", conversationId, payload: {
+                  runId: run.id,
                   conversationId,
-                  { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
-                  capturedParent,
-                );
-              }
-
-              host.bus.emit("run:turn_saved", {
-                runId: run.id,
-                conversationId,
-                messageId: turnMsg.id,
-                parentMessageId: capturedParent,
-                content: capturedText,
-                thinkingContent: capturedThinking,
-                final: isFinalTurn,
-              });
+                  messageId: turnMsg.id,
+                  parentMessageId: capturedParent,
+                  content: capturedText,
+                  thinkingContent: capturedThinking,
+                  final: isFinalTurn,
+                } };
+                await publishDomainEvent(transaction, event);
+                return { messageId: turnMsg.id, event };
+              }));
+              ctx.lastSavedMessageId = committed.messageId;
+              emitPersistedDomainEvent(host.bus, committed.event);
               host.bus.emit("run:turn_text_reset", { runId: run.id });
             });
           }

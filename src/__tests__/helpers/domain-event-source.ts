@@ -6,6 +6,11 @@ import { createExtension } from "../../db/queries/extensions";
 import { users, projects, conversations, conversationExtensions } from "../../db/schema";
 import { buildFullGrantFromManifest } from "../../extensions/install-grant";
 import { ExtensionDeliveryQueue } from "../../extensions/v4/deliveries";
+import { sql } from "drizzle-orm";
+
+export async function fillDomainEventQueue(source: { database: ReturnType<typeof getTestDb>; installationId: string }) {
+  await source.database.execute(sql`INSERT INTO extension_release_deliveries(id, installation_id, deduplication_id, generation, state, available_at, lease_until, payload) SELECT 'full-' || generate_series, ${source.installationId}, 'full-' || generate_series, 1, 'queued', 0, 0, '{}' FROM generate_series(1,10000)`);
+}
 
 export async function domainEventSourceFixture(events: string[]) {
   const database = getTestDb();
