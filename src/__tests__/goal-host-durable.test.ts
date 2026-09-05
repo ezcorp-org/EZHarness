@@ -118,7 +118,7 @@ test("failed continuation and pause admission leave the in-memory record unchang
     onRunComplete(data: AgentEvents["run:complete"]): Promise<void>;
     onRunTerminal(run: AgentRun, conversationId: string, kind: "error", error: string): Promise<void>;
   };
-  await expect(handlers.onRunComplete({ run, conversationId: context.conversation.id, runId: run.id })).rejects.toThrow();
+  await expect(handlers.onRunComplete({ run, conversationId: context.conversation.id })).rejects.toThrow();
   expect(context.host.getRecord(context.conversation.id)).toEqual(before);
   expect(starts).toBe(0);
   expect(context.events).toHaveLength(1);
