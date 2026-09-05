@@ -31,7 +31,7 @@ The bundle contains test output only. It contains no credential values or live-s
 
 - `all-first-party-lifecycle-freeze2.jsonl.gz` — authoritative frozen-tree JSONL for 50 extension records, summary, and command exit. It reports 50 passed, 0 failed, 0 untested; 4 smoke passed, 46 smoke not declared; and 1/117 capability rows tested. SHA-256 `fbfa262f97509e54441f2a77492398e724d713946f97aabfca89446522a0837b`.
 - `all-first-party-lifecycle.jsonl.gz` — retained freeze-one checkpoint before the final capability narrowing. SHA-256 `462fa4718e1b076267942200d4b0c905874da5acb7c5878caf36c0dcd2f00221`.
-- `capability-test-sources.txt` — 91 distinct exact test sources mapped by the capability inventory. SHA-256 `ffc85335b5783aab4e1931d6e20f336cc45964bdbab29313d62a84f4f6c0fc44`.
+- `capability-test-sources.txt` — 92 distinct exact test sources mapped by the capability inventory. SHA-256 `4a337e792485b40db572e74460c059b0f1fc2c8815489d3a3131d2acfea05207`.
 - `postgres-final.log.gz` — authoritative clean non-login-shell run. SHA-256 `8a39a144e1c4f9334d7e6635d5aef35c7d5a578fac18ab46d6edb712dd9d9db5`.
 - `postgres-wrapper-exit127.log.gz` — retained invalid wrapper receipt. Both child programs passed, but `/etc/bash_logout` failed under `set -u`, so the wrapper correctly remains exit 127. SHA-256 `22647adcdf629fad5592531347619f12352ad2f2ec401e8939203a21092980b0`.
 
@@ -44,3 +44,9 @@ Controlled-fault artifacts preserve the deterministic event grant-filter mutatio
 `keyless-installed-real-dns.log.gz` records the complete four-release real-broker run: GitHub Stats and Price Chart passed; Weather and City Conditions failed at the guarded Open-Meteo geocoder connection. `keyless-installed-production-resolver-detail.log.gz` records the exact weather tool error and City Conditions `UPSTREAM_UNAVAILABLE` envelope with empty broker failure arrays.
 
 `keyless-installed-transport-diagnostic.log.gz` confirms the installed Open-Meteo failures occur in sandbox native fetch before a reverse-RPC network request. GitHub and Yahoo succeeded through the same release harness. Direct host guarded fetch to the same Open-Meteo geocoder returned HTTP 200. The remaining limit is specific to the installed sandbox transport/provider route; the SSRF guard was not weakened with hostname fallback.
+
+`keyless-installed-after-fetch-fix.log.gz` proves the late-binding repair changed Weather and City Conditions from native connection failures to host-brokered provider HTTP 403 responses. `weather-city-lifecycle.log.gz` records the final affected lifecycle result: 2 passed, 0 failed, 0 untested.
+
+`weather-city-fetch-capture-fault-red.log.gz` restores the early captured fetch and fails both authority assertions (0 pass, 2 fail). `weather-city-fetch-green.log.gz` restores the fix (2 pass, 0 fail, 8 assertions). `openmeteo-guarded-user-agent.log.gz` shows direct guarded geocoder HTTP 200 both with and without an explicit User-Agent; User-Agent does not explain the installed provider HTTP 403.
+
+`keyless-installed-final.log.gz` is the authoritative production-resolver live run after the fetch repair: GitHub Stats, Weather, City Conditions, and Price Chart passed (4/4, 8 assertions, command exit 0). `keyless-installed-final.test.ts.txt` preserves the replay script. `weather-pinned-ip-diagnostic.log.gz` records the resolved IP targets, original Host headers, semantic weather payload, and zero broker failures. Earlier HTTP 403 and connection-failure logs remain as non-authoritative investigation history.
