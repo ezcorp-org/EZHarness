@@ -61,8 +61,8 @@
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
       "files": 9,
-      "bytes": 112324,
-      "sourceDigest": "1f2cd9e341568eeb96e4948b0c71f5c45c3d2cb7aa740964a8a2e74c4d709c02"
+      "bytes": 112411,
+      "sourceDigest": "8e62451c4fb3f9949555d111804dfbc7ff77f551936e5ca9b6b08e29f6cf17a3"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -348,8 +348,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 54,
-      "bytes": 421439,
-      "sourceDigest": "a3458c0f63fc52b3e3717b6be7b8fa72f4245dc7ae7dbd35a2daf799d673ff73"
+      "bytes": 422810,
+      "sourceDigest": "cfa3bc2df3ee68f0ba03eba0208ab5e310a994d452a22dea24648e5d5cf5567f"
     }
   }
 }

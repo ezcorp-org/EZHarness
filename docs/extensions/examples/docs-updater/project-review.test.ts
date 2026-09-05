@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { createRuntimeExtension } from "@ezcorp/sdk/v4";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import { createToolDispatcher, type LoopCompleteContext } from "@ezcorp/sdk/runtime";
 import type { DocsOutcome } from "./index";
 
 async function exercise(options: { files?: string[]; action?: "finalize" | "close"; decision?: Record<string, unknown>; reviewUrl?: string } = {}) {
+  __resetChannelForTests();
   const calls: Array<{ method: string; input: unknown }> = [];
   const extension = await createRuntimeExtension({
     manifest: { schemaVersion: 4, name: "review-test", version: "1.0.0", description: "Review test", author: { name: "Test" }, permissions: { shell: true }, tools: [{ name: "complete", description: "Complete", inputSchema: { type: "object" } }] },
