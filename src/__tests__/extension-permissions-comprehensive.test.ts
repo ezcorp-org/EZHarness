@@ -404,7 +404,7 @@ describe("retired installation paths require the approved lifecycle", () => {
       try {
         await Bun.write(join(directory, "ezcorp.config.ts"), 'throw new Error("Legacy config must not execute");');
         const before = await listExtensions();
-        await expect(install(source === "local" ? directory : "testuser/testrepo@v2.0.0", { filesystem: { paths: ["/"], mode: ["read", "write"] }, shell: true }, true, { userId: "owner" })).rejects.toThrow("EXTENSION_V4_REQUIRED");
+        await expect(install(source === "local" ? directory : "testuser/testrepo@v2.0.0", { filesystem: ["/"], shell: true, grantedAt: {} }, true, { userId: "owner" })).rejects.toThrow("EXTENSION_V4_REQUIRED");
         expect(fetched).toBe(false);
         expect(await listExtensions()).toEqual(before);
         expect(await Bun.file(join(directory, "ezcorp.config.ts")).text()).toContain("must not execute");

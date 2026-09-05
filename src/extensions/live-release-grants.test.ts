@@ -41,7 +41,7 @@ test("a live release cannot use cached caller grants after actual policy revocat
   const call = () => runtime.call("tools/call", { name: "check", arguments: {}, _meta: { ezCallId: token } });
   try {
     expect((await call()).result).toEqual({});
-    await updateExtension(extensionId, { grantedPermissions: {} });
+    await updateExtension(extensionId, { grantedPermissions: { grantedAt: {} } });
     await expect(call()).rejects.toThrow("Live grant denied");
     await updateExtension(extensionId, { grantedPermissions: grants });
     expect((await call()).result).toEqual({});
