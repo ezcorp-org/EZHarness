@@ -1,5 +1,6 @@
 {
   "packages/@ezcorp/extension-runner/src/browser.ts": 100,
+  "src/mcp/cancellation.ts": 100,
   "src/extensions/runtime-locks.ts": 100,
   "src/db/migrations/add-extension-runtime-locks.ts": 100,
   "src/db/migrations/add-managed-extension-agents.ts": 100,

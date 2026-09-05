@@ -6,7 +6,15 @@ import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../rele
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
 
-function fixture() {
+function fixture(block?: { method: string; arrived: () => void; signals: AbortSignal[] }) {
+  const waitForAbort = async (signal: AbortSignal) => {
+    block!.signals.push(signal);
+    block!.arrived();
+    await new Promise<void>((_resolve, reject) => {
+      signal.throwIfAborted();
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
   const catalog = [{ name: "echo", inputSchema: { type: "object", required: ["text"], properties: { text: { type: "string" } }, additionalProperties: false } }];
   const snapshot: ActiveExtensionRelease = {
     installation: { id: "mcp", ownerId: "alice", scope: "project", activeReleaseId: "release", generation: 1, enabled: true, uninstalled: false, status: "active", grants: [canonicalJson(["network", ["example.com"]])], acknowledgedGeneration: 1 },
@@ -26,16 +34,76 @@ function fixture() {
     permissionEngine: () => createStubPermissionEngine(deny ? "deny-all" : "allow-all"),
     fetch: async (url, init, options) => {
       await options.authorizeUrl!(new URL(hop ?? url));
-      if (init.method !== "POST") return new Response(null, { status: 405 });
+      if (init.method !== "POST") {
+        if (block?.method === "sse") await waitForAbort(init.signal!);
+        return new Response(null, { status: 405 });
+      }
       const request = JSON.parse(typeof init.body === "string" ? init.body : await new Response(init.body).text());
       requests.push(request);
+      if (block && request.method === block.method) {
+        await waitForAbort(init.signal!);
+      }
       if (!Object.hasOwn(request, "id")) return new Response(null, { status: 202 });
       const result = request.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "test", version: "1" } } : request.method === "tools/list" ? { tools: changed ? [] : catalog } : { content: [{ type: "text", text: request.params.arguments.text }], isError: false };
       return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }), { headers: { "content-type": "application/json" } });
     },
   };
   const client = new ReleaseMcpClient("mcp", async () => { throw new Error("No host process"); }, runtime, remote);
-  return { client, token, snapshot, requests, remote, change: () => { changed = true; }, deny: () => { deny = true; }, hop: (url: string) => { hop = url; }, cleanup: async () => { await client.close(); releaseCallProvenance(token); } };
+  return { client, token, snapshot, requests, remote, runtime, change: () => { changed = true; }, deny: () => { deny = true; }, hop: (url: string) => { hop = url; }, cleanup: async () => { await client.close(); releaseCallProvenance(token); } };
+}
+
+test("stdio forwards the caller signal and rechecks it after process resolution", async () => {
+  const value = fixture();
+  value.snapshot.release.manifest.mcpServers = [{ name: "stdio", transport: "stdio", command: "server" }];
+  const controller = new AbortController();
+  const seen: unknown[] = [];
+  let abortDuringResolve = false;
+  const client = new ReleaseMcpClient("mcp", async () => {
+    if (abortDuringResolve) controller.abort(new Error("Stopped while resolving"));
+    return { callTool: async (_name: string, _args: unknown, _meta: unknown, options: unknown) => { seen.push(options); return { content: [], isError: false }; } } as unknown as import("../subprocess").ExtensionProcess;
+  }, value.runtime, value.remote);
+  try {
+    await client.connect();
+    await client.callTool("echo", { text: "first" }, { ezCallId: value.token }, { signal: controller.signal });
+    expect(seen).toEqual([{ skipTimeout: false, signal: controller.signal }]);
+    abortDuringResolve = true;
+    await expect(client.callTool("echo", { text: "second" }, { ezCallId: value.token }, { signal: controller.signal })).rejects.toThrow("Stopped while resolving");
+    expect(seen).toHaveLength(1);
+  } finally { await client.close(); await value.cleanup(); }
+});
+
+test("pre-aborted remote MCP calls make no transport requests", async () => {
+  const value = fixture();
+  const controller = new AbortController();
+  controller.abort(new Error("Caller stopped"));
+  try {
+    await value.client.connect();
+    await expect(value.client.callTool("echo", { text: "unused" }, { ezCallId: value.token }, { signal: controller.signal })).rejects.toThrow("Caller stopped");
+    expect(value.requests).toEqual([]);
+  } finally { await value.cleanup(); }
+});
+
+for (const method of ["initialize", "tools/list", "tools/call", "sse"]) {
+  test(`remote MCP abort cancels ${method} transport without retrying`, async () => {
+    let arrived!: () => void;
+    const started = new Promise<void>(resolve => { arrived = resolve; });
+    const signals: AbortSignal[] = [];
+    const value = fixture({ method, arrived, signals });
+    if (method === "sse") value.snapshot.release.manifest.mcpServers = [{ name: "remote", transport: "sse", url: "https://example.com/mcp" }];
+    const controller = new AbortController();
+    try {
+      await value.client.connect();
+      const pending = value.client.callTool("echo", { text: "stop" }, { ezCallId: value.token }, { signal: controller.signal });
+      const outcome = pending.then(() => ({ rejected: false }), () => ({ rejected: true }));
+      await started;
+      controller.abort(new Error("Caller stopped"));
+      expect(await outcome).toEqual({ rejected: true });
+      expect(signals).toHaveLength(1);
+      expect(signals[0]!.aborted).toBe(true);
+      expect(value.requests.filter(request => (request as { method: string }).method === method)).toHaveLength(method === "sse" ? 0 : 1);
+      if (method !== "tools/call") expect(value.requests.some(request => (request as { method: string }).method === "tools/call")).toBe(false);
+    } finally { await value.cleanup(); }
+  });
 }
 
 test("remote MCP uses approved catalog and a live scoped token over real HTTP protocol", async () => {
