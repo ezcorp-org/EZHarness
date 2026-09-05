@@ -1,12 +1,7 @@
 # Gates: Extension v4 implementation and PR
 
-- [x] G1: Contracts, SDK, Podman runner and durable lifecycle implemented and tested.
-  EVIDENCE: Contract 22 tests/278 assertions; SDK 1,023 tests/2,332 assertions; actual runner 36 tests/266 assertions (`/tmp/ez-runner-final-independent.log`). All 50 sealed candidates pass at tree `6e634060ed624549d1d11c17325678860740596c` (`/tmp/ez-all50-final5.jsonl`); the three later changed examples pass separately (`/tmp/ez-candidate-final-three-delta.jsonl`). Actual shared PostgreSQL checks pass (`/tmp/lifecycle-final-postgres.log`). These checks do not claim every candidate capability was exercised.
-- [x] G2: Host, harness tools and UI use the shared lifecycle; real authoring loop passes.
-  EVIDENCE: `/tmp/ez-extension-v4-real-final10.log` has nine passing actual authenticated/rootless flows, including editor authoring, external control, chat self-build, immutable upgrade, and the protected scanner. See `docs/extension-v4-validation.md` for command results and limits.
-- [ ] G3: Security, recovery, migration and complete contribution parity pass.
-  EVIDENCE: Exact service identity and revocation pass through a real browser and rootless worker at tree `d25841ff327c491278fd3807c95f470fc69494d3`. Parent SQL tool/agent tests pass six cases with 24 assertions; direct service adapter tests pass ten cases with 36 assertions. Bounded multi-release consent, resumed YAML authority, and per-effect service storage/filesystem checks remain under integration. Retired legacy behavior remains explicitly mapped; maintainer review is required.
-- [ ] G4: Full required validation passes on the final branch before push.
-  EVIDENCE: The complete 53-test real browser lane passed at its recorded checkpoint; the new service flow increases the required lane to 54 tests. Type check 55 passes. Backend diagnostic 18 is running after fixes to run identity and consent fixtures. Later source changes require all final checks again, including coverage, browser lanes, image and PostgreSQL. Gate integrity still needs maintainer approval; no gate is bypassed.
-- [ ] G5: Reviewed commits pushed, PR opened, CI results checked and reported.
-  EVIDENCE: Draft PR https://github.com/ezcorp-org/EZHarness/pull/246 is published through 5e7d4ee4. The second CI run passes initial portability fixes but finds a hydration import, Ubuntu monitor OOM reporting and complete browser-lane failures. Local fixes are in progress and remain unpushed until validated. Maintainer gate-integrity approval remains separate.
+- [x] G1: The production rewrite is implemented and frozen at `af531cdd` (tree `beaa01d3b2a58bab7ed4ea9e95e049b3cc17e723`).
+- [x] G2: Final local executable validation passes at `b5c4d0e6`. See `gates/final-validation.md` and `docs/extension-v4-validation.md`.
+- [x] G3: Security, revocation, transaction, browser, image, candidate and PostgreSQL proofs pass. No remaining production blocker was found in independent review.
+- [ ] G4: A maintainer reviews the 84 migration-policy findings and applies `gate-change-approved` only if the recorded dispositions are acceptable.
+- [ ] G5: Draft PR 246 is updated, hosted CI passes, and a non-author approves it. Local results do not authorize merge.
