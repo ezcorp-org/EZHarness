@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { scaffoldWorkspace } from "../src/scaffold";
+import { scaffoldExtension, scaffoldWorkspace } from "../src/scaffold";
 import { validateWorkspaceFiles } from "@ezcorp/extension-contract";
 
 test("public workspace seed preserves the host echo contract and bounded source", () => {
@@ -12,4 +12,5 @@ test("public workspace seed preserves the host echo contract and bounded source"
   expect(files["README.md"]).toContain("A tested workspace");
   expect(() => scaffoldWorkspace({ name: "", description: "test" })).toThrow("name is required");
   expect(() => scaffoldWorkspace({ name: "../escape", description: "test" })).toThrow("name must match");
+  expect(() => scaffoldExtension({ name: "valid-name", type: "unsupported" as never, description: "test" })).toThrow("type must be one of");
 });
