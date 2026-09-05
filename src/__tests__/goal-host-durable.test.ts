@@ -9,7 +9,7 @@ import { up } from "../db/migrations/add-extension-releases";
 import { users, projects, conversations, conversationExtensions } from "../db/schema";
 import { buildFullGrantFromManifest } from "../extensions/install-grant";
 import { ExtensionDeliveryQueue } from "../extensions/v4/deliveries";
-import { GoalHost, writePersistedGoal, deletePersistedGoal, readPersistedGoal } from "../runtime/goal-host";
+import { GoalHost, writePersistedGoal, deletePersistedGoal, readPersistedGoal, type GoalHostOptions } from "../runtime/goal-host";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
@@ -18,7 +18,7 @@ mockDbConnection();
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
-async function fixture() {
+async function fixture(options: Partial<GoalHostOptions> = {}) {
   const database = getTestDb();
   await up(database);
   const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@goal.test`, passwordHash: "unused", name: "Goal owner", role: "admin", status: "active" }).returning();
@@ -32,7 +32,7 @@ async function fixture() {
   const bus = new EventBus<AgentEvents>();
   const events: AgentEvents["goal:update"][] = [];
   bus.on("goal:update", payload => { events.push(payload); });
-  const host = new GoalHost({ bus, executor: {} as AgentExecutor, createMessage: async () => ({ id: "goal-card", role: "assistant", content: "card" }) as never });
+  const host = new GoalHost({ bus, executor: {} as AgentExecutor, createMessage: async () => ({ id: "goal-card", role: "assistant", content: "card" }) as never, ...options });
   const input = { conversationId: conversation!.id, userId: owner!.id, projectId: project!.id, userMessageId: "message" };
   return { database, conversation: conversation!, host, bus, events, input, queue: new ExtensionDeliveryQueue(database) };
 }
@@ -100,4 +100,29 @@ test("goal persistence rejects foreign events, missing rows and superseded trans
   await expect(deletePersistedGoal(context.conversation.id, event, goal)).rejects.toThrow("changed");
   expect(await readPersistedGoal(context.conversation.id)).toMatchObject({ condition: "Replacement" });
   expect(await context.queue.claim()).toBeNull();
+});
+
+test("failed continuation and pause admission leave the in-memory record unchanged", async () => {
+  let starts = 0;
+  const context = await fixture({
+    executor: { streamChat: async () => { starts++; } } as unknown as AgentExecutor,
+    getMessages: async () => [{ role: "assistant", content: "<<TASK_BLOCKED: keep working>>" }] as never,
+  });
+  await context.host.handleGoalCommand({ ...context.input, subcommand: "set", condition: "Do not lose the current run" });
+  const record = context.host.getRecord(context.conversation.id)!;
+  record.inFlightRunId = crypto.randomUUID();
+  const before = structuredClone(record);
+  await context.database.execute(sql`DROP TABLE extension_release_deliveries`);
+  const run = { id: record.inFlightRunId, conversationId: context.conversation.id, agentName: "chat", status: "success", startedAt: Date.now(), logs: [] } as AgentRun;
+  const handlers = context.host as unknown as {
+    onRunComplete(data: AgentEvents["run:complete"]): Promise<void>;
+    onRunTerminal(run: AgentRun, conversationId: string, kind: "error", error: string): Promise<void>;
+  };
+  await expect(handlers.onRunComplete({ run, conversationId: context.conversation.id, runId: run.id })).rejects.toThrow();
+  expect(context.host.getRecord(context.conversation.id)).toEqual(before);
+  expect(starts).toBe(0);
+  expect(context.events).toHaveLength(1);
+  await expect(handlers.onRunTerminal(run, context.conversation.id, "error", "No queue")).rejects.toThrow();
+  expect(context.host.getRecord(context.conversation.id)).toEqual(before);
+  expect(await readPersistedGoal(context.conversation.id)).toMatchObject({ lastReason: null });
 });

@@ -1252,8 +1252,9 @@ export class GoalHost {
     const conversationId = data.conversationId;
     if (!conversationId) return;
     const persisted = await this.readGoalFn(conversationId);
-    const record = this.records.get(conversationId);
-    if (!isGoalArmed(persisted, record)) return;
+    const current = this.records.get(conversationId);
+    if (!isGoalArmed(persisted, current)) return;
+    const record = { ...current! };
     if (record!.inFlightRunId !== null && record!.inFlightRunId !== data.run.id) {
       // Not the run this loop authored / a separate turn we didn't
       // arm against. Still count: this is a `run:complete` on an
@@ -1276,6 +1277,7 @@ export class GoalHost {
     // FR-18 supersede check.
     const pending = this.dequeuePendingFn(conversationId);
     if (pending) {
+      Object.assign(current!, record);
       // User has another message queued — let the user's turn run,
       // evaluator will re-fire on its run:complete with the post-user
       // transcript.
@@ -1420,7 +1422,7 @@ export class GoalHost {
   /** FR-12.3 / FR-12.4 / FR-12.5: ANY run:error or run:cancel for the
    *  armed conv's run → pause WITHOUT evaluating. */
   private async onRunTerminal(
-    run: AgentRun,
+    _run: AgentRun,
     conversationId: string | undefined,
     kind: "error" | "cancel",
     errorText?: string,
@@ -1429,9 +1431,6 @@ export class GoalHost {
     const persisted = await this.readGoalFn(conversationId);
     const record = this.records.get(conversationId);
     if (!isGoalArmed(persisted, record)) return;
-    if (record!.inFlightRunId === run.id) {
-      record!.inFlightRunId = null;
-    }
     const reason =
       kind === "cancel"
         ? "Run was cancelled (Stop / Ctrl-C)"
