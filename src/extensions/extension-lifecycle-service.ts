@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
-import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution } from "@ezcorp/extension-contract";
+import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, RunnerClient } from "@ezcorp/extension-runner";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
@@ -10,6 +10,7 @@ import { ExtensionLifecycle, FileBlobStore, LifecycleError, type LifecycleActor,
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
+import { getFiles } from "./v4/blobs";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -139,17 +140,18 @@ async function initialize(): Promise<LifecycleServices> {
     },
   });
   const { getProjectRoot } = await import("./project-root");
+  const blobs = new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases"));
   const authorization = createLifecycleAuthorization({ user: getUserById, installation: async (id) => (await repository.read(id))?.installation ?? null, projectionById: getExtension, projectionByName: getExtensionByName, projectMember: async (userId, projectId) => Boolean(await getProjectMembership(userId, projectId)) });
   const lifecycle = new ExtensionLifecycle({
     repository,
-    blobs: new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases")),
+    blobs,
     runner, resolveDependencies, runnerProfile: "rootless-podman-v4", runnerImageDigest: process.env.EZCORP_EXTENSION_RUNNER_IMAGE ?? DEFAULT_IMAGE,
     validatorVersion: "runner-v4.1", buildLimits,
     ...authorization,
     verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
-    publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release); },
+    publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest) : undefined); },
   });
   return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations };
 }
@@ -165,13 +167,15 @@ export async function getExtensionRunner(): Promise<Runner> { return (await getS
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
-export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void> {
+export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null, sourceFiles?: WorkspaceFiles): Promise<void> {
   const { getDb } = await import("../db/connection");
   const { extensions } = await import("../db/schema");
   const { serializeJsonbFields } = await import("../db/queries/extensions");
   const { buildFullGrantFromManifest } = await import("./install-grant");
   const { ExtensionRegistry } = await import("./registry");
+  const { runEntitySeed } = await import("./entities/seed");
   await getDb().transaction(async (transaction: import("../db/connection").DbTransaction) => {
+    if (release?.manifest.entities?.length) await transaction.execute(sql`LOCK TABLE extension_storage IN SHARE ROW EXCLUSIVE MODE`);
     const result = await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
@@ -184,6 +188,10 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const granted = buildFullGrantFromManifest(manifest);
     const values = serializeJsonbFields({ id: installation.id, name: release.manifest.name, version: release.manifest.version, description: release.manifest.description, manifest, source: "release-v4", installPath: null, enabled: true, grantedPermissions: granted, installedPermissions: granted, checksumVerified: true, isBundled: false, disabledByUser: false, creatorUserId: installation.ownerId, updatedAt: new Date() });
     await transaction.insert(extensions).values(values).onConflictDoUpdate({ target: extensions.id, set: values });
+    if (manifest.entities?.length) {
+      if (!sourceFiles) throw new LifecycleError("seed_source_missing", "Entity seeds require the verified immutable release files.");
+      await runEntitySeed({ extensionId: installation.id, entities: manifest.entities, sourceDir: "", sourceFiles, userId: installation.ownerId, database: transaction });
+    }
   });
   await ExtensionRegistry.getInstance().reload();
 }

@@ -40,6 +40,7 @@ import {
   deleteStorageValue,
   getStorageValue,
   setStorageValue,
+  type StorageDatabase,
 } from "../../db/queries/extension-storage";
 
 type StorageScope = "global" | "conversation" | "user";
@@ -60,6 +61,7 @@ type StorageScope = "global" | "conversation" | "user";
  *     tool-executor passes the acting user's id.
  */
 export interface HostEntityStoreOptions {
+  database?: StorageDatabase;
   extensionId: string;
   scope: "user" | "project" | "conversation";
   scopeId: string | null;
@@ -106,6 +108,7 @@ export function createHostEntityStore(
         storageScope,
         scopeId,
         key,
+        opts.database,
       );
       if (!row) return { value: null, exists: false };
       // The host-served path never writes encrypted entity records —
@@ -132,6 +135,7 @@ export function createHostEntityStore(
         false /* not encrypted — entities are user-visible */,
         sizeBytes,
         undefined /* no TTL — entity records are durable */,
+        opts.database,
       );
       return { ok: true, sizeBytes };
     },
@@ -142,6 +146,7 @@ export function createHostEntityStore(
         storageScope,
         scopeId,
         key,
+        opts.database,
       );
       return { deleted };
     },
