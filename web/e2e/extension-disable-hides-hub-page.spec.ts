@@ -212,7 +212,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible();
-		await expect(dialog).toContainText(".ezcorp/extension-data/notes-keeper/");
+		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
 
 		await captureEvidence(page, testInfo, "extension-detail-uninstall");
 	});
@@ -243,10 +243,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		await expect(page.getByTestId("extension-detail-uninstall-button")).toHaveCount(0);
 	});
 
-	test("the uninstall dialog names the data directory and makes the user choose", async ({ page, mockApi }, testInfo) => {
-		// The delete now reaches the filesystem. Neither option is
-		// preselected: a default "delete" destroys data people meant to keep,
-		// a default "keep" orphans directories nobody cleans up.
+	test("the uninstall dialog states that data and history are retained", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj], extensions: [makeHubExtension(true)] });
 		await page.goto("/extensions");
 
@@ -254,10 +251,9 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible({ timeout: 5000 });
-		await expect(dialog).toContainText(".ezcorp/extension-data/notes-keeper/");
-		await expect(page.getByTestId("uninstall-keep-data")).not.toBeChecked();
-		await expect(page.getByTestId("uninstall-delete-data")).not.toBeChecked();
-		await expect(page.getByTestId("uninstall-confirm")).toBeDisabled();
+		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
+		await expect(dialog).toContainText("Data deletion requires a separate review");
+		await expect(page.getByTestId("uninstall-confirm")).toBeEnabled();
 
 		await captureEvidence(page, testInfo, "uninstall-dialog-data-choice");
 	});

@@ -156,7 +156,7 @@ test.describe("Extensions detail — audit trail folding + retention note", () =
 
 		// The pre-existing sentence is intact — #204's copy fix is not
 		// regressed by appending to it.
-		await expect(trail).toContainText("MCP server lifecycle");
+		await expect(trail).toContainText("MCP operations are recorded here");
 
 		// And the row the note describes is on screen, with its count. Before
 		// this change a PDP row rendered as the bare slug `perm denied` — no

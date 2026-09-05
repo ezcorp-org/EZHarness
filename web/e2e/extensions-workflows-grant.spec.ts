@@ -158,13 +158,28 @@ test.describe("Extensions review dialog — workflows grant", () => {
 		page,
 		mockApi,
 	}, testInfo) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+		const extension = workflowExtension();
+		await mockApi({
+			projects: [proj],
+			extensions: [extension],
+			routes: {
+				"/api/extensions/ext-wf": (url: URL) => {
+					if (url.pathname === "/api/extensions/ext-wf") return extension;
+					if (url.pathname.endsWith("/settings")) return { schema: {}, userValues: {} };
+					if (url.pathname.endsWith("/expired-grants")) return { grants: [] };
+					if (url.pathname.endsWith("/audit")) return { entries: [] };
+					if (url.pathname.endsWith("/violations")) return [];
+					if (url.pathname.endsWith("/permissions")) return extension.grantedPermissions;
+					return {};
+				},
+			},
+		});
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await expect(page.getByTestId("review-workflows")).toBeVisible();
-		await captureEvidence(page, testInfo, "extensions-workflows-grant");
+		await page.goto("/extensions/ext-wf");
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toBeVisible();
+		await expect(permissions).toContainText("workflows");
+		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4");
 
 		// Assert the capture contract in BOTH modes (mirrors extensions-sort)
 		// so the test is meaningful without the flag, not a bare screenshot.
@@ -172,12 +187,12 @@ test.describe("Extensions review dialog — workflows grant", () => {
 			expect(
 				testInfo.attachments.some(
 					(a) =>
-						a.name === "extensions-workflows-grant" && a.contentType === "image/png",
+						a.name === "extensions-workflows-grant-v4" && a.contentType === "image/png",
 				),
 			).toBe(true);
 		} else {
 			expect(
-				testInfo.attachments.some((a) => a.name === "extensions-workflows-grant"),
+				testInfo.attachments.some((a) => a.name === "extensions-workflows-grant-v4"),
 			).toBe(false);
 		}
 	});

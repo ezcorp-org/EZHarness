@@ -104,17 +104,20 @@ test.describe("Extension install-granted capabilities", () => {
 
 		await page.goto(`/extensions/${EXT_ID}`);
 
-		await expect(page.getByTestId("install-granted-capabilities")).toBeVisible();
-		await captureEvidence(page, testInfo, "install-granted-capabilities");
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toBeVisible();
+		await expect(permissions).toContainText("Current grants");
+		await expect(permissions).toContainText("storage");
+		await captureEvidence(page, testInfo, "install-granted-capabilities-v4");
 
 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
 			expect(
 				testInfo.attachments.some(
-					(a) => a.name === "install-granted-capabilities" && a.contentType === "image/png",
+					(a) => a.name === "install-granted-capabilities-v4" && a.contentType === "image/png",
 				),
 			).toBe(true);
 		} else {
-			expect(testInfo.attachments.some((a) => a.name === "install-granted-capabilities")).toBe(false);
+			expect(testInfo.attachments.some((a) => a.name === "install-granted-capabilities-v4")).toBe(false);
 		}
 	});
 });
