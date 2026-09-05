@@ -39,3 +39,9 @@ Final freeze review: the runtime SDK files at `9ccce310` retain the reviewed adm
 The earlier `web/e2e/lanes.json` soft-fallback description did not match the fail-closed workflow. At the second freeze, the web owner corrected it and replaced the static web-test count in `docs/development-lifecycle.md` with the canonical runner source.
 
 Second-freeze review: Runtime evidence commit `7e53802e` accounts for all 50 first-party extensions and all 118 declared capability rows. Its 91 distinct cited test sources all exist and are discovered by both P and C. All 22 runtime artifact hashes verify. Credential, paid-provider, and product-input limits are explicit; locally runnable omissions are labeled local gaps rather than external blockers.
+
+## Local Ollama extension-handler check
+
+A bounded live check used the installed `gemma4:e2b` model through the production `resolveModelObject` and `piComplete` adapter, then passed each real response through the `lessons-distiller` and `memory-extractor` production parsing and write-control functions. Both calls returned real text with zero reported cost. Lessons distillation produced one valid lesson, and memory extraction produced one valid memory. Writes used process-local collectors only; the check did not read or write application storage.
+
+This is direct provider-adapter plus extension-handler evidence. It does not exercise an installed release, the JSON-RPC host authority gate, persisted quota accounting, or production state. The exact temporary source and raw output are `artifacts/ollama-extension-handler-live.ts.txt` and `artifacts/ollama-extension-handler-live.txt`. Therefore the local provider/model is available for both handlers, while the remaining installed-release authority path retains its stated limit.
