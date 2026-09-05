@@ -87,5 +87,6 @@ src/extensions/first-party-integration/sample-loop/index.integration.test.ts
 src/extensions/first-party-integration/seo-watcher/subprocess.integration.test.ts
 src/extensions/first-party-integration/task-stack/e2e-server-pipeline.test.ts
 src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts
+src/extensions/first-party-integration/weather-network.integration.test.ts
 src/extensions/first-party-integration/web-search/e2e-server-pipeline.test.ts
 src/extensions/first-party-integration/webhook-ticket-loop/subprocess.integration.test.ts
