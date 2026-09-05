@@ -106,3 +106,9 @@ and queue a candidate while preserving active code, grants, release history,
 and the stored false flag. Bundled owners can also prepare a candidate; foreign
 actors, mismatched lifecycle owners, and uninstall remain opaque refusals.
 Production authorization tests retain human-admin approval and scope checks.
+
+Bundled-v2-tools-hash-shape now proves v2/v3 metadata cannot be promoted on the
+host, canonical v4 hashes are independent of object key order, and an added tool
+is refused by actual candidate discovery verification. Automatic manifest refresh
+and re-enable are retired; existing lifecycle tests bind human approval to the
+exact immutable release rather than a mutable stored tool-array shape.
