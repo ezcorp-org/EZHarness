@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="${1:-$PWD}"
+bun_bin="${BUN_BIN:-/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun}"
+lock="$repo/../extension-v4-independent-audit/.cache/validation-heavy.lock"
+test_path="$repo/src/__tests__/.runtime-memory-installed-ollama.test.ts"
+artifact="$repo/docs/validation/extension-v4-independent/runtime/artifacts/memory-installed-ollama-combined.test.ts.txt"
+cleanup() { rm -f "$test_path"; }
+trap cleanup EXIT
+cp "$artifact" "$test_path"
+cd "$repo"
+"$bun_bin" --version
+flock --close "$lock" "$bun_bin" test ./src/__tests__/.runtime-memory-installed-ollama.test.ts
