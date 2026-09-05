@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 export type EvidenceSelection = { mode: "none" | "all" | "some"; specs: string[] };
@@ -68,20 +67,17 @@ async function main(): Promise<void> {
 	const selection = parseEvidenceSelection(await Bun.file(selectionFile).text());
 	const groups = evidenceGroups(selection, process.env.EZCORP_EVIDENCE_RUNNER_READY === "1");
 	const webRoot = process.env.EZCORP_VISUAL_EVIDENCE_WEB_ROOT ?? resolve(import.meta.dir, "../web");
-	const reportRoot = await mkdtemp(join(tmpdir(), "ez-visual-evidence-"));
 	const outputRoot = join(webRoot, "blob-report");
 	await rm(outputRoot, { recursive: true, force: true });
 	await mkdir(outputRoot, { recursive: true });
-	let exit = 1;
-	try {
-		exit = await runEvidenceGroups(groups, async (command, group) => {
+	const exit = await runEvidenceGroups(groups, async (command, group) => {
 			console.log(`[visual-evidence:${group}] ${command.join(" ")}`);
 			const proc = Bun.spawn(command, {
 				cwd: webRoot,
 				env: {
 					...process.env,
 					EZCORP_E2E_EVIDENCE: "1",
-					PLAYWRIGHT_BLOB_OUTPUT_FILE: join(reportRoot, `${group}.zip`),
+					PLAYWRIGHT_BLOB_OUTPUT_FILE: join(outputRoot, `${group}.zip`),
 					...(group === "real-auth" ? { PI_E2E_REAL: "1" } : {}),
 				},
 				stdin: "inherit",
@@ -89,16 +85,7 @@ async function main(): Promise<void> {
 				stderr: "inherit",
 			});
 			return proc.exited;
-		});
-		for (const group of groups) {
-			const source = join(reportRoot, `${group.name}.zip`);
-			if (await Bun.file(source).exists()) {
-				await copyFile(source, join(outputRoot, `${group.name}.zip`));
-			}
-		}
-	} finally {
-		await rm(reportRoot, { recursive: true, force: true });
-	}
+	});
 	process.exit(exit);
 }
 
