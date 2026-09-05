@@ -8,7 +8,7 @@ import type { ExtensionPermissions, JsonRpcRequest } from "../types";
 let activeUser = true;
 mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "user", status: activeUser ? "active" : "inactive" }) }));
 
-const permissions: NonNullable<ExtensionPermissions["hostApi"]> = { routes: [{ method: "GET", path: "/api/conversations/:id" }, { method: "POST", path: "/api/conversations" }] };
+const permissions: NonNullable<ExtensionPermissions["hostApi"]> = { events: false, routes: [{ method: "GET", path: "/api/conversations/:id" }, { method: "POST", path: "/api/conversations" }] };
 
 test("API broker matches exact segments and methods", () => {
   expect(routeMatches("/api/conversations/:id", "/api/conversations/conv_1")).toBe(true);

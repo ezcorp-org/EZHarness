@@ -355,7 +355,7 @@ function deleteReq(id: string, query = "") {
 // throw a Response (non-2xx). Tests convert the throw into a normal value so
 // `expect(res.status).toBe(...)` works uniformly.
 async function runThrowable<T extends { status: number }>(
-	fn: () => Promise<T>,
+	fn: () => T | Promise<T>,
 ): Promise<Response | T> {
 	try {
 		return await fn();
@@ -441,7 +441,7 @@ describe("PATCH /api/extensions/:id", () => {
 		mockReload.mockClear();
 	});
 
-	test("#2 regression: {enabled:true} → 400, points at /activate", async () => {
+	test("direct enable is retired and points at release control", async () => {
 		const res = await (extPATCH(patchReq("ext-1", { enabled: true })) as any);
 		expect(res.status).toBe(410);
 		const body = await res.json();
