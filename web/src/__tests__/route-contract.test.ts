@@ -447,7 +447,6 @@ describe("thrown-Response denials (500-instead-of-403 regression guard)", () => 
 
 describe("registry ⇄ filesystem parity", () => {
   const controlDisk = disk.filter((r) => !r.path.startsWith("/api/__test/"));
-  const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));
   const allDiskKeys = new Set(disk.map((r) => `${r.method} ${r.path}`));
   const registeredKeys = apiRegistry.map((e) => `${e.method} ${e.path}`);
 

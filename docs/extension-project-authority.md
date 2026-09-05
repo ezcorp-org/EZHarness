@@ -37,3 +37,5 @@ The host can mark a PR ready and post the fixed approval comment. An explicitly 
 `finalize` and `close` RPC calls only observe the matching host decision. They cannot perform or approve effects. After the host review completes, return to the extension dashboard to update the loop status.
 
 An interrupted or failed write can have partial effects. The durable record prevents replay. Check GitHub manually before requesting another proposal. The system does not report a partial write as complete.
+
+GitHub's merge API checks the expected head SHA. Mark-ready, comment and close act on the reviewed PR, but do not provide the same atomic head check. The host checks the snapshot before these requests; a concurrent GitHub update can still occur between requests. These effects are not an atomic transaction over one commit. See [GitHub pull request REST operations](https://docs.github.com/en/rest/pulls/pulls) and [mark-ready mutation input](https://docs.github.com/en/graphql/reference/input-objects#markpullrequestreadyforreviewinput).
