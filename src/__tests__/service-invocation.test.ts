@@ -9,12 +9,13 @@ const { insertWorkflowRun } = await import("../db/queries/workflow-runs");
 const { workflowDelegations, workflowRuns } = await import("../db/schema");
 const { registerCallProvenance, releaseCallProvenance } = await import("../extensions/call-provenance");
 const { ReleaseProcess } = await import("../extensions/release-process");
+const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
 async function fixture() {
   const setup = await workflowServiceReleaseFixture({ invoke: async (_name, _input, context) => ({ principal: context.principalId }) });
-  await insertWorkflowRun({ id: "run", workflowName: setup.release.entry.definition.name, startedAt: new Date(), input: {}, userId: null, runAsKind: "service", runAs: "service", delegationId: "delegation" });
+  await insertWorkflowRun({ id: "run", workflowName: setup.release.entry.definition.name, definitionHash: workflowExecutionHash(setup.release.entry.definition, setup.release.entry.extensionRelease), startedAt: new Date(), input: {}, userId: null, runAsKind: "service", runAs: "service", delegationId: "delegation" });
   return setup;
 }
 
@@ -79,4 +80,32 @@ test("settled workflow authority cannot survive cleanup or resume a pending admi
   await expect(proof.assertActive()).rejects.toThrow("closed");
   await db.update(workflowRuns).set({ status: "success" }).where(eq(workflowRuns.id, "run"));
   await expect(createServiceInvocation(release.entry, authority, "run", async () => {})).rejects.toThrow("persisted workflow run");
+});
+
+test("another host terminalizing a run denies an otherwise open service proof", async () => {
+  const { db, release, authority } = await fixture();
+  const proof = await createServiceInvocation(release.entry, authority, "run");
+  await db.update(workflowRuns).set({ status: "cancelled" }).where(eq(workflowRuns.id, "run"));
+  await expect(proof.assertActive()).rejects.toThrow("persisted workflow run");
+});
+
+test.each([{ definitionHash: null }, { definitionHash: "replacement" }, { userId: "owner" }, { runAsKind: "user" as const }, { runAs: "foreign" }, { delegationId: null }, { workflowName: "foreign" }])("service proof refuses changed persisted run identity %j in the effect transaction", async change => {
+  const { db, release, authority } = await fixture();
+  const proof = await createServiceInvocation(release.entry, authority, "run");
+  await db.transaction(async transaction => {
+    await proof.assertActive(transaction);
+    await transaction.update(workflowRuns).set(change).where(eq(workflowRuns.id, "run"));
+    await expect(proof.assertActive(transaction)).rejects.toThrow("persisted workflow run");
+  });
+  await expect(createServiceInvocation(release.entry, authority, "run")).rejects.toThrow("persisted workflow run");
+});
+
+test("terminalization during an awaited guard cannot reopen service admission", async () => {
+  const { db, release, authority } = await fixture();
+  let terminate = false;
+  const proof = await createServiceInvocation(release.entry, authority, "run", async () => {
+    if (terminate) await db.update(workflowRuns).set({ status: "error" }).where(eq(workflowRuns.id, "run"));
+  });
+  terminate = true;
+  await expect(proof.assertActive()).rejects.toThrow("persisted workflow run");
 });
