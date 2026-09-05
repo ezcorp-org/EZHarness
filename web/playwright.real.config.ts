@@ -129,18 +129,20 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: "bun run build && bun run preview",
+    command: "bash ../scripts/start-real-extension-preview.sh",
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
     // Real harness MUST never reuse a stale server — a previous run
     // might have a DB that's already past first-boot setup, breaking
     // globalSetup's idempotent contract. Always start a fresh server.
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 300_000,
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
+      EZCORP_PORT: new URL(baseURL).port || "4173",
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is
