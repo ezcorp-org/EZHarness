@@ -113,7 +113,7 @@ export async function runStorageMigration(runner: Runner, input: StorageMigratio
   } finally { await worker.close(); }
 }
 
-interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations }
+interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
 let services: Promise<LifecycleServices> | undefined;
 
 async function initialize(): Promise<LifecycleServices> {
@@ -153,7 +153,7 @@ async function initialize(): Promise<LifecycleServices> {
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
   });
-  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations };
+  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
 }
 
 function getServices(): Promise<LifecycleServices> {
@@ -166,6 +166,15 @@ export async function getExtensionControl(): Promise<ExtensionControl> { return 
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
+
+export async function getExtensionReleaseArtifacts(installationId: string, releaseId: string): Promise<WorkspaceFiles> {
+  const { repository, blobs } = await getServices();
+  const state = await repository.read(installationId);
+  if (!state?.installation.enabled || state.installation.uninstalled || state.installation.activeReleaseId !== releaseId || !Object.hasOwn(state.releases, releaseId)) throw new LifecycleError("release_not_active", "The requested release is not the enabled installation release.");
+  const release = state.releases[releaseId]!;
+  if (release.id !== releaseId || release.installationId !== installationId) throw new LifecycleError("release_not_active", "The requested release does not belong to this installation.");
+  return getFiles(blobs, release.artifactDigest, "artifact");
+}
 
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null, sourceFiles?: WorkspaceFiles): Promise<void> {
   const { prepareEzFactoryAgents, publishEzFactoryAgents } = await import("./ez-factory-release-agents");
