@@ -38,9 +38,18 @@ export async function withInvocationChannel<Result>(name: string, context: Exten
     stop: () => {},
   };
   const conversationId = context.invocation.metadata?.ezConversationId;
+  let result: Result | undefined;
+  let actionFailed = false;
+  let actionError: unknown;
   try {
-    const result = await active.run(channel, () => withToolContext({ invocation: context.invocation, extensionName: name, callId: context.invocation.token, conversationId: typeof conversationId === "string" ? conversationId : "", projectRoot: "/project", ...(toolName ? { toolName } : {}) }, action));
-    await Promise.all(pending);
-    return result;
+    result = await active.run(channel, () => withToolContext({ invocation: context.invocation, extensionName: name, callId: context.invocation.token, conversationId: typeof conversationId === "string" ? conversationId : "", projectRoot: "/project", ...(toolName ? { toolName } : {}) }, action));
+  } catch (error) {
+    actionFailed = true;
+    actionError = error;
   } finally { open = false; }
+  const notifications = await Promise.allSettled(pending);
+  if (actionFailed) throw actionError;
+  const failed = notifications.find((notification): notification is PromiseRejectedResult => notification.status === "rejected");
+  if (failed) throw failed.reason;
+  return result as Result;
 }
