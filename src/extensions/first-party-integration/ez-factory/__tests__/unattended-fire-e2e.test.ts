@@ -57,17 +57,17 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import * as realRuntime from "@ezcorp/sdk/runtime";
-import * as schema from "../../../src/db/schema";
-import { migrate } from "../../../src/db/migrate";
-import { EventBus } from "../../../src/runtime/events";
-import type { AgentEvents, AgentRun, WorkflowDefinition } from "../../../src/types";
-import type { AgentExecutor } from "../../../src/runtime/executor";
+import * as schema from "../../../../db/schema";
+import { migrate } from "../../../../db/migrate";
+import { EventBus } from "../../../../runtime/events";
+import type { AgentEvents, AgentRun, WorkflowDefinition } from "../../../../types";
+import type { AgentExecutor } from "../../../../runtime/executor";
 import type { JsonRpcRequest } from "@ezcorp/sdk";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
-mock.module("../../../src/db/connection", () => ({
+mock.module("../../../../db/connection", () => ({
   getDb: () => db,
   getPglite: () => pglite,
   getDbPath: () => ":memory:",
@@ -79,7 +79,7 @@ mock.module("../../../src/db/connection", () => ({
 // The console never reads settings, but `workflows-handler`'s import graph
 // reaches the settings queries; keeping them off the DB makes the bridge's
 // behaviour a function of this file alone.
-mock.module("../../../src/db/queries/settings", () => ({
+mock.module("../../../../db/queries/settings", () => ({
   async getAllSettings() {
     return {};
   },
@@ -152,8 +152,8 @@ function settle(res: { result?: unknown; error?: { code: number; message: string
   return res.result;
 }
 
-let handleWorkflowsRpc: typeof import("../../../src/extensions/workflows-handler").handleWorkflowsRpc;
-let handleTriggersRpc: typeof import("../../../src/extensions/triggers-handler").handleTriggersRpc;
+let handleWorkflowsRpc: typeof import("../../../workflows-handler").handleWorkflowsRpc;
+let handleTriggersRpc: typeof import("../../../triggers-handler").handleTriggersRpc;
 
 const GRANTED = {
   grantedAt: { workflows: Date.now(), triggers: Date.now() },
@@ -240,35 +240,35 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   getToolContext: () => undefined,
 }));
 
-const { WorkflowExecutor } = await import("../../../src/runtime/workflow-executor");
+const { WorkflowExecutor } = await import("../../../../runtime/workflow-executor");
 const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
-  "../../../src/runtime/workflow/runtime-registry"
+  "../../../../runtime/workflow/runtime-registry"
 );
-const { systemCachedWorkflow } = await import("../../../src/runtime/workflow-scope");
+const { systemCachedWorkflow } = await import("../../../../runtime/workflow-scope");
 const { computeDelegationConsentRecord } = await import(
-  "../../../src/runtime/workflow-delegation-record"
+  "../../../../runtime/workflow-delegation-record"
 );
 const { delegationPrincipal } = await import(
-  "../../../src/runtime/workflow-delegation-consent"
+  "../../../../runtime/workflow-delegation-consent"
 );
 const { createWorkflowDelegation } = await import(
-  "../../../src/db/queries/workflow-delegations"
+  "../../../../db/queries/workflow-delegations"
 );
 const {
   _resetWorkflowTriggerQuotaForTests,
   _resetWorkflowRateLimitForTests,
   _awaitDelegatedDispatchForTests,
-} = await import("../../../src/extensions/workflows-handler");
+} = await import("../../../workflows-handler");
 const { _resetTriggersRateLimitForTests } = await import(
-  "../../../src/extensions/triggers-handler"
+  "../../../triggers-handler"
 );
-const { registerFireCallProvenance } = await import("../../../src/extensions/call-provenance");
+const { registerFireCallProvenance } = await import("../../../call-provenance");
 const { resolveReverseRpcMeta, resolveDelegatedProvenance, resolveStorageProvenance } =
-  await import("../../../src/extensions/tool-executor/provenance");
+  await import("../../../tool-executor/provenance");
 
-handleWorkflowsRpc = (await import("../../../src/extensions/workflows-handler"))
+handleWorkflowsRpc = (await import("../../../workflows-handler"))
   .handleWorkflowsRpc;
-handleTriggersRpc = (await import("../../../src/extensions/triggers-handler"))
+handleTriggersRpc = (await import("../../../triggers-handler"))
   .handleTriggersRpc;
 
 const {
@@ -279,7 +279,7 @@ const {
   installTriggerReceivers,
   jobStore,
   liveTriggerKeys,
-} = await import("../index");
+} = await import("../../../../../extensions/ez-factory/index");
 
 const {
   EDIT_SCOPE_FIELD,
@@ -287,8 +287,8 @@ const {
   inputFieldId,
   JOB_FORM_FIELDS,
   JOB_RUN_EVENT,
-} = await import("../lib/page");
-const { triggerKeyForJob } = await import("../lib/triggers");
+} = await import("../../../../../extensions/ez-factory/lib/page");
+const { triggerKeyForJob } = await import("../../../../../extensions/ez-factory/lib/triggers");
 
 /**
  * The graph a job runs. TWO agent steps in a chain, so the run crosses a
@@ -691,7 +691,7 @@ describe("THE CLAIM — an unattended fire runs a job to completion", () => {
     // `runFor` would break every MANUAL job (no delegation row exists for
     // one) and mis-attribute every background job to its delegation owner
     // instead of to the person who pressed the button.
-    const { handleJobRun } = await import("../index");
+    const { handleJobRun } = await import("../../../../../extensions/ez-factory/index");
     const jobId = await saveCronJob("nightly etl");
     await consent(jobId);
 
@@ -1017,7 +1017,7 @@ describe("a registration that the host REFUSES", () => {
     // Only reachable for a row written by something other than this
     // console's `crypto.randomUUID()` — `isValidJobId` admits uppercase and
     // the host's key charset does not.
-    const { syncJobTrigger } = await import("../index");
+    const { syncJobTrigger } = await import("../../../../../extensions/ez-factory/index");
     callerOwner = OWNER;
     await syncJobTrigger(
       {

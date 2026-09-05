@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/todo-tracker/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/todo-tracker/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts", import.meta.url).href };
 /**
  * E2E test: exercises the REAL server pipeline for todo-tracker.
  *
@@ -30,7 +32,7 @@ let resetCalls = 0;
 let disableCalls = 0;
 let simulatedConsecutiveFailures = 0;
 
-mock.module("../../../../src/db/queries/extensions", () => ({
+mock.module("../../../db/queries/extensions", () => ({
   incrementFailures: async () => {
     incrementCalls++;
     simulatedConsecutiveFailures++;
@@ -46,10 +48,10 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 }));
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { ExtensionProcess } from "../../subprocess";
 import { buildHarnessEnv, wireFsHandler } from "@ezcorp/sdk/test";
 
-const TODO_TRACKER_ENTRYPOINT = join(import.meta.dir, "index.ts");
+const TODO_TRACKER_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `todo-tracker-e2e-pipeline-${Date.now()}`);
 
 // Filesystem grant + host-mediated `ezcorp/fs.*` wiring (scoped to tmpdir,

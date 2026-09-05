@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../extensions/ez-factory/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../extensions/ez-factory/", import.meta.url)), url: new URL("../../../../extensions/ez-factory/workflow-templates.test.ts", import.meta.url).href };
 /**
  * The three shipped `*.workflow.yaml` templates, put through the SAME
  * validator the boot loader uses.
@@ -42,32 +44,32 @@ import type {
   WorkflowCondition,
   WorkflowDefinition,
   WorkflowStep,
-} from "../../src/types";
-import { configToAgent } from "../../src/runtime/config-to-agent";
-import { validateWorkflow } from "../../src/runtime/workflow-validator";
-import { loadExtensionWorkflows } from "../../src/runtime/workflow-extension-loader";
-import { namespacedWorkflowName } from "../../src/runtime/workflow-name";
+} from "../../../types";
+import { configToAgent } from "../../../runtime/config-to-agent";
+import { validateWorkflow } from "../../../runtime/workflow-validator";
+import { loadExtensionWorkflows } from "../../../runtime/workflow-extension-loader";
+import { namespacedWorkflowName } from "../../../runtime/workflow-name";
 import {
   collectWorkflowClosure,
   MAX_WORKFLOW_NESTING_DEPTH,
-} from "../../src/runtime/workflow-closure";
-import { MAX_STEP_OUTPUT_BYTES } from "../../src/runtime/workflow-step-output";
-import { VALID_MODEL_EFFORTS } from "../../src/runtime/workflow-model";
-import { hasTemplate, resolveMapping, templateRefs } from "../../src/runtime/workflow-refs";
-import { conditionRefs, evaluateCondition } from "../../src/runtime/workflow-condition";
-import type { RefContext } from "../../src/runtime/workflow-refs";
+} from "../../../runtime/workflow-closure";
+import { MAX_STEP_OUTPUT_BYTES } from "../../../runtime/workflow-step-output";
+import { VALID_MODEL_EFFORTS } from "../../../runtime/workflow-model";
+import { hasTemplate, resolveMapping, templateRefs } from "../../../runtime/workflow-refs";
+import { conditionRefs, evaluateCondition } from "../../../runtime/workflow-condition";
+import type { RefContext } from "../../../runtime/workflow-refs";
 import {
   dryRunWorkflow,
   DRY_RUN_UNVERIFIED,
   type DryRunReport,
-} from "../../src/runtime/workflow-dry-run";
+} from "../../../runtime/workflow-dry-run";
 import {
   EZ_FACTORY_AGENTS,
   EZ_FACTORY_AGENT_PREFIX,
   EZ_FACTORY_EXTENSION_NAME,
-} from "../../src/extensions/ez-factory-agents";
-import manifest from "./ezcorp.config";
-import { isFactoryWorkflow, JOB_SETTABLE_INPUT_KEYS } from "./lib/jobs";
+} from "../../ez-factory-agents";
+import manifest from "../../../../extensions/ez-factory/ezcorp.config";
+import { isFactoryWorkflow, JOB_SETTABLE_INPUT_KEYS } from "../../../../extensions/ez-factory/lib/jobs";
 
 const TEMPLATE_FILES = [
   "docs-factory.workflow.yaml",
@@ -86,7 +88,7 @@ const grantedNames = (
 /** Read one asset exactly as the loader does: parse the YAML, take it at
  *  face value, no schema coercion. */
 async function readTemplate(file: string): Promise<WorkflowDefinition> {
-  const text = await Bun.file(`${import.meta.dir}/${file}`).text();
+  const text = await Bun.file(`${fixtureImportMeta.dir}/${file}`).text();
   return parse(text) as WorkflowDefinition;
 }
 
@@ -296,7 +298,7 @@ const misplacedLoopRefs = (defs: WorkflowDefinition[]): string[] =>
 describe("ez-factory templates — identity and the manifest grant", () => {
   test("exactly three *.workflow.yaml assets ship", async () => {
     const found = await Array.fromAsync(
-      new Bun.Glob("*.workflow.yaml").scan({ cwd: import.meta.dir }),
+      new Bun.Glob("*.workflow.yaml").scan({ cwd: fixtureImportMeta.dir }),
     );
     expect(found.sort()).toEqual([...TEMPLATE_FILES].sort());
   });
@@ -345,7 +347,7 @@ describe("ez-factory templates — the shared validator accepts every one", () =
     // so a template that fails validation is simply ABSENT from this list,
     // which is exactly how the failure would present in production.
     const loaded = await loadExtensionWorkflows([
-      { extensionName: EZ_FACTORY_EXTENSION_NAME, installPath: import.meta.dir },
+      { extensionName: EZ_FACTORY_EXTENSION_NAME, installPath: fixtureImportMeta.dir },
     ]);
     expect(loaded.map((d) => d.name).sort()).toEqual([
       "ez-factory:docs-factory",

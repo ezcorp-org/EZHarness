@@ -19,17 +19,17 @@
 // declarations must survive translation to the v3 capability shape.
 
 import { test, expect, describe } from "bun:test";
-import manifest from "../ezcorp.config";
+import manifest from "../../../../../docs/extensions/examples/substack-pilot/ezcorp.config";
 import {
   checkEnvKeyLeakInstallGate,
   EnvKeyLeakInstallError,
   detectEnvKeyLeaks,
-} from "../../../../../src/extensions/clamp-permissions";
+} from "../../../clamp-permissions";
 import {
   deriveCapsFromExtensionPerms,
   migrateManifestV2ToV3,
   validateSettingsSchema,
-} from "../../../../../src/extensions/manifest";
+} from "../../../manifest";
 
 describe("substack-pilot — env-leak install gate", () => {
   test("manifest passes env-leak install gate (isBundled=false, envEscapeHatch=false)", async () => {

@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/github-stats/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/github-stats/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/github-stats/e2e-server-pipeline.test.ts", import.meta.url).href };
 /**
  * E2E test: exercises the REAL server pipeline for github-stats.
  *
@@ -36,7 +38,7 @@ let resetCalls = 0;
 let disableCalls = 0;
 let simulatedConsecutiveFailures = 0;
 
-mock.module("../../../../src/db/queries/extensions", () => ({
+mock.module("../../../db/queries/extensions", () => ({
   incrementFailures: async () => {
     incrementCalls++;
     simulatedConsecutiveFailures++;
@@ -52,7 +54,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 }));
 
 // Import AFTER mock.module so subprocess.ts resolves to the stub.
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { ExtensionProcess } from "../../subprocess";
 
 // ── buildAllowedEnv() parity ────────────────────────────────────
 // Mirrors `registry.ts buildAllowedEnv()` for github-stats's manifest
@@ -73,7 +75,7 @@ function buildAllowedEnvLike(extensionId: string): Record<string, string> {
   };
 }
 
-const GITHUB_STATS_ENTRYPOINT = join(import.meta.dir, "index.ts");
+const GITHUB_STATS_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `github-stats-e2e-pipeline-${Date.now()}`);
 
 function makeProc(persistent: boolean): ExtensionProcess {

@@ -27,15 +27,15 @@
 // runtime PDP actually reads.
 
 import { test, expect, describe } from "bun:test";
-import manifest from "../ezcorp.config";
+import manifest from "../../../../../docs/extensions/examples/substack-pilot/ezcorp.config";
 import {
   clampLlmPermission,
   KNOWN_LLM_PROVIDERS,
-} from "../../../../../src/extensions/clamp-permissions";
+} from "../../../clamp-permissions";
 import {
   isValidForField,
   migrateManifestV2ToV3,
-} from "../../../../../src/extensions/manifest";
+} from "../../../manifest";
 import type { SettingsField } from "@ezcorp/sdk";
 
 describe("clampLlmPermission against the substack-pilot manifest", () => {

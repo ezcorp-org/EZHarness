@@ -25,11 +25,11 @@ import {
   sanitizePromptMultilineText,
   sanitizeUntrusted,
   stripAdversarial,
-} from "./sanitize";
+} from "../../../../../extensions/ez-factory/lib/sanitize";
 import {
   UNTRUSTED_BEGIN_MARKER as HOST_BEGIN_MARKER,
   UNTRUSTED_END_MARKER as HOST_END_MARKER,
-} from "../../../src/extensions/ez-factory-agents";
+} from "../../../ez-factory-agents";
 
 describe("marker literals match the seeded agent prompts", () => {
   // The extension subprocess cannot IMPORT the host constants: its sandbox

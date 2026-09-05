@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validatePageTree, MAX_PAGE_NODES, MAX_TABLE_ROWS } from "../../../../../src/extensions/page-schema";
+import { validatePageTree, MAX_PAGE_NODES, MAX_TABLE_ROWS } from "../../../page-schema";
 import {
   ALL_EVENTS,
   EVENTS,
@@ -15,10 +15,10 @@ import {
   type FoldersView,
   type OverviewView,
   type ReviewView,
-} from "./page";
-import type { Proposal, ProposalKind } from "./proposals";
-import { emptyConfig, addFolder, type Config } from "./config";
-import type { QuarantineEntry } from "./quarantine";
+} from "../../../../../docs/extensions/examples/file-organizer/lib/page";
+import type { Proposal, ProposalKind } from "../../../../../docs/extensions/examples/file-organizer/lib/proposals";
+import { emptyConfig, addFolder, type Config } from "../../../../../docs/extensions/examples/file-organizer/lib/config";
+import type { QuarantineEntry } from "../../../../../docs/extensions/examples/file-organizer/lib/quarantine";
 import { PageBuilder, type HubPageTree } from "@ezcorp/sdk/runtime";
 
 // ── Single-section wrappers ─────────────────────────────────────────

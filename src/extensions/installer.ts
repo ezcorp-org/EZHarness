@@ -114,18 +114,18 @@ export interface UninstallOptions {
   purgeData?: boolean;
 }
 
-export const installFromLocal = requireLifecycle;
+export const installFromLocal: (localPath: string, grantedPermissions: ExtensionPermissions, enabled?: boolean, opts?: InstallFromLocalOpts) => Promise<InstalledExtension> = requireLifecycle;
 
-export const installFromGitHub = requireLifecycle;
+export const installFromGitHub: (repoSpec: string, grantedPermissions: ExtensionPermissions, enabled?: boolean) => Promise<InstalledExtension> = requireLifecycle;
 
-export const installFromGit = requireLifecycle;
+export const installFromGit: (source: string, grantedPermissions: ExtensionPermissions, opts?: GitInstallOptions) => Promise<InstalledExtension> = requireLifecycle;
 
-export const updateExtension = requireLifecycle;
+export const updateExtension: (name: string) => Promise<{ from: string; to: string }> = requireLifecycle;
 
-export const uninstallExtension = requireLifecycle;
+export const uninstallExtension: (extension: UninstallTarget, opts?: UninstallOptions) => Promise<UninstallResult> = requireLifecycle;
 
-export const removeExtension = requireLifecycle;
+export const removeExtension: (name: string, opts?: UninstallOptions) => Promise<UninstallResult> = requireLifecycle;
 
-export const checkForUpdates = requireLifecycle;
+export const checkForUpdates: (extension: Pick<InstalledExtension, "source" | "version">) => Promise<{ available: boolean; latestVersion?: string }> = requireLifecycle;
 
-export const installWithDependencies = requireLifecycle;
+export const installWithDependencies: (source: string, grantedPermissions: ExtensionPermissions, opts?: GitInstallOptions & { onConfirm?: (tree: string, count: number) => Promise<boolean> }) => Promise<{ root: InstalledExtension; dependencies: InstalledExtension[] }> = requireLifecycle;

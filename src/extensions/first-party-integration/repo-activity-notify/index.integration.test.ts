@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/repo-activity-notify/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/repo-activity-notify/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/repo-activity-notify/index.integration.test.ts", import.meta.url).href };
 /**
  * repo-activity-notify — REAL subprocess integration test (the trust probe).
  *
@@ -34,7 +36,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 
-mock.module("../../../../src/db/queries/extensions", () => ({
+mock.module("../../../db/queries/extensions", () => ({
   incrementFailures: async () => 1,
   resetFailures: async () => {},
   disableExtension: async () => {},
@@ -42,12 +44,12 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { ExtensionProcess } from "../../subprocess";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
+const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 interface HostState {
   kv: Map<string, unknown>;

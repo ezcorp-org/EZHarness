@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/task-stack/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/task-stack/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/task-stack/sandbox-load.test.ts", import.meta.url).href };
 // Phase post-perm-cleanup, task A8 — sandbox-load smoke.
 //
 // Goal: prove that `index.ts` loads cleanly under the production
@@ -31,15 +33,15 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
 const SANDBOX_PRELOAD_PATH = resolve(
-  import.meta.dir,
+  fixtureImportMeta.dir,
   "../../../../src/extensions/runtime/sandbox-preload.ts",
 );
 
-const ENTRYPOINT = resolve(import.meta.dir, "./index.ts");
+const ENTRYPOINT = resolve(fixtureImportMeta.dir, "./index.ts");
 
 describe("task-stack sandbox-load smoke", () => {
   test("module loads without throwing under the production sandbox-preload", () => {
-    // `bun --preload <preload> -e "<code>"` — `import.meta.main` is
+    // `bun --preload <preload> -e "<code>"` — `fixtureImportMeta.main` is
     // false for the imported file, so `index.ts`'s `getChannel().start()`
     // gate doesn't fire. We're testing module body + the lazy fs
     // resolveProjectRoot path.
@@ -70,7 +72,7 @@ describe("task-stack sandbox-load smoke", () => {
     // Module-load throws would surface a non-zero exit code.
     expect(proc.exitCode).toBe(0);
     // Sanity — extension shouldn't write anything to stdout on plain
-    // module load (no `import.meta.main` path).
+    // module load (no `fixtureImportMeta.main` path).
     expect(stdout).toBe("");
   });
 });

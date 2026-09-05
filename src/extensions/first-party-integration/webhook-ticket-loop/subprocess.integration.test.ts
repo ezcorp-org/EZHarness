@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/webhook-ticket-loop/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/webhook-ticket-loop/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/webhook-ticket-loop/subprocess.integration.test.ts", import.meta.url).href };
 /**
  * webhook-ticket-loop — REAL subprocess e2e (Loops EZ Mode Phase 4).
  *
@@ -20,7 +22,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdirSync, rmSync } from "node:fs";
 
-mock.module("../../../../src/db/queries/extensions", () => ({
+mock.module("../../../db/queries/extensions", () => ({
   incrementFailures: async () => 1,
   resetFailures: async () => {},
   disableExtension: async () => {},
@@ -28,12 +30,12 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { ExtensionProcess } from "../../subprocess";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
+const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 interface HostState {
   kv: Map<string, unknown>;

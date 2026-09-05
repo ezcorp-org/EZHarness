@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { __resetChannelForTests, __resetPagesForTests } from "@ezcorp/sdk/runtime";
-import { validatePageTree } from "../../../../src/extensions/page-schema";
+import { validatePageTree } from "../../page-schema";
 import {
   _setFsForTests,
   renderDashboard,
@@ -9,8 +9,8 @@ import {
   tools,
   _actionsForTests,
   type FsLayer,
-} from "./index";
-import { ALL_EVENTS } from "./lib/page";
+} from "../../../../docs/extensions/examples/file-organizer/index";
+import { ALL_EVENTS } from "../../../../docs/extensions/examples/file-organizer/lib/page";
 import type { HubPageTree } from "@ezcorp/sdk/runtime";
 import type { ToolCallResult } from "@ezcorp/sdk";
 

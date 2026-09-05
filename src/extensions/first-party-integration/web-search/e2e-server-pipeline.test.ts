@@ -1,3 +1,5 @@
+import { fileURLToPath as fixtureFilePath } from "node:url";
+const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/web-search/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/web-search/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/web-search/e2e-server-pipeline.test.ts", import.meta.url).href };
 /**
  * E2E: the web-search SHIM through a real ExtensionProcess subprocess.
  *
@@ -27,10 +29,10 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { ExtensionProcess } from "../../subprocess";
 import type { JsonRpcResponse } from "@ezcorp/sdk";
 
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
+const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 // ── Host-side ezcorp/search stub ────────────────────────────────────
 

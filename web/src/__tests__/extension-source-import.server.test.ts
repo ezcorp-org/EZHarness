@@ -25,3 +25,10 @@ test("rejects malformed and oversized import requests", async () => {
   expect((await POST(event({ kind: "local", path: "a".repeat(20_000) }))).status).toBe(413);
   expect(mocks.importSource).not.toHaveBeenCalled();
 });
+
+test("reports source collection failure without granting or activating a release", async () => {
+  mocks.importSource.mockRejectedValue(new Error("Source collection failed"));
+  const response = await POST(event({ kind: "bundled", name: "ask-user" }));
+  expect(response.status).toBe(500);
+  expect(mocks.importSource).toHaveBeenCalledTimes(1);
+});
