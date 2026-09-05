@@ -7,7 +7,7 @@
 // in `ez_drafts`).
 
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mock } from "bun:test";
+import { mock, spyOn } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 
@@ -708,6 +708,18 @@ describe("ezcorp/drafts — discard", () => {
 });
 
 // ── install (agent-driven, gated upstream by the permission card) ──
+
+test("reopen returns the immutable workspace handoff under host-owned identity", async () => {
+  const module = await import("../reopen-extension");
+  const handoff = { installationId: "owned-installation", workspaceId: "new-workspace", revision: 1, name: "owned-extension", openUrl: "/extensions/author?installation=owned-installation&workspace=new-workspace" };
+  const reopen = spyOn(module, "reopenInstalledAsDraft").mockResolvedValue(handoff);
+  try {
+    const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "reopen", name: handoff.name, userId: OTHER_USER }, "reopen-handoff"), makeCtx({ userId: USER }));
+    expect(reopen).toHaveBeenCalledWith(handoff.name, USER);
+    expect(response).toEqual({ jsonrpc: "2.0", id: "reopen-handoff", result: handoff });
+    expect(response.result).not.toHaveProperty("draftId");
+  } finally { reopen.mockRestore(); }
+});
 
 describe("ezcorp/drafts — legacy install cutover", () => {
   for (const [name, params, userId] of [
