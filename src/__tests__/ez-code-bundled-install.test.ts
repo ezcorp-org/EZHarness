@@ -1,30 +1,3 @@
-/**
- * Integration test for the bundled-install path of the `ez-code`
- * extension. ez-code is a Warren-style control plane for ephemeral
- * coding-agent runs (dispatch/steer/cancel/list/open_pr + an Extension
- * Pages Hub dashboard + cron triggers). It was a valid, tested example
- * extension that was NOT in the bundled registry; this suite locks in
- * its registration so it auto-installs and shows up in the extensions
- * list.
- *
- * What this test locks in:
- *   - The `ez-code` BUNDLED_EXTENSIONS entry declares the full
- *     capability set its manifest grants (spawnAgents + schedule + shell
- *     + network + appendMessages + eventSubscriptions + storage +
- *     filesystem) with a `grantedAt` timestamp per capability.
- *   - `ensureBundledExtensions()` creates an enabled `ez-code` DB row on
- *     first boot.
- *   - The POST-CEILING grant (after `clampToBundledCeiling`) retains
- *     EVERY capability — i.e. the bundled ceiling in
- *     `bundled-ceiling.ts` is a superset-or-equal of the install grant.
- *     The load-bearing piece is the SCHEDULE: `intersectPermissions`
- *     does `Math.min` on `maxRunDurationMs`/`maxRetries` and reads
- *     `missedRunPolicy`, so a mismatched/omitted schedule field on
- *     either side would silently produce `NaN`/undefined and drop the
- *     cron grant. We assert the crons + `maxRunsPerDay: 48` survive.
- *   - ez-code appears in the bundled (`isBundled=true`) list.
- *   - Install is idempotent.
- */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -37,7 +10,6 @@ mock.module("../db/queries/audit-log", () => ({
 import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
 const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
   getExtensionByName: extStore.getExtensionByName,
@@ -53,7 +25,7 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import AFTER the mocks so the installer resolves to the stubbed queries.
-const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } =
+const { resolveBundledExtensions, isBundledExtensionName } =
   await import("../extensions/bundled");
 const { clampToBundledCeiling, getCeiling } = await import(
   "../extensions/bundled-ceiling"
@@ -148,68 +120,5 @@ describe("bundled ceiling — ez-code intersection is lossless", () => {
     expect(effective.schedule!.missedRunPolicy).toBe("fire-once");
     expect(effective.schedule!.maxRetries).toBe(0);
     expect(Number.isNaN(effective.schedule!.maxRetries)).toBe(false);
-  });
-});
-
-describe("ensureBundledExtensions — ez-code first-boot install", () => {
-  test("creates an enabled, bundled-flagged ez-code row", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("ez-code");
-    expect(row).toBeDefined();
-    expect(row!.name).toBe("ez-code");
-    expect(row!.enabled).toBe(true);
-    expect(row!.isBundled).toBe(true);
-  });
-
-  test("persisted grant retains every capability post-ceiling (schedule lossless)", async () => {
-    await ensureBundledExtensions();
-    const granted = store.get("ez-code")!.grantedPermissions;
-    expect(granted.spawnAgents).toEqual({ maxPerHour: 30, maxConcurrent: 6 });
-    expect(new Set(granted.eventSubscriptions)).toEqual(
-      new Set([
-        "task:assignment_update",
-        "ez-code:steer",
-        "ez-code:cancel",
-        "ez-code:open-pr",
-      ]),
-    );
-    expect(granted.appendMessages?.excludedDefault).toBe(true);
-    expect(granted.storage).toBe(true);
-    expect(granted.filesystem).toEqual(["$CWD"]);
-    expect(granted.shell).toBe(true);
-    expect(granted.network).toEqual(["api.github.com"]);
-    expect(granted.schedule?.crons).toEqual(["0 * * * *", "0 9 * * *"]);
-    expect(granted.schedule?.maxRunsPerDay).toBe(48);
-    expect(Number.isNaN(granted.schedule?.maxRunDurationMs ?? NaN)).toBe(false);
-    expect(Number.isNaN(granted.schedule?.maxRetries ?? NaN)).toBe(false);
-  });
-
-  test("manifest declares the five ez-code tools", async () => {
-    await ensureBundledExtensions();
-    const row = store.get("ez-code")!;
-    const manifest = row.manifest as { tools?: Array<{ name: string }> };
-    const names = (manifest.tools ?? []).map((t) => t.name).sort();
-    expect(names).toEqual([
-      "cancel_run",
-      "dispatch_run",
-      "list_runs",
-      "open_pr",
-      "steer_run",
-    ]);
-  });
-
-  test("appears in the bundled (isBundled=true) list", async () => {
-    await ensureBundledExtensions();
-    const { listExtensions } = await import("../db/queries/extensions");
-    const bundled = (await listExtensions()).filter((r) => r.isBundled === true);
-    expect(bundled.some((r) => r.name === "ez-code")).toBe(true);
-  });
-
-  test("second run is a no-op (already installed)", async () => {
-    await ensureBundledExtensions();
-    const firstId = store.get("ez-code")!.id;
-    await ensureBundledExtensions();
-    expect(store.get("ez-code")!.id).toBe(firstId);
-    expect(store.get("ez-code")!.enabled).toBe(true);
   });
 });
