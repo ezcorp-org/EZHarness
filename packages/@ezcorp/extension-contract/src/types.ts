@@ -5,6 +5,7 @@ export type WorkspaceFiles = Record<string, string>;
 export type ValueSchema = Record<string, unknown>;
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
+  mcpOutputSchema?: ValueSchema;
 }
 export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVersion" | "tools" | "permissions"> {
   schemaVersion: 4;

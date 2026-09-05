@@ -16,8 +16,10 @@
 // (intersect caps when ext A invokes ext B's tool through `ezcorp/invoke`).
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { InvocationContext } from "@ezcorp/extension-contract";
 
 export interface ToolContext {
+  invocation?: Readonly<InvocationContext>;
   /** Tool name as the host dispatched it (post-namespace, e.g. `search`).
    *  Optional: schedule-fire / lifecycle / event dispatches bind only
    *  `callId` via the central `handleIncoming` wrap (no tool name). */
@@ -37,6 +39,7 @@ export interface ToolContext {
    * or the host couldn't resolve it.
    */
   projectRoot?: string;
+  extensionName?: string;
   /**
    * Reserved for Phase 4 cross-extension attribution. When extension A
    * calls extension B's tool via `ezcorp/invoke`, the host records A's

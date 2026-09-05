@@ -399,7 +399,7 @@ export type SettingsSchema = Record<string, SettingsField>;
 // regardless of the manifest's authored version.
 
 export interface ExtensionManifestV2 {
-  schemaVersion: 2 | 3;
+  schemaVersion: 2 | 3 | 4;
   name: string; // Also serves as namespace prefix
   version: string; // semver
   description: string;

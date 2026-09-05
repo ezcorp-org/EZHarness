@@ -52,6 +52,7 @@ function loadFsSync(): typeof import("node:fs") {
  * from.
  */
 export function findProjectRoot(from: string = process.cwd()): string {
+  if (getToolContext()?.invocation) return "/project";
   const fs = loadFsSync();
   let dir = from;
   while (true) {
@@ -73,6 +74,10 @@ export function getExtensionDataDir(
   extensionName: string,
   opts?: { projectRoot?: string },
 ): string {
+  if (getToolContext()?.invocation) {
+    if (getToolContext()?.extensionName !== extensionName) throw new Error("Extension data namespace does not match the active invocation");
+    return "/data";
+  }
   const root = opts?.projectRoot ?? findProjectRoot();
   const dir = join(root, ".ezcorp", "extension-data", extensionName);
   loadFsSync().mkdirSync(dir, { recursive: true });
@@ -162,6 +167,7 @@ const FS_READ_TIMEOUT_MS = 300_000;
 const FS_MAX_BYTES_PER_OP = 100 * 1024 * 1024;
 
 function ensureFsAllowed(opName: string): void {
+  if (getToolContext()?.invocation) return;
   if (process.env.EZCORP_FS_ALLOWED !== "1") {
     throw new Error(
       `[@ezcorp/sdk] ${opName} unavailable: extension has no filesystem grant. ` +

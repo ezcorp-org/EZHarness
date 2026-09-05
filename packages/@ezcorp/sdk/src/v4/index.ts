@@ -1,9 +1,12 @@
 import { ContractError, assertJson, compileValueSchema, validateInvocationContext, validateManifest } from "@ezcorp/extension-contract";
 import type { ExtensionManifestV4, InvocationContext, ValueSchema } from "@ezcorp/extension-contract";
+import { withExtensionContext } from "./context";
 
 export * from "@ezcorp/extension-contract";
 export { serve, createSession } from "./serve";
 export type { ServeOptions, Session } from "./serve";
+export { getInvocationContext, getGrantedEnv } from "./context";
+export { createMcpExtension } from "./mcp";
 export { createRuntimeExtension, defineRuntimeManifest, unwrapToolResponse, TOOL_RESULT_SCHEMA } from "./runtime";
 
 export interface ExtensionContext {
@@ -48,7 +51,7 @@ export function defineExtension(definition: ExtensionDefinition): DefinedExtensi
         validateInvocationContext(context.invocation);
         context.signal.throwIfAborted();
         checkInput(input);
-        const output = await handler.handle(input, context);
+        const output = await withExtensionContext(context, () => handler.handle(input, context));
         context.signal.throwIfAborted();
         checkOutput(output);
         return output;

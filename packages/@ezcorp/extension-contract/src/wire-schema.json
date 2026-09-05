@@ -2216,6 +2216,9 @@
           "additionalProperties": {},
           "type": "object"
         },
+        "mcpOutputSchema": {
+          "$ref": "#/definitions/ValueSchema"
+        },
         "name": {
           "type": "string"
         },

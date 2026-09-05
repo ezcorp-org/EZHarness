@@ -63,4 +63,24 @@ describe("data contracts", () => {
     expect(await sha256("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     expect(await sha256(canonicalJson({ allowed: true }))).not.toBe(await sha256(canonicalJson({ allowed: false })));
   });
+
+  test("formats and presentation hints keep validation separate from UI annotations", () => {
+    for (const [format, valid, invalid] of [["date", "2024-02-29", "2024-02-31"], ["date-time", "2024-02-29T12:00:00Z", "yesterday"], ["uri", "https://example.com", "not a uri"], ["email", "person@example.com", "not an email"], ["uuid", "12345678-1234-1234-1234-123456789abc", "123"]]) {
+      const check = compileValueSchema({ type: "string", format });
+      expect(() => check(valid)).not.toThrow();
+      expect(() => check(invalid)).toThrow();
+    }
+    expect(() => compileValueSchema({ type: "string", format: "combo-box", "x-options": { options: ["one"] }, "x-shared": "project.cwd" })("one")).not.toThrow();
+    expect(() => compileValueSchema({ type: "string", format: "unknown" })).toThrow();
+    expect(() => compileValueSchema({ type: "string", "x-shared": true })).toThrow();
+    expect(() => compileValueSchema({ type: "string", "x-options": true })).toThrow();
+  });
+
+  test("data schema changes require declared migration methods and safe compatibility versions", () => {
+    const method = { name: "data/migrate", inputSchema: { type: "object" }, outputSchema: { type: "object" } };
+    expect(validateManifest({ ...manifest, methods: [method], dataSchema: { version: "2", readableVersions: ["1", "2"], migrateMethod: "data/migrate" }, permissions: { hostApi: { routes: [{ method: "GET", path: "/api/projects/:id" }], events: false }, custom: { githubProjects: { actions: ["tickets"] } } } }).dataSchema?.version).toBe("2");
+    expect(() => validateManifest({ ...manifest, dataSchema: { version: "2", readableVersions: ["1"] } })).toThrow();
+    expect(() => validateManifest({ ...manifest, dataSchema: { version: "2", readableVersions: ["2"], migrateMethod: "missing" } })).toThrow();
+    expect(() => validateManifest({ ...manifest, permissions: { hostApi: { routes: [{ method: "GET", path: "/api/*" }], events: false } } })).toThrow();
+  });
 });

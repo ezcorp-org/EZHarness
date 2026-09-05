@@ -1,12 +1,17 @@
 import Ajv from "ajv";
 import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
-import type { ExtensionManifestV4, JsonValue, ValueSchema, WireData, WorkspaceFiles } from "./types";
+import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFiles } from "./types";
 
 export const PROTOCOL_VERSION = 4;
 export const VALIDATOR_VERSION = "4.0.0";
 export const MAX_FRAME_BYTES = 1024 * 1024;
 export const MAX_JSON_DEPTH = 32;
+export const TOOL_RESULT_SCHEMA = {
+  type: "object", required: ["content"],
+  properties: { content: { type: "array", items: { type: "object", required: ["type"], properties: { type: { type: "string" }, text: { type: "string" } }, additionalProperties: true } }, isError: { type: "boolean" } },
+  additionalProperties: true,
+};
 const encoder = new TextEncoder();
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
 const ajv = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false });
@@ -183,6 +188,7 @@ export function validateManifest(value: unknown): ExtensionManifestV4 {
     names.add(tool.name);
     compileValueSchema(tool.inputSchema);
     compileValueSchema(tool.outputSchema);
+    if (tool.mcpOutputSchema) compileValueSchema(tool.mcpOutputSchema);
   }
   if (names.size > 128) throw new ContractError("DATA_LIMIT", "Too many tools");
   const methodNames = new Set<string>();
@@ -245,4 +251,31 @@ export async function sha256(value: string | Uint8Array): Promise<string> {
   const bytes = typeof value === "string" ? encoder.encode(value) : new Uint8Array(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export const valueSchemaValidator = {
+  getValidator<Result>(schema: Record<string, unknown>) {
+    const validate = compileValueSchema(schema);
+    return (value: unknown) => {
+      try { validate(value); return { valid: true as const, data: value as Result, errorMessage: undefined }; }
+      catch { return { valid: false as const, data: undefined, errorMessage: "Value does not match the approved schema" }; }
+    };
+  },
+};
+
+export function normalizeMcpCatalog(value: unknown): ToolDefinitionV4[] {
+  assertJson(value);
+  if (!Array.isArray(value) || value.length > 128) throw new ContractError("INVALID_MCP", "MCP catalog must contain at most 128 tools");
+  const names = new Set<string>();
+  return value.map(raw => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_MCP", "Invalid MCP tool");
+    const tool = raw as Record<string, unknown>;
+    if (typeof tool.name !== "string" || !/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(tool.name) || names.has(tool.name)) throw new ContractError("INVALID_MCP", "Invalid or duplicate MCP tool name");
+    names.add(tool.name);
+    compileValueSchema(tool.inputSchema);
+    if (tool.outputSchema) compileValueSchema(tool.outputSchema);
+    const description = tool.description ?? tool.title ?? tool.name;
+    if (typeof description !== "string") throw new ContractError("INVALID_MCP", "Invalid MCP tool description");
+    return { name: tool.name, description, inputSchema: tool.inputSchema as ValueSchema, outputSchema: TOOL_RESULT_SCHEMA, ...(tool.outputSchema ? { mcpOutputSchema: tool.outputSchema as ValueSchema } : {}) };
+  }).sort((left, right) => left.name.localeCompare(right.name));
 }

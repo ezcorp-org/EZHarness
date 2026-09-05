@@ -1,9 +1,26 @@
 import { afterEach, expect, test } from "bun:test";
-import { createRuntimeExtension, createSession } from "./index";
+import { createRuntimeExtension, createSession, unwrapToolResponse } from "./index";
 import { getChannel, __resetChannelForTests } from "../runtime/channel";
 import { createToolDispatcher } from "../runtime/rpc";
+import { findProjectRoot, getExtensionDataDir } from "../runtime/fs";
 
 afterEach(__resetChannelForTests);
+
+test("filesystem paths use project and own data virtual roots", async () => {
+  const paths: unknown[] = [];
+  const extension = await createRuntimeExtension({ manifest: { schemaVersion: 4, name: "files", version: "1.0.0", description: "Files", author: { name: "Test" }, permissions: {} }, register() {
+    getChannel().onRequest("files/check", async () => {
+      expect(findProjectRoot()).toBe("/project");
+      expect(getExtensionDataDir("files")).toBe("/data");
+      expect(() => getExtensionDataDir("other")).toThrow("namespace");
+      for (const path of ["notes/a", ".ezcorp/extension-data/files/a", ".ezcorp/extension-data/other/a", "/data/a"]) await getChannel().request("ezcorp/fs.stat", { path });
+      for (const path of ["../escape", "bad\\path", "bad\0path"]) await expect(getChannel().request("ezcorp/fs.stat", { path })).rejects.toThrow("Invalid virtual");
+      return null;
+    });
+  } });
+  await extension.dispatch("files/check", {}, { invocation: { invocationId: "files", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 5000 }, signal: new AbortController().signal, call: async (_method, input) => { paths.push(input); return null; } });
+  expect(paths).toEqual([{ path: "/project/notes/a" }, { path: "/data/a" }, { path: "/project/.ezcorp/extension-data/other/a" }, { path: "/data/a" }]);
+});
 
 test("runtime vocabulary uses invocation-bound host calls without starting legacy transport", async () => {
   const results: any[] = [];
@@ -29,4 +46,17 @@ test("runtime vocabulary uses invocation-bound host calls without starting legac
   expect(results.at(-1).result.content[0].text).toBe("Hello");
   expect(() => getChannel().onRequest("new/method", () => null)).toThrow("registered before");
   session.close();
+});
+
+test("registration failures restore the adapter and tool envelopes reject errors", async () => {
+  expect(unwrapToolResponse({ result: { content: [] } })).toEqual({ content: [] });
+  for (const response of [null, [], {}, { error: { message: "failed" } }]) expect(() => unwrapToolResponse(response)).toThrow();
+  const manifest = { schemaVersion: 4, name: "registration", version: "1.0.0", description: "Registration", author: { name: "Test" }, permissions: {} };
+  await expect(createRuntimeExtension({ manifest, register() { getChannel().notify("ezcorp/state", {}); } })).rejects.toThrow("active invocation");
+  await expect(createRuntimeExtension({ manifest, register() { getChannel().onRequest("page/render", () => null); getChannel().onRequest("page/render", () => null); } })).rejects.toThrow("already registered");
+  const extension = await createRuntimeExtension({ manifest, register() { getChannel().onRequest("event/changed", () => { getChannel().notify("ezcorp/state", {}); }); } });
+  let calls = 0;
+  const result = await extension.dispatch("event/changed", {}, { invocation: { invocationId: "event", workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "project", token: "token", deadline: Date.now() + 1000 }, signal: new AbortController().signal, call: async () => { calls++; throw new Error("denied"); } });
+  expect(result).toBeNull();
+  expect(calls).toBe(1);
 });

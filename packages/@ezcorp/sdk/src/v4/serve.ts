@@ -1,6 +1,7 @@
 import { ContractError, MAX_FRAME_BYTES, assertJson, parseJson, validateInvocationContext } from "@ezcorp/extension-contract";
 import type { InvocationContext } from "@ezcorp/extension-contract";
 import type { DefinedExtension, ExtensionContext } from "./index";
+import { installNetworkShim } from "./network";
 
 type Envelope = Record<string, unknown>;
 type Writer = (frame: string) => void | Promise<void>;
@@ -46,10 +47,6 @@ export function createSession(extension: DefinedExtension, write: Writer, option
     if (closed) return;
     closed = true;
     for (const controller of active.values()) controller.abort(new ContractError("CANCELLED", "Session closed"));
-    for (const call of pending.values()) {
-      call.cleanup();
-      call.reject(new ContractError("CLOSED", "Session closed"));
-    }
     pending.clear();
   }
   async function invoke(method: string, params: unknown): Promise<unknown> {
@@ -165,6 +162,7 @@ export async function serve(extension: DefinedExtension, options: ServeOptions =
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 64 || maxBytes > MAX_FRAME_BYTES) throw new ContractError("INVALID_LIMITS", "Invalid frame limit");
   const session = createSession(extension, options.write ?? (frame => new Promise<void>((resolve, reject) => process.stdout.write(frame, error => error ? reject(error) : resolve()))), options);
   const active = new Set<Promise<void>>();
+  const restoreNetwork = installNetworkShim();
   let failure: unknown;
   let buffer = new Uint8Array(0);
   try {
@@ -195,5 +193,6 @@ export async function serve(extension: DefinedExtension, options: ServeOptions =
   } finally {
     session.close();
     await Promise.allSettled(active);
+    restoreNetwork();
   }
 }

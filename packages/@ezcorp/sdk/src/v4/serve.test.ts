@@ -89,6 +89,28 @@ describe("v4 protocol", () => {
     await expect(serve(extension, { input: bytes('{"jsonrpc":'), write: () => {} })).rejects.toThrow("Truncated");
   });
 
+  test("host errors, pending cancellation and output failures settle requests", async () => {
+    const frames: any[] = [];
+    let session: ReturnType<typeof createSession>;
+    session = createSession(definition((_input, context) => context.call("ezcorp/storage", {})), async frame => {
+      const message = JSON.parse(frame); frames.push(message);
+      if (message.method) await session.receive({ jsonrpc: "2.0", id: message.id, error: { code: -32001, message: "Denied" } });
+    });
+    await session.receive(request("denied"));
+    expect(frames.at(-1).error.data.code).toBe("HOST_ERROR");
+    session.close();
+    const pendingFrames: any[] = [];
+    const pendingSession = createSession(definition((_input, context) => context.call("ezcorp/storage", {})), frame => { pendingFrames.push(JSON.parse(frame)); });
+    const operation = pendingSession.receive(request("cancel-host"));
+    await pendingSession.receive({ jsonrpc: "2.0", method: "extension/cancel", params: { invocationId: "cancel-host" } });
+    await operation;
+    expect(pendingFrames.at(-1).error.data.code).toBe("CANCELLED");
+    pendingSession.close();
+    const broken = createSession(definition((_input, context) => context.call("ezcorp/storage", {})), () => { throw new Error("Pipe closed"); });
+    await expect(broken.receive(request("broken"))).rejects.toThrow("Pipe closed");
+    broken.close();
+  });
+
   test("real Bun process discovers and invokes through SDK stdin transport", async () => {
     const sdk = new URL("./index.ts", import.meta.url).pathname;
     const script = `import {defineExtension,serve} from ${JSON.stringify(sdk)}; await serve(defineExtension({manifest:${JSON.stringify(metadata)},tools:{echo:input=>input.text}}));`;

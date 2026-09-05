@@ -63,7 +63,7 @@
     "prepublishOnly": "bun run build",
     "test": "bun test"
   },
-  "dependencies": { "@ezcorp/extension-contract": "workspace:*" },
+  "dependencies": { "@ezcorp/extension-contract": "workspace:*", "@modelcontextprotocol/sdk": "1.30.0" },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^26.2.0"
