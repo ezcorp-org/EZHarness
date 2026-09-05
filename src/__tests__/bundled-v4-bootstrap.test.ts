@@ -57,6 +57,19 @@ async function stage(selectedEntries = entries): Promise<InstallationState> {
 }
 
 describe("host-owned bundled source staging", () => {
+  for (const name of ["ask-user", "task-tracking", "scratchpad"]) {
+    test(`${name}: unreadable source revokes legacy execution without granting a critical exception`, async () => {
+      legacy.set(name, { id: `legacy-${name}`, enabled: true, grantedPermissions: { storage: true, grantedAt: { storage: "old" } } });
+      sourceFailure = true;
+      const state = await stage([{ name, path: sourceDirectory }]);
+      expect(snapshot).toHaveBeenCalledTimes(1);
+      expect(legacy.get(name)).toMatchObject({ enabled: false, grantedPermissions: { grantedAt: {} } });
+      expect(state.installation).toMatchObject({ activeReleaseId: null, enabled: false, grants: [] });
+      expect(state.approvals).toEqual({});
+      expect(workspace).not.toHaveBeenCalled();
+      expect(build).not.toHaveBeenCalled();
+    });
+  }
   for (const name of ["orchestration", "task-tracking", "web-search"]) {
     test(`${name}: first boot stages source once without capability grants or activation`, async () => {
       const selected = [{ name, path: sourceDirectory }];

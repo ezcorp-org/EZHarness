@@ -86,3 +86,9 @@ Storage migration is no longer invoked by host source staging. Release activatio
 and its transactional migration tests own that boundary. Orchestration remains
 storage-free in its discovered manifest; staging cannot run its code or create
 extension-owned storage rows.
+
+The old bundled-critical-s9-disk-null suite is replaced by three explicit
+critical-source failure cases in bundled-v4-bootstrap. An actual collector
+exception must occur, legacy execution and grants must be revoked, and no
+workspace, build, or approval may be created. There is no critical auto-approval
+branch or third host config evaluation to reach in v4.
