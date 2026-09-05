@@ -133,7 +133,7 @@ describe("cli — ext verify --json", () => {
 });
 
 describe("runExtensionTests — smokeTest fold-in", () => {
-  test("bun-test-pass + smoke-pass ⇒ exit 0", async () => {
+  test("legacy passing source cannot bypass isolated verification", async () => {
     const fx = buildVerifyFixture({ name: "foldin-pass" });
     // Add a trivially-passing bun test alongside the fixture.
     await Bun.write(
@@ -142,15 +142,14 @@ describe("runExtensionTests — smokeTest fold-in", () => {
     );
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
-      const code = await runExtensionTests({ extDir: fx.dir });
-      expect(code).toBe(0);
+      await expect(runExtensionTests({ extDir: fx.dir })).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       logSpy.mockRestore();
       fx.cleanup();
     }
   }, 30_000);
 
-  test("bun-test-pass + smoke-fail ⇒ non-zero exit", async () => {
+  test("legacy failing smoke cannot execute on the host", async () => {
     const fx = buildVerifyFixture({
       name: "foldin-fail",
       pingErrors: true,
@@ -166,15 +165,14 @@ describe("runExtensionTests — smokeTest fold-in", () => {
     );
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
-      const code = await runExtensionTests({ extDir: fx.dir });
-      expect(code).not.toBe(0);
+      await expect(runExtensionTests({ extDir: fx.dir })).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       logSpy.mockRestore();
       fx.cleanup();
     }
   }, 30_000);
 
-  test("bun-test-FAIL short-circuits before smoke (non-zero)", async () => {
+  test("legacy failing feature test cannot execute on the host", async () => {
     const fx = buildVerifyFixture({ name: "foldin-buntest-fail" });
     await Bun.write(
       `${fx.dir}/index.test.ts`,
@@ -182,8 +180,7 @@ describe("runExtensionTests — smokeTest fold-in", () => {
     );
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
-      const code = await runExtensionTests({ extDir: fx.dir });
-      expect(code).not.toBe(0);
+      await expect(runExtensionTests({ extDir: fx.dir })).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
     } finally {
       logSpy.mockRestore();
       fx.cleanup();
