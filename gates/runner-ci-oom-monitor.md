@@ -26,3 +26,15 @@ The CI installer uses a root-owned versioned monitor, an explicit configuration
 drop-in, and an exact selected-path check. The [upstream release](https://github.com/containers/conmon/releases/tag/v2.2.1)
 publishes the pinned amd64 and arm64 SHA-256 values. Only the amd64 binary was
 executed locally; arm64 selection is covered by the install fixture.
+
+Full unchanged Podman integration suite with Ubuntu 4.9.3 and the exact pinned
+monitor: `/tmp/ez-ubuntu49-pinned-conmon-full.log`, 10 tests and 55 assertions pass.
+Actual system configuration selection is verified in a private mount namespace:
+the real installer writes the monitor as `root:root`, mode `0755`, then execution
+drops to the normal user. Ubuntu Podman reads the real
+`/etc/containers/containers.conf.d` drop-in and reports exactly
+`/usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1`, without a `--conmon` or
+`CONTAINERS_CONF` override: `/tmp/ez-conmon-system-dropin-proof3.log`.
+No extension runs privileged and the shared host configuration is unchanged.
+The fixture uses a fresh runtime directory because reusing Podman's existing
+pause process would re-enter its older mount namespace and hide the fixture.
