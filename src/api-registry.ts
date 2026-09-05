@@ -361,9 +361,9 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // MCP server lifecycle. Same two-axis shape as the block above; each of
   // these opens an outbound connection to an operator-supplied MCP server.
-  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation) (admin role + admin scope). Writes an ext:mcp:server-installed audit row", category: "extensions", scope: "admin", responseDescription: "the installed extension row (201)" },
-  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched) (admin role + admin scope). Writes an ext:mcp:server-updated audit row carrying both sides", category: "extensions", scope: "admin" },
-  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable) (admin role + admin scope). Writes an ext:mcp:server-refreshed audit row", category: "extensions", scope: "admin", responseDescription: "{ id, tools }" },
+  { method: "POST", path: "/api/mcp-servers", description: "Probe an MCP catalog and stage immutable source for build and human approval. Requires an administrator browser session; does not activate.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Stage changed MCP connection settings in a new workspace. The active release and credentials remain unchanged until approval.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Probe and stage a new sealed catalog for human approval. Never changes the active tool catalog directly.", category: "extensions", scope: "session", responseDescription: "workspace, queued operation and authoring openUrl (202)" },
 
   // Search backend config — reuses the encrypted, deny-listed
   // `provider:apiKey:*` store, so keys are never readable back out.
