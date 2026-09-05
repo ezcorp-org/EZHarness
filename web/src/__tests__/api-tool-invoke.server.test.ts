@@ -133,6 +133,19 @@ test("release-bound failures retain their error without retry", async () => {
   expect(executeToolCall).toHaveBeenCalledTimes(1);
 });
 
+for (const outcome of ["throw", "error"] as const) test(`an admitted effect followed by ${outcome} is never repeated`, async () => {
+  let writes = 0;
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async () => {
+    writes++;
+    if (outcome === "throw") throw new Error("Response lost after write");
+    return { isError: true, content: [{ type: "text", text: "Response lost after write" }] };
+  });
+  const response = await POST(makeEvent({ locals: authedUser, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" } }));
+  expect(await response.json()).toMatchObject({ success: false, error: "Response lost after write", retryCount: 0 });
+  expect(writes).toBe(1);
+});
+
 // FILE-level, not inside a describe: the mutable `ownershipResult` /
 // `extensionRow` / `wireAllowed` seams are read by every describe in this
 // file, so a reset scoped to one block leaks a previous test's denial into
@@ -499,14 +512,12 @@ describe("POST /api/tool-invoke — capability denial", () => {
     expect(err).not.toContain("710da8a9");
   });
 
-  test("a NON-permission error still retries and still 500s", async () => {
-    // The retry exists for a crashed extension subprocess; that path is
-    // unchanged.
+  test("a non-permission error returns 500 without repeating uncertain effects", async () => {
     registryGetTool.mockReturnValue({ name: "probe-http__echo", extensionId: "ext-1" });
     executeToolCall.mockRejectedValue(new Error("subprocess died"));
     const res = await POST(makeEvent({ locals: authedUser, body }));
     expect(res.status).toBe(500);
-    expect(executeToolCall).toHaveBeenCalledTimes(3);
+    expect(executeToolCall).toHaveBeenCalledTimes(1);
   });
 
   test("a tool-level failure still RESOLVES 200 — the harness contract is unchanged", async () => {

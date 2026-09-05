@@ -93,3 +93,5 @@ See [Manifest reference](manifest-schema.md) for declarations and capability lim
 ## Browser client
 
 See [Browser extensions](browser.md) for the sealed build config, private SDK client, trusted preview, and camera consent.
+
+`/api/tool-invoke` makes one invocation attempt. A tool error, lost response, or cancellation can follow a completed effect. The endpoint does not retry it. Check the outcome before issuing another call.
