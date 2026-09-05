@@ -164,9 +164,11 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 			route.fulfill({ json: disabled ? withoutExtPage : withExtPage }),
 		);
 		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_PAGE_ID)}*`, (route) =>
-			route.fulfill({
-				json: { page: { title: "Notes Dashboard", nodes: [] }, renderedAt: 1 },
-			}),
+				disabled
+					? route.fulfill({ status: 404, json: { error: "Page not found" } })
+					: route.fulfill({
+							json: { page: { title: "Notes Dashboard", nodes: [] }, renderedAt: 1 },
+						}),
 		);
 		await page.route("**/api/hub/pages/core%3Abriefing*", (route) =>
 			route.fulfill({ json: { page: { title: "Briefing", nodes: [] }, renderedAt: 1 } }),
@@ -180,6 +182,11 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		await expect(page.getByTestId("hub-tab")).toHaveCount(1, { timeout: 5000 });
 		await expect(page.getByTestId("hub-tab")).toHaveText("Briefing");
+		await expect(page.getByTestId("hub-error-card")).toContainText(
+			"This page doesn't exist (the extension may be disabled).",
+		);
+		await expect(page.getByTestId("hub-page-title")).toHaveCount(0);
+		await expect(page.getByText("Notes Dashboard", { exact: true })).toHaveCount(0);
 
 		await captureEvidence(page, testInfo, "hub-tab-bar-after-disable");
 	});

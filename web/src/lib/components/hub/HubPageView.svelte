@@ -287,6 +287,7 @@
 		// just the refetch.
 		function onExtensionsChanged() {
 			void loadTabs();
+			void loadPage(pageId);
 		}
 		window.addEventListener("extensions:changed", onExtensionsChanged);
 

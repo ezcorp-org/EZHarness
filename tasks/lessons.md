@@ -18,3 +18,5 @@
 - Capture each tested command's exit. A later successful shell command must not mask failure.
 - Fetch the base before completion and compare hosted results to the actual PR head.
 - Check whether incoming commits track ignored local task files before merging. Preserve both local and incoming lessons.
+- When screenshot evidence covers navigation removal, assert both the navigation item and the displayed page change. A hidden tab does not prove stale content was removed.
+- When invalidation makes an active route unavailable, reuse its existing reload and error path. Automatic fallback navigation adds empty-list and unmount races unless the product requires it.
