@@ -18,8 +18,9 @@ const cameraFrame = "data:image/jpeg;base64," + Buffer.from(rgbaToJpeg(renderItf
 
 function app(page: Page) { return page.frameLocator('iframe[title="Scanner fixture"]'); }
 
-async function serveApp(page: Page): Promise<void> {
+async function serveApp(page: Page, options: { beforeInitialList?: () => Promise<void>; initialListError?: string } = {}): Promise<void> {
   const saved = new Map<string, Record<string, unknown>>();
+  let initialList = true;
   await page.exposeFunction("__scannerFixtureRequest", async (request: { method: string; params: { toolName: string; input: Record<string, unknown> } }) => {
     expect(request.method).toBe("tool.invoke");
     const { toolName, input } = request.params;
@@ -36,7 +37,14 @@ async function serveApp(page: Page): Promise<void> {
         const card = input.card as Record<string, unknown>;
         saved.set(String(card.cert), structuredClone(card)); result = { saved: true }; break;
       }
-      case "scanner_saved_list": result = { cards: [...saved.values()], nextCursor: null }; break;
+      case "scanner_saved_list": {
+        if (initialList) {
+          initialList = false;
+          await options.beforeInitialList?.();
+          if (options.initialListError) return { success: false, error: options.initialListError };
+        }
+        result = { cards: [...saved.values()], nextCursor: null }; break;
+      }
       case "scanner_saved_delete": result = { deleted: saved.delete(String(input.cert)) }; break;
       case "scanner_saved_clear": saved.clear(); result = { deleted: true }; break;
       default: throw new Error("Unexpected scanner fixture tool.");
@@ -79,9 +87,36 @@ async function serveApp(page: Page): Promise<void> {
   }));
 }
 
-function simulate(page: Page, text: string): Promise<void> {
+async function simulate(page: Page, text: string): Promise<void> {
+  await expect(app(page).getByRole("main")).toHaveAttribute("aria-busy", "false");
   return app(page).locator("body").evaluate((_element, cert) => (window as unknown as { __gcsSimulateScan: (value: string) => Promise<void> }).__gcsSimulateScan(cert), text);
 }
+
+for (const fails of [false, true]) test(`scanner actions wait for saved-list ${fails ? "visible failure" : "success"} without moving`, async ({ page }) => {
+  const waiting = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  await serveApp(page, { beforeInitialList: async () => { waiting.resolve(); await release.promise; }, ...(fails ? { initialListError: "Saved-card service unavailable." } : {}) });
+  await page.goto(FIXTURE_URL);
+  await waiting.promise;
+  try {
+    const scanner = app(page);
+    const main = scanner.getByRole("main");
+    await expect(main).toHaveAttribute("aria-busy", "true");
+    for (const name of ["gcs-pause", "gcs-upload", "gcs-manual-input", "gcs-manual-add", "gcs-simulate", "gcs-search", "gcs-clear-all"]) await expect(scanner.getByTestId(name)).toBeDisabled();
+    const before = await scanner.getByTestId("gcs-pause").boundingBox();
+    expect(before).not.toBeNull();
+    await page.mouse.click(before!.x + before!.width / 2, before!.y + before!.height / 2);
+    await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeHidden();
+    release.resolve();
+    await expect(main).toHaveAttribute("aria-busy", "false");
+    await expect(scanner.getByTestId("gcs-pause")).toBeEnabled();
+    await expect(scanner.getByTestId("gcs-status")).toContainText(fails ? "Reload this page" : "Start scanning");
+    const after = await scanner.getByTestId("gcs-pause").boundingBox();
+    expect(Math.abs(after!.y - before!.y)).toBeLessThanOrEqual(1);
+    await scanner.getByTestId("gcs-pause").click();
+    await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeVisible();
+  } finally { release.resolve(); }
+});
 
 test.describe("Graded Card Scanner opaque app with controlled host bridge", () => {
 	test.beforeEach(async ({ page }) => {

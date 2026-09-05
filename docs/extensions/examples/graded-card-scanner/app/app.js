@@ -1,5 +1,5 @@
 // @ts-check
-// Orchestrator — wires scanner → dedupe gate → lookup → IndexedDB →
+// Orchestrator — wires scanner → dedupe gate → lookup → scoped storage →
 // list/detail rendering. All user-visible strings from scraped/looked-up
 // data go through textContent (never innerHTML), so third-party strings
 // can't inject; the only innerHTML sink is the chart SVG, whose text
@@ -381,6 +381,9 @@ void (async () => {
     await renderList();
     setStatus("Start scanning to open the trusted camera, or use upload / manual entry.");
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : String(error), true);
+    setStatus("Saved cards could not load. Reload this page to try again.", true);
+  } finally {
+    /** @type {HTMLFieldSetElement} */ ($(".gcs-actions")).disabled = false;
+    $("main").setAttribute("aria-busy", "false");
   }
 })();

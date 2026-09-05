@@ -16,13 +16,14 @@
       Sample mode — this card is demonstration data, not a live lookup.
     </div>
 
-    <main>
+    <main aria-busy="true">
+      <fieldset class="gcs-actions" disabled aria-label="Scanner actions">
       <!-- ── Scan ─────────────────────────────────────────────── -->
       <section class="gcs-scan">
         <div id="scan-frame" class="gcs-frame">
           <img data-testid="gcs-video" alt="Camera frame shared by the trusted scanner" />
         </div>
-        <p class="gcs-status" data-testid="gcs-status" aria-live="polite"></p>
+        <p class="gcs-status" data-testid="gcs-status" role="status" aria-live="polite">Loading saved cards…</p>
         <div class="gcs-controls">
           <button data-testid="gcs-pause" class="gcs-btn">Start scanning</button>
           <label class="gcs-btn gcs-btn-secondary">
@@ -51,6 +52,7 @@
         <p data-testid="gcs-empty" class="gcs-empty">No cards yet — scan a slab to start your list.</p>
         <ul data-testid="gcs-list" class="gcs-list"></ul>
       </section>
+      </fieldset>
     </main>
 
     <!-- ── Detail ─────────────────────────────────────────────── -->
