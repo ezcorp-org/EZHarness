@@ -1,4 +1,11 @@
 {
+  "web/src/lib/extensions/canvas-bridge.ts": 100,
+  "web/src/lib/server/extension-browser.ts": 100,
+  "web/src/lib/server/extension-document.ts": 100,
+  "web/src/lib/components/extensions/ExtensionBrowser.svelte": 100,
+  "web/src/routes/api/extensions/[name]/preview/+server.ts": 100,
+  "web/src/routes/(app)/extensions/[id]/preview/+page.server.ts": 100,
+  "web/src/routes/(app)/extensions/[id]/preview/+page.svelte": 100,
   "packages/@ezcorp/extension-runner/src/browser.ts": 100,
   "src/mcp/cancellation.ts": 100,
   "src/extensions/runtime-locks.ts": 100,
