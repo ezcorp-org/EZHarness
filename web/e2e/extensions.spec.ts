@@ -84,7 +84,7 @@ test.describe("Extensions List Page", () => {
 		await expect(page.getByText("Create your own")).toBeVisible();
 	});
 
-	test("shows Install Extension section with Local Path and GitHub tabs", async ({ page, mockApi }) => {
+	test("shows source review and MCP installation choices", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			extensions: [],
@@ -92,8 +92,9 @@ test.describe("Extensions List Page", () => {
 		await page.goto("/extensions");
 
 		await expect(page.getByText("Install Extension")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByRole("button", { name: "Local Path" })).toBeVisible();
-		await expect(page.getByRole("button", { name: "GitHub" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Extension source", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "MCP Server", exact: true })).toBeVisible();
+		await expect(page.getByRole("link", { name: "Choose source", exact: true })).toHaveAttribute("href", "/extensions/import-source");
 	});
 
 	test("shows empty state when no extensions installed", async ({ page, mockApi }) => {
@@ -261,7 +262,7 @@ test.describe("Extensions List Page", () => {
 		await expect(page.getByRole("button", { name: "Uninstall" })).toBeVisible({ timeout: 5000 });
 	});
 
-	test("Uninstall opens a dialog that will not proceed without a data choice", async ({ page, mockApi }) => {
+	test("Uninstall explains retained data and requires confirmation", async ({ page, mockApi }) => {
 		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
 
 		await mockApi({
@@ -274,10 +275,10 @@ test.describe("Extensions List Page", () => {
 
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible({ timeout: 3000 });
-		// The delete now reaches the filesystem, so the dialog names the
-		// directory at risk and refuses to guess what to do with it.
-		await expect(dialog).toContainText(".ezcorp/extension-data/removable-ext/");
-		await expect(page.getByTestId("uninstall-confirm")).toBeDisabled();
+		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
+		await expect(dialog).toContainText("Data deletion requires a separate review");
+		await expect(page.getByTestId("uninstall-confirm")).toBeEnabled();
+		await expect(page.getByTestId("uninstall-delete-data")).toHaveCount(0);
 	});
 
 	test("uninstall keeping data sends no purgeData flag", async ({ page, mockApi }) => {
@@ -295,22 +296,16 @@ test.describe("Extensions List Page", () => {
 		await page.goto("/extensions");
 
 		await page.getByTestId("ext-card-uninstall").click();
-		await page.getByTestId("uninstall-keep-data").click();
 		await page.getByTestId("uninstall-confirm").click();
 
 		await expect.poll(() => deleteUrls.length).toBe(1);
 		expect(deleteUrls[0]).not.toContain("purgeData");
 
-		// See the uninstall THROUGH, not just as far as the request: the
-		// dialog must close, the card must go, and the toast must state which
-		// choice was honoured. Stopping at the fetch leaves the whole
-		// post-204 path — dialog teardown, list refresh, the two different
-		// toast sentences — untested.
 		await expect(page.getByTestId("uninstall-dialog")).toHaveCount(0);
-		await expect(page.getByText(/its files were kept/)).toBeVisible();
+		await expect(page.getByText("removable-ext uninstalled — its data was kept", { exact: true })).toBeVisible();
 	});
 
-	test("uninstall deleting data sends purgeData=1", async ({ page, mockApi }) => {
+	test("cancelling uninstall sends no deletion and keeps the installation", async ({ page, mockApi }) => {
 		const ext = makeExtension({ id: "ext-1", name: "removable-ext" });
 
 		await mockApi({ projects: [proj], extensions: [ext] });
@@ -323,17 +318,11 @@ test.describe("Extensions List Page", () => {
 		await page.goto("/extensions");
 
 		await page.getByTestId("ext-card-uninstall").click();
-		await page.getByTestId("uninstall-delete-data").click();
-		await page.getByTestId("uninstall-confirm").click();
-
-		await expect.poll(() => deleteUrls.length).toBe(1);
-		expect(deleteUrls[0]).toContain("purgeData=1");
-
-		// The OTHER toast sentence. The two differ on purpose — an
-		// irreversible delete should say so — so asserting only one of them
-		// lets them collapse into a single message unnoticed.
+		await expect(page.getByTestId("uninstall-delete-data")).toHaveCount(0);
+		await page.getByRole("button", { name: "Cancel", exact: true }).click();
 		await expect(page.getByTestId("uninstall-dialog")).toHaveCount(0);
-		await expect(page.getByText(/its files were deleted too/)).toBeVisible();
+		expect(deleteUrls).toEqual([]);
+		await expect(page.getByTestId("ext-card").filter({ hasText: "removable-ext" })).toBeVisible();
 	});
 
 	test("a failed uninstall keeps the dialog open and says why", async ({ page, mockApi }) => {
@@ -350,7 +339,6 @@ test.describe("Extensions List Page", () => {
 		await page.goto("/extensions");
 
 		await page.getByTestId("ext-card-uninstall").click();
-		await page.getByTestId("uninstall-keep-data").click();
 		await page.getByTestId("uninstall-confirm").click();
 
 		await expect(page.getByText("disk is on fire")).toBeVisible({ timeout: 5000 });
@@ -440,29 +428,31 @@ test.describe("Extensions List Page", () => {
 		await expect(link).toHaveAttribute("href", "/extensions/ext-abc");
 	});
 
-	test("switching to GitHub mode shows user/repo placeholder", async ({ page, mockApi }) => {
+	test("switching from MCP to source mode restores the review entry point", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			extensions: [],
 		});
 		await page.goto("/extensions");
 
-		await page.getByRole("button", { name: "GitHub" }).click();
-
-		await expect(page.getByPlaceholder("user/repo or user/repo@v1.0.0")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByRole("button", { name: "Install from GitHub" })).toBeVisible();
+		await page.getByRole("button", { name: "MCP Server", exact: true }).click();
+		await expect(page.getByRole("link", { name: "Choose source", exact: true })).toHaveCount(0);
+		await page.getByRole("button", { name: "Extension source", exact: true }).click();
+		await expect(page.getByRole("link", { name: "Choose source", exact: true })).toBeVisible();
+		await expect(page.getByText("Nothing is activated before approval.", { exact: false })).toBeVisible();
 	});
 
-	test("local path mode shows path input and Install button", async ({ page, mockApi }) => {
+	test("source mode offers reviewed imports rather than retired direct installs", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			extensions: [],
 		});
 		await page.goto("/extensions");
 
-		// Local Path is default mode
-		await expect(page.getByPlaceholder("/path/to/extension")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByRole("button", { name: "Install" })).toBeVisible();
+		await expect(page.getByRole("link", { name: "Choose source", exact: true })).toHaveAttribute("href", "/extensions/import-source");
+		await expect(page.getByPlaceholder("/path/to/extension")).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Git URL", exact: true })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Install", exact: true })).toHaveCount(0);
 	});
 
 	test("multiple extensions all render", async ({ page, mockApi }) => {
@@ -524,9 +514,6 @@ test.describe("Extensions Toggle Round-Trip", () => {
 			});
 		});
 
-		// Dialog-based enable flow POSTs to /activate. Register this BEFORE
-		// the PATCH route so the more specific path wins (Playwright picks
-		// the most recently registered matching handler).
 		await page.route("**/api/extensions/ext-1/activate", async (route) => {
 			if (route.request().method() !== "POST") return route.fallback();
 			const body = route.request().postDataJSON();
@@ -571,7 +558,7 @@ test.describe("Extensions Toggle Round-Trip", () => {
 		expect(ctrl.getCalls.length).toBeGreaterThanOrEqual(2);
 	});
 
-	test("disabled extension: click toggle → dialog → POST /activate → UI flips to on", async ({ page, mockApi }) => {
+	test("disabled extension: click toggle opens exact installation review without activation", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
 		const ctrl = await installToggleMock(page, makeExtension({ id: "ext-1", name: "toggle-ext", enabled: false }));
 
@@ -580,14 +567,9 @@ test.describe("Extensions Toggle Round-Trip", () => {
 
 		await page.locator("button[title='Enable']").click();
 
-		// Enable flow now intercepts via permission-review dialog; the
-		// off→on PATCH path no longer fires. Confirm the dialog, then the
-		// UI should flip after the POST /activate round-trip.
-		await expect(page.getByText("Review permissions: toggle-ext")).toBeVisible({ timeout: 3000 });
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		await expect(page.locator("button[title='Disable']")).toBeVisible({ timeout: 5000 });
-		expect(ctrl.activateCalls).toHaveLength(1);
+		await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-1$/);
+		expect(ctrl.currentState().enabled).toBe(false);
+		expect(ctrl.activateCalls).toHaveLength(0);
 		expect(ctrl.patchCalls).toHaveLength(0);
 	});
 
@@ -650,7 +632,7 @@ test.describe("Extensions Toggle Round-Trip", () => {
 		await expect(page.getByText(/Boom|Update failed|Failed to update/)).toBeVisible({ timeout: 3000 });
 	});
 
-	test("re-enable blocked by security violation: 403 → error toast", async ({ page, mockApi }) => {
+	test("opening review cannot bypass a blocked installation through the retired activate endpoint", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
 		await page.route("**/api/extensions", async (route) => {
 			if (route.request().method() !== "GET") return route.fallback();
@@ -658,10 +640,10 @@ test.describe("Extensions Toggle Round-Trip", () => {
 				json: [makeExtension({ id: "ext-1", name: "blocked-ext", enabled: false })],
 			});
 		});
-		// Enable goes through the review dialog → POST /activate.
-		// Server responds 403 with the "security violations" message.
+		const activateCalls: string[] = [];
 		await page.route("**/api/extensions/ext-1/activate", async (route) => {
 			if (route.request().method() !== "POST") return route.fallback();
+			activateCalls.push(route.request().url());
 			await route.fulfill({
 				status: 403,
 				json: { error: "Cannot re-enable extension with security violations. Clear violations first." },
@@ -672,16 +654,14 @@ test.describe("Extensions Toggle Round-Trip", () => {
 		await expect(page.locator("button[title='Enable']")).toBeVisible({ timeout: 5000 });
 
 		await page.locator("button[title='Enable']").click();
-		await expect(page.getByText("Review permissions: blocked-ext")).toBeVisible({ timeout: 3000 });
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		// Toggle stays off and the 403's error text surfaces as a toast.
-		await expect(page.locator("button[title='Enable']")).toBeVisible({ timeout: 3000 });
+		await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-1$/);
+		expect(activateCalls).toEqual([]);
+		await page.goto("/extensions");
+		await expect(page.locator("button[title='Enable']")).toBeVisible();
 		await expect(page.locator("button[title='Disable']")).not.toBeVisible();
-		await expect(page.getByText(/security violations/)).toBeVisible({ timeout: 3000 });
 	});
 
-	test("auto-disabled Re-enable banner button: routes through dialog then POST /activate", async ({ page, mockApi }) => {
+	test("auto-disabled Re-enable banner opens review without changing failure state", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
 		const ctrl = await installToggleMock(
 			page,
@@ -691,14 +671,10 @@ test.describe("Extensions Toggle Round-Trip", () => {
 		await page.goto("/extensions");
 		await expect(page.getByRole("button", { name: "Re-enable" })).toBeVisible({ timeout: 5000 });
 
-		// The banner's Re-enable button shares the toggleEnabled path, which
-		// now opens the review dialog rather than firing PATCH directly.
 		await page.getByRole("button", { name: "Re-enable" }).click();
-		await expect(page.getByText("Review permissions: flaky-ext")).toBeVisible({ timeout: 3000 });
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		await expect(page.locator("button[title='Disable']")).toBeVisible({ timeout: 5000 });
-		expect(ctrl.activateCalls).toHaveLength(1);
+		await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-1$/);
+		expect(ctrl.currentState()).toMatchObject({ enabled: false, consecutiveFailures: 3 });
+		expect(ctrl.activateCalls).toHaveLength(0);
 		expect(ctrl.patchCalls).toHaveLength(0);
 	});
 });
