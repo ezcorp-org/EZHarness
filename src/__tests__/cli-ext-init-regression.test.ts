@@ -1,11 +1,3 @@
-// Regression test for `bun run ext:init`.
-//
-// Pins the file set that initExtension() writes to disk so the
-// scaffold.ts refactor (extracting the pure scaffolder behind
-// `@ezcorp/sdk`) cannot silently drop a file or change the templates.
-// If this test goes red, the CLI behavior diverged from the pre-refactor
-// baseline — DO NOT relax assertions, fix the scaffolder.
-
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,17 +18,18 @@ const FILES_WITH_INDEX = [
   ".gitignore",
   "README.md",
   "ezcorp.config.ts",
-  "index.test.ts",
-  "index.ts",
+  "extension.test.ts",
+  "extension.ts",
   "package.json",
   "tsconfig.json",
 ];
 
 const FILES_WITHOUT_INDEX = [
+  "extension.ts",
   ".gitignore",
   "README.md",
   "ezcorp.config.ts",
-  "index.test.ts",
+  "extension.test.ts",
   "package.json",
   "tsconfig.json",
 ];
@@ -54,13 +47,13 @@ describe("ext:init CLI — file set per type", () => {
     expect(files).toEqual([...FILES_WITH_INDEX].sort());
   });
 
-  test("skill omits index.ts", async () => {
+  test("skill includes discovery entrypoint", async () => {
     await initExtension({ extName: "wisdom", type: "skill", description: "x", cwd: tmp });
     const files = readdirSync(join(tmp, "wisdom")).sort();
     expect(files).toEqual([...FILES_WITHOUT_INDEX].sort());
   });
 
-  test("agent omits index.ts", async () => {
+  test("agent includes discovery entrypoint", async () => {
     await initExtension({ extName: "ducky", type: "agent", description: "x", cwd: tmp });
     const files = readdirSync(join(tmp, "ducky")).sort();
     expect(files).toEqual([...FILES_WITHOUT_INDEX].sort());
@@ -72,7 +65,7 @@ describe("ext:init CLI — file content", () => {
     await initExtension({ extName: "weather", type: "tool", description: "Get weather", cwd: tmp });
     const cfg = readFileSync(join(tmp, "weather", "ezcorp.config.ts"), "utf8");
     expect(cfg).toContain("Get weather");
-    expect(cfg).toContain('name: "weather"');
+    expect(cfg).toContain('"name": "weather"');
   });
 
   test("package.json picks up name + description", async () => {
@@ -80,15 +73,15 @@ describe("ext:init CLI — file content", () => {
     const pkg = JSON.parse(readFileSync(join(tmp, "weather", "package.json"), "utf8"));
     expect(pkg.name).toBe("weather");
     expect(pkg.description).toBe("Get weather");
-    expect(pkg.dependencies["@ezcorp/sdk"]).toBeDefined();
+    expect(pkg.peerDependencies["@ezcorp/sdk"]).toBe("0.1.0");
   });
 
-  test("tool's index.ts emits a JSON-RPC stdin reader", async () => {
+  test("tool entrypoint uses validated SDK transport", async () => {
     await initExtension({ extName: "weather", type: "tool", description: "x", cwd: tmp });
-    const idx = readFileSync(join(tmp, "weather", "index.ts"), "utf8");
-    expect(idx).toContain("Bun.stdin.stream()");
-    expect(idx).toContain("handleRequest");
-    expect(idx).toContain("tools/call");
+    const idx = readFileSync(join(tmp, "weather", "extension.ts"), "utf8");
+    expect(idx).not.toContain("Bun.stdin.stream()");
+    expect(idx).toContain("serve(");
+    expect(idx).toContain("defineExtension(");
   });
 });
 

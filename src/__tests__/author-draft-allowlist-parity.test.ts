@@ -29,11 +29,13 @@ describe("draft import compatibility and v4 authoring boundary", () => {
     expect(manifest.smokeTest?.expect?.textIncludes).toBe("EXTENSION_AUTHOR_MOVED_TO_HOST");
   });
 
-  test("legacy generated draft files remain importable as bounded source, not approved releases", () => {
+  test("v4 generated source uses workspaces, not the retired draft allowlist", () => {
     for (const type of ["tool", "skill", "agent", "multi"] as const) {
       const { files } = scaffoldExtension({ name: "parity-probe", type, description: "workspace parity probe" });
       expect(validateWorkspaceFiles(files)).toEqual(files);
-      expect(Object.keys(files).filter((path) => !SCAFFOLD_DRAFT_FILES.has(path))).toEqual([]);
+      expect(Object.keys(files).filter((path) => !SCAFFOLD_DRAFT_FILES.has(path)).sort()).toEqual(["extension.test.ts", "extension.ts"]);
+      expect(files["index.ts"]).toBeUndefined();
+      expect(files["extension.ts"]).toContain("serve(");
     }
   });
 

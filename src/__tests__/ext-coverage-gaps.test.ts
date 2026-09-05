@@ -534,7 +534,7 @@ describe("retired directory-based SDK execution", () => {
         if (source) await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); ${source}`);
         await expect(runExtensionTests({ extDir: directory })).rejects.toThrow("Host configuration evaluation is disabled");
         for (const sandbox of [true, false]) {
-          await expect(createTestExtension(directory, { sandbox })).rejects.toThrow(source ? "Host configuration evaluation is disabled" : "Manifest not found");
+          await expect(createTestExtension(directory, { sandbox })).rejects.toThrow("Host configuration evaluation is disabled");
         }
         expect(await Bun.file(marker).exists()).toBe(false);
       } finally { await rm(directory, { recursive: true, force: true }); }
