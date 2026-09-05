@@ -189,6 +189,29 @@ describe("handlePiLessons / handlePiSearch real delegate bodies", () => {
   });
   afterEach(() => _resetCallProvenanceForTests());
 
+  for (const [handler, method] of [
+    ["handlePiProjectGit", "ezcorp/project.gitHead"],
+    ["handlePiProjectPullRequestReview", "ezcorp/project.reviewPr"],
+    ["handlePiNetworkBroker", "ezcorp/network.fetch"],
+    ["handlePiNetworkTunnel", "ezcorp/network.tunnel.open"],
+  ] as const) {
+    test(`${handler} delegates to the real broker and rejects absent, foreign, and expired authority`, async () => {
+      const foreign = registerCallProvenance({ ...prov(), actorExtensionId: "other-extension" });
+      const expired = registerCallProvenance(prov());
+      releaseCallProvenance(expired);
+      try {
+        for (const token of [undefined, foreign, expired]) {
+          const response = await executor[handler]("ext-1", {
+            jsonrpc: "2.0", id: 41, method,
+            params: token ? { _meta: { ezCallId: token } } : {},
+          });
+          expect(response).toEqual({ jsonrpc: "2.0", id: 41, error: { code: -32602, message: "Reverse-RPC provenance unresolved (no valid call token)" } });
+          expect(response.result).toBeUndefined();
+        }
+      } finally { releaseCallProvenance(foreign); }
+    });
+  }
+
   test("handlePiSearch reaches the search handler (soft-fails without a search grant)", async () => {
     const tok = registerCallProvenance(prov());
     try {
@@ -203,6 +226,18 @@ describe("handlePiLessons / handlePiSearch real delegate bodies", () => {
     } finally {
       releaseCallProvenance(tok);
     }
+  });
+
+  test("handlePiNetworkTunnel preserves the broker denial when no TCP destination was granted", async () => {
+    const token = registerCallProvenance(prov());
+    try {
+      const response = await executor.handlePiNetworkTunnel("ext-1", {
+        jsonrpc: "2.0", id: 42, method: "ezcorp/network.tunnel.open",
+        params: { destination: "example.com:443", _meta: { ezCallId: token } },
+      });
+      expect(response).toEqual({ jsonrpc: "2.0", id: 42, error: { code: -32603, message: "TCP tunnel denied, expired, or unavailable.", data: { retryable: false } } });
+      expect(response.result).toBeUndefined();
+    } finally { releaseCallProvenance(token); }
   });
 
   test("handlePiLessons reaches the lessons handler under a resolvable token", async () => {
