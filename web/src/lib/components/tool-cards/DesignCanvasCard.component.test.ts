@@ -151,7 +151,7 @@ describe("DesignCanvasCard — adaptive descriptors", () => {
 		const input = getByTestId("knob-borderRadius") as HTMLInputElement;
 		await fireEvent.input(input, { target: { value: "12" } });
 		const label = container.querySelector("label.knob");
-		expect(label?.textContent).toContain("12px");
+		expect(label?.textContent).toContain("Border radius (12px)");
 	});
 
 	test("falls back to LEGACY_DESCRIPTORS (5 knobs) when payload.knobs is undefined", () => {
