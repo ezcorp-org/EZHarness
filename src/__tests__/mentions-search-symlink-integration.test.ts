@@ -39,6 +39,10 @@ mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
 }));
 
+mock.module("$lib/server/workflow-access", () => ({
+  listVisibleWorkflows: async () => [],
+}));
+
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ listAgents: () => [] }),
   getCommandRegistry: () => ({ listCommands: () => [] }),
