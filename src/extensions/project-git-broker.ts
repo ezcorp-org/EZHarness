@@ -36,7 +36,7 @@ export async function handleProjectGit(deps: RpcHandlerDeps, extensionId: string
     if (!["gitHead", "commitSubjects", "origin"].includes(operation)) throw new LifecycleError("invalid_input", "Unknown project read operation.");
     const input = request.params as Record<string, unknown> | undefined;
     if (!input || Object.keys(input).some(key => key !== "_meta" && !(operation === "commitSubjects" && key === "sinceHash")) || (input.sinceHash !== undefined && (typeof input.sinceHash !== "string" || !/^[a-f0-9]{40}$/.test(input.sinceHash)))) throw new LifecycleError("invalid_input", "Provide only a valid starting commit hash for commitSubjects.");
-    const { project } = await authorizeProjectOperation(deps, extensionId, resolved.onBehalfOf, resolved.conversationId, `project.${operation}`, [{ kind: "shell" }]);
+    const { project } = await authorizeProjectOperation(deps, extensionId, resolved.onBehalfOf, resolved.conversationId, `project.${operation}`, [{ kind: "shell" }], resolved.prov.projectId);
     const result = await readProjectGit(project.path!, operation as ProjectGitOperation, input.sinceHash as string | undefined);
     return { jsonrpc: "2.0", id: request.id, result };
   } catch (cause) {
