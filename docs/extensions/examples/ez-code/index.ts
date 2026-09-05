@@ -583,12 +583,13 @@ export const dispatchRun: ToolHandler = async (args) => {
   if (typeof task !== "string" || task.trim().length === 0) {
     return toolError("'task' is required and must be a non-empty string");
   }
-  const resolvedAgent = resolveDispatchAgentName(agentName);
+  const requestedAgent = typeof agentName === "string" ? agentName : undefined;
+  const resolvedAgent = resolveDispatchAgentName(requestedAgent);
   // For the bundled coder, dispatch by its FIXED id (unforgeable, owner-
   // agnostic) rather than the name — most robust resolution. The run
   // record still shows the friendly `agentName`. An explicit user agent
   // dispatches by name as before.
-  const useDefaultCoder = isDefaultCoderRequest(agentName);
+  const useDefaultCoder = isDefaultCoderRequest(requestedAgent);
 
   let record: RunRecord;
   try {

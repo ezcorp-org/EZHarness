@@ -31,10 +31,10 @@ describe("github-projects manifest", () => {
   });
 
   test("the subprocess gets NO network / shell / env (host-side I/O only)", () => {
-    const perms = config.permissions ?? {};
-    expect(perms.network).toBeUndefined();
-    expect(perms.shell).toBeFalsy();
-    expect(perms.env).toBeUndefined();
+    const perms = config.permissions;
+    expect(perms).not.toHaveProperty("network");
+    expect(perms).not.toHaveProperty("shell");
+    expect(perms).not.toHaveProperty("env");
     // The page-action events are declared so the Hub buttons clear the gate.
     expect(perms.eventSubscriptions).toEqual(
       expect.arrayContaining(["github-projects:approve", "github-projects:dismiss"]),

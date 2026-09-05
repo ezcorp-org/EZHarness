@@ -26,8 +26,8 @@
       "directory": "docs/extensions/examples/city-conditions",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 102652,
-      "sourceDigest": "94d765c5982ce0ece82c7a4ad6758170706a76a0e8e6cc67acd5423a3153edc4"
+      "bytes": 102729,
+      "sourceDigest": "dc52da0026968c7150228220d8d2702de73299de86c8040c3eb3fc105f87a1bd"
     },
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
@@ -82,8 +82,8 @@
       "directory": "docs/extensions/examples/ez-code",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 106122,
-      "sourceDigest": "01ac31a56b01e6e90b9605492cd80ff98383a1ab6ffcfb4ac705b0e12d9f8400"
+      "bytes": 106212,
+      "sourceDigest": "0f571036a0f2836cc1311d0ba1d7850b4839aace2c18274f9cbca994889a61ce"
     },
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
@@ -103,8 +103,8 @@
       "directory": "docs/extensions/examples/github-projects",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 67794,
-      "sourceDigest": "80035f425801fb8a2e4d8289182e1d22f1536b9882df40aaf8224f32f976b83b"
+      "bytes": 67810,
+      "sourceDigest": "9d159277c6a3badb0f5335fd118fe97ef94a5d09846f5f4e90abe549115b4de8"
     },
     "github-stats": {
       "directory": "docs/extensions/examples/github-stats",
@@ -173,8 +173,8 @@
       "directory": "docs/extensions/examples/ping-loop",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 29850,
-      "sourceDigest": "6696042f2e15f91fe9eba58a4e11b2d189ab9e503ae77c6698f4b6e1e35123fa"
+      "bytes": 29981,
+      "sourceDigest": "2fea6efe248fc1288efb2cc7c87c9123767dfb97864eb9efd9b963316e62b9f5"
     },
     "price-chart": {
       "directory": "docs/extensions/examples/price-chart",
@@ -306,8 +306,8 @@
       "directory": "docs/extensions/examples/weather",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 19795,
-      "sourceDigest": "f2adbc3e96fca78c67a2a389f675c83dd8998d3eaf07d27455ed4721b3982851"
+      "bytes": 19828,
+      "sourceDigest": "25f991f7f71599b03c1e2e648c8523e9ff2622735c79674a39870fb405bdd508"
     },
     "web-search": {
       "directory": "docs/extensions/examples/web-search",

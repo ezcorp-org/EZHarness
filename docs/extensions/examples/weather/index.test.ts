@@ -83,7 +83,7 @@ describe("weather extension", () => {
           weather_code: [2, 2, 1, 1, 3, 61],
         },
       }), { status: 200 });
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
 
     const out = await tools.get_weather!({ location: "Paris" });
     expect(expectIsError(out)).toBe(false);
@@ -147,7 +147,7 @@ describe("weather extension", () => {
           weather_code: [0, 0, 1, 1, 2, 2],
         },
       }), { status: 200 });
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
 
     const out = await tools.get_weather!({ location: "Austin", unit: "fahrenheit" });
     const payload = JSON.parse(expectText(out));
@@ -159,7 +159,7 @@ describe("weather extension", () => {
   test("surfaces geocoder miss as toolError", async () => {
     _setFetchImplForTests((async () => {
       return new Response(JSON.stringify({ results: [] }), { status: 200 });
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
 
     const out = await tools.get_weather!({ location: "Atlantis" });
     expect(expectIsError(out)).toBe(true);
