@@ -403,6 +403,11 @@ test.describe(
 				preset: "junk-sweep",
 			});
 			expect(((await preset.json()) as { ok: boolean }).ok).toBe(true);
+			const backlog = await postEvent(request, "set-backlog-policy", {
+				folderId: folder!.id,
+				backlogPolicy: "include-existing",
+			});
+			expect(((await backlog.json()) as { ok: boolean }).ok).toBe(true);
 			const source = `${WATCH_DIR}/daemon-proof.tmp`;
 			execFileSync("docker", ["exec", CONTAINER, "sh", "-c", `touch '${source}' && touch -d '20 minutes ago' '${source}'`]);
       let proposalsRaw = "";
