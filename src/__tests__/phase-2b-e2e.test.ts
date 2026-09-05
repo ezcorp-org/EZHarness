@@ -37,6 +37,7 @@ import { getDb } from "../db/connection";
 import {
   extensions as extensionsTable,
   projects,
+  projectMembers,
   conversations,
   conversationExtensions,
   users,
@@ -103,6 +104,8 @@ function rpc(method: string, params: Record<string, unknown>, id: number | strin
 
 beforeAll(async () => {
   await setupTestDb();
+  const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
+  _resetTaskTrackingExtensionIdCache();
 
   await getDb().insert(users).values({
     id: USER_ID, email: "u@t.local", passwordHash: "x", name: "U",
@@ -117,6 +120,8 @@ beforeAll(async () => {
   await getDb().insert(conversations).values({
     id: CONV_ID, projectId: "proj-2b-e2e", title: "e2e", userId: USER_ID,
   } as any);
+  await getDb().insert(projectMembers).values({ projectId: "proj-2b-e2e", userId: USER_ID, role: "member" });
+  await getDb().insert(extensionsTable).values({ id: "task-state-store-2b", name: "task-tracking", version: "1.0.0", manifest: { ...manifest, name: "task-tracking" }, source: "test:task-state", enabled: true });
 
   await getDb().insert(extensionsTable).values({
     id: EXT_ID,

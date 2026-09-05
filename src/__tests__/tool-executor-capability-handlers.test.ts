@@ -223,7 +223,7 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
       }),
     );
     expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toEqual({ ok: true, durable: false });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({
       event: "loops:approval_resolved",

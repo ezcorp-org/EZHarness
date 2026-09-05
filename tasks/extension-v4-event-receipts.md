@@ -70,6 +70,8 @@ This leaf does not yet add receipts to specialized host-rendered file-organizer 
 
 Task source and host behavior: /tmp/lifecycle-task-final-coverage.log has 141 tests and 499 assertions. The source tests include an already committed terminal assignment, duplicate delivery, and a host-committed spawn result that must not be overwritten by an old source snapshot. Recovery limits and default hourly maintenance cadence are documented in `docs/extension-task-state-durability.md`.
 
+Remaining task fixture audit: `/tmp/lifecycle-task-cohort-final.log` has 44 passing tests and 123 assertions, with no skips. Real SQL fixtures now supply the active conversation owner, current project membership and task store installation. The wire-only fixture uses the shared revision-checking task-event persistence port, not an acknowledgement with no state commit. The previously skipped assignment-completion test runs with all original auto-advance assertions. The global loop notice test explicitly asserts `durable:false`; global content-free notices do not claim durable scoped delivery.
+
 - [x] The generic conversation card event route admits a receipt and all eligible deliveries before HTTP success or UI bus emission.
   CHECK: cd web && bun test ./src/__tests__/hub-isolated-action.integration.test.ts
   EXPECT: 5 tests pass.
