@@ -29,7 +29,7 @@ test("authoring scaffold builds with private service umask", async () => {
 }, 120_000);
 
 test("real isolated build, typecheck, feature tests, discovery, invocation and restart", async () => {
-  const files = source("async (input,ctx) => ({...input, broker: await ctx.call('storage.get',{key:'fixture'})})");
+  const files = source("async (input,ctx) => ({...(input as Record<string,unknown>), broker: await ctx.call('storage.get',{key:'fixture'})})");
   const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(build.diagnostics).toEqual([]);
   expect(build.state).toBe("succeeded");
@@ -94,7 +94,7 @@ test("runner rejects mutable image tags and never falls back", async () => {
 });
 
 test("locked dependency is bundled offline and retained in immutable release", async () => {
-  const files = await resolveDependencies({ ...source("async input=>({numeric:(await import('is-number')).default(input.value)})"), "package.json": JSON.stringify({ dependencies: { "is-number": "7.0.0" } }) });
+  const files = await resolveDependencies({ ...source("async input=>({numeric:(await import('is-number')).default((input as {value:unknown}).value)})"), "package.json": JSON.stringify({ dependencies: { "is-number": "7.0.0" } }) });
   const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(result.diagnostics).toEqual([]);
   const artifacts = await runner.collectArtifacts(result.artifactDigest!);
@@ -102,7 +102,8 @@ test("locked dependency is bundled offline and retained in immutable release", a
 }, 60_000);
 
 test("kernel PID, temporary storage, memory and descendant cancellation limits hold", async () => {
-  const files = source(`async (input) => {
+  const files = source(`async (value) => {
+    const input = value as {action:string};
     if(input.action==='oom'){const values=[];while(true){values.push(new Uint8Array(8*1024*1024).fill(123));await Bun.sleep(1)}}
     if(input.action==='disk'){try{await Bun.write('/tmp/full',new Uint8Array(20*1024*1024));return {limited:false}}catch{return {limited:true}}}
     const children=[];try{for(let index=0;index<100;index++)children.push(Bun.spawn(['/bin/sleep','60'],{stdout:'ignore',stderr:'ignore'}))}catch{};
