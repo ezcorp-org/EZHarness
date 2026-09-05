@@ -109,8 +109,8 @@ test("kernel PID, temporary storage, memory and descendant cancellation limits h
     const input = value as {action:string};
     if(input.action==='oom'){const values:Uint8Array[]=[];while(true){values.push(new Uint8Array(8*1024*1024).fill(123));await Bun.sleep(1)}}
     if(input.action==='disk'){try{await Bun.write('/tmp/full',new Uint8Array(20*1024*1024));return {limited:false}}catch{return {limited:true}}}
-    const children:{kill:()=>void}[]=[];try{for(let index=0;index<100;index++)children.push(Bun.spawn(['/bin/sleep','60'],{stdout:'ignore',stderr:'ignore'}))}catch{};
-    if(input.action==='pids'){for(const child of children)child.kill();return {children:children.length}}
+    const children:{kill:()=>void}[]=[];let spawnFailure:string|null=null;try{for(let index=0;index<100;index++)children.push(Bun.spawn(['/bin/sleep','60'],{stdout:'ignore',stderr:'ignore'}))}catch(error){spawnFailure=String((error as NodeJS.ErrnoException).code)};
+    if(input.action==='pids'){for(const child of children)child.kill();return {children:children.length,spawnFailure}}
     await new Promise(()=>{});return {};
   }`);
   const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
@@ -122,7 +122,7 @@ test("kernel PID, temporary storage, memory and descendant cancellation limits h
     const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits }, async () => null);
     const pending = worker.request("extension/invoke", { name: "echo", input: { action }, context });
     if (action === "disk") expect(await pending).toEqual({ limited: true });
-    else if (action === "pids") { const output = await pending as { children: number }; expect(output.children).toBeLessThan(32); expect(output.children).toBeGreaterThan(0); }
+    else if (action === "pids") { const output = await pending as { children: number; spawnFailure: string | null }; expect(output.children).toBeLessThan(32); expect(output.children).toBeGreaterThan(0); expect(output.spawnFailure).toBe("EAGAIN"); }
     else if (action === "cancel") { const rejected = expect(pending).rejects.toThrow(); await Bun.sleep(300); await runner.cancel(workerId); await rejected; }
     else { await expect(pending).rejects.toThrow(); await worker.exited; await Bun.sleep(100); expect((await runner.inspect(workerId)).diagnostics.some(diagnostic => diagnostic.code === "memory_limit")).toBe(true); }
     await worker.close();
