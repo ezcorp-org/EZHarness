@@ -13,6 +13,7 @@ const { ReleaseProcess } = await import("../extensions/release-process");
 const { ExtensionRegistry } = await import("../extensions/registry");
 const permissionEngine = await import("../extensions/permission-engine");
 const { workflowDelegations } = await import("../db/schema");
+const { resolveCallProvenance } = await import("../extensions/call-provenance");
 const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
@@ -22,7 +23,14 @@ test.each([
   { kind: "tool", state: "wrong-service" }, { kind: "agent", state: "wrong-service" },
   { kind: "tool", state: "revoked" }, { kind: "agent", state: "revoked" },
 ] as const)("service workflow %j retains its real principal and fails closed", async ({ kind, state }) => {
-  const { db, release } = await workflowServiceReleaseFixture({ invoke: async () => ({ content: [{ type: "text", text: "{}" }], isError: false }) });
+  const callers: unknown[] = [];
+  const { db, release } = await workflowServiceReleaseFixture({
+    beforeStart: async input => {
+      const caller = resolveCallProvenance(input.context.token);
+      callers.push({ onBehalfOf: caller?.onBehalfOf, ownerless: caller?.ownerless, serviceId: caller?.serviceInvocation?.serviceId });
+    },
+    invoke: async () => ({ content: [{ type: "text", text: "{}" }], isError: false }),
+  });
   await db.update(workflowDelegations).set({ capabilitySet: [{ kind: "tool", value: "observe" }] }).where(eq(workflowDelegations.id, "delegation"));
   if (state === "revoked") await db.update(workflowDelegations).set({ revokedAt: new Date() }).where(eq(workflowDelegations.id, "delegation"));
   release.entry.definition.steps = kind === "tool" ? [{ name: "observe", kind: "tool", tool: "observe" }] : [{ name: "observe", kind: "agent", agent: "service-agent", input: { agentConfigId: "config" } }];
@@ -49,7 +57,10 @@ test.each([
     if (state === "allowed") {
       const result = await pending;
       expect(result.result).toEqual(expect.objectContaining({ success: true }));
-      expect(release.calls[0]?.context.principalId).toBe("service");
+      expect(release.calls).toHaveLength(1);
+      expect(release.calls[0]?.context).toMatchObject({ principalId: "service", metadata: { principalKind: "service", serviceId: "service", delegationId: "delegation" } });
+      expect(callers).toEqual([{ onBehalfOf: null, ownerless: false, serviceId: "service" }]);
+      expect(decisions.mock.calls.length).toBeGreaterThan(0);
       expect(decisions.mock.calls.every(([context]) => context.userId === null)).toBe(true);
     } else {
       await expect(pending).rejects.toThrow("authority is no longer available");
