@@ -14,6 +14,7 @@
  * `page.route()` interception; between them nothing is left to a fixture.
  */
 import { test, expect } from "../fixtures/hydration.js";
+import { request as playwrightRequest } from "@playwright/test";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
@@ -84,17 +85,27 @@ function drainOneCallerTool(ez: HarnessClient, conversationId: string) {
 
 /** Mint a member key and seed a conversation for it. */
 async function companion(request: import("@playwright/test").APIRequestContext, baseURL: string) {
-  const keyRes = await request.post("/api/settings/developer/api-keys", {
-    data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
-  });
-  expect(keyRes.status(), await keyRes.text()).toBe(201);
-  const { key } = (await keyRes.json()) as { key: string };
+  const email = `caller-tools-${crypto.randomUUID()}@example.test`;
+  const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
+  expect(invitation.status(), await invitation.text()).toBe(201);
+  const { invite } = await invitation.json();
+  const member = await playwrightRequest.newContext({ baseURL });
+  try {
+    const accepted = await member.post(`/api/auth/invite/${invite.token}`, { data: { name: "Caller Tool Owner", email, password: "Caller-Tool-E2e-9x!" } });
+    expect(accepted.status(), await accepted.text()).toBe(201);
+    const keyRes = await member.post("/api/settings/developer/api-keys", {
+      data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
+    });
+    expect(keyRes.status(), await keyRes.text()).toBe(201);
+    const { key, role } = (await keyRes.json()) as { key: string; role: string };
+    expect(role).toBe("member");
 
-  const seedRes = await request.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
-  expect(seedRes.status(), await seedRes.text()).toBe(201);
-  const { conversationId } = (await seedRes.json()) as { conversationId: string };
+    const seedRes = await member.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
+    expect(seedRes.status(), await seedRes.text()).toBe(201);
+    const { conversationId } = (await seedRes.json()) as { conversationId: string };
 
-  return { ez: new HarnessClient({ baseUrl: baseURL, apiKey: key }), conversationId };
+    return { ez: new HarnessClient({ baseUrl: baseURL, apiKey: key }), conversationId };
+  } finally { await member.dispose(); }
 }
 
 test.describe("caller-executed tools — declaration API", () => {
@@ -304,6 +315,12 @@ test.describe("caller-executed tools — the round trip", () => {
   }) => {
     const { ez, conversationId } = await companion(request, baseURL!);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
+    const submitted: unknown[] = [];
+    const submitResult = ez.submitToolResult.bind(ez);
+    ez.submitToolResult = async (...args) => {
+      submitted.push(args[2]);
+      return submitResult(...args);
+    };
 
     // The device serves NO handler for the declared tool. It must answer the
     // call immediately with an error rather than park the gate for its whole
@@ -327,6 +344,8 @@ test.describe("caller-executed tools — the round trip", () => {
         { timeoutMs: 60_000 },
       );
       expect(result.outcome).toBe("complete");
+      expect(result.run.status).toBe("success");
+      expect(submitted).toEqual([expect.objectContaining({ ok: false, code: "unknown-tool", error: "No handler registered for caller tool 'open_app'" })]);
     } finally {
       device.abort();
       await serving;
