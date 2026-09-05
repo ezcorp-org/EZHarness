@@ -1,0 +1,307 @@
+import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { buildFirstPartyRelease } from "../../src/__tests__/helpers/first-party-release";
+import { createStubPermissionEngine } from "../../src/__tests__/helpers/permission-engine-stub";
+import { configureReleaseRuntime } from "../../src/extensions/release-process";
+import { buildFullGrantFromManifest } from "../../src/extensions/install-grant";
+import { getExtensionLifecycle } from "../../src/extensions/extension-lifecycle-service";
+import { drainExtensionDeliveries, enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "../../src/extensions/delivery-runtime";
+import { and, eq } from "drizzle-orm";
+import {
+  setupTestDb,
+  getTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "../../src/__tests__/helpers/test-pglite";
+import { restoreModuleMocks } from "../../src/__tests__/helpers/mock-cleanup";
+
+mockDbConnection();
+mockRealSettings();
+
+mock.module("../memory/embeddings", () => ({
+  generateEmbedding: async () => Array(384).fill(0.01),
+  generateEmbeddings: async (values: unknown[]) => values.map(() => Array(384).fill(0.01)),
+  resetEmbeddingProvider: () => {},
+}));
+
+// ── Seam 2: a RECORDING pass-through on resolveExtensionSettings ────
+//
+// Not a stub — the real resolver still runs against the real DB. The
+// wrapper exists so the acting `userId` the host threads in is directly
+// observable (bug 1's whole point).
+
+interface SettingsResolution {
+  extensionId: string;
+  userId: string | null;
+}
+const settingsResolutions: SettingsResolution[] = [];
+
+const realExtSettings = await import("../db/queries/extension-settings");
+// Capture the function VALUE before `mock.module` runs. Reading it off
+// the namespace inside the wrapper would resolve to the mock (Bun
+// rebinds the live namespace), and the pass-through would recurse until
+// the stack blew — which surfaces as a `-32603 settings resolve failed`
+// on the wire, not as a test error.
+const realResolveExtensionSettings = realExtSettings.resolveExtensionSettings;
+mock.module("../db/queries/extension-settings", () => ({
+  ...realExtSettings,
+  resolveExtensionSettings: async (
+    extensionId: string,
+    userId: string | null,
+    schema?: Parameters<typeof realResolveExtensionSettings>[2],
+  ) => {
+    settingsResolutions.push({ extensionId, userId });
+    return realResolveExtensionSettings(extensionId, userId, schema);
+  },
+}));
+
+// ── Lazy imports AFTER the mocks ────────────────────────────────────
+
+const { ExtensionRegistry } = await import("../extensions/registry");
+const { ToolExecutor } = await import("../extensions/tool-executor");
+const { EventBus } = await import("../runtime/events");
+const { EventSubscriptionDispatcher } = await import(
+  "../extensions/event-subscription-dispatcher"
+);
+const { _resetCallProvenanceForTests } = await import("../extensions/call-provenance");
+const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
+const {
+  users,
+  messages,
+  conversationExtensions,
+  extensionSettingsUser,
+  toolCalls,
+  memories,
+  memoryProjects,
+  conversations,
+} = await import("../db/schema");
+import type { JsonRpcRequest, JsonRpcResponse } from "../../src/extensions/types";
+
+let release: Awaited<ReturnType<typeof buildFirstPartyRelease>>;
+let session: Awaited<ReturnType<typeof release.session>>;
+let wireRpc: Parameters<typeof startExtensionDeliveryRuntime>[0];
+const deliveries: Promise<void>[] = [];
+let OWNER_ID: string;
+const OTHER_ID = "user-memory-bystander";
+let PROJECT_ID: string;
+let CONV_ID: string;
+let EXT_ID: string;
+
+/** The finished run's `startedAt`. Tool-call rows straddle it. */
+const RUN_STARTED_MS = Date.UTC(2026, 6, 31, 12, 0, 0);
+/** Comfortably before / after the run window. */
+const BEFORE_RUN_MS = RUN_STARTED_MS - 60_000;
+const AFTER_RUN_MS = RUN_STARTED_MS + 5_000;
+
+// ── Reverse-RPC frame recorder ──────────────────────────────────────
+//
+// Wraps (never replaces) the handler `ensureSubprocessRpcWired`
+// installs, so every frame the subprocess sends AND the response the
+// REAL host computes for it are observable.
+
+interface Frame {
+  method: string;
+  tool?: string;
+  args: Record<string, unknown>;
+  response: JsonRpcResponse;
+}
+const frames: Frame[] = [];
+
+function invokeFrames(tool: string): Frame[] {
+  return frames.filter((f) => f.method === "ezcorp/invoke" && f.tool === tool);
+}
+
+function frameResult<T>(frame: Frame | undefined): T | undefined {
+  return (frame?.response as { result?: T } | undefined)?.result;
+}
+
+let registry: ReturnType<typeof ExtensionRegistry.getInstance> | null = null;
+let dispatcher: InstanceType<typeof EventSubscriptionDispatcher> | null = null;
+let bus: InstanceType<typeof EventBus<import("../types").AgentEvents>>;
+
+beforeAll(async () => {
+  await setupTestDb();
+  await getExtensionLifecycle();
+  await (await import("../../src/db/queries/settings")).upsertSetting("provider:customModels", [{ modelId: "gemma4:e2b", provider: "ollama", tier: "balanced", baseUrl: "http://127.0.0.1:11434" }]);
+  release = await buildFirstPartyRelease("memory-extractor");
+  session = await release.session({ persistRelease: true });
+  OWNER_ID = session.userId;
+  PROJECT_ID = session.projectId;
+  CONV_ID = session.conversationId;
+  EXT_ID = session.id;
+  const db = getTestDb();
+  await db.insert(users).values({ id: OTHER_ID, email: "bystander@memory.local", passwordHash: "x", name: "Bystander" });
+  // The latest user message is deliberately signal-FREE: no correction
+  // token, no `[lesson]` tag. That leaves the tool-call count as the
+  // ONLY gate signal, so each case's verdict is attributable to the run
+  // window and nothing else.
+  await db.insert(messages).values([
+    { id: "m1", conversationId: CONV_ID, role: "user", content: "For future coding work, remember that my preferred editor is Helix." },
+    { id: "m2", conversationId: CONV_ID, role: "assistant", content: "Understood." },
+  ] as never);
+  // The wiring row the dispatcher AND the event-driven conversation gate
+  // both read — the single trust source for "this extension may see this
+  // conversation".
+  await db.insert(conversationExtensions).values({
+    id: "convext-1", conversationId: CONV_ID, extensionId: EXT_ID,
+  } as never);
+  // Negative control. A SECOND user has the distiller switched ON. If
+  // the host ever resolved the wrong identity (or fell back to declared
+  // defaults, which are also `enabled: true`), case 1 would distill —
+  // so its "nothing happened" assertions only hold when the resolved
+  // user is genuinely the conversation owner.
+  await db.insert(extensionSettingsUser).values({
+    userId: OTHER_ID, extensionId: EXT_ID, values: { enabled: true },
+  } as never);
+
+  _resetCallProvenanceForTests();
+
+  registry = session.registry;
+  bus = new EventBus<import("../types").AgentEvents>();
+  const bootExecutor = new ToolExecutor(registry, createStubPermissionEngine("allow-all"), { bus, eventDriven: true });
+
+  wireRpc = async (
+    extId: string,
+    proc: import("../extensions/subprocess").ExtensionProcess,
+  ) => {
+    // Record around the production handler rather than replacing it:
+    // `setRequestHandler` is intercepted so the handler
+    // `ensureSubprocessRpcWired` installs is wrapped, not shadowed.
+    const install = proc.setRequestHandler.bind(proc);
+    proc.setRequestHandler = (handler: (req: JsonRpcRequest) => Promise<JsonRpcResponse>) => {
+      install(async (req: JsonRpcRequest) => {
+        const response = await handler(req);
+        const params = (req.params ?? {}) as Record<string, unknown>;
+        frames.push({
+          method: req.method,
+          ...(typeof params.tool === "string" ? { tool: params.tool } : {}),
+          args: (params.arguments ?? params) as Record<string, unknown>,
+          response,
+        });
+        return response;
+      });
+    };
+    await bootExecutor.ensureSubprocessRpcWired(extId, proc);
+  };
+
+  configureReleaseRuntime({
+    ...session.runtime,
+    dispatchNotification: async (id, method, params) => {
+      const delivery = enqueueExtensionNotification(id, method, params ?? {});
+      deliveries.push(delivery);
+      await delivery;
+    },
+  });
+  startExtensionDeliveryRuntime(wireRpc);
+
+  dispatcher = new EventSubscriptionDispatcher(
+    bus,
+    registry,
+    // Production lookup — the real `conversation_extensions` query.
+    getConversationExtensionIds,
+  );
+  dispatcher.registerExtension(EXT_ID, buildFullGrantFromManifest(release.manifest).eventSubscriptions ?? []);
+  dispatcher.start();
+}, 120_000);
+
+afterAll(async () => {
+  dispatcher?.stop();
+  await stopExtensionDeliveryRuntime();
+  await session?.close();
+  await release?.close();
+  ExtensionRegistry.resetInstance();
+  await closeTestDb();
+  restoreModuleMocks();
+});
+
+/** Store the owner's per-user settings row (the values the fix must
+ *  resolve INSTEAD of the manifest's declared defaults). */
+async function setOwnerSettings(values: Record<string, unknown>): Promise<void> {
+  const db = getTestDb();
+  await db
+    .delete(extensionSettingsUser)
+    .where(
+      and(
+        eq(extensionSettingsUser.userId, OWNER_ID),
+        eq(extensionSettingsUser.extensionId, EXT_ID),
+      ),
+    );
+  await db.insert(extensionSettingsUser).values({
+    userId: OWNER_ID, extensionId: EXT_ID, values,
+  } as never);
+}
+
+/** Insert tool-call rows at an explicit `created_at` (the column the
+ *  gate's SQL window filters on). `persistToolCall` can't set it. */
+async function seedToolCalls(count: number, createdAtMs: number, idPrefix: string): Promise<void> {
+  const db = getTestDb();
+  for (let i = 0; i < count; i++) {
+    await db.insert(toolCalls).values({
+      id: `${idPrefix}-${i}`,
+      conversationId: CONV_ID,
+      messageId: null,
+      extensionId: EXT_ID,
+      toolName: "some_tool",
+      input: {},
+      output: { content: [] },
+      success: true,
+      durationMs: 5,
+      // +i ms so the ORDER BY is deterministic and every row sits on the
+      // intended side of the run boundary.
+      createdAt: new Date(createdAtMs + i),
+    } as never);
+  }
+}
+
+/** Emit a real `run:complete` through the real dispatcher and wait for
+ *  the subprocess's reverse-RPC storm to settle. The dispatcher mints
+ *  the fire provenance token itself — nothing here is hand-minted. */
+async function fireRunComplete(runId: string, startedAt: number): Promise<void> {
+  const before = deliveries.length;
+  bus.emit("run:complete", {
+    conversationId: CONV_ID,
+    run: { id: runId, agentName: "chat", status: "success", startedAt },
+  } as unknown as import("../types").AgentEvents["run:complete"]);
+  await waitFor(() => deliveries.length > before, 10_000);
+  await Promise.all(deliveries.slice(before));
+}
+
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs: number): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await predicate()) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error("Expected event delivery did not start");
+}
+
+
+const { upsertSetting } = await import("../db/queries/settings");
+
+test("installed memory event uses local Ollama and persists through production runtime", async () => {
+  await setOwnerSettings({ enabled: true, provider: "ollama", model: "gemma4:e2b" });
+  const db = getTestDb();
+  await db.delete(memories);
+  await fireRunComplete("run-memory-denied", RUN_STARTED_MS);
+  expect(await db.select().from(memories)).toHaveLength(0);
+  const denied = frames.find((frame) => frame.method === "ezcorp/llm-complete");
+  expect(denied?.response).toMatchObject({ error: { code: -32101 } });
+
+  const localGrant = session.registry.getGrantedPermissions(EXT_ID)!;
+  localGrant.llm = release.manifest.permissions!.llm!;
+  localGrant.grantedAt.llm = Date.now();
+  session.registry.setGrantedPermsForTest(EXT_ID, localGrant);
+  await fireRunComplete("run-memory-live", RUN_STARTED_MS + 1);
+  await waitFor(async () => (await db.select().from(memories)).length > 0, 30_000);
+  const rows = await db.select().from(memories);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ conversationId: CONV_ID, projectId: PROJECT_ID, userId: null, injectionEligible: true });
+  expect(String(rows[0]!.content).length).toBeGreaterThan(10);
+  expect(["preferences", "biographical", "technical", "decisions_goals"]).toContain(rows[0]!.category);
+  expect(rows[0]!.provenance).toMatchObject({ extensionId: "memory-extractor", injectionEligible: true });
+  const links = await db.select().from(memoryProjects).where(eq(memoryProjects.memoryId, rows[0]!.id));
+  expect(links.some(link => link.projectId === PROJECT_ID)).toBe(true);
+  const [conversation] = await db.select().from(conversations).where(eq(conversations.id, CONV_ID));
+  expect(conversation?.userId).toBe(OWNER_ID);
+  expect(invokeFrames("runtime.memory.dedupMemoryWrite")).toHaveLength(1);
+}, 180_000);
