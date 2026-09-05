@@ -36,4 +36,6 @@ No additional exploit was reproduced in these inspected source, binary, approval
 - Merged Bun and Vitest line evidence for `hub-render-pull.ts`: 250/250 measured lines covered. State mediator measured 108/108 before removal of redundant push-cache code. The final combined CI gate remains required.
 - Full backend, web, backend-test, and web-E2E type checks passed. Scoped Biome check passed.
 
-HTTP cache assertions exercise the actual route handler with authenticated request fixtures. They are not evidence of a deployed browser session or a new rootless runner invocation. Existing rootless extension E2E evidence is separate; rerun the final combined application suite after integration.
+Additional service proof: `src/__tests__/hub-private-page-podman.test.ts` builds and type-checks the page fixture in real rootless Podman, executes it through `ReleaseProcess`, and serves the real page and SSE route handlers over HTTP. Two concurrent users receive separate page results and separate private panel streams. Cache hits preserve their identity, conditional requests do not return a shared 304, a generation change starts a fresh worker, and revocation returns 404 without another worker. The run passed 26 assertions in 8.7 seconds; log `/tmp/ez-private-page-rootless-http.log`.
+
+The service test maps random fixture cookies to host principals. It tests the HTTP handlers, isolated runtime, and SSE pipeline, not production login hooks or a deployed browser session. Rerun the final combined application suite after integration.
