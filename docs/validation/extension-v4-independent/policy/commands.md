@@ -2,9 +2,9 @@
 
 Date: 2026-09-05 (America/New_York)
 
-Final frozen candidate: `9ccce310facd28f0ad2898318fe081ef9f70e433`
+Final source freeze: `ac53921ce07db8569eb8895456eda8271d6aab3f`
 
-Final frozen tree: `f4b0174bac5b121464d381da24b21022ac0f4c36`
+Final source tree: `ead56e1b614b215f7790eab41195f7c6a6d901d1`
 
 Audit ledger commit: `c760e1e2ab4e4a4aef87b8612d47df1399f50838`. Portable policy evidence commit: `4f9bc0af`. The final freeze includes both plus the runtime and web repairs.
 
@@ -30,9 +30,11 @@ The complete Gate integrity output is deterministic from the pinned hashes and t
 
 The original `2c73e6ba` checkpoint against base `65edc5bc` produced the same 84-finding split. Its candidate tree was `4a5c5c7a`; its P/C counts were 1,559/1,545. The latest-main fast-forward adds one discovered test to each pool and does not change any extension migration finding.
 
-Final freeze `9ccce310` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The full raw gate output is in the policy artifact bundle.
+Final source freeze `ac53921c` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The full raw gate output is in the policy artifact bundle.
 
 The final focused visual-evidence runner check passed 7 tests with 23 assertions. It covered tier partitioning, the `__ALL__` fallback, failure aggregation, spawn failure, invalid selections, distinct report retention, stale-output removal, config selection, and the real-auth environment.
+
+At the second freeze, the effective event-grant bypass fault fails the denied-delivery assertion, and the todo root-denial fault fails the required tool-error assertion. Both faults were restored. The combined todo unit/E2E and event integration cohort then passed 30 tests with 116 assertions. Exact mutations and raw stdout/stderr are in the policy artifact bundle.
 
 ## Targeted security sensitivity
 
