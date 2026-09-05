@@ -356,6 +356,8 @@ run_legs() {
       src/__tests__/bounded-json.server.test.ts \
       src/__tests__/extension-author-page-server-load.server.test.ts \
       src/__tests__/extension-author-page.component.test.ts \
+      src/lib/components/extensions/ExtensionBrowser.component.test.ts \
+      'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
       src/__tests__/extension-control-routes.server.test.ts \
       src/__tests__/extension-project-binding.server.test.ts \
       src/__tests__/project-proposal-fixture.server.test.ts \
@@ -836,6 +838,13 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegations/preview/+server.ts' \
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
+      --coverage.include='src/lib/extensions/canvas-bridge.ts' \
+      --coverage.include='src/lib/server/extension-browser.ts' \
+      --coverage.include='src/lib/server/extension-document.ts' \
+      --coverage.include='src/lib/components/extensions/ExtensionBrowser.svelte' \
+      --coverage.include='src/routes/api/extensions/[[]name]/preview/+server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.svelte' \
       --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
