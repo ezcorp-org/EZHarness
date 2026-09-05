@@ -1,0 +1,19 @@
+import { afterAll, expect, test } from "bun:test";
+import { buildFirstPartyRelease } from "/home/dev/work/EZCorp/extension-v4-audit-runtime/src/__tests__/helpers/first-party-release.ts";
+import { closeTestDb, mockDbConnection, setupTestDb } from "/home/dev/work/EZCorp/extension-v4-audit-runtime/src/__tests__/helpers/test-pglite.ts";
+import { resolveModelObject } from "/home/dev/work/EZCorp/extension-v4-audit-runtime/src/providers/registry.ts";
+import { piComplete } from "/home/dev/work/EZCorp/extension-v4-audit-runtime/src/lib/pi-complete.ts";
+mockDbConnection(); afterAll(closeTestDb);
+const ok=(id: string|number,value:unknown)=>({jsonrpc:"2.0" as const,id,result:value});
+test("installed lessons release denies then uses local Ollama and persists a lesson",async()=>{
+ await setupTestDb(); const release=await buildFirstPartyRelease("lessons-distiller"); let allow=false; const writes:any[]=[]; let calls=0;
+ const model=resolveModelObject("ollama","gemma4:e2b","http://127.0.0.1:11434");
+ const session=await release.session({settings:{enabled:true,provider:"ollama",model:"gemma4:e2b"},handler:async req=>{
+  const p=(req.params??{}) as any;
+  if(req.method==="ezcorp/invoke"&&p.tool==="runtime.conversations.getMessages") return ok(req.id,{messages:[{id:"m1",role:"user",content:"Always run the focused TypeScript test before committing."},{id:"m2",role:"assistant",content:"I will run it first."}],projectId:"project-live"});
+  if(req.method==="ezcorp/llm-complete") { calls++; if(!allow)return {jsonrpc:"2.0",id:req.id,error:{code:-32101,message:"ctx.llm permission not granted to this extension"}}; const out=await piComplete(model,{systemPrompt:p.systemPrompt,messages:p.messages.map((m:any)=>({...m,timestamp:Date.now()}))},{apiKey:"no-key-needed",maxTokens:Math.min(p.maxTokens,1024),temperature:p.temperature,timeoutMs:120000}); return ok(req.id,{content:out.content.filter((b:any)=>b.type==="text").map((b:any)=>b.text??"").join(""),blocks:out.content,usage:out.usage,finishReason:out.stopReason,model:out.model}); }
+  if(req.method==="ezcorp/lessons"&&p.action==="write") { writes.push(p.input); return ok(req.id,{lesson:{id:"owned-temp-lesson",...p.input},created:true}); }
+  return undefined;
+ }});
+ try { const denied=await session.tool("distill_now",{conversationId:"conversation-live"}); expect(denied.content[0]!.text).toContain("error"); expect(writes).toHaveLength(0); allow=true; const allowed=await session.tool("distill_now",{conversationId:"conversation-live"}); expect(allowed.isError).toBe(false); expect(JSON.parse(allowed.content[0]!.text!).outcome.kind).toBe("success"); expect(writes).toHaveLength(1); expect(writes[0].projectId).toBe("project-live"); expect(calls).toBe(2); } finally {await session.close();await release.close();}
+},180000);
