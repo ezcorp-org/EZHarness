@@ -20,3 +20,6 @@
 - Check whether incoming commits track ignored local task files before merging. Preserve both local and incoming lessons.
 - When screenshot evidence covers navigation removal, assert both the navigation item and the displayed page change. A hidden tab does not prove stale content was removed.
 - When invalidation makes an active route unavailable, reuse its existing reload and error path. Automatic fallback navigation adds empty-list and unmount races unless the product requires it.
+- Put the pinned Bun directory first in PATH for commit hooks as well as tests. A hook warning under the system Bun is not authoritative evidence.
+- Validate production-image dependencies by importing them inside the built container. Source-string assertions mirror implementation and do not prove runtime packaging.
+- Fully qualify every external Dockerfile image reference so unattended Podman builds cannot stop at a short-name prompt.
