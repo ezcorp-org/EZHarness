@@ -290,9 +290,12 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     const csp = res.headers.get("Content-Security-Policy") ?? "";
     expect(csp).toContain("form-action 'none'");
     expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).toContain("sandbox allow-scripts;");
+    expect(csp).toContain("connect-src 'none'");
+    expect(csp).not.toContain("allow-same-origin");
   });
 
-  test("served file opts camera back IN (camera=(self)) so scanner extensions can use getUserMedia", async () => {
+  test("untrusted content cannot acquire camera or other device permissions", async () => {
     // This route-level header wins over hooks.server.ts's global
     // `camera=()` deny, which is applied only when a route hasn't already
     // set Permissions-Policy. (The global default is applied in
@@ -303,7 +306,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     );
     expect(res.status).toBe(200);
     const pp = res.headers.get("Permissions-Policy") ?? "";
-    expect(pp).toContain("camera=(self)");
+    expect(pp).toContain("camera=()");
     expect(pp).toContain("microphone=()");
     expect(pp).toContain("geolocation=()");
   });

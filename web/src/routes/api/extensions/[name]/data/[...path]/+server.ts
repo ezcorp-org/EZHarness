@@ -84,29 +84,16 @@ function contentTypeFor(filePath: string): string {
   return CONTENT_TYPE_BY_EXT[ext] ?? "application/octet-stream";
 }
 
-// CSP header for served extension content. Strict by default —
-// extensions can use inline scripts (their drafts are self-contained
-// HTML), but cross-origin loads are blocked. `frame-ancestors 'self'`
-// stops other origins from embedding our iframes.
-//
-// F5 caveat — this CSP does NOT contain a same-origin sandbox escape.
-// The iframe that frames this content uses `sandbox="allow-scripts
-// allow-same-origin"`, so the framed JS keeps the app's real origin:
-// it can reach `window.parent` and drive the PARENT's fetch/DOM, which
-// this (child-document) CSP cannot restrict. Tightening `connect-src`
-// here would only break legitimate relative fetches inside drafts
-// while leaving the `window.parent` path wide open. The real fix is
-// serving extension content from a separate origin/subdomain — tracked
-// in tasks/preview-port-exposure.md.
 const STRICT_CSP =
+  "sandbox allow-scripts; " +
   "default-src 'none'; " +
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
-  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
-  "font-src 'self' data: https://fonts.gstatic.com; " +
-  "img-src 'self' data: blob: https:; " +
-  "connect-src 'self'; " +
+  "script-src 'unsafe-inline'; " +
+  "style-src 'unsafe-inline'; " +
+  "font-src data:; " +
+  "img-src data: blob:; " +
+  "connect-src 'none'; " +
   "frame-ancestors 'self'; " +
-  "base-uri 'self'; " +
+  "base-uri 'none'; " +
   "form-action 'none'";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
@@ -206,15 +193,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
     "Referrer-Policy": "no-referrer",
-    // Scanner-type extensions need getUserMedia on their top-level
-    // extension page, so this route opts camera back IN for its own
-    // served content. hooks.server.ts applies the global
-    // `camera=()` deny only via `if (!response.headers.has(key))`, so
-    // this route-level value wins here while every other route keeps the
-    // deny. Camera still requires the browser's own per-origin user
-    // consent — this header only stops the platform from pre-denying it.
-    // Council trade-off documented in tasks/gcs-phase2.md (Phase D).
-    "Permissions-Policy": "camera=(self), microphone=(), geolocation=()",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   });
 
   // Stream the file rather than buffering. For HTML drafts this is

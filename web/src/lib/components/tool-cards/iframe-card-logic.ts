@@ -8,7 +8,7 @@ export const EXT_NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 
 /** The exact sandbox attribute value the ExtensionIframeCard hardcodes
  *  on every iframe. Cards cannot override this. */
-export const SANDBOX_FLAGS_STRICT = "allow-scripts allow-same-origin";
+export const SANDBOX_FLAGS_STRICT = "allow-scripts";
 
 export type IframeSrcValidation =
   | { ok: true }
@@ -27,6 +27,7 @@ export type IframeSrcValidation =
 export function validateIframeSrc(
   src: string | undefined | null,
   origin: string,
+  extensionName?: string,
 ): IframeSrcValidation {
   if (!src || typeof src !== "string") {
     return { ok: false, reason: "Missing iframe URL" };
@@ -56,6 +57,17 @@ export function validateIframeSrc(
   if (parsed.origin !== originUrl.origin) {
     return { ok: false, reason: "Cross-origin iframe URLs are not allowed" };
   }
+  const path = parsed.pathname.match(/^\/api\/extensions\/([a-z0-9][a-z0-9-_.]{0,63})\/data\/(.+)$/);
+  if (parsed.username || parsed.password || !path || (extensionName !== undefined && path[1] !== extensionName)) {
+    return { ok: false, reason: "Only this extension's sandboxed data URLs are allowed" };
+  }
+  try {
+    const invalid = path[2]!.split("/").some(segment => {
+      const decoded = decodeURIComponent(segment);
+      return !decoded || [".", ".."].includes(decoded) || [...decoded].some(character => character === "/" || character === "\\" || character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+    });
+    if (invalid) return { ok: false, reason: "Invalid extension data path" };
+  } catch { return { ok: false, reason: "Invalid extension data path" }; }
   return { ok: true };
 }
 
@@ -137,9 +149,5 @@ export function extractPopoutUrl(
   const validation = validateIframeSrc(candidate, origin);
   if (!validation.ok) return null;
 
-  try {
-    return new URL(candidate, origin).toString();
-  } catch {
-    return null;
-  }
+  return new URL(candidate, origin).toString();
 }

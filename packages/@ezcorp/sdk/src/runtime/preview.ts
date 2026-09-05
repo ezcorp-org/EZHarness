@@ -7,49 +7,13 @@
 // and exporting the strict sandbox flags so a Svelte card can't
 // silently downgrade them.
 //
-// Why no remote signing here: with iframe sandbox flags
-// `allow-scripts allow-same-origin`, the only cross-origin attack
-// surface is the iframe initiating navigation. Host-served files
-// already gate on the session cookie and conversation ownership;
-// per-URL signed tokens would be defense-in-depth at the cost of an
-// extra round-trip per refresh. We can add token signing in a future
-// phase if the threat model warrants it.
-
-// ── Strict sandbox flags ────────────────────────────────────────────
-//
-// `allow-scripts` — content can run JS. Required for any interactive
-//                   draft (knob change handlers, animations, etc.).
-// `allow-same-origin` — content can read its OWN cookies / use
-//                       same-origin storage. Required for relative
-//                       fetches inside the draft (e.g. linked CSS).
-//
-// Notably ABSENT (do NOT add these — extension content can't be
-// trusted with them):
-//   - allow-top-navigation: would let content escape the iframe
-//   - allow-popups: would let content open trackers / phishing windows
-//   - allow-forms: would let content POST cross-origin
-//   - allow-modals: would let content alert/prompt-spam the user
-//
-// ⚠ KNOWN LIMITATION (F5, security audit 2026-06): `allow-scripts` +
-// `allow-same-origin` on SAME-ORIGIN content is NOT a security
-// boundary. The framed document keeps the app's real origin, so its
-// JS can reach `window.parent`, read same-origin storage, and call
-// /api/* with the user's session cookie — the sandbox attribute adds
-// nothing against a malicious extension here. The data route's CSP
-// cannot fix this either (a child document's CSP doesn't constrain
-// what the script does via `window.parent`). The real containment is
-// serving extension content from a SEPARATE origin/subdomain, tracked
-// in tasks/preview-port-exposure.md. Until that lands, treat extension
-// iframe content as trusted-as-the-extension, not sandboxed.
-//
-// Exported as a frozen string so cards can't accidentally append.
 
 /** Default `sandbox=` attribute value for any iframe rendered by an
  *  extension's preview card. Cards MUST use this exact string — the
  *  ExtensionIframeCard primitive enforces it on the DOM, but
  *  extensions that build raw markup (handoff bundle docs, embedded
  *  HTML in a tool result) should also use the constant for parity. */
-export const SANDBOX_FLAGS_STRICT: string = "allow-scripts allow-same-origin";
+export const SANDBOX_FLAGS_STRICT: string = "allow-scripts";
 
 // ── extensionDataUrl — URL builder ──────────────────────────────────
 
@@ -61,7 +25,7 @@ const EXT_NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
  * extension's data directory.
  *
  * The returned URL is RELATIVE — extensions don't know the host's
- * origin, and the iframe inherits the parent's origin anyway. The
+ * origin. The frame has an opaque origin, separate from the app. The
  * host route lives at `/api/extensions/<extName>/data/<...path>` and
  * gates each request on the active session's conversation ownership
  * (Phase A2 work — until the route lands, this URL won't resolve).
