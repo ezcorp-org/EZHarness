@@ -14,3 +14,10 @@
   EVIDENCE: Scoped lint finds no errors (two existing optional-chain warnings in executor). Full typecheck after parent1b1c29c2 merge completes with only local AI-kit dependency errors; none in changed files.
 
 Parent owns the ToolExecutor options and createToolsContext implementation. This leaf only wires existing host-owned run signals into that API.
+
+## Coverage review
+
+- [x] Run full coverage on frozen c6a55628 without changing thresholds.
+  EVIDENCE: /tmp/lifecycle-full-coverage6.log; 25137 pass, 42 fail. The only owned coverage gap is start-assignment.ts:614. Other failures include incomplete local dependency links and browser coverage owned by another leaf. This is not final integration proof.
+- [x] Exercise asynchronous terminal publication rejection for Error and string values.
+  EVIDENCE: /tmp/lifecycle-publication-catch.log; 96 tests, 337 assertions pass; start-assignment.ts has 100% line coverage. Rejected publication logs the recovery requirement, emits no completed event or assignment update, and does not start another worker.

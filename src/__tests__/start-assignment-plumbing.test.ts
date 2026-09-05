@@ -2088,6 +2088,38 @@ describe("startAssignment — structured output", () => {
 type AgentCompleteEvt = AgentEvents["agent:complete"];
 
 describe("startAssignment — agent:complete emission", () => {
+  test.each([new Error("admission unavailable"), "admission unavailable"])("reports terminal publication failure without announcing completion: %s", async (failure) => {
+    const { executor, calls } = makeMockExecutor();
+    const bus = new EventBus<AgentEvents>();
+    const events: AgentCompleteEvt[] = [];
+    const updates: AgentEvents["task:assignment_update"][] = [];
+    bus.on("agent:complete", event => events.push(event));
+    bus.on("task:assignment_update", event => updates.push(structuredClone(event)));
+    const { agentRunId } = await startAssignment(baseOpts({ executor, bus }));
+    const publishedUpdates = updates.length;
+    const attempts = publication.mock.calls.length;
+    const errors = spyOn(process.stderr, "write").mockReturnValue(true);
+    publication.mockRejectedValueOnce(failure);
+    try {
+      await emitComplete(bus, agentRunId, "finished before publication failed");
+      expect(publication.mock.calls.length).toBe(attempts + 1);
+      expect(updates).toHaveLength(publishedUpdates);
+      expect(events).toHaveLength(0);
+      expect(calls).toHaveLength(1);
+      const report = errors.mock.calls.map(([line]) => String(line)).find(line => line.includes("Task state publication failed"));
+      expect(report).toBeDefined();
+      expect(JSON.parse(report!)).toMatchObject({
+        level: "error",
+        conversationId: "conv-parent",
+        taskId: "task-1",
+        assignmentId: "assign-1",
+        error: "admission unavailable",
+      });
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   test("run:complete → agent:complete(success=true) with the live run id + parent scope", async () => {
     const { executor } = makeMockExecutor();
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
