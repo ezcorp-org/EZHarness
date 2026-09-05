@@ -33,6 +33,19 @@ that case. Acknowledgement and elapsed time do not override this safety check.
 
 ## Verification
 
+Admission uses PostgreSQL `SHARE UPDATE EXCLUSIVE` to serialize quota checks
+and inserts. This mode allows a holder's normal row updates while another
+admission waits for that row. `SHARE ROW EXCLUSIVE` can deadlock with effect
+accounting: the holder owns the row and needs a table write lock, while the
+contender owns the incompatible table lock and needs the row.
+The real PostgreSQL two-connection test reproduces this ordering and verifies
+both effect completion and concurrent quota enforcement.
+
+SDK waiters use bounded exponential backoff, from 50 ms to 1 second, to avoid
+overloading the host with repeated authorization and lock queries. The original
+30-second wait budget and invocation deadline do not change. Cancellation stops
+the wait before another acquisition request.
+
 - Actual rootless workers reproduced a lost SQL counter update before the fix.
 - The same two-worker test now retains both increments.
 - SQL tests cover ownership, stale fences, drain, quarantine and audited recovery.

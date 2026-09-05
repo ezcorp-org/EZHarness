@@ -31,6 +31,10 @@ export async function verifyInvocationLocks(database: MigrationDb): Promise<void
   await verify(database, activeEffects.getStore() ?? []);
 }
 
+export async function lockRuntimeAdmission(database: MigrationDb): Promise<void> {
+  await database.execute(sql`LOCK TABLE extension_runtime_locks IN SHARE UPDATE EXCLUSIVE MODE`);
+}
+
 export class InvocationLocks {
   private held = new Map<string, Fence>();
   private pending = new Set<Promise<unknown>>();
@@ -51,7 +55,7 @@ export class InvocationLocks {
       if (this.held.size >= MAX_RUNTIME_LOCK_KEYS || sessions.size >= 4096 && !sessions.has(this.context.invocationId)) throw new ContractError("LOCK_CAPACITY", "Lock capacity reached");
       const fence: Fence = { installationId: this.installationId, key, fence: crypto.randomUUID(), invocationId: this.context.invocationId };
       const acquired = await getDb().transaction(async (transaction: DbTransaction) => {
-        await transaction.execute(sql`LOCK TABLE extension_runtime_locks IN SHARE ROW EXCLUSIVE MODE`);
+        await lockRuntimeAdmission(transaction);
         const existing = await rowsFor(transaction, fence);
         if (existing) {
           if (existing.state === "quarantined" || new Date(existing.deadline).getTime() <= Date.now()) {

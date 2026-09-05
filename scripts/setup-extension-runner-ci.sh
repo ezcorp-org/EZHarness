@@ -41,8 +41,11 @@ fi
 
 for executable in podman python3 flock setpriv bun; do command -v "$executable" >/dev/null; done
 image="$(bun -e 'import { DEFAULT_IMAGE } from "./packages/@ezcorp/extension-runner/src/index.ts"; console.log(DEFAULT_IMAGE)')"
-if [[ "$mode" == "--install" ]]; then podman pull "$image"; fi
-podman image exists "$image"
+postgres_image="$(bun -e 'import images from "./scripts/test-images.json"; console.log(images.postgres)')"
+for required_image in "$image" "$postgres_image"; do
+  if [[ "$mode" == "--install" ]]; then podman pull "$required_image"; fi
+  podman image exists "$required_image"
+done
 bun -e '
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
