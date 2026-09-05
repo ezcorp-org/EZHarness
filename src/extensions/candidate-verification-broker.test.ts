@@ -9,6 +9,55 @@ const release = {
 } as unknown as ReleaseRecord;
 function invocation(): InvocationContext { return { invocationId: crypto.randomUUID(), workerId: crypto.randomUUID(), releaseId: release.id, principalId: "extension-verification", scopeId: `verification:${crypto.randomUUID()}`, token: crypto.randomUUID(), deadline: Date.now() + 60_000 }; }
 
+test("candidate locks bind exact ownership without sharing production or candidate state", async () => {
+  const contexts = [invocation(), invocation()];
+  const brokers = await Promise.all(contexts.map(context => createCandidateVerificationBroker(release, context)));
+  const call = (index: number, method: string, input: unknown) => brokers[index]!.reverseRpc(method, { context: contexts[index], input });
+  try {
+    await expect(call(0, "ezcorp/lock.acquire", { key: "counter" })).rejects.toMatchObject({ code: "test_effect_denied" });
+    for (const broker of brokers) broker.begin("smoke");
+    const first = await call(0, "ezcorp/lock.acquire", { key: "counter" }) as { acquired: boolean; fence: string };
+    const second = await call(1, "ezcorp/lock.acquire", { key: "counter" }) as { acquired: boolean; fence: string };
+    expect(first.acquired).toBe(true);
+    expect(second.acquired).toBe(true);
+    expect(first.fence).not.toBe(second.fence);
+    await expect(call(0, "ezcorp/lock.acquire", { key: "counter" })).rejects.toMatchObject({ code: "INVALID_LOCK" });
+    await expect(call(0, "ezcorp/lock.release", { key: "counter", fence: second.fence })).rejects.toMatchObject({ code: "LOCK_FENCED" });
+    await expect(brokers[0]!.reverseRpc("ezcorp/lock.release", { context: contexts[1], input: { key: "counter", fence: first.fence } })).rejects.toMatchObject({ code: "test_context_mismatch" });
+    expect(await call(0, "ezcorp/lock.release", { key: "counter", fence: first.fence })).toEqual({ released: true });
+    await expect(call(0, "ezcorp/lock.release", { key: "counter", fence: first.fence })).rejects.toMatchObject({ code: "LOCK_FENCED" });
+    const next = await call(0, "ezcorp/lock.acquire", { key: "counter" }) as { fence: string };
+    expect(next.fence).not.toBe(first.fence);
+    await expect(call(0, "ezcorp/lock.release", { key: "counter", fence: first.fence })).rejects.toMatchObject({ code: "LOCK_FENCED" });
+    await brokers[0]!.close();
+    await expect(call(0, "ezcorp/lock.release", { key: "counter", fence: next.fence })).rejects.toMatchObject({ code: "test_effect_denied" });
+    expect(await call(1, "ezcorp/lock.release", { key: "counter", fence: second.fence })).toEqual({ released: true });
+  } finally { await Promise.all(brokers.map(broker => broker.close())); }
+});
+
+test("candidate lock requests share strict validation and bounded capacity", async () => {
+  const context = invocation();
+  const broker = await createCandidateVerificationBroker(release, context);
+  broker.begin("smoke");
+  const call = (method: string, input: unknown) => broker.reverseRpc(method, { context, input });
+  try {
+    for (const input of [{}, { key: "" }, { key: "../escape" }, { key: "x".repeat(129) }, { key: "safe", extra: true }, { key: "safe", fence: "forged" }]) await expect(call("ezcorp/lock.acquire", input)).rejects.toMatchObject({ code: "INVALID_LOCK" });
+    for (const input of [{ key: "safe" }, { key: "safe", fence: "" }, { key: "safe", fence: 1 }, { key: "safe", fence: "valid", extra: true }]) await expect(call("ezcorp/lock.release", input)).rejects.toMatchObject({ code: "INVALID_LOCK" });
+    const owned: Array<{ key: string; fence: string }> = [];
+    for (let index = 0; index < 8; index++) {
+      const key = `counter:${index}/a_b-c.d`;
+      const result = await call("ezcorp/lock.acquire", { key }) as { acquired: boolean; fence: string };
+      expect(result.acquired).toBe(true);
+      owned.push({ key, fence: result.fence });
+    }
+    await expect(call("ezcorp/lock.acquire", { key: "overflow" })).rejects.toMatchObject({ code: "LOCK_CAPACITY" });
+    for (const owner of owned) expect(await call("ezcorp/lock.release", owner)).toEqual({ released: true });
+    expect(await call("ezcorp/lock.acquire", { key: "after-release" })).toMatchObject({ acquired: true });
+    context.deadline = 0;
+    await expect(call("ezcorp/lock.acquire", { key: "expired" })).rejects.toMatchObject({ code: "test_effect_denied" });
+  } finally { await broker.close(); }
+});
+
 test("real filesystem and storage handlers run only inside isolated candidate roots and namespaces", async () => {
   const context = invocation();
   const broker = await createCandidateVerificationBroker(release, context, { projectFiles: { "nested/example.txt": "fixture data" } });

@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assertJson, canonicalJson, validateInvocationContext, validateWorkspacePath, type CandidateVerificationReport, type InvocationContext, type ReleaseRecord, type ReverseRpc } from "@ezcorp/extension-contract";
+import { ContractError, MAX_RUNTIME_LOCK_KEYS, assertJson, canonicalJson, validateInvocationContext, validateRuntimeLockRequest, validateWorkspacePath, type CandidateVerificationReport, type InvocationContext, type ReleaseRecord, type ReverseRpc } from "@ezcorp/extension-contract";
 import { firstMissingCapability, grantsToCapabilitySet } from "./capability-types";
 import { registerCallProvenance, releaseCallProvenance, resolveCallProvenance } from "./call-provenance";
 import { handleCredentialBroker } from "./credential-broker";
@@ -115,6 +115,7 @@ export async function createCandidateVerificationBroker(release: ReleaseRecord, 
   const coverage = new Map<string, CandidateVerificationReport["capabilities"][number]>(Object.entries(manifest.permissions).filter(([, value]) => value !== false && value !== undefined && (!Array.isArray(value) || value.length > 0)).map(([capability]) => [capability, { capability, state: "unexercised", calls: 0 }]));
   let activeTool: string | undefined;
   let closed = false;
+  const locks = new Map<string, string>();
   const denied = (capability: string) => { const previous = coverage.get(capability); coverage.set(capability, { capability, state: "denied", calls: (previous?.calls ?? 0) + 1 }); };
   return {
     begin(toolName) {
@@ -122,7 +123,7 @@ export async function createCandidateVerificationBroker(release: ReleaseRecord, 
       activeTool = toolName;
     },
     coverage: () => structuredClone([...coverage.values()].sort((left, right) => left.capability.localeCompare(right.capability))),
-    async close() { closed = true; activeTool = undefined; releaseCallProvenance(token); await rm(root, { recursive: true, force: true }); },
+    async close() { closed = true; activeTool = undefined; locks.clear(); releaseCallProvenance(token); await rm(root, { recursive: true, force: true }); },
     async reverseRpc(method, raw) {
       const capability = capabilityFor(method);
       try {
@@ -130,10 +131,23 @@ export async function createCandidateVerificationBroker(release: ReleaseRecord, 
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new LifecycleError("test_context_mismatch", "Missing candidate capability envelope.");
         const envelope = raw as Record<string, unknown>;
         if (Object.keys(envelope).some((key) => key !== "context" && key !== "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context) || !envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new LifecycleError("test_context_mismatch", "Candidate context does not match this worker.");
-        const input = { ...envelope.input as Record<string, unknown>, _toolName: activeTool, _meta: { ezCallId: token } };
+        const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _toolName: activeTool, _meta: { ezCallId: token } };
         const request = { jsonrpc: "2.0" as const, id: randomUUID(), method, params: input };
         let response: JsonRpcResponse;
-        if (method === "ezcorp/storage") response = await handleStorageRpc(extensionId, request, { userId: context.principalId, conversationId: context.scopeId, manifest, grantedPermissions: grants, engine, repository });
+        if (method === "ezcorp/lock.acquire" || method === "ezcorp/lock.release") {
+          const key = validateRuntimeLockRequest(method, envelope.input as Record<string, unknown>);
+          if (method === "ezcorp/lock.acquire") {
+            if (locks.has(key)) throw new ContractError("INVALID_LOCK", "Lock already held");
+            if (locks.size >= MAX_RUNTIME_LOCK_KEYS) throw new ContractError("LOCK_CAPACITY", "Lock capacity reached");
+            const fence = randomUUID();
+            locks.set(key, fence);
+            response = { jsonrpc: "2.0", id: request.id, result: { acquired: true, fence } };
+          } else {
+            if (!locks.has(key) || locks.get(key) !== input.fence) throw new ContractError("LOCK_FENCED", "Lock release does not match its owner");
+            locks.delete(key);
+            response = { jsonrpc: "2.0", id: request.id, result: { released: true } };
+          }
+        } else if (method === "ezcorp/storage") response = await handleStorageRpc(extensionId, request, { userId: context.principalId, conversationId: context.scopeId, manifest, grantedPermissions: grants, engine, repository });
         else if (/^ezcorp\/fs\.(read|write|list|stat|exists|mkdir|unlink)$/.test(method)) response = await handleVirtualFilesystemRpc(method.slice("ezcorp/fs.".length) as VirtualFsOperation, request, { extensionId, userId: context.principalId, conversationId: context.scopeId, registry, engine }, { roots: async () => ({ project, data }) });
         else if (method === "ezcorp/env.get") response = await handleCredentialBroker(dependencies, extensionId, request, { resolveCredential: async (name) => `verification-only-${name}` });
         else if (method === "ezcorp/network.fetch" || method === "ezcorp/network.read") {
