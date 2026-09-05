@@ -24,6 +24,14 @@ Write the returned files into a new directory. Every template includes a data-on
 `extension.test.ts` tests. Tools declare input and output schemas and a smoke test.
 Skills and agents also provide isolated metadata discovery.
 
+For the same small echo workspace used by the harness authoring screen, use
+`scaffoldWorkspace({ name: "my-extension", description: "My extension" })`
+from `@ezcorp/sdk/scaffold`. It returns the same `{ files }` shape, with
+`extension.ts`, `src/echo.ts`, `src/echo.test.ts`, and `README.md`.
+The echo tool accepts `{ text: string }` and returns `{ text: string }`.
+Run `ezcorp ext verify ./my-extension` to build and test either scaffold in
+the configured isolated runner. This does not approve or activate a release.
+
 The generated package has an exact SDK peer dependency for local editing. The
 harness supplies its trusted SDK inside the build runner; do not add SDK or
 contract packages to runtime dependencies. Use the matching SDK version locally

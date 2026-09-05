@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, resolveDependencies } from "../src";
 import { manifest, provision, source } from "./helpers";
 import { command } from "../src/core";
-import { createExtensionFiles } from "../../../../src/extensions/extension-control";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
 
 let root: string;
 let runner: PodmanRunner;
@@ -22,7 +22,7 @@ afterAll(async () => { await runner.close(); await rm(root, { recursive: true, f
 test("authoring scaffold builds with private service umask", async () => {
   const previous = process.umask(0o077);
   try {
-    const files = createExtensionFiles("private-scaffold");
+    const files = scaffoldWorkspace({ name: "private-scaffold", description: "Public SDK workspace" }).files;
     files["src/union.ts"] = "type Outcome={ok:true;value:string}|{ok:false;error:string};export function read(outcome:Outcome){if(!outcome.ok)return outcome.error;return outcome.value}";
     files["src/import.ts"] = "import {read} from './union.ts'; export const value=read({ok:true,value:'typed-import'});";
     files["contract.test.ts"] = "import {test,expect} from 'bun:test';import {canonicalJson,validateManifest} from '@ezcorp/extension-contract';test('sealed contract runtime',()=>expect(canonicalJson({b:1,a:2})).toBe('{\"a\":2,\"b\":1}'));";

@@ -1,4 +1,5 @@
 import type { ExtensionManifestV4, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
 import { canonicalJson, compileValueSchema, validateWorkspaceFiles, WORKSPACE_FILE_SCHEMA } from "@ezcorp/extension-contract";
 import type { ExtensionLifecycle } from "./v4";
 import type { LifecycleActor, InstallationState } from "./v4/types";
@@ -52,13 +53,7 @@ export function requestedReleaseGrants(manifest: ExtensionManifestV4): string[] 
 
 export function createExtensionFiles(name = "my-extension", description = "A new extension"): WorkspaceFiles {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new ExtensionControlError("invalid_name", "Use a lowercase extension name with letters, numbers and hyphens.");
-  const manifest = { schemaVersion: 4, name, version: "1.0.0", description, author: { name: "Extension author" }, permissions: {}, tools: [{ name: "echo", description: "Return the supplied text", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false } }], smokeTest: { tool: "echo", input: { text: "hello" }, expect: { textIncludes: "hello" } } };
-  return {
-    "extension.ts": `import { defineExtension, serve } from "@ezcorp/sdk/v4";\nimport { echo } from "./src/echo";\n\nconst extension = defineExtension({ manifest: ${JSON.stringify(manifest, null, 2)}, tools: { echo } });\nawait serve(extension);\n`,
-    "src/echo.ts": "export function echo(input: Record<string, unknown>) {\n  return { text: input.text };\n}\n",
-    "src/echo.test.ts": "import { expect, test } from \"bun:test\";\nimport { echo } from \"./echo\";\n\ntest(\"returns the supplied text\", () => {\n  expect(echo({ text: \"hello\" })).toEqual({ text: \"hello\" });\n});\n",
-    "README.md": `# ${name}\n\n${description}\n\nBuild this workspace, review its tests and permissions, then approve the exact release before activation.\n`,
-  };
+  return scaffoldWorkspace({ name, description }).files;
 }
 
 export class ExtensionControl {

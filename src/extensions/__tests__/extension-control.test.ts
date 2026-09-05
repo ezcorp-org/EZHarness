@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { createExtensionFiles, ExtensionControl, extensionControlTools, requestedReleaseGrants } from "../extension-control";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
 import type { ExtensionLifecycle } from "../v4";
 import type { InstallationState, LifecycleActor } from "../v4/types";
 import { createExtensionControlTools, getExtensionControlMetadata } from "../../runtime/tools/extensions";
@@ -43,6 +44,7 @@ describe("extension control", () => {
     const { control } = fixture();
     expect(await control.execute(actor, "extensions_describe", {})).toMatchObject({ schemaVersion: 4, sdk: "@ezcorp/sdk/v4" });
     const files = createExtensionFiles("safe-name", "test");
+    expect(files).toEqual(scaffoldWorkspace({ name: "safe-name", description: "test" }).files);
     expect(files["extension.ts"]).toContain("defineExtension");
     expect(files["src/echo.test.ts"]).toContain("expect");
     expect(() => createExtensionFiles("../escape")).toThrow("lowercase");

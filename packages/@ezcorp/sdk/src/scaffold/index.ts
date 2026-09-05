@@ -57,15 +57,31 @@ export interface ScaffoldResult {
   files: Record<string, string>;
 }
 
-export function scaffoldExtension(opts: ScaffoldOptions): ScaffoldResult {
-  if (!opts.name || typeof opts.name !== "string") {
+export function scaffoldWorkspace(opts: Pick<ScaffoldOptions, "name" | "description">): ScaffoldResult {
+  const { name, description } = opts;
+  validateScaffoldName(name);
+  const manifest = { schemaVersion: 4, name, version: "1.0.0", description, author: { name: "Extension author" }, permissions: {}, tools: [{ name: "echo", description: "Return the supplied text", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false } }], smokeTest: { tool: "echo", input: { text: "hello" }, expect: { textIncludes: "hello" } } };
+  return { files: {
+    "extension.ts": `import { defineExtension, serve } from "@ezcorp/sdk/v4";\nimport { echo } from "./src/echo";\n\nconst extension = defineExtension({ manifest: ${JSON.stringify(manifest, null, 2)}, tools: { echo } });\nawait serve(extension);\n`,
+    "src/echo.ts": "export function echo(input: Record<string, unknown>) {\n  return { text: input.text };\n}\n",
+    "src/echo.test.ts": "import { expect, test } from \"bun:test\";\nimport { echo } from \"./echo\";\n\ntest(\"returns the supplied text\", () => {\n  expect(echo({ text: \"hello\" })).toEqual({ text: \"hello\" });\n});\n",
+    "README.md": `# ${name}\n\n${description}\n\nBuild this workspace, review its tests and permissions, then approve the exact release before activation.\n`,
+  } };
+}
+
+function validateScaffoldName(name: string): void {
+  if (!name || typeof name !== "string") {
     throw new Error("scaffoldExtension: name is required");
   }
-  if (!NAME_REGEX.test(opts.name) || opts.name.includes("..")) {
+  if (!NAME_REGEX.test(name) || name.includes("..")) {
     throw new Error(
-      `scaffoldExtension: name must match /^[a-z0-9][a-z0-9-_.]{0,63}$/ (got "${opts.name}")`,
+      `scaffoldExtension: name must match /^[a-z0-9][a-z0-9-_.]{0,63}$/ (got "${name}")`,
     );
   }
+}
+
+export function scaffoldExtension(opts: ScaffoldOptions): ScaffoldResult {
+  validateScaffoldName(opts.name);
   if (!EXT_TYPES.includes(opts.type)) {
     throw new Error(
       `scaffoldExtension: type must be one of ${EXT_TYPES.join("|")}, got "${String(opts.type)}"`,
