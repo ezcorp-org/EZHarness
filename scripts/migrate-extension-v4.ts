@@ -71,7 +71,17 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
       try {
         const stat = await handle.stat();
         if (!stat.isFile() || stat.size > MAX_FILE_BYTES) throw new Error(`Invalid source file or file limit exceeded: ${filePath}`);
-        const contents = await handle.readFile();
+        const chunks: Buffer[] = [];
+        let fileBytes = 0;
+        for (;;) {
+          const chunk = Buffer.alloc(64 * 1024);
+          const { bytesRead } = await handle.read(chunk);
+          if (bytesRead === 0) break;
+          fileBytes += bytesRead;
+          if (fileBytes > MAX_FILE_BYTES) throw new Error(`Source file grew beyond its limit: ${filePath}`);
+          chunks.push(chunk.subarray(0, bytesRead));
+        }
+        const contents = Buffer.concat(chunks);
         bytes += contents.byteLength;
         if (bytes > MAX_SOURCE_BYTES || Object.keys(files).length >= MAX_FILES) throw new Error("Extension source limit exceeded");
         files[filePath] = decoder.decode(contents);

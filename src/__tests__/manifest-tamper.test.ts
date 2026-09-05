@@ -35,8 +35,6 @@ const {
   clearLockfileCache,
 } = await import("../extensions/bundled-lock");
 
-const { migrateManifestV2ToV3 } = await import("../extensions/manifest");
-
 const { buildLockfile, diffLockfiles } = await import(
   "../../scripts/regenerate-manifest-lock"
 );

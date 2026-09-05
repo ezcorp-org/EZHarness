@@ -10,7 +10,7 @@ import { register as registerAgents } from "./src/mcp/tools/agents";
 import { register as registerOrchestrate } from "./src/mcp/tools/orchestrate";
 
 export function createBrokerFetch(requestHost: <Result>(method: string, input: unknown) => Promise<Result> = (method, input) => getChannel().request(method, input)): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return (async (input: string | URL | Request, init?: RequestInit) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.origin !== "https://extension-api.invalid") throw new Error("Invalid host API origin");

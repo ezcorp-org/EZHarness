@@ -3,7 +3,7 @@ import { collectGitHubSource } from "../source-import";
 
 function fixture(entry: Record<string, unknown> = {}) {
   const calls: { url: string; init?: RequestInit }[] = [];
-  const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
     const data = url.includes("/commits/") ? { commit: { tree: { sha: "a".repeat(40) } } }

@@ -4,6 +4,10 @@ import type { LegacyNamespaceMapping } from "./entities/migrate";
 export const AUTO_ENABLE_ON_INSTALL: ReadonlySet<string> = new Set();
 export function shouldAutoEnableOnInstall(_name: string): boolean { return false; }
 
+async function requireLifecycle(..._args: unknown[]): Promise<never> {
+  throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release.");
+}
+
 export interface InstallFromLocalOpts {
   /** Defaults to false; bundled-install path passes true. */
   isBundled?: boolean;
@@ -110,47 +114,18 @@ export interface UninstallOptions {
   purgeData?: boolean;
 }
 
-export async function installFromLocal(
-  localPath: string,
-  grantedPermissions: ExtensionPermissions,
-  enabled = false,
-  opts: InstallFromLocalOpts = {},
-): Promise<InstalledExtension>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const installFromLocal = requireLifecycle;
 
-export async function installFromGitHub(
-  repoSpec: string,
-  grantedPermissions: ExtensionPermissions,
-  enabled = false,
-): Promise<InstalledExtension>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const installFromGitHub = requireLifecycle;
 
-export async function installFromGit(
-  sourceStr: string,
-  grantedPermissions: ExtensionPermissions,
-  opts?: GitInstallOptions,
-): Promise<InstalledExtension>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const installFromGit = requireLifecycle;
 
-export async function updateExtension(
-  name: string,
-): Promise<{ from: string; to: string }>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const updateExtension = requireLifecycle;
 
-export async function uninstallExtension(
-  ext: UninstallTarget,
-  opts: UninstallOptions = {},
-): Promise<UninstallResult>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const uninstallExtension = requireLifecycle;
 
-export async function removeExtension(
-  name: string,
-  opts: UninstallOptions = {},
-): Promise<UninstallResult>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const removeExtension = requireLifecycle;
 
-export async function checkForUpdates(
-  ext: Pick<InstalledExtension, "source" | "version">,
-): Promise<{ available: boolean; latestVersion?: string }>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const checkForUpdates = requireLifecycle;
 
-export async function installWithDependencies(
-  sourceStr: string,
-  grantedPermissions: ExtensionPermissions,
-  opts?: GitInstallOptions & {
-    onConfirm?: (tree: string, count: number) => Promise<boolean>;
-  },
-): Promise<{ root: InstalledExtension; dependencies: InstalledExtension[] }>{ throw new Error("EXTENSION_V4_REQUIRED: Use a lifecycle workspace, isolated build, and human-approved release."); }
+export const installWithDependencies = requireLifecycle;
