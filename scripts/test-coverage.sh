@@ -355,6 +355,7 @@ run_legs() {
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
       src/__tests__/bounded-json.server.test.ts \
       src/__tests__/api-tool-invoke.server.test.ts \
+      src/__tests__/api-conversations-id-active-run.server.test.ts \
       src/__tests__/api-marketplace-id-install.server.test.ts \
       src/__tests__/api-marketplace-export-v4.server.test.ts \
       src/__tests__/task-helpers-load-snapshot.server.test.ts \
