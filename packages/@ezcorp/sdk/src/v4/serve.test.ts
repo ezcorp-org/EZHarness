@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { ContractError, createSession, defineExtension, serve } from "./index";
+import { ContractError, createSession, defineExtension, getGrantedEnv, readGrantedCredential, serve } from "./index";
 import type { ExtensionContext, ExtensionHandler } from "./index";
+import { getChannel } from "../runtime/channel";
 
 const metadata = { schemaVersion: 4 as const, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 const identity = (invocationId = "call") => ({ invocationId, workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "scope", token: `token-${invocationId}`, deadline: Date.now() + 5000 });
@@ -56,6 +57,80 @@ describe("v4 protocol", () => {
     await expect(escaped!.call("ezcorp/storage-get", {})).rejects.toThrow();
     await session.receive(request("bob", { ...identity("bob"), principalId: "bob" }));
     expect(frames.at(-1).error.data.code).toBe("CONTEXT_MISMATCH");
+    session.close();
+  });
+
+  test("served invocation drains a direct admitted host call before replying", async () => {
+    const frames: any[] = [];
+    let session: ReturnType<typeof createSession>;
+    const direct = definition((_input, context) => {
+      void context.call("ezcorp/direct", {}).catch(() => undefined);
+      void getChannel().request("ezcorp/channel", {}).catch(() => undefined);
+      return "complete";
+    });
+    session = createSession(direct, frame => { frames.push(JSON.parse(frame)); });
+
+    const operation = session.receive(request("direct"));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const hostRequests = frames.filter(frame => ["ezcorp/direct", "ezcorp/channel"].includes(frame.method));
+    expect(hostRequests.map(frame => frame.method).sort()).toEqual(["ezcorp/channel", "ezcorp/direct"]);
+    expect(frames.find(frame => frame.id === "direct" && Object.hasOwn(frame, "result"))).toBeUndefined();
+
+    for (const hostRequest of hostRequests) await session.receive({ jsonrpc: "2.0", id: hostRequest.id, result: null });
+    await operation;
+    expect(frames.find(frame => frame.id === "direct")?.result).toBe("complete");
+    session.close();
+  });
+
+  test("served invocation preserves a handled host-request fallback", async () => {
+    const frames: any[] = [];
+    let session: ReturnType<typeof createSession>;
+    const fallback = definition(async (_input, context) => {
+      try {
+        await context.call("ezcorp/denied", {});
+        return "unexpected";
+      } catch {
+        return "fallback";
+      }
+    });
+    session = createSession(fallback, async frame => {
+      const message = JSON.parse(frame);
+      frames.push(message);
+      if (message.method === "ezcorp/denied") await session.receive({ jsonrpc: "2.0", id: message.id, error: { code: -32001, message: "Denied" } });
+    });
+
+    await session.receive(request("fallback"));
+    expect(frames.find(frame => frame.id === "fallback")?.result).toBe("fallback");
+    session.close();
+  });
+
+  test("served invocation rejects delayed credential calls while admitted effects drain", async () => {
+    const frames: any[] = [];
+    const delayed = Promise.withResolvers<unknown>();
+    const draining = definition(() => {
+      getChannel().notify("ezcorp/admitted", {});
+      setImmediate(() => {
+        void Promise.allSettled([
+          getGrantedEnv("LATE_CREDENTIAL"),
+          readGrantedCredential("GITHUB_TOKEN"),
+        ]).then(delayed.resolve);
+      });
+      return "complete";
+    });
+    const session = createSession(draining, frame => { frames.push(JSON.parse(frame)); });
+
+    const operation = session.receive(request("credential"));
+    await expect(delayed.promise).resolves.toEqual([
+      { status: "rejected", reason: expect.objectContaining({ code: "NO_INVOCATION" }) },
+      { status: "rejected", reason: expect.objectContaining({ code: "NO_INVOCATION" }) },
+    ]);
+    expect(frames.some(frame => frame.method === "ezcorp/env.get")).toBe(false);
+    expect(frames.some(frame => frame.method === "ezcorp/credentials.read")).toBe(false);
+    const admitted = frames.find(frame => frame.method === "ezcorp/admitted");
+    expect(admitted).toBeDefined();
+    await session.receive({ jsonrpc: "2.0", id: admitted.id, result: null });
+    await operation;
+    expect(frames.find(frame => frame.id === "credential")?.result).toBe("complete");
     session.close();
   });
 

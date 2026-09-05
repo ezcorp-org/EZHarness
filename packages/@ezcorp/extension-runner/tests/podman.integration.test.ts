@@ -48,6 +48,34 @@ test("real isolated build, typecheck, feature tests, discovery, invocation and r
   expect(await restarted.collectArtifacts(artifactDigest)).toEqual(await runner.collectArtifacts(artifactDigest));
 }, 120_000);
 
+test("real isolated worker drains admitted host calls before invocation teardown", async () => {
+  const files = source("(_input,ctx) => { void ctx.call('lifetime.probe',{}).catch(()=>undefined); return {complete:true}; }");
+  const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(build.diagnostics).toEqual([]);
+  expect(build.state).toBe("succeeded");
+  const workerId = randomUUID();
+  const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "global", token: "lifetime-test", deadline: Date.now() + 30_000 };
+  const hostStarted = Promise.withResolvers<void>();
+  const hostFinished = Promise.withResolvers<void>();
+  const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async (method, params) => {
+    expect(method).toBe("lifetime.probe");
+    expect(params).toEqual({ context, input: {} });
+    hostStarted.resolve();
+    await hostFinished.promise;
+    return null;
+  });
+  try {
+    const invocation = worker.request("extension/invoke", { name: "echo", input: {}, context });
+    await hostStarted.promise;
+    expect(await Promise.race([invocation.then(() => "settled", () => "settled"), new Promise<string>(resolve => setImmediate(() => resolve("pending")))])).toBe("pending");
+    hostFinished.resolve();
+    expect(await invocation).toEqual({ complete: true });
+  } finally {
+    hostFinished.resolve();
+    await worker.close();
+  }
+}, 120_000);
+
 test("public SDK subpaths share runtime registration and ship checked declarations", async () => {
   const files = source();
   files["extension.ts"] = `import {serve} from '@ezcorp/sdk/v4'; import {createRuntimeExtension} from '@ezcorp/sdk/v4/runtime'; import {createToolDispatcher,toolResult} from '@ezcorp/sdk/runtime'; await serve(await createRuntimeExtension({manifest:${JSON.stringify(manifest)},register:()=>createToolDispatcher({echo:()=>toolResult('shared runtime')})}));`;
