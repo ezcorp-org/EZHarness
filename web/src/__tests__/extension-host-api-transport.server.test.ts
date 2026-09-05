@@ -17,18 +17,18 @@ test("only the direct loopback origin can receive host credentials", () => {
   for (const origin of ["https://evil.test", "http://localhost:3000", "http://127.0.0.1@evil.test", "http://127.0.0.1/api", "http://127.0.0.1?redirect=1"]) expect(() => createHostApiTransport(origin)).toThrow("loopback");
 });
 
-test("mints a caller-scoped key, never returns sensitive headers, and revokes on completion", async () => {
+test.each(["application/json", "application/json;charset=utf-8"])("mints a caller-scoped key, never returns sensitive headers, and revokes on completion (%s)", async (contentType) => {
   let raw = "";
   const fetcher = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
     expect(String(url)).toBe("http://127.0.0.1:3000/api/conversations");
     expect(init?.redirect).toBe("error");
     raw = new Headers(init?.headers).get("authorization")!.slice(7);
     expect(verifyInternalKey(raw, "127.0.0.1")).toMatchObject({ userId: "owner" });
-    return Response.json({ id: "conversation" }, { headers: { "set-cookie": "secret", "x-secret": "secret" } });
+    return Response.json({ id: "conversation" }, { headers: { "content-type": contentType, "set-cookie": "secret", "x-secret": "secret" } });
   });
   const result = await createHostApiTransport("http://127.0.0.1:3000", fetcher).request("owner", { path: "/api/conversations", method: "POST", body: { title: "test" } });
   expect(JSON.parse(result.body)).toEqual({ id: "conversation" });
-  expect(result.headers).toEqual({ "content-type": "application/json" });
+  expect(result.headers).toEqual({ "content-type": contentType });
   expect(verifyInternalKey(raw, "127.0.0.1")).toBeNull();
 });
 

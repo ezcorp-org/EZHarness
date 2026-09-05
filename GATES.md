@@ -9,4 +9,4 @@
 - [ ] G4: Full required validation passes on the final branch before push.
   EVIDENCE: Runtime checks, full coverage, changed-line coverage, actual browser tests, and production image verification pass. Gate integrity has 84 documented migration findings and still needs maintainer approval. A draft PR is required for that review; this gate is not bypassed or reported green.
 - [ ] G5: Reviewed commits pushed, PR opened, CI results checked and reported.
-  EVIDENCE: pending
+  EVIDENCE: Draft PR https://github.com/ezcorp-org/EZHarness/pull/246 opened at 5cdf49fe. Initial CI found unsupported systemd delegation, fast-uri advisories, missing visual evidence mappings, a Bun/Node fixture difference, and a Hub integration failure. These must be fixed and CI repeated. Maintainer gate-integrity approval remains separate.
