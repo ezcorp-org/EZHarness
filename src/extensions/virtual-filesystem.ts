@@ -75,6 +75,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
   const fail = (code: number, message: string): JsonRpcResponse => ({ jsonrpc: "2.0", id: request.id, error: { code, message } });
   let parent: FileHandle | undefined;
   let file: FileHandle | undefined;
+  let authorizedPath: string | undefined;
   try {
     const params = request.params as Record<string, unknown> | undefined;
     const path = pathParts(params?.path);
@@ -98,6 +99,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
     if (await isReservedSensitivePath(actual)) return fail(-32001, "The path is reserved by the host.");
     const decision = await context.engine.authorize({ extensionId: context.extensionId, userId: context.userId, conversationId: context.conversationId }, [{ kind: writing ? "fs.write" : operation === "list" ? "fs.list" : operation === "stat" ? "fs.stat" : "fs.read", value: path.virtual }]);
     if (decision.decision !== "allow") return fail(-32001, "Filesystem access requires an approved capability.");
+    authorizedPath = path.virtual;
     if (writing && path.parts.length === 0 && operation !== "mkdir") return fail(-32001, "A virtual root cannot be replaced or removed.");
     const recursive = operation === "mkdir" && params?.recursive === true;
     const parentParts = path.parts.slice(0, -1);
@@ -113,8 +115,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
       result.removed = true;
     } else {
       const flags = operation === "write" ? constants.O_WRONLY | constants.O_CREAT : constants.O_RDONLY;
-      try { file = leaf ? await open(target, flags | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600) : parent; }
-      catch (error) { if (operation === "exists" && (error as NodeJS.ErrnoException).code === "ENOENT") return { jsonrpc: "2.0", id: request.id, result: { resolvedPath: path.virtual, exists: false } }; throw error; }
+      file = leaf ? await open(target, flags | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600) : parent;
       const stat = await file.stat();
       if (!stat.isFile() && !stat.isDirectory()) return fail(-32001, "Only regular files and directories are supported.");
       if (operation === "read") {
@@ -144,6 +145,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
     return { jsonrpc: "2.0", id: request.id, result };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
+    if (operation === "exists" && authorizedPath && code === "ENOENT") return { jsonrpc: "2.0", id: request.id, result: { resolvedPath: authorizedPath, exists: false } };
     return fail(code === "ENOENT" ? -32000 : -32001, code === "ENOENT" ? "Path does not exist in this virtual root." : "Filesystem request was denied or could not be completed.");
   } finally {
     if (file && file !== parent) await file.close().catch(() => undefined);

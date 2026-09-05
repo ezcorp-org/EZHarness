@@ -78,6 +78,14 @@ test("invalid and oversized writes have no file creation side effect", async () 
   expect((await call("unlink", "/project")).error).toBeDefined();
 });
 
+test("exists returns false for absent parents only after authorization", async () => {
+  expect((await call("exists", "/data/missing/child/file")).result).toMatchObject({ exists: false });
+  expect((await call("exists", "/project/missing/child/file")).result).toMatchObject({ exists: false });
+  expect((await call("read", "/project/missing/child/file")).error).toBeDefined();
+  decision = "deny";
+  expect((await call("exists", "/project/missing/child/file")).error).toBeDefined();
+});
+
 test("public handler binds roots to host-issued provenance and rejects missing tokens", async () => {
   await writeFile(join(root, "project", "file"), "correct");
   const dependencies = { registry: context.registry, engine: context.engine, virtualFilesystem: ports };
