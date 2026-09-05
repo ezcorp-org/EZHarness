@@ -1,11 +1,11 @@
 import { afterEach, expect, mock, test } from "bun:test";
-import { importCommit, removeImportedSkill } from "../lib/api";
+import { importCommit, removeImportedSkill, type ImportItemResult } from "../lib/api";
 
 const originalFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = originalFetch; });
 
 test("skill import preserves the immutable build review location", async () => {
-  const results = [{ kind: "skill", requested: "example", extId: "installation", operationId: "build", openUrl: "/extensions/author/installation", status: "ok" }];
+  const results: ImportItemResult[] = [{ kind: "skill", requested: "example", extId: "installation", operationId: "build", openUrl: "/extensions/author/installation", status: "ok" }];
   globalThis.fetch = mock(async () => Response.json({ results })) as unknown as typeof fetch;
   expect(await importCommit({ sessionId: "upload", projectId: "project", commands: [], skills: ["example"] })).toEqual({ results });
 });
