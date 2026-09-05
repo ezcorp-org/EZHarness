@@ -31,6 +31,9 @@ test("human binds exact active release and revokes without child-writable storag
   const binding = await setExtensionProjectBinding(actor, input);
   expect(binding).toMatchObject({ projectId: "project", ownerId: "user", releaseId: "release", generation: 1 });
   expect(await getExtensionProjectBinding("installation")).toEqual(binding);
+  const replacement = await setExtensionProjectBinding(actor, { ...input, writePaths: ["docs/", "README.md", "docs/"] });
+  expect(replacement?.id).not.toBe(binding?.id);
+  expect(replacement?.writePaths).toEqual(["README.md", "docs/"]);
   expect(await setExtensionProjectBinding(actor, { ...input, projectId: null })).toBeNull();
   expect(await getExtensionProjectBinding("installation")).toBeNull();
 });
@@ -38,6 +41,7 @@ test("human binds exact active release and revokes without child-writable storag
 test("binding requires human active owner membership local project and exact revision", async () => {
   await expect(setExtensionProjectBinding({ ...actor, kind: "agent" }, input)).rejects.toThrow("human session");
   await expect(setExtensionProjectBinding(actor, { ...input, generation: -1 })).rejects.toThrow("exact release");
+  for (const path of ["../outside", "/absolute", "docs//", "docs/./file", "docs/*", "docs/\\bad", ""]) await expect(setExtensionProjectBinding(actor, { ...input, writePaths: [path] })).rejects.toThrow("safe relative");
   owner = "other"; await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("installation owner");
   owner = "user"; active = false; await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("active user");
   active = true; member = false; await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("membership");

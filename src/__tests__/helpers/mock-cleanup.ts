@@ -26,6 +26,9 @@ import { mock } from "bun:test";
 // because files that need it call mockDbConnection() at module level. NOT restoring
 // it causes minimal stubs (like { insert: ... }) to leak across files.
 const MODULE_PATHS = [
+  "../../extensions/project-access",
+  "../../extensions/project-git-broker",
+  "../../extensions/project-pull-request-broker",
   "../../extensions/project-binding",
   "../../extensions/cli-control",
   "../../db/queries/extension-releases",

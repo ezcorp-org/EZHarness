@@ -1,7 +1,9 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn() }));
-vi.mock("$server/auth/middleware", () => ({ requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn() }));
+vi.mock("$server/db/queries/projects", () => mocks);
+vi.mock("$server/extensions/project-binding", () => mocks);
+vi.mock("$server/auth/middleware", () => ({ checkProjectRole: mocks.checkProjectRole, requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
 vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => mocks }));
 import { load } from "../routes/(app)/extensions/author/+page.server";
 
@@ -9,7 +11,7 @@ function event(query = "", authenticated = true) {
   return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
 }
 
-beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); });
+beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); });
 
 test("requires authentication before listing workspaces", async () => {
   await expect(load(event("", false))).rejects.toMatchObject({ status: 401 });
@@ -50,4 +52,11 @@ test("an installation opens its most recent workspace without a workspace query"
   mocks.readWorkspace.mockResolvedValue({ workspace: { id: "latest" }, files: {} });
   expect(await load(event("?installation=installation"))).toMatchObject({ workspace: { id: "latest" } });
   expect(mocks.readWorkspace).toHaveBeenCalledWith(expect.anything(), "installation", "latest");
+});
+
+test("project controls list only local member projects and owner session access", async () => {
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation", ownerId: "owner" }, workspaces: {} });
+  mocks.listProjects.mockResolvedValue([{ id: "allowed", name: "Allowed", path: "/project" }, { id: "remote", name: "Remote", path: null }, { id: "foreign", name: "Foreign", path: "/foreign" }]);
+  mocks.checkProjectRole.mockImplementation(async (_context, id) => id === "allowed" ? undefined : new Response(null, { status: 403 }));
+  expect(await load(event("?installation=installation"))).toMatchObject({ projects: [{ id: "allowed", name: "Allowed" }], canBindProject: true, projectBinding: null });
 });

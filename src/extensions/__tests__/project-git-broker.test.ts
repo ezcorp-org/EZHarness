@@ -13,7 +13,7 @@ let owned = true;
 let member = true;
 let allowed = true;
 let local = true;
-let binding: { projectId: string; ownerId: string } | null = { projectId: "project", ownerId: "user" };
+let binding: { id: string; projectId: string; ownerId: string } | null = { id: "binding", projectId: "project", ownerId: "user" };
 mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => binding }));
 mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "user", status: active ? "active" : "disabled" }) }));
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ id: "conversation", userId: owned ? "user" : "other", projectId: "project" }) }));
@@ -34,11 +34,11 @@ const first = await git("rev-parse", "HEAD");
 await git("commit", "--allow-empty", "-m", "Second commit");
 const second = await git("rev-parse", "HEAD");
 await git("remote", "add", "origin", "https://host-only-token@github.com/owner/repo.git");
-beforeEach(() => { active = owned = member = allowed = local = true; binding = { projectId: "project", ownerId: "user" }; authorize.mockClear(); });
+beforeEach(() => { active = owned = member = allowed = local = true; binding = { id: "binding", projectId: "project", ownerId: "user" }; authorize.mockClear(); });
 afterAll(async () => { await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
 
 async function invoke(operation = "gitHead", input: Record<string, unknown> = {}, conversationId: string | null = "conversation", actor = "extension", projectId?: string) {
-  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(projectId ? { projectId } : {}) });
+  const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(projectId ? { projectId, projectBindingId: "binding" } : {}) });
   try {
     const request: JsonRpcRequest = { jsonrpc: "2.0", id: "request", method: `ezcorp/project.${operation}`, params: { ...input, _meta: { ezCallId: token } } };
     return await handleProjectGit(deps, actor, request);
@@ -47,10 +47,11 @@ async function invoke(operation = "gitHead", input: Record<string, unknown> = {}
 
 test("real project Git reads return fixed metadata without origin credentials", async () => {
   expect((await invoke()).result).toEqual({ hash: second, subject: "Second commit" });
+  expect((await invoke("gitHead", { _toolName: "echo" })).result).toEqual({ hash: second, subject: "Second commit" });
   expect((await invoke("commitSubjects")).result).toEqual(["Second commit"]);
   expect((await invoke("commitSubjects", { sinceHash: first })).result).toEqual(["Second commit"]);
   expect((await invoke("origin")).result).toBe("https://github.com/owner/repo");
-  expect(authorize).toHaveBeenCalledWith({ extensionId: "extension", userId: "user", conversationId: "conversation", toolName: "project.origin" }, [{ kind: "shell" }]);
+  expect(authorize).toHaveBeenCalledWith({ extensionId: "extension", userId: "user", conversationId: "conversation", toolName: "project.origin", projectConsent: { projectId: "project", bindingId: "binding" } }, [{ kind: "shell" }]);
 });
 
 test("project reads reject command input, foreign provenance and unbound schedules", async () => {
@@ -81,8 +82,9 @@ test("Git failures and malformed metadata do not expose host errors", async () =
 
 test("bound background project reads require the exact live host binding", async () => {
   expect((await invoke("gitHead", {}, null, "extension", "project")).result).toMatchObject({ hash: second });
-  expect(authorize).toHaveBeenCalledWith({ extensionId: "extension", userId: "user", conversationId: null, toolName: "project.gitHead" }, [{ kind: "shell" }]);
+  expect(authorize).toHaveBeenCalledWith({ extensionId: "extension", userId: "user", conversationId: null, toolName: "project.gitHead", projectConsent: { projectId: "project", bindingId: "binding" } }, [{ kind: "shell" }]);
   binding = null; expect((await invoke("gitHead", {}, null, "extension", "project")).error?.message).toContain("binding");
-  binding = { projectId: "project", ownerId: "other" }; expect((await invoke("gitHead", {}, null, "extension", "project")).error?.message).toContain("binding");
-  binding = { projectId: "other", ownerId: "user" }; expect((await invoke("gitHead", {}, "conversation", "extension", "other")).error?.message).toContain("binding");
+  binding = { id: "binding", projectId: "project", ownerId: "other" }; expect((await invoke("gitHead", {}, null, "extension", "project")).error?.message).toContain("binding");
+  binding = { id: "binding", projectId: "other", ownerId: "user" }; expect((await invoke("gitHead", {}, "conversation", "extension", "other")).error?.message).toContain("binding");
+  binding = { id: "new-binding", projectId: "project", ownerId: "user" }; expect((await invoke("gitHead", {}, null, "extension", "project")).error?.message).toContain("binding");
 });

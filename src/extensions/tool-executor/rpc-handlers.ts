@@ -942,6 +942,7 @@ export interface ReverseRpcDispatch {
   handlePiHostApi(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiProjectPullRequest(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiProjectGit(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiProjectPullRequestReview(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiNetworkBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiInvoke(callerExtId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
@@ -988,6 +989,7 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/project.gitHead": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
   "ezcorp/project.commitSubjects": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
   "ezcorp/project.origin": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
+  "ezcorp/project.pullRequest": (self, extensionId, request) => self.handlePiProjectPullRequestReview(extensionId, request),
   "ezcorp/network.fetch": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/env.get": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
   "ezcorp/network.read": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),

@@ -13,8 +13,31 @@ const workspace = { id: "workspace", installationId: installation.id, revision: 
 
 function pageData(approval = false, canApprove = true): ComponentProps<typeof AuthorPage>["data"] {
   const state: InstallationState = { installation, workspaces: { workspace }, revisions: {}, operations: {}, releases: {}, approvals: approval ? { approval: { id: "approval", installationId: installation.id, releaseId: "release", releaseDigest: "exact-release-digest", principalId: "owner", scope: "global", grants: ['["storage",true]'], runnerProfile: "podman", expectedActiveReleaseId: null, expectedGeneration: 0, status: "pending", createdAt: "2026-09-04" } } : {} };
-  return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], canApprove } as ComponentProps<typeof AuthorPage>["data"];
+  return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
 }
+
+test("human project binding uses exact active generation and explicit write scope", async () => {
+  const data = pageData();
+  data.state!.installation = { ...installation, activeReleaseId: "release", enabled: true, generation: 4, status: "active" };
+  data.canBindProject = true;
+  data.projects = [{ id: "project", name: "Documentation" }];
+  const fetcher = vi.fn(async (_url, init) => { const input = JSON.parse(String(init.body)); return Response.json(input.projectId ? { id: "binding", ownerId: "owner", approvedAt: "now", ...input } : null); });
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  const approve = view.getByRole("button", { name: "Approve project access" });
+  expect(approve).toBeDisabled();
+  await fireEvent.change(view.getByLabelText("Project", { exact: true }), { target: { value: "project" } });
+  await fireEvent.input(view.getByLabelText("Approved write paths"), { target: { value: "README.md, docs/" } });
+  await fireEvent.click(view.getByRole("checkbox", { name: "I reviewed this project's access and exact release." }));
+  await fireEvent.click(approve);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  expect(fetcher.mock.calls[0]?.[0]).toBe("/api/extensions/releases/installation/project");
+  expect(JSON.parse(String(fetcher.mock.calls[0]?.[1].body))).toEqual({ projectId: "project", releaseId: "release", generation: 4, writePaths: ["README.md", "docs/"] });
+  await waitFor(() => expect(view.getByRole("button", { name: "Revoke project access" })).toBeEnabled());
+  await fireEvent.click(view.getByRole("button", { name: "Revoke project access" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[1]?.[1].body))).toEqual({ projectId: null, releaseId: "release", generation: 4, writePaths: [] });
+});
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
@@ -85,7 +108,7 @@ test("non-session visitors cannot approve", () => {
 });
 
 test("empty workspace list offers an isolated scaffold, not an install shortcut", async () => {
-  const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [] };
+  const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false };
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ openUrl: "/extensions/author?installation=new" }));
   vi.stubGlobal("fetch", fetcher);
   const view = render(AuthorPage, { data });
@@ -98,7 +121,7 @@ test("empty workspace list offers an isolated scaffold, not an install shortcut"
 
 test("create failures show the error and do not navigate", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => new Response("{}", { status: 503 })));
-  const view = render(AuthorPage, { data: { ...pageData(), state: null, workspace: null, files: {}, installations: [] } });
+  const view = render(AuthorPage, { data: { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false } });
   await fireEvent.click(view.getByRole("button", { name: "Create workspace" }));
   await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Request failed (503)"));
   expect(goto).not.toHaveBeenCalled();

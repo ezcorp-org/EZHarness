@@ -10,6 +10,6 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     if (user instanceof Response) return user;
     const body = await request.json();
     if (!body || typeof body !== "object" || typeof body.releaseId !== "string" || typeof body.generation !== "number" || !(body.projectId === null || typeof body.projectId === "string")) return json({ code: "invalid_input", message: "Provide projectId, releaseId and generation." }, { status: 400 });
-    return json(await setExtensionProjectBinding({ principalId: user.id, scope: "global", kind: "human" }, { installationId: params.installationId, projectId: body.projectId, releaseId: body.releaseId, generation: body.generation }));
+    return json(await setExtensionProjectBinding({ principalId: user.id, scope: "global", kind: "human" }, { installationId: params.installationId, projectId: body.projectId, releaseId: body.releaseId, generation: body.generation, ...(body.writePaths === undefined ? {} : { writePaths: body.writePaths }) }));
   } catch (error) { return extensionControlError(error); }
 };

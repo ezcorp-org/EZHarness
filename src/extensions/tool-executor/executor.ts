@@ -45,6 +45,7 @@ import { dispatchReverseRpcWithTimeout } from "./reverse-rpc-timeout";
 import { handleHostApi } from "../host-api-broker";
 import { handleProjectPullRequest } from "../project-pr-broker";
 import { handleProjectGit } from "../project-git-broker";
+import { handleProjectPullRequestReview } from "../project-pull-request-broker";
 import { handleNetworkBroker } from "../network-broker";
 import { handleCredentialBroker } from "../credential-broker";
 import { PermissionDeniedError, type ArgsResolver, type ToolExecutorOptions } from "./errors";
@@ -1287,6 +1288,10 @@ export class ToolExecutor {
 
   async handlePiProjectGit(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
     return handleProjectGit(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiProjectPullRequestReview(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleProjectPullRequestReview(this.rpcDeps(), extensionId, request);
   }
 
   async handlePiNetworkBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {

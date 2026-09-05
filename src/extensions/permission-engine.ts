@@ -116,6 +116,7 @@ export function _resetOverrideCacheForTests(): void {
 // ── Public surface ──────────────────────────────────────────────────
 
 export interface AuthorizeContext {
+  projectConsent?: import("./project-consent").ProjectOperationConsent;
   extensionId: string;
   /**
    * Phase 6: missing user/context becomes JSON `null` in audit rows
@@ -383,6 +384,15 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     //    grants the kind for ANY value, e.g. any path under fs.write).
     const sensitive = needed.find((c) => SENSITIVE_KINDS.has(c.kind));
     if (sensitive) {
+      if (ctx.projectConsent) {
+        const { hasProjectOperationConsent } = await import("./project-consent");
+        if (await hasProjectOperationConsent(ctx, needed)) {
+          await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, sensitive, "project-operation-consent");
+          return { decision: "allow", auditId };
+        }
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, sensitive, "invalid-project-operation-consent");
+        return { decision: "deny", reason: "invalid-project-operation-consent", auditId };
+      }
       // `ezcorp:extension:install` is NEVER persisted as an
       // always-allow grant (every install is individually consented).
       // Force the read to "not allowed" so a stray/legacy row can

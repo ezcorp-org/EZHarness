@@ -12,6 +12,7 @@ export interface ExtensionProjectBinding {
   releaseId: string;
   generation: number;
   approvedAt: string;
+  writePaths: string[];
 }
 
 export async function getExtensionProjectBinding(installationId: string): Promise<ExtensionProjectBinding | null> {
@@ -24,9 +25,11 @@ export async function getExtensionProjectBinding(installationId: string): Promis
   return binding;
 }
 
-export async function setExtensionProjectBinding(actor: LifecycleActor, input: { installationId: string; projectId: string | null; releaseId: string; generation: number }): Promise<ExtensionProjectBinding | null> {
+export async function setExtensionProjectBinding(actor: LifecycleActor, input: { installationId: string; projectId: string | null; releaseId: string; generation: number; writePaths?: string[] }): Promise<ExtensionProjectBinding | null> {
   if (actor.kind !== "human") throw new LifecycleError("human_required", "A human session must approve project access.");
   if (!input.installationId || !input.releaseId || !Number.isSafeInteger(input.generation) || input.generation < 0 || (input.projectId !== null && (typeof input.projectId !== "string" || !input.projectId || input.projectId.length > 128))) throw new LifecycleError("invalid_input", "Provide the exact release, generation and project.");
+  const writePaths = input.writePaths ?? [];
+  if (!Array.isArray(writePaths) || writePaths.length > 100 || writePaths.some(path => typeof path !== "string" || !path || path.length > 4096 || (/[\\*?]/.test(path) || /\p{Cc}/u.test(path)) || path.startsWith("/") || path.replace(/\/$/, "").split("/").some(part => !part || part === "." || part === ".."))) throw new LifecycleError("invalid_input", "Write scopes must be safe relative files or directory prefixes ending in /.");
   const state = await (await getExtensionLifecycle()).inspect(actor, input.installationId);
   if (state.installation.ownerId !== actor.principalId) throw new LifecycleError("permission_denied", "Only the installation owner can bind a project.");
   const { getUserById } = await import("../db/queries/users");
@@ -47,7 +50,7 @@ export async function setExtensionProjectBinding(actor: LifecycleActor, input: {
       await transaction.execute(sql`DELETE FROM extension_project_bindings WHERE installation_id = ${input.installationId}`);
       return null;
     }
-    const binding: ExtensionProjectBinding = { id: crypto.randomUUID(), projectId: input.projectId, ownerId: actor.principalId, releaseId: input.releaseId, generation: input.generation, approvedAt: new Date().toISOString() };
+    const binding: ExtensionProjectBinding = { id: crypto.randomUUID(), projectId: input.projectId, ownerId: actor.principalId, releaseId: input.releaseId, generation: input.generation, approvedAt: new Date().toISOString(), writePaths: [...new Set(writePaths)].sort() };
     await transaction.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${input.installationId}, ${JSON.stringify(binding)}) ON CONFLICT (installation_id) DO UPDATE SET payload = EXCLUDED.payload`);
     return binding;
   });
