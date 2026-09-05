@@ -32,6 +32,26 @@ const baseEnv: Record<string, string> = {
   HOME: process.env.HOME ?? "",
 };
 
+test("subprocess call settlement waits for the real child response and releases every waiter", async () => {
+  const process = coldProcess("settlement-ext");
+  try {
+    expect(process.inFlightCallCount).toBe(0);
+    await process.whenCallsSettled();
+    const response = process.call("tools/call", { name: "echo", arguments: {} });
+    expect(process.inFlightCallCount).toBe(1);
+    let settled = 0;
+    const waiters = [process.whenCallsSettled().then(() => { settled++; }), process.whenCallsSettled().then(() => { settled++; })];
+    expect(settled).toBe(0);
+    expect(await response).toMatchObject({ result: { isError: false } });
+    await Promise.all(waiters);
+    expect(settled).toBe(2);
+    expect(process.inFlightCallCount).toBe(0);
+    await process.whenCallsSettled();
+  } finally {
+    process.kill();
+  }
+});
+
 /** A process that has been constructed and NEVER called — exactly the
  *  state the events route hands to `sendNotification` on a cold server. */
 function coldProcess(id: string, opts?: Record<string, unknown>): ExtensionProcess {
