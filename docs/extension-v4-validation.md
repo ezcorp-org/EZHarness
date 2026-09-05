@@ -64,3 +64,17 @@ Production image `815764c0a0adc87d7206f1fe8cf0ae2ac7a85791700488d1e2fd88f5b7cd27
 - Automatic development watching, inline grant controls, configurable per-capability expiry issuance, destructive purge, generic Git/automatic updates, and unsupported host-executed metadata have no equivalent compatibility claim. The migration mapping identifies these choices for maintainer review.
 
 Do not merge on the strength of local results alone. Required CI checks, the test-migration approval, and a non-author review must pass first.
+
+## Initial hosted CI and follow-up
+
+Draft PR 246 at `5cdf49fe` exposed failures that local checks had missed:
+
+- The Ubuntu installer could not change static systemd delegation with `set-property`. A scoped runtime unit drop-in replaces that command; controller and actual rootless kernel checks remain mandatory. Hosted execution of the replacement is still pending.
+- Four high-severity fast-uri advisories required version 3.1.6. The lockfile now selects that release. A forced frozen install and an AJV-resolved parser regression guard against stale nested copies. The unchanged audit passes with three existing allowlisted findings and six below its high-severity floor; it is not a zero-advisory result.
+- Bun and Node supply different default JSON content types. Tests now check exact preservation of both explicit values and still reject all sensitive response headers. All 7,025 web tests pass under the same Bun runtime as CI.
+- The real Hub worker test was in an unprepared browser-test lane. A private empty Podman store reproduces the missing-image failure. The unchanged test now belongs to both prepared host test sets, with a membership regression; five actual SQL/worker tests pass independently.
+- The visual gate needed specific screenshot mappings. Real list/uninstall evidence and a controlled-backend Hub error scene now pass that gate. Reviewing those images exposed stale installation and modification controls; their correction and final screenshots remain in progress.
+
+The patched-parser all-50 sweep passes without interruption at commit `3ee4f8cf`, tree `c2eb306b627df08ce696dbf7dc3e76a2854d4a8e` (`/tmp/ez-all50-fast-uri-patched.jsonl`, empty stderr). This supersedes the earlier baseline-plus-delta candidate proof for the parser change. Contract tests pass 23/291 assertions; SDK tests pass 1,023/2,332 assertions with actual Podman tests enabled. Backend run 14 passes 24,406 tests in 1,547 files before the Hub lane addition; its five tests pass separately. Plain-web run 11 passes 4,120 tests in 221 files after that move. Gate integrity still reports the same 84 migration findings; no approval label has been applied.
+
+These are follow-up local results, not a claim that the next hosted CI run passes. The PR remains a draft.
