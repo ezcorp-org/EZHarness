@@ -6,7 +6,7 @@ import { defineExtension } from "./index";
 import type { DefinedExtension, ExtensionHandler } from "./index";
 import { defineRuntimeManifest } from "./runtime";
 
-export async function createMcpExtension(options: { manifest: Record<string, unknown> }): Promise<DefinedExtension> {
+export async function createMcpExtension(options: { manifest: unknown }): Promise<DefinedExtension> {
   const manifest = defineRuntimeManifest(options.manifest);
   const server = manifest.mcpServers?.[0];
   if (manifest.kind !== "mcp" || manifest.mcpServers?.length !== 1 || server?.transport !== "stdio") throw new ContractError("INVALID_MCP", "The isolated MCP adapter requires one stdio server");

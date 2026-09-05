@@ -18,14 +18,16 @@ export function unwrapToolResponse(response: unknown): unknown {
   return response.result;
 }
 
-export function defineRuntimeManifest<Metadata extends Record<string, unknown>>(metadata: Metadata): Metadata & ExtensionManifestV4 {
-  const tools = metadata.tools;
+export function defineRuntimeManifest<Metadata>(metadata: Metadata): Metadata & ExtensionManifestV4 {
+  assertJson(metadata);
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new ContractError("INVALID_MANIFEST", "Manifest must be an object");
+  const tools = (metadata as Record<string, unknown>).tools;
   if (tools !== undefined && !Array.isArray(tools)) throw new ContractError("INVALID_MANIFEST", "Tools must be an array");
   const manifest = { ...metadata, ...(tools ? { tools: tools.map(tool => ({ ...tool, outputSchema: tool.outputSchema ?? TOOL_RESULT_SCHEMA })) } : {}) };
   return validateManifest(manifest) as Metadata & ExtensionManifestV4;
 }
 
-export async function createRuntimeExtension(options: { manifest: Record<string, unknown>; register: () => unknown | Promise<unknown> }): Promise<DefinedExtension> {
+export async function createRuntimeExtension(options: { manifest: unknown; register: () => unknown | Promise<unknown> }): Promise<DefinedExtension> {
   const manifest = defineRuntimeManifest(options.manifest);
   const context = new AsyncLocalStorage<ExtensionContext>();
   const handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
