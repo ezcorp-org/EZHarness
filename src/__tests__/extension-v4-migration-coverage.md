@@ -18,6 +18,24 @@ Pure permission-ceiling, source hashing, grant-diff, path containment, and
 release-policy tests remain. Runtime feature parity is checked separately by
 the sealed first-party candidate suite; these bootstrap tests do not claim it.
 
+Disk-based drift healing has no production callers and is removed, not renamed.
+The former bundled-drift-reapprove suite's grant-order and declaration-only
+comparisons remain covered by bundled-ceiling.test.ts canonicalization tests.
+Exact human approval, stale policy, generation races, immutable release records,
+and corrupt source refusal run in extensions/v4/lifecycle.test.ts and
+extension-lifecycle-service.test.ts. Startup can no longer bypass those checks
+by rewriting a projection grant or swallowing an audit failure.
+
+bundled-drift-disable-idempotent and bundled-refresh-code-change-invalidation
+now map to the bootstrap's once-only legacy revocation, unreadable source,
+source-change workspace, and active-release preservation cases. A changed
+checkout does not kill an approved immutable release or silently rewrite its
+description. The new candidate has separate identity and approval.
+
+bundled-phase5-integration now maps to bundled-source-lock.test.ts (all 50
+snapshot hashes and determinism), collector containment tests, and lifecycle
+blob-tampering/approval checks. A source lock does not itself grant execution.
+
 The former reopen suite's owner, modifiable, bundled, ID lookup, and complete
 source invariants now run against real PGlite and the immutable blob store in
 reopen-extension.test.ts. Missing source refuses a partial workspace. Reopen
