@@ -43,3 +43,24 @@ The extended authenticated/rootless test passed on 2026-09-05: one test, 40.9 se
 The real service tool uses SDK global storage set/get and `/data/proof.json` write/read. The workflow trace verifies the exact service principal and matching storage/file values. A separate read-only worker confirms the persisted count is one before and after a revoked fire. No second workflow run or data change occurs. All earlier human approval, forged binding, null user and service identity assertions remain.
 
 Screenshot `/tmp/ez-service-storage-release-review.png` was visually reviewed. The human review shows the exact `/data`, storage and delegated-only workflow permissions with readable approval controls. The runner containers were removed by normal teardown. E2E type checking and Biome pass; the combined backend test type check reports separate pending fixtures already assigned to their owners. This extends the earlier pure-tool proof to these specific storage and data operations, not every service broker.
+
+## Final frozen browser lane
+
+The first integrated 54-test lane at the final feature set passed 51 tests, failed during the shared task-panel fixture setup, and did not run two later tests. The task-tracking release build took about 296 seconds while other host validation was active; the setup then found the disable control still disabled. The unchanged three-test task-panel file passed separately in 1.6 minutes. This split result was retained as diagnostic evidence, not accepted as the final gate. Log: `/tmp/ez-real-auth54-service-final.log`. Focused log: `/tmp/ez-task-panel-real-final.log`.
+
+After the competing coverage load stopped, the complete unchanged lane passed all 54 tests in 5.1 minutes on source tree `beaa01d3b2a58bab7ed4ea9e95e049b3cc17e723`. The task-panel durability test passed in 3.0 seconds, the service workflow test passed in 37.1 seconds, and the scanner test passed in 37.5 seconds. No timeout, retry, skip, or assertion changed. Log: `/tmp/ez-real-auth54-service-final-clean.log`.
+
+```sh
+cd web
+PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH \
+BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
+PI_E2E_REAL=1 \
+PI_E2E_REAL_BASE_URL=http://localhost:4195 \
+BODY_SIZE_LIMIT=134217728 \
+EZCORP_E2E_EVIDENCE=1 \
+PLAYWRIGHT_BROWSERS_PATH=/home/dev/.cache/ms-playwright \
+PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true \
+bunx playwright test --config=playwright.real.config.ts --project=chromium
+```
+
+The exact service test still verifies global storage set/get, bounded `/data` write/read, the service principal, `userId: null`, human approval, revoked-fire denial, and no additional run. The reviewed screenshot is `/tmp/ez-service-workflow-exact-release-review.png`. This lane proves only the declared browser scenarios and exact service effects; it does not claim every external integration.
