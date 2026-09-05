@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { createMcpExtension } from "./mcp";
 import { normalizeMcpCatalog, valueSchemaValidator } from "@ezcorp/extension-contract";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 test("stdio MCP discovery and invocation use a fresh protocol client and checked schemas", async () => {
   const extension = await createMcpExtension({ manifest: { schemaVersion: 4, name: "mcp-test", version: "1.0.0", description: "Fixture", author: { name: "Tests" }, permissions: {}, kind: "mcp", mcpServers: [{ name: "fixture", transport: "stdio", command: process.execPath, args: [new URL("./__tests__/mcp-fixture.ts", import.meta.url).pathname] }] } });
@@ -19,3 +22,47 @@ test("MCP catalogs reject unsafe schemas, duplicates and invalid data", () => {
   expect(validator({ value: "yes" })).toMatchObject({ valid: true });
   expect(validator({ value: 1 })).toMatchObject({ valid: false });
 });
+
+test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("MCP executable discovers and invokes in a networkless rootless container", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "sdk-mcp-isolated-"));
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    const info = Bun.spawn(["podman", "info", "--format", "{{.Host.Security.Rootless}}"], { stdout: "pipe", stderr: "pipe" });
+    expect((await new Response(info.stdout).text()).trim()).toBe("true");
+    expect(await info.exited).toBe(0);
+    for (const [source, target] of [["mcp-fixture.ts", "server.js"], ["mcp-isolated-fixture.ts", "extension.js"]]) {
+      const build = Bun.spawn([process.execPath, "build", new URL(`./__tests__/${source}`, import.meta.url).pathname, "--target=bun", `--outfile=${join(directory, target!)}`], { stdout: "ignore", stderr: "pipe" });
+      const diagnostics = await new Response(build.stderr).text();
+      expect(await build.exited, diagnostics).toBe(0);
+    }
+    child = Bun.spawn(["podman", "run", "--rm", "-i", "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", "--cpus=1", "--tmpfs=/tmp:rw,noexec,nosuid,size=16m", "-v", `${directory}:/workspace:ro`, "--workdir=/workspace", "docker.io/oven/bun:1.3.14", "bun", "/workspace/extension.js"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
+    let buffered = "";
+    async function frame(): Promise<Record<string, any>> {
+      while (!buffered.includes("\n")) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error(`Container exited: ${await new Response(child!.stderr as ReadableStream).text()}`);
+        buffered += new TextDecoder().decode(chunk.value);
+      }
+      const end = buffered.indexOf("\n");
+      const value = JSON.parse(buffered.slice(0, end));
+      buffered = buffered.slice(end + 1);
+      return value;
+    }
+    const stdin = child.stdin as import("bun").FileSink;
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: "discover", method: "extension/discover", params: {} })}\n`);
+    await stdin.flush();
+    const discovery = await frame();
+    expect(discovery.result.tools[0].name).toBe("echo");
+    const context = { invocationId: "isolated", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 20_000 };
+    stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: "invoke", method: "extension/invoke", params: { name: "echo", input: { text: "isolated" }, context } })}\n`);
+    await stdin.flush();
+    expect((await frame()).result).toMatchObject({ content: [{ type: "text", text: "isolated" }], isError: false });
+    stdin.end();
+    await reader.cancel();
+    expect(await child.exited).toBe(0);
+  } finally {
+    child?.kill();
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 45_000);

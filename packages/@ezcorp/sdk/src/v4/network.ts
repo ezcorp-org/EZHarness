@@ -69,7 +69,7 @@ export async function brokeredFetch(input: string | URL | Request, init?: Reques
   }
   signal.throwIfAborted();
   const status = Number(response.status);
-  return new Response([204, 205, 304].includes(status) ? null : bytes, { status, statusText: response.statusText, headers: headerData as Record<string, string> });
+  return new Response([204, 205, 304].includes(status) ? null : new Uint8Array(bytes).buffer, { status, statusText: response.statusText, headers: headerData as Record<string, string> });
 }
 
 export function installNetworkShim(): () => void {

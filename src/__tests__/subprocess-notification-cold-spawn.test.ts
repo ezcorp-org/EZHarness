@@ -78,7 +78,7 @@ describe("a notification that cannot be delivered", () => {
       npmDependencies: { "totally-not-installed-xyz": "^1.0.0" },
     });
 
-    let delivered: boolean | undefined;
+    let delivered: boolean | Promise<void> | undefined;
     expect(() => {
       delivered = ep.sendNotification("ezcorp/event/x:y");
     }).not.toThrow();
