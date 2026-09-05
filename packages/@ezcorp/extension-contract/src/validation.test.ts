@@ -4,6 +4,36 @@ import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, sealP
 const manifest = { schemaVersion: 4, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 
 describe("data contracts", () => {
+  test("compiled schemas reuse exact content without retaining mutable source or byte limits", () => {
+    const source = { type: "object", const: { value: "original" }, description: "detached cache probe" };
+    const original = compileValueSchema(source);
+    expect(compileValueSchema(structuredClone(source))).toBe(original);
+    expect(compileValueSchema({ description: source.description, const: { value: "original" }, type: "object" })).toBe(original);
+    source.const.value = "changed";
+    expect(() => original({ value: "original" })).not.toThrow();
+    expect(() => original({ value: "changed" })).toThrow();
+    const changed = compileValueSchema(source);
+    expect(changed).not.toBe(original);
+    expect(() => changed({ value: "changed" })).not.toThrow();
+    const bounded = compileValueSchema({ type: "string" }, 4);
+    const wider = compileValueSchema({ type: "string" }, 8);
+    expect(bounded).not.toBe(wider);
+    expect(() => bounded("12345")).toThrow();
+    expect(() => wider("12345")).not.toThrow();
+  });
+
+  test("compiled schema cache stays bounded and invalid schemas never gain admission", () => {
+    const firstSchema = { const: "cache eviction oldest" };
+    const first = compileValueSchema(firstSchema);
+    const recentSchema = { const: "cache eviction recent" };
+    const recent = compileValueSchema(recentSchema);
+    for (let index = 0; index < 64; index++) {
+      compileValueSchema({ const: `cache eviction ${index}` });
+      expect(compileValueSchema(recentSchema)).toBe(recent);
+    }
+    expect(compileValueSchema(firstSchema)).not.toBe(first);
+    for (let index = 0; index < 2; index++) expect(() => compileValueSchema({ $ref: "https://attacker.invalid/schema" })).toThrow();
+  });
   test("artifact maps admit sealed dependencies while preserving path and count limits", () => {
     const files = { ".runner/dependencies.json": "x".repeat(21 * 1024 * 1024) };
     expect(validateArtifactFiles(files)).toBe(files);

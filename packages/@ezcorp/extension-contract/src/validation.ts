@@ -40,9 +40,15 @@ const formats: Record<string, (value: string) => boolean> = {
   email: value => value.length <= 254 && RE2JS.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$").matcher(value).find(),
   uuid: value => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
 };
+const valueValidators = new Map<string, (input: unknown) => void>();
+const maxCachedValidators = 64;
 
 export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYTES): (input: unknown) => void {
   assertJson(value, 64 * 1024);
+  const cacheKey = `${maxValueBytes}:${canonicalJson(value)}`;
+  const cached = valueValidators.get(cacheKey);
+  if (cached) { valueValidators.delete(cacheKey); valueValidators.set(cacheKey, cached); return cached; }
+  const detached = structuredClone(value);
   let nodes = 0;
   function check(entry: unknown, depth: number): void {
     if (++nodes > 256 || depth > 12) throw new ContractError("SCHEMA_LIMIT", "Schema exceeds complexity limit");
@@ -80,7 +86,7 @@ export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYT
     if (typeof record.$ref === "string") {
       if (visited.has(record.$ref)) throw new ContractError("UNSUPPORTED_SCHEMA", "Recursive schemas are not supported");
       const [group, name] = record.$ref.slice(2).split("/");
-      const root = value as Record<string, Record<string, unknown>>;
+      const root = detached as Record<string, Record<string, unknown>>;
       const target = root[group!]?.[name!];
       if (!target) throw new ContractError("INVALID_SCHEMA", "Unknown local reference");
       const next = new Set(visited).add(record.$ref);
@@ -92,7 +98,7 @@ export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYT
       return [key, ["items", "additionalProperties", "not", "anyOf", "oneOf", "allOf"].includes(key) ? expand(child, visited, depth + 1) : child];
     }));
   }
-  const expanded = expand(value, new Set(), 0);
+  const expanded = expand(detached, new Set(), 0);
   assertJson(expanded, 128 * 1024);
   const linearRegex = Object.assign((pattern: string) => {
     const compiled = RE2JS.compile(pattern);
@@ -101,10 +107,13 @@ export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYT
   const engine = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: true, formats, code: { regExp: linearRegex } });
   let validate: ReturnType<Ajv["compile"]>;
   try { validate = engine.compile(expanded as ValueSchema); } catch { throw new ContractError("INVALID_SCHEMA", "Invalid JSON Schema"); }
-  return (input: unknown) => {
+  const checkValue = (input: unknown) => {
     assertJson(input, maxValueBytes);
     if (!validate(input)) throw new ContractError("SCHEMA_MISMATCH", validate.errors?.[0]?.message ?? "Value does not match schema", validate.errors?.[0]?.instancePath);
   };
+  if (valueValidators.size >= maxCachedValidators) valueValidators.delete(valueValidators.keys().next().value!);
+  valueValidators.set(cacheKey, checkValue);
+  return checkValue;
 }
 
 export function validateManifest(value: unknown): ExtensionManifestV4 {
