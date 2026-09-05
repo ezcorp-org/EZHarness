@@ -84,3 +84,8 @@ Every leaf runs in its own worktree. No edits to primary checkout. Do not revert
 - Startup diagnostics: seven tests pass. Subscription candidate matrix: 49 tests pass. Visible release evidence registration: seven tests pass. These are intermediate checks, not final-head proof.
 - Review found and fixed scoped event disclosure and an async host-wiring race. Remaining state/event receipt producers are not complete.
 - Latest fetch found no missing main commits. No push or PR. Maintainer approval for legitimate test/gate migration remains required.
+## Current closure work
+
+The final source is not frozen. Host-fenced locks, candidate SDK helpers, atomic task publication, sealed browser builds, and the private browser client are integrated. Actual rootless cancellation proves that a cancelled worker does not stop a concurrent worker or later calls. Remaining leaves are post-await effect admission, harness run-signal propagation, and the real protected scanner/camera workflow. Each must pass real host/worker or browser tests before final full-suite validation. Documentation and `extensions_describe` now point to the shared v4 schema, scaffold, runtime helpers, and browser client.
+
+Types34 and lint12 pass (lint has warnings). Backend9 is running. Web6 and component8 found task and browser fixture failures; their fixes are merged, but full reruns remain required. The all-50 candidate run found an actual scanner response-type error; explicit response guards are merged and isolated verification is being repeated. No failed gate is treated as complete. Gate-integrity reports 84 migration findings that require maintainer review; no push or PR has occurred.
