@@ -3,7 +3,7 @@ import { captureEvidence } from "../fixtures/evidence";
 import { buildWorkspace, extensionClient, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import type { WorkspaceRecord } from "../../../src/extensions/v4/types";
 
-test("a human consents to a sealed service workflow; a real worker cannot fire after revocation", async ({ page, request, baseURL }, testInfo) => {
+test("a human consents to a sealed service workflow; a real worker cannot fire after revocation @evidence", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(300000);
   const { client, key } = await extensionClient(request, baseURL!);
   const name = `service-flow-${Date.now().toString(36)}`;
