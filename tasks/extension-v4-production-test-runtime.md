@@ -8,7 +8,8 @@
   Evidence: `bun test ./src/__tests__/real-auth-production-launch.test.ts`: two shell orchestration tests, 11 assertions. These controlled command-boundary tests do not claim to exercise application runtime. `bash -n scripts/start-real-extension-preview.sh` passes.
 - [x] Run the actual caller protocol suite with the new command and fresh database.
   Evidence: `/tmp/v4-production-caller.log`: seven actual browser/HTTP caller tests pass in 43.2 seconds, including build and authenticated rootless runner startup. No assertions, retries or timeouts changed.
-- [ ] Verify the absent runner leaves extension builds unavailable while the application serves requests.
+- [x] Verify the absent runner leaves extension builds unavailable while the application serves requests.
+  Evidence: `/tmp/v4-production-no-runner.log`: a fresh production adapter with no runner socket/token serves health, actual admin setup/login and workspace creation. Build inspection returns terminal `failed` with `runner_unconfigured`; active release remains null, enabled remains false, and no release is created. The probe uses actual HTTP and SQL, not a substituted lifecycle service.
 - [ ] Run all 53 real-auth assertions after integration (parent-owned).
 
 ## Decision
