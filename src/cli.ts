@@ -149,7 +149,7 @@ export function parseArgs(args: string[]): ParsedArgs {
         return {
           command: "ext:init",
           extName: args[2],
-          type: typeIdx !== -1 ? args[typeIdx + 1] : undefined,
+          type: typeIdx !== -1 ? args[typeIdx + 1] ?? "" : undefined,
         };
       }
       case "install":
@@ -562,7 +562,7 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "ext:init": {
-      const directory = await initCliExtension(parsed.extName ?? "my-extension");
+      const directory = await initCliExtension(parsed.extName ?? "my-extension", parsed.type);
       console.log(`Created v4 source at ${directory}. Use ext test to build it in isolation.`);
       break;
     }

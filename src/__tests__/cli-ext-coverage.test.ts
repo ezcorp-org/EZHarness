@@ -43,9 +43,10 @@ mock.module("../db/connection", () => ({
 
 const stage = mock(async (source: string) => ({ source, openUrl: "/extensions/author?installation=staged" }));
 const update = mock(async (name: string) => ({ name, openUrl: "/extensions/author?workspace=fork" }));
+const init = mock(async (_name: string, _type?: string) => "/tmp/source");
 mock.module("../extensions/cli-control", () => ({
   stageCliExtension: stage, updateCliExtension: update, removeCliExtension: async () => {},
-  initCliExtension: async () => "/tmp/source", verifyCliExtension: async () => ({ state: "succeeded" }),
+  initCliExtension: init, verifyCliExtension: async () => ({ state: "succeeded" }),
 }));
 
 // Import after mocks
@@ -92,6 +93,17 @@ beforeEach(() => {
 // ── parseArgs edge cases ────────────────────────────────────────────
 
 describe("parseArgs - ext edge cases", () => {
+  test("init distinguishes absent, explicit, and missing type values", async () => {
+    const output = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const [options, type] of [[[], undefined], [["--type", "skill"], "skill"], [["--type"], ""]] as const) {
+        const args = ["ext", "init", "extension", ...options];
+        expect(parseArgs(args)).toMatchObject({ command: "ext:init", extName: "extension", type });
+        await cli(args);
+        expect(init).toHaveBeenLastCalledWith("extension", type);
+      }
+    } finally { output.mockRestore(); }
+  });
   test("ext install without source parses with undefined source", () => {
     const result = parseArgs(["ext", "install"]);
     expect(result.command).toBe("ext:install");

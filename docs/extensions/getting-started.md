@@ -25,6 +25,8 @@ bun src/cli.ts ext test ./my-extension
 
 `ext init` writes the shared default v4 source scaffold. Edit its inline manifest in `extension.ts`, implementation in `src/echo.ts`, and test in `src/echo.test.ts`. `ext test`, `ext verify`, and `ext dev` all run isolated builds; `ext dev` is not a hot-reload installer. The SDK is supplied by the locked runner toolchain. Resolve any additional dependencies before building through the workspace lifecycle.
 
+For a typed SDK template, use `bun src/cli.ts ext init my-extension --type skill`. The supported types are `tool`, `skill`, `agent`, and `multi`. These templates include a worker-only `ezcorp.config.ts`; the host does not import it. A missing or invalid type fails before source is written.
+
 To stage local source for review, set `EZCORP_USER_ID` to the active administrator who owns the installation, then run:
 
 ```sh

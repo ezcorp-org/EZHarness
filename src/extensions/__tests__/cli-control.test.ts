@@ -55,7 +55,14 @@ test("scaffold is exclusive and standalone validation uses the isolated runner",
   const parent = await mkdtemp(join(tmpdir(), "extension-cli-")); directories.push(parent);
   const cwd = process.cwd();
   let directory: string;
-  try { process.chdir(parent); directory = await initCliExtension("example"); await expect(initCliExtension("example")).rejects.toThrow(); } finally { process.chdir(cwd); }
+  try {
+    process.chdir(parent);
+    directory = await initCliExtension("example");
+    await expect(initCliExtension("example")).rejects.toThrow();
+    const typed = await initCliExtension("typed-skill", "skill");
+    expect(await readFile(join(typed, "ezcorp.config.ts"), "utf8")).toContain('"skills"');
+    await expect(initCliExtension("invalid", "unsupported")).rejects.toThrow("type");
+  } finally { process.chdir(cwd); }
   expect(await readFile(join(directory!, "extension.ts"), "utf8")).toContain('@ezcorp/sdk/v4');
   await expect(verifyCliExtension(directory!)).rejects.toHaveProperty("code", "runner_unconfigured");
   process.env.EZCORP_EXTENSION_RUNNER_SOCKET = "/tmp/runner.sock";

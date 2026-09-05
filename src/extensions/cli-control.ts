@@ -2,6 +2,7 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { buildLimits, filesDigest } from "@ezcorp/extension-runner";
 import { workspaceFileBytes } from "@ezcorp/extension-contract";
+import { scaffoldExtension, type ExtType } from "@ezcorp/sdk/scaffold";
 export { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
 import { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
 import { getUserById } from "../db/queries/users";
@@ -51,8 +52,8 @@ export async function removeCliExtension(name: string): Promise<void> {
   await (await getExtensionLifecycle()).uninstall(actor, extension.id);
 }
 
-export async function initCliExtension(name: string): Promise<string> {
-  const files = createExtensionFiles(name);
+export async function initCliExtension(name: string, type?: string): Promise<string> {
+  const files = type === undefined ? createExtensionFiles(name) : scaffoldExtension({ name, type: type as ExtType, description: "A new extension" }).files;
   const directory = resolve(name);
   await mkdir(directory);
   for (const [path, contents] of Object.entries(files)) {

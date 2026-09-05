@@ -70,7 +70,7 @@ Invoke `bun src/cli.ts ext ...` from the repository root; there is no installed 
 
 | Command | Current behavior |
 |---|---|
-| `init <name>` | Write the shared default v4 scaffold. |
+| `init <name>` | Write the shared default v4 scaffold; `--type tool\|skill\|agent\|multi` selects a typed SDK template. |
 | `test [dir]`, `verify [dir]`, `dev [dir]` | Isolated build and verification; no hot reload or activation. |
 | `install <source>` | Stage supported source for build and human review. |
 | `update <name>` | Fork the active immutable source into a workspace. |
