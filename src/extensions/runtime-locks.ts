@@ -154,8 +154,8 @@ export async function recoverRuntimeLock(actor: LifecycleActor, installationId: 
     const [installation] = releaseRows<{ enabled: boolean }>(await transaction.execute(sql`SELECT (payload::jsonb->>'enabled')::boolean AS enabled FROM extension_release_installations WHERE id = ${installationId} FOR SHARE`));
     if (!installation || installation.enabled) throw new ContractError("LOCK_RECOVERY_DENIED", "Disable the installation before recovering locks");
     const row = await rowsFor(transaction, { installationId, key: lockKey });
-    if (!row || row.fence !== expectedFence || row.state !== "quarantined" || row.effects !== 0 || sessions.has(row.invocationId)) throw new ContractError("LOCK_RECOVERY_DENIED", "Lock changed, is not quarantined, or still has live host effects");
-    await insertTransactionalAuditEntry(transaction, crypto.randomUUID(), actor.principalId, "ext:lock-recovered", installationId, { key: lockKey, fence: row.fence, invocationId: row.invocationId, workerId: row.workerId, pendingEffects: row.effects, acknowledgedUncertainEffects: true });
+    if (!row || row.fence !== expectedFence || (row.state !== "quarantined" && new Date(row.deadline).getTime() > Date.now()) || row.effects !== 0 || sessions.has(row.invocationId)) throw new ContractError("LOCK_RECOVERY_DENIED", "Lock changed, is not expired or quarantined, or still has live host effects");
+    await insertTransactionalAuditEntry(transaction, crypto.randomUUID(), actor.principalId, "ext:lock-recovered", installationId, { key: lockKey, fence: row.fence, invocationId: row.invocationId, workerId: row.workerId, previousState: row.state, deadline: new Date(row.deadline).toISOString(), pendingEffects: row.effects, acknowledgedUncertainEffects: true });
     await transaction.execute(sql`DELETE FROM extension_runtime_locks WHERE installation_id = ${installationId} AND lock_key = ${lockKey} AND fence = ${expectedFence}`);
   });
 }

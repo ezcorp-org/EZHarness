@@ -284,3 +284,31 @@ test("control inspection and recovery use owner access before human administrato
   expect(await control.execute(actor, "extensions_release", recovery)).toEqual({ recovered: true });
   expect(await inspectRuntimeLocks(data.installationId)).toEqual([]);
 });
+
+test("administrator can recover an expired idle crash fence without restarting extension code", async () => {
+  const data = await fixture();
+  const fence = crypto.randomUUID();
+  await data.database.insert(extensionRuntimeLocks).values({ installationId: data.installationId, key: "crashed", fence, invocationId: crypto.randomUUID(), workerId: crypto.randomUUID(), releaseId: data.context.releaseId, generation: 1, principalId: data.owner.id, scopeId: "global", deadline: new Date(Date.now() + 60_000), state: "held", effects: 0 });
+  await data.database.update(users).set({ role: "admin" }).where(eq(users.id, data.owner.id));
+  await data.database.execute(sql`UPDATE extension_release_installations SET payload = (payload::jsonb || '{"enabled":false}'::jsonb)::text WHERE id = ${data.installationId}`);
+  const actor = { principalId: data.owner.id, scope: "global", kind: "human" as const };
+  await expect(recoverRuntimeLock(actor, data.installationId, "crashed", fence, true)).rejects.toThrow("Lock changed");
+  await data.database.update(extensionRuntimeLocks).set({ deadline: new Date(0), effects: 1 });
+  await expect(recoverRuntimeLock(actor, data.installationId, "crashed", fence, true)).rejects.toThrow("live host effects");
+  await data.database.update(extensionRuntimeLocks).set({ effects: 0 });
+  await expect(recoverRuntimeLock(actor, data.installationId, "crashed", "stale", true)).rejects.toThrow("Lock changed");
+  await recoverRuntimeLock(actor, data.installationId, "crashed", fence, true);
+  expect(await inspectRuntimeLocks(data.installationId)).toEqual([]);
+  expect((await data.database.select().from(auditLog))[0]).toMatchObject({ action: "ext:lock-recovered", target: data.installationId });
+});
+
+test("expired idle recovery cannot replace a still-live local owner", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const fence = await acquire(session);
+  await data.database.update(extensionRuntimeLocks).set({ deadline: new Date(0) });
+  await data.database.update(users).set({ role: "admin" }).where(eq(users.id, data.owner.id));
+  await data.database.execute(sql`UPDATE extension_release_installations SET payload = (payload::jsonb || '{"enabled":false}'::jsonb)::text WHERE id = ${data.installationId}`);
+  await expect(recoverRuntimeLock({ principalId: data.owner.id, scope: "global", kind: "human" }, data.installationId, "counter", fence, true)).rejects.toThrow("live host effects");
+  expect(await inspectRuntimeLocks(data.installationId)).toHaveLength(1);
+});

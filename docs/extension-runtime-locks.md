@@ -22,6 +22,9 @@ with `action: "recoverLock"`, `lockKey`, `expectedFence`, and
 `acknowledgeUncertainEffects: true`. Recovery checks current administrator status,
 disabled installation state, exact fence, and absence of admitted effects. It
 records an audit entry in the same transaction as recovery.
+An expired held row left by an idle host crash can use this same explicit
+recovery path. Recovery does not require re-enabling or executing extension code.
+An unexpired held row or a row with a live local session cannot be recovered.
 
 Recovery refuses a persisted nonzero effect count even when no local session
 exists. A host crash during an admitted effect can therefore leave a blocked
