@@ -261,17 +261,21 @@ export class PodmanRunner implements Runner {
         return () => { contexts.delete(context.invocationId); };
       });
       this.executions.set(input.workerId, execution);
-      this.deadlines.set(input.workerId, setTimeout(() => { void this.cancel(input.workerId); }, Math.min(limits.timeoutMs, input.context.deadline - Date.now())));
-      void execution.exited.then(async code => {
+      const cleanupFailed = () => {
+        const current = this.operations.get(input.workerId);
+        this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [...(current?.diagnostics.filter(diagnostic => diagnostic.code !== "cleanup_failed") ?? []), new RunnerError("cleanup_failed", "Worker cleanup failed; retained resources require cleanup retry").diagnostic()] });
+      };
+      this.deadlines.set(input.workerId, setTimeout(() => { void this.cancel(input.workerId).catch(cleanupFailed); }, Math.min(limits.timeoutMs, input.context.deadline - Date.now())));
+      void execution.exited.then(code => {
+        const current = this.operations.get(input.workerId);
+        if (current?.state === "running") this.operations.set(input.workerId, { id: input.workerId, state: code === 0 ? "succeeded" : "failed", diagnostics: code === 0 ? [] : [new RunnerError("worker_exited", `Worker exited ${code}`).diagnostic()] });
+      }).finally(async () => {
         clearTimeout(this.deadlines.get(input.workerId));
         this.deadlines.delete(input.workerId);
         this.executions.delete(input.workerId);
         this.activeExecutions--;
-        const current = this.operations.get(input.workerId);
-        if (current?.state === "running") this.operations.set(input.workerId, { id: input.workerId, state: code === 0 ? "succeeded" : "failed", diagnostics: code === 0 ? [] : [new RunnerError("worker_exited", `Worker exited ${code}`).diagnostic()] });
-        await this.remove(input.workerId);
-        await rm(stage, { recursive: true, force: true });
-      });
+        if (!this.containers.has(input.workerId)) await rm(stage, { recursive: true, force: true });
+      }).catch(cleanupFailed);
       return execution;
     } catch (error) { this.activeExecutions--; this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [new RunnerError("worker_start_failed", "Worker could not start").diagnostic()] }); if (staged) await rm(staged, { recursive: true, force: true }); throw error; }
   }
@@ -292,6 +296,7 @@ export class PodmanRunner implements Runner {
   }
   async close(): Promise<void> {
     await Promise.all([...this.operations.values()].filter(operation => operation.state === "building" || operation.state === "running").map(operation => this.cancel(operation.id)));
+    await Promise.all([...this.containers.keys()].map(id => this.remove(id)));
     if (this.lease) { const lease = this.lease; this.lease = undefined; lease.stdin.end(); await new Promise<void>(resolve => lease.once("exit", () => resolve())); }
     this.ready = undefined;
   }

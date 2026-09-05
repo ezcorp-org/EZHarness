@@ -18,7 +18,7 @@ export class FramedExecution {
   private logText = "";
   readonly exited: Promise<number | null>;
   constructor(readonly workerId: string, private readonly child: ChildProcessWithoutNullStreams, private readonly reverse: ReverseRpc, private readonly terminate: () => Promise<void>, private readonly frameBytes: number, private readonly timeoutMs: number, private readonly beginRequest?: (method: string, params: unknown) => (() => void)) {
-    this.exited = new Promise(resolve => child.once("close", resolve));
+    this.exited = new Promise<number | null>(resolve => child.once("close", resolve)).then(async code => { await this.stop(); return code; });
     child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
     child.stderr.on("data", (chunk: Buffer) => { this.logs += chunk.byteLength; this.logText = (this.logText + chunk.toString()).slice(-8192); if (this.logs > this.frameBytes) this.fail(new RunnerError("output_limit", "Worker log limit exceeded")); });
     child.on("error", error => this.fail(error));

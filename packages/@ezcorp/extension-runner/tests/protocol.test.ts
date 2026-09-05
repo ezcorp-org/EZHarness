@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { FramedExecution } from "../src/protocol";
 
 function worker(program: string, maximumBytes = 4096, timeoutMs = 1000) {
@@ -7,6 +8,27 @@ function worker(program: string, maximumBytes = 4096, timeoutMs = 1000) {
   const execution = new FramedExecution("worker", child, async (method, params) => ({ method, params }), async () => { child.kill("SIGKILL"); }, maximumBytes, timeoutMs);
   return { child, execution };
 }
+
+test("worker exit waits for asynchronous termination evidence", async () => {
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: ["pipe", "pipe", "pipe"] });
+  const cleanup = Promise.withResolvers<void>();
+  let completed = false;
+  const execution = new FramedExecution("worker", child, async () => null, () => cleanup.promise, 4096, 1000);
+  const exited = execution.exited.then(code => { completed = true; return code; });
+  try {
+    await once(child, "close");
+    await Promise.resolve();
+    expect(completed).toBe(false);
+  } finally { cleanup.resolve(); await exited; }
+  expect(completed).toBe(true);
+});
+
+test("worker exit reports termination failure instead of completed cleanup", async () => {
+  const child = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: ["pipe", "pipe", "pipe"] });
+  const execution = new FramedExecution("worker", child, async () => null, async () => { throw new Error("cleanup failed"); }, 4096, 1000);
+  await expect(execution.exited).rejects.toThrow("cleanup failed");
+  await expect(execution.close()).rejects.toThrow("cleanup failed");
+});
 
 test("framing accepts split UTF-8 and host reverse RPC", async () => {
   const { execution } = worker(`process.stdin.once('data',data=>{const req=JSON.parse(data);const result=Buffer.from(JSON.stringify({jsonrpc:'2.0',id:req.id,result:'é'})+'\\n');process.stdout.write(result.subarray(0,result.length-3));setTimeout(()=>process.stdout.write(result.subarray(result.length-3)),10)});`);

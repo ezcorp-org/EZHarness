@@ -70,6 +70,35 @@ test("same frozen input produces identical artifacts", async () => {
   expect(first.artifactDigest).toBe(second.artifactDigest);
 }, 120_000);
 
+test("failed cleanup is reported and retained containers are retried at shutdown", async () => {
+  class CleanupFailureRunner extends PodmanRunner {
+    failWorker: string | undefined;
+    protected override async remove(id: string): Promise<void> {
+      if (id === this.failWorker) { this.failWorker = undefined; throw new Error("Injected cleanup failure"); }
+      await super.remove(id);
+    }
+  }
+  const directory = await mkdtemp(join(tmpdir(), "ez-runner-cleanup-"));
+  const isolated = new CleanupFailureRunner({ root: directory, ...await provision() });
+  try {
+    const files = source("async () => { process.exit(0); }");
+    const built = await isolated.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(built.diagnostics).toEqual([]);
+    const workerId = randomUUID();
+    const context = { workerId, invocationId: randomUUID(), releaseId: built.artifactDigest!, principalId: "owner", scopeId: "global", token: "cleanup-test", deadline: Date.now() + 30_000 };
+    const worker = await isolated.start({ workerId, artifactDigest: built.artifactDigest!, context, limits: executionLimits }, async () => null);
+    isolated.failWorker = workerId;
+    const exited = worker.exited.then(code => code, error => error as Error);
+    await expect(worker.request("extension/invoke", { name: "echo", input: {}, context })).rejects.toThrow();
+    expect(await exited).toMatchObject({ message: "Injected cleanup failure" });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(await isolated.inspect(workerId)).toMatchObject({ state: "failed", diagnostics: [{ code: "cleanup_failed" }] });
+    await isolated.close();
+    const name = `ez-v4-${(await import("../src/core")).sha256(`${directory}:${workerId}`).slice(0, 32)}`;
+    expect(await command("podman", ["ps", "-a", "--filter", `name=${name}`, "--format={{.Names}}"])).toBe("");
+  } finally { await isolated.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
+
 test("type errors, absent, skipped and failing tests cannot produce a release", async () => {
   for (const files of [ { ...source(), "broken.ts": "const count:number='bad';" }, { "extension.ts": source()["extension.ts"]! }, { ...source(), "feature.test.ts": "import {test,expect} from 'bun:test';test('fail',()=>expect(1).toBe(2));" }, { ...source(), "feature.test.ts": "import {test} from 'bun:test';test.skip('skip',()=>{});" }, { ...source(), "feature.test.ts": "console.log('PASS');process.exit(0);" } ]) {
     const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
@@ -125,7 +154,7 @@ test("kernel PID, temporary storage, memory and descendant cancellation limits h
     if (action === "disk") expect(await pending).toEqual({ limited: true });
     else if (action === "pids") { const output = await pending as { children: number; spawnFailure: string | null }; expect(output.children).toBeLessThan(32); expect(output.children).toBeGreaterThan(0); expect(output.spawnFailure).toBe("EAGAIN"); }
     else if (action === "cancel") { const rejected = expect(pending).rejects.toThrow(); await Bun.sleep(300); await runner.cancel(workerId); await rejected; }
-    else { await expect(pending).rejects.toThrow(); await worker.exited; await Bun.sleep(100); expect((await runner.inspect(workerId)).diagnostics.some(diagnostic => diagnostic.code === "memory_limit")).toBe(true); }
+    else { await expect(pending).rejects.toThrow(); await worker.exited; expect((await runner.inspect(workerId)).diagnostics.some(diagnostic => diagnostic.code === "memory_limit")).toBe(true); }
     await worker.close();
     expect(await command("podman", ["ps", "-a", "--filter", `name=ez-v4-${(await import('../src/core')).sha256(`${root}:${workerId}`).slice(0,32)}`, "--format={{.Names}}"])).toBe("");
   }
