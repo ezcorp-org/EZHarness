@@ -20,6 +20,27 @@ import { ContractError, validateRuntimeLockKey } from "@ezcorp/extension-contrac
 
 const tails = new Map<string, Promise<unknown>>();
 
+async function waitForTurn<T>(previous: Promise<unknown>, action: () => Promise<T>): Promise<T> {
+  const context = getExtensionContext();
+  if (!context) return previous.then(action);
+  context.signal.throwIfAborted();
+  const remaining = Math.min(30_000, context.invocation.deadline - Date.now());
+  if (remaining <= 0) throw new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
+  try {
+    await Promise.race([previous, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline")), remaining);
+      abort = () => reject(context.signal.reason);
+      context.signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (abort) context.signal.removeEventListener("abort", abort);
+  }
+  return action();
+}
+
 async function hostLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const context = getExtensionContext();
   if (!context) return fn();
@@ -50,7 +71,7 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
   // The tail we publish back to the map: it resolves when `fn` settles
   // (success OR failure), so the next caller runs no matter what.
-  const run = prev.then(() => hostLock(key, fn));
+  const run = waitForTurn(prev, () => hostLock(key, fn));
   // Publish a tail that NEVER rejects, so future `.then(() => fn())`
   // always moves forward. Caller still sees the real rejection via `run`.
   const tail = run.catch(() => undefined);
@@ -73,7 +94,7 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export function createMutex(key?: string): <T>(fn: () => Promise<T>) => Promise<T> {
   let tail: Promise<unknown> = Promise.resolve();
   return <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = tail.then(() => {
+    const run = waitForTurn(tail, () => {
       if (getExtensionContext() && key === undefined) throw new ContractError("LOCK_KEY_REQUIRED", "v4 createMutex requires a stable explicit key");
       return key === undefined ? fn() : hostLock(key, fn);
     });

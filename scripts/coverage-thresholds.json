@@ -71,6 +71,7 @@
   "packages/@ezcorp/sdk/src/v4/native-proxy.ts": 100,
   "packages/@ezcorp/extension-contract/src/network.ts": 100,
   "packages/@ezcorp/extension-contract/src/locks.ts": 100,
+  "packages/@ezcorp/sdk/src/v4/invocation-channel.ts": 100,
   "packages/@ezcorp/sdk/src/v4/network.ts": 100,
   "packages/@ezcorp/sdk/src/v4/runtime.ts": 100,
   "packages/@ezcorp/sdk/src/v4/serve.ts": 100,

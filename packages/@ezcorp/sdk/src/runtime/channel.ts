@@ -20,6 +20,7 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 import { _setDispatcherRegister, toolError } from "./rpc";
 import { withToolContext, getToolContext } from "./tool-context";
+import { getInvocationChannel } from "../v4/invocation-channel";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -676,6 +677,8 @@ function ensureDispatcherRegistered(): void {
 }
 
 export function getChannel(): HostChannel {
+  const invocation = getInvocationChannel();
+  if (invocation) return invocation;
   ensureDispatcherRegistered();
   if (installedChannel) return installedChannel;
   if (!singleton) singleton = createProductionChannel();

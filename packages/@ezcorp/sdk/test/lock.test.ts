@@ -67,6 +67,31 @@ test("aborted invocation does not enter the critical section or send late releas
   expect(calls).toBe(1);
 });
 
+test("nested local lock cycles stop at the invocation deadline without running delayed actions", async () => {
+  const context = hostContext(async () => ({ acquired: true, fence: "fence" }));
+  context.invocation.deadline = Date.now() + 30;
+  let entered = false;
+  await expect(withExtensionContext(context, () => withLock("nested-cycle", () => withLock("nested-cycle", async () => { entered = true; })))).rejects.toThrow("bounded deadline");
+  expect(entered).toBe(false);
+});
+
+test("a queued local mutex call observes cancellation before host admission", async () => {
+  const controller = new AbortController();
+  const context = hostContext(async () => ({ acquired: true, fence: "fence" }), { signal: controller.signal });
+  const gate = deferred();
+  const started = deferred();
+  const mutex = createMutex("cancel-queue");
+  const first = withExtensionContext(context, () => mutex(async () => { started.resolve(); await gate.promise; }));
+  await started.promise;
+  let entered = false;
+  const second = withExtensionContext(context, () => mutex(async () => { entered = true; }));
+  controller.abort(new Error("queue cancelled"));
+  await expect(second).rejects.toThrow("queue cancelled");
+  gate.resolve();
+  await first;
+  expect(entered).toBe(false);
+});
+
 // ── withLock ───────────────────────────────────────────────────────
 
 describe("withLock", () => {

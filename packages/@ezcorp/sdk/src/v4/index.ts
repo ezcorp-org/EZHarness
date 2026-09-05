@@ -1,6 +1,7 @@
 import { ContractError, assertJson, compileValueSchema, validateInvocationContext, validateManifest } from "@ezcorp/extension-contract";
 import type { ExtensionManifestV4, InvocationContext, ValueSchema } from "@ezcorp/extension-contract";
 import { withExtensionContext } from "./context";
+import { withInvocationChannel } from "./invocation-channel";
 
 export * from "@ezcorp/extension-contract";
 export { serve, createSession } from "./serve";
@@ -51,7 +52,7 @@ export function defineExtension(definition: ExtensionDefinition): DefinedExtensi
         validateInvocationContext(context.invocation);
         context.signal.throwIfAborted();
         checkInput(input);
-        const output = await withExtensionContext(context, () => handler.handle(input, context));
+        const output = await withExtensionContext(context, () => withInvocationChannel(manifest.name, context, handlers === tools ? name : undefined, () => handler.handle(input, context)));
         context.signal.throwIfAborted();
         checkOutput(output);
         return output;

@@ -25,7 +25,7 @@ test("two fresh workers preserve both increments inside the same SDK lock", asyn
   const grants = buildFullGrantFromManifest(manifest);
   const files = {
     "manifest.json": JSON.stringify(manifest),
-    "extension.ts": `import {defineExtension,serve,validateManifest} from '@ezcorp/sdk/v4'; import {withLock} from '@ezcorp/sdk/runtime'; import manifest from './manifest.json'; await serve(defineExtension({manifest:validateManifest(manifest),methods:{increment:{inputSchema:{type:'object'},outputSchema:{type:'integer'},handle:async(_input,context)=>withLock('counter',async()=>{const current=await context.call('ezcorp/storage',{action:'get',scope:'global',key:'counter'}) as {value:number|null}; const next=Number(current.value??0)+1; await context.call('ezcorp/storage',{action:'set',scope:'global',key:'counter',value:next}); return next;})}}}));`,
+    "extension.ts": `import {defineExtension,serve,validateManifest} from '@ezcorp/sdk/v4'; import {withLock,Storage} from '@ezcorp/sdk/runtime'; import manifest from './manifest.json'; const storage=new Storage('global'); await serve(defineExtension({manifest:validateManifest(manifest),methods:{increment:{inputSchema:{type:'object'},outputSchema:{type:'integer'},handle:async()=>withLock('counter',async()=>{const current=await storage.get<number>('counter'); const next=Number(current.value??0)+1; await storage.set('counter',next); return next;})}}}));`,
     "contract.test.ts": "import {test,expect} from 'bun:test'; import manifest from './manifest.json'; test('declares storage',()=>expect(manifest.permissions.storage).toBe(true));",
   };
   let process: ReleaseProcess | undefined;
