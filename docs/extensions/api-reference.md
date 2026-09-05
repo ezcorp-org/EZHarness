@@ -184,41 +184,26 @@ ezcorp ext dev ./my-extension
 
 ---
 
-### `ezcorp ext test`
+### `ezcorp ext test` and `ezcorp ext verify`
 
-Run extension tests in a sandboxed environment.
-
-```
-ezcorp ext test [dir] [--filter <name>]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--filter` | none | Run only tests matching this name |
-
-Sandbox constraints:
-- Memory limited via `prlimit --rss=` (uses manifest `resources.memory` or 512MB default)
-- Clean environment: only `PATH`, `HOME`, `TMPDIR`, `NODE_ENV=test`, `BUN_ENV=test`
-- Isolated temp directory at `/tmp/ezcorp-ext-test/<name>/`
-- Uses `bun test` under the hood
+Both commands build and test an immutable source snapshot in the configured
+isolated runner. Neither command executes extension configuration on the host.
 
 ```bash
-# Run all tests
-ezcorp ext test
-
-# Run filtered tests in a specific directory
-ezcorp ext test ./my-extension --filter "should parse"
+ezcorp ext verify ./my-extension
+ezcorp ext test ./my-extension
 ```
 
----
+The commands print structured build evidence and exit nonzero if the build fails.
+The runner checks source, dependencies, types, feature tests, and discovery under
+its pinned policy. A test filter cannot bypass the required full candidate checks.
+A successful local build does not approve or activate a release. Import the source
+into an extension workspace, build it, and obtain human approval for that exact
+release before activation.
 
-### `ezcorp ext verify`
-
-Deterministic, zero-LLM acceptance gate: spins the extension up in a sandbox, runs the manifest's `smokeTest`, and exits `0` iff every step passes.
-
-```
-ezcorp ext verify [dir] [--json]
-```
+The old host-directory SDK helpers `createTestExtension`, `runExtensionTests`,
+and `verifyExtension` are retired. Use the CLI above or the workspace/build/inspect
+control API instead. Pure assertion helpers remain available.
 
 ---
 
