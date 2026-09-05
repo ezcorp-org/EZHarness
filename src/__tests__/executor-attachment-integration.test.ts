@@ -15,7 +15,7 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
-import { resolve, join } from "node:path";
+import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import type { Model, Api } from "@earendil-works/pi-ai";
@@ -123,8 +123,10 @@ import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { attachmentHandle, type StagedAttachment } from "../chat/attachments/content-builder";
+import { createUser } from "../db/queries/users";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { validateManifest, TOOL_RESULT_SCHEMA } from "@ezcorp/extension-contract";
 
-const MOCK_EXT_DIR = resolve(__dirname, "helpers/mock-extension");
 const IMAGE_BYTES = new TextEncoder().encode("REAL-IMAGE-BYTES");
 const EXPECTED_B64 = Buffer.from(IMAGE_BYTES).toString("base64");
 
@@ -132,9 +134,11 @@ let extensionId: string;
 let agentConfigId: string;
 let projectId: string;
 let projectRoot: string;
+let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
+  userId = (await createUser({ email: "attachment-fixture@example.test", passwordHash: "unused", name: "Owner", role: "admin", status: "active" })).id;
   projectRoot = await mkdtemp(join(tmpdir(), "ezcorp-attint-"));
   const project = await createProject({ name: "Att Integration", path: projectRoot });
   projectId = project.id;
@@ -143,18 +147,23 @@ beforeAll(async () => {
     name: "e2e-echo",
     version: "1.0.0",
     manifest: {
-      schemaVersion: "2.0",
+      schemaVersion: 4,
       name: "e2e-echo", version: "1.0.0",
-      author: "e2e-test",
+      author: { name: "e2e-test" },
       description: "E2E test extension",
       entrypoint: "./entrypoint.ts",
-      tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } } }],
+      tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } }, outputSchema: TOOL_RESULT_SCHEMA }],
       permissions: {},
     } as any,
-    source: "local:/test",
-    installPath: MOCK_EXT_DIR,
+    source: "release-v4",
+    installPath: null,
+    creatorUserId: userId,
   });
   extensionId = ext.id;
+  releaseRuntimeFixture(extensionId, validateManifest(ext.manifest), { ownerId: userId, invoke: async (_name, input, context) => {
+    expect(context.principalId).toBe(userId);
+    return { content: [{ type: "text", text: (input as { text: string }).text }], isError: false };
+  } }).configure();
 
   const agent = await createAgentConfig({
     name: "attachment-int-agent",
@@ -190,7 +199,7 @@ function extractToolText(result: any): string {
 
 describe("streamChat attachment-handle integration", () => {
   test("handle echoed by the LLM reaches the subprocess as a data URI", async () => {
-    const conv = await createConversation(projectId, { title: "integration", userId: undefined });
+    const conv = await createConversation(projectId, { title: "integration", userId });
     const written = await writeAttachment({
       projectRoot, conversationId: conv.id, messageId: "will-assign",
       filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
@@ -220,7 +229,7 @@ describe("streamChat attachment-handle integration", () => {
   });
 
   test("unknown handle passes through verbatim (tool sees the raw handle)", async () => {
-    const conv = await createConversation(projectId, { title: "int-unknown", userId: undefined });
+    const conv = await createConversation(projectId, { title: "int-unknown", userId });
     const written = await writeAttachment({
       projectRoot, conversationId: conv.id, messageId: "will-assign",
       filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
@@ -252,7 +261,7 @@ describe("streamChat attachment-handle integration", () => {
   });
 
   test("no attachments in options → handle in args passes through unchanged (no-op resolver)", async () => {
-    const conv = await createConversation(projectId, { title: "int-noatt", userId: undefined });
+    const conv = await createConversation(projectId, { title: "int-noatt", userId });
     nextToolArgs = { text: "ez-attachment://anything" };
     lastToolResult = null;
 

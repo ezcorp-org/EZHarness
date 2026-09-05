@@ -644,7 +644,7 @@ export class ExtensionRegistry {
     return this.extensionTools.get(extensionId) ?? [];
   }
 
-  /** Get an existing process ONLY if it is already running. Never starts a new process. */
+  /** Resolve a lazy release adapter. This does not start an execution worker. */
   getProcessIfRunning(extensionId: string): ExtensionProcess | null {
     const proc = this.processes.get(extensionId);
     if (proc?.isRunning) return proc;
@@ -680,6 +680,7 @@ export class ExtensionRegistry {
   /** Get or create an ExtensionProcess for the given extension ID. */
   async getProcess(extensionId: string, _options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
     const manifest = this.manifests.get(extensionId);
+    if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
     if ((manifest?.schemaVersion as number | undefined) !== 4) {
       throw new Error("Extension requires migration to an approved v4 release");
     }

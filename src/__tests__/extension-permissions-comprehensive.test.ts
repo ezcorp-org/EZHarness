@@ -4,7 +4,7 @@ import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { configContent } from "./helpers/write-config";
+import { listExtensions } from "../db/queries/extensions";
 
 // Must be called before importing modules that use db/connection
 mockDbConnection();
@@ -25,7 +25,7 @@ import {
   setSensitiveAlwaysAllow,
 } from "../extensions/permissions";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
-import { installFromLocal } from "../extensions/installer";
+import { installFromLocal, installFromGitHub } from "../extensions/installer";
 import { validateManifestV2 as validateManifest } from "../extensions/manifest";
 
 // ── Setup ───────────────────────────────────────────────────────────
@@ -392,285 +392,26 @@ describe("validateManifest (v2)", () => {
 // 2. installer.ts — installFromLocal
 // ════════════════════════════════════════════════════════════════════
 
-describe("installFromLocal", () => {
-  test("successfully installs from local path with valid manifest", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-local-test-"));
-    try {
-      const manifest = makeManifest({ name: `local-install-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-      await Bun.write(join(tempDir, "index.ts"), "export default {}");
-
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      const ext = await installFromLocal(tempDir, permissions);
-
-      expect(ext.name).toBe(manifest.name);
-      expect(ext.version).toBe("1.0.0");
-      expect(ext.enabled).toBe(false); // Extensions default to disabled without explicit approval
-      expect(ext.source).toBe(`local:${tempDir}`);
-      expect(ext.installPath).toBe(tempDir);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when ezcorp.config.ts not found", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-nomanifest-"));
-    try {
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromLocal(tempDir, permissions)).rejects.toThrow("No ezcorp.config.ts found");
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when manifest is invalid", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-badmanifest-"));
-    try {
-      // Manifest missing required fields
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ description: "incomplete" })};\n`);
-
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromLocal(tempDir, permissions)).rejects.toThrow("Invalid manifest");
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("computes and stores checksum", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-checksum-"));
-    try {
-      const manifest = makeManifest({ name: `checksum-test-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-      await Bun.write(join(tempDir, "index.ts"), "console.log('hello')");
-
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      const ext = await installFromLocal(tempDir, permissions);
-
-      // The manifest stored in the DB should have a checksum
-      expect(ext.manifest).toBeDefined();
-      expect((ext.manifest as any).checksum).toBeDefined();
-      expect(typeof (ext.manifest as any).checksum).toBe("string");
-      expect((ext.manifest as any).checksum.length).toBe(64); // SHA-256 hex
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("stores correct source format", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-source-"));
-    try {
-      const manifest = makeManifest({ name: `source-test-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
-      await Bun.write(join(tempDir, "index.ts"), "export default {}");
-
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      const ext = await installFromLocal(tempDir, permissions);
-
-      expect(ext.source).toBe(`local:${tempDir}`);
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════
-// 2. installer.ts — installFromGitHub (mocked fetch)
-// ════════════════════════════════════════════════════════════════════
-
-describe("installFromGitHub", () => {
-  // We need to dynamically import installFromGitHub so our fetch mock is in place
-  const { installFromGitHub } = require("../extensions/installer");
-
-  test("successfully installs from mocked GitHub release", async () => {
-    // Create a temp dir with a valid tarball containing ezcorp.config.ts + entrypoint
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-ok-"));
-    try {
-      const contentDir = join(tempDir, "ext-content");
-      await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(
-        makeManifest({ name: `gh-install-${Date.now()}` }),
-      ));
-      await Bun.write(join(contentDir, "index.ts"), "export default {}");
-
-      // Create a tarball from the content
-      const tarPath = join(tempDir, "release.tar.gz");
-      const tarProc = Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-      expect(tarProc.exitCode).toBe(0);
-
-      const tarBytes = await Bun.file(tarPath).arrayBuffer();
-
-      const originalFetch = globalThis.fetch;
-      const mockFetch = async (input: any, _init?: any) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
-        }
-        if (url.includes("fake.example.com")) {
-          return new Response(tarBytes, { status: 200 });
-        }
-        return originalFetch(input, _init);
-      };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
+describe("retired installation paths require the approved lifecycle", () => {
+  const localCases = ["valid manifest", "missing manifest", "invalid manifest", "matching checksum", "explicit source path"];
+  const githubCases = ["release", "tagged release", "tampered checksum", "missing tarball", "missing manifest"];
+  for (const [source, cases, install] of [["local", localCases, installFromLocal], ["github", githubCases, installFromGitHub]] as const) {
+    for (const name of cases) test(`${source}: ${name} cannot bypass isolated build and human approval`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), "retired-extension-install-"));
+      let fetched = false;
+      const previousFetch = globalThis.fetch;
+      globalThis.fetch = (async () => { fetched = true; throw new Error("Legacy install must not fetch"); }) as unknown as typeof fetch;
       try {
-        const permissions: ExtensionPermissions = { grantedAt: {} };
-        const ext = await installFromGitHub("testuser/testrepo", permissions);
-        expect(ext.name).toBeDefined();
-        expect(ext.source).toContain("github:");
-        expect(ext.source).toContain("v1.0.0");
+        await Bun.write(join(directory, "ezcorp.config.ts"), 'throw new Error("Legacy config must not execute");');
+        const before = await listExtensions();
+        await expect(install(source === "local" ? directory : "testuser/testrepo@v2.0.0", { filesystem: { paths: ["/"], mode: ["read", "write"] }, shell: true }, true, { userId: "owner" })).rejects.toThrow("EXTENSION_V4_REQUIRED");
+        expect(fetched).toBe(false);
+        expect(await listExtensions()).toEqual(before);
+        expect(await Bun.file(join(directory, "ezcorp.config.ts")).text()).toContain("must not execute");
       } finally {
-        globalThis.fetch = originalFetch;
+        globalThis.fetch = previousFetch;
+        await rm(directory, { recursive: true, force: true });
       }
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("handles @tag syntax in repo spec", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-tag-"));
-    try {
-      const contentDir = join(tempDir, "ext-content");
-      await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(
-        makeManifest({ name: `gh-tag-${Date.now()}` }),
-      ));
-      await Bun.write(join(contentDir, "index.ts"), "export default {}");
-
-      const tarPath = join(tempDir, "release.tar.gz");
-      Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-      const tarBytes = await Bun.file(tarPath).arrayBuffer();
-
-      const originalFetch = globalThis.fetch;
-      let capturedUrl = "";
-      const mockFetch = async (input: any, _init?: any) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("api.github.com")) {
-          capturedUrl = url;
-          return new Response(JSON.stringify({
-            tag_name: "v2.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
-        }
-        if (url.includes("fake.example.com")) {
-          return new Response(tarBytes, { status: 200 });
-        }
-        return originalFetch(input, _init);
-      };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-      try {
-        const permissions: ExtensionPermissions = { grantedAt: {} };
-        await installFromGitHub("testuser/testrepo@v2.0.0", permissions);
-        // The URL should use the tag-specific endpoint
-        expect(capturedUrl).toContain("/releases/tags/v2.0.0");
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws on checksum mismatch", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-checksum-"));
-    try {
-      const contentDir = join(tempDir, "ext-content");
-      // Manifest with a wrong checksum
-      const manifest = makeManifest({ name: `gh-bad-checksum-${Date.now()}` });
-      (manifest as any).checksum = "0000000000000000000000000000000000000000000000000000000000000000";
-      await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(manifest));
-      await Bun.write(join(contentDir, "index.ts"), "export default {}");
-
-      const tarPath = join(tempDir, "release.tar.gz");
-      Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-      const tarBytes = await Bun.file(tarPath).arrayBuffer();
-
-      const originalFetch = globalThis.fetch;
-      const mockFetch = async (input: any, _init?: any) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
-        }
-        if (url.includes("fake.example.com")) {
-          return new Response(tarBytes, { status: 200 });
-        }
-        return originalFetch(input, _init);
-      };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-      try {
-        const permissions: ExtensionPermissions = { grantedAt: {} };
-        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("Checksum mismatch");
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when no tarball found in release", async () => {
-    const originalFetch = globalThis.fetch;
-    const mockFetch = async (input: any, _init?: any) => {
-      const url = typeof input === "string" ? input : input.url;
-      if (url.includes("api.github.com")) {
-        return new Response(JSON.stringify({
-          tag_name: "v1.0.0",
-          assets: [], // no assets
-          // no tarball_url either
-        }), { status: 200 });
-      }
-      return originalFetch(input, _init);
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-    try {
-      const permissions: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("No tarball found");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("throws when ezcorp.config.ts not found in extracted tarball", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-nomanifest-"));
-    try {
-      const contentDir = join(tempDir, "ext-content");
-      // No ezcorp.config.ts, just a random file
-      await Bun.write(join(contentDir, "README.md"), "# Hello");
-
-      const tarPath = join(tempDir, "release.tar.gz");
-      Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-      const tarBytes = await Bun.file(tarPath).arrayBuffer();
-
-      const originalFetch = globalThis.fetch;
-      const mockFetch = async (input: any, _init?: any) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
-        }
-        if (url.includes("fake.example.com")) {
-          return new Response(tarBytes, { status: 200 });
-        }
-        return originalFetch(input, _init);
-      };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-      try {
-        const permissions: ExtensionPermissions = { grantedAt: {} };
-        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("No ezcorp.config.ts found");
-      } finally {
-        globalThis.fetch = originalFetch;
-      }
-    } finally {
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
+    });
+  }
 });
