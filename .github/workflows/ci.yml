@@ -142,6 +142,7 @@ jobs:
         with:
           web: "true"
           sync: "true"
+          playwright: "true"
       - run: bash scripts/test-web.sh
 
   e2e-mock:

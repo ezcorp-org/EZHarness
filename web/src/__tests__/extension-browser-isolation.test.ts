@@ -8,12 +8,13 @@ import { SANDBOX_FLAGS_STRICT } from "../lib/components/tool-cards/iframe-card-l
 import { restoreModuleMocks } from "../../../src/__tests__/helpers/mock-cleanup";
 
 const directory = await mkdtemp(join(tmpdir(), "ez-browser-boundary-"));
+const rateLimiterExports = await import("../lib/server/security/rate-limiter");
 mock.module("$server/auth/middleware", () => ({ requireAuth: (locals: { user?: unknown }) => { if (!locals.user) throw new Error("Unauthenticated"); return locals.user; } }));
 mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
 mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, error: string) => Response.json({ error }, { status }) }));
 mock.module("$server/chat/attachments/ext-files-resolver", () => ({ extensionDataRoot: () => directory }));
 mock.module("$server/db/queries/extensions", () => ({ getExtensionByName: async () => ({ enabled: true }) }));
-mock.module("$lib/server/security/rate-limiter", () => require("../lib/server/security/rate-limiter"));
+mock.module("$lib/server/security/rate-limiter", () => rateLimiterExports);
 const { GET } = await import("../routes/api/extensions/[name]/data/[...path]/+server");
 afterAll(async () => { restoreModuleMocks(); await rm(directory, { recursive: true, force: true }); });
 
