@@ -216,6 +216,7 @@ web_host_files() {
       web/src/__tests__/extensions-data-route.test.ts \
       web/src/__tests__/ask-user-answer-route.test.ts \
       web/src/__tests__/file-organizer-hub-authority.integration.test.ts \
+      web/src/__tests__/hub-isolated-action.integration.test.ts \
       web/src/__tests__/canvas-bridge.test.ts \
       web/src/__tests__/browser-invocation.test.ts \
       web/src/__tests__/extension-browser-authority.test.ts \
