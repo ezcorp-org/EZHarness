@@ -337,6 +337,21 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         : grantedFromRegistry(deps.registry, ctx.extensionId, ctx.userId);
     }
 
+    let liveGranted: CapabilitySet | undefined;
+    if (deps.registry.getManifest?.(ctx.extensionId)?.schemaVersion === 4) {
+      try {
+        const { getExtension } = await import("../db/queries/extensions");
+        const current = await getExtension(ctx.extensionId);
+        liveGranted = current?.enabled && current.source === "release-v4"
+          ? grantsToCapabilitySet(current.grantedPermissions, ctx.userId)
+          : [];
+      } catch {
+        const reason = "live-release-grant-unavailable";
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, undefined, reason);
+        return { decision: "deny", reason, auditId };
+      }
+    }
+
     // 2. Subset check. The first missing cap is the deny reason.
     //
     // The audit row is coalesced, the DECISION never is: a folded deny
@@ -349,7 +364,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     // reason, so only byte-identical refusals fold, and the summary
     // preserves the count plus the first/last timestamps — see
     // `perm-audit-coalescer.ts`.
-    const missing = firstMissingCapability(needed, granted);
+    const missing = firstMissingCapability(needed, granted) ?? (liveGranted ? firstMissingCapability(needed, liveGranted) : undefined);
     if (missing) {
       const reason = formatMissingReason(missing, ctx.toolName);
       if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "deny", missing, reason), auditId)) {
