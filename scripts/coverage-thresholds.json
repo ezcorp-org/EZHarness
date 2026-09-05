@@ -67,7 +67,6 @@
   "src/extensions/v4/deliveries.ts": 100,
   "src/extensions/v4/index.ts": 100,
   "src/extensions/v4/lifecycle.ts": 100,
-  "src/extensions/v4/postgres.integration.ts": 100,
   "src/extensions/v4/types.ts": 100,
   "src/extensions/virtual-filesystem.ts": 100,
   "web/src/lib/server/extensions/credential-resolver.ts": 100,

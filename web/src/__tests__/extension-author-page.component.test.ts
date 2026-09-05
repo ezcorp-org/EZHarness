@@ -108,9 +108,9 @@ test("file switching changes the editor without saving or losing content", async
   const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
   const view = render(AuthorPage, { data: pageData() });
   await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "kept" } });
-  await fireEvent.click(view.getByRole("button", { name: "src/helper.ts", exact: true }));
+  await fireEvent.click(view.getByRole("button", { name: "src/helper.ts" }));
   expect(view.getByRole("textbox", { name: "Source: src/helper.ts" })).toHaveValue("helper");
-  await fireEvent.click(view.getByRole("button", { name: "extension.ts", exact: true }));
+  await fireEvent.click(view.getByRole("button", { name: "extension.ts" }));
   expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("kept");
   expect(fetcher).not.toHaveBeenCalled();
 });
@@ -119,7 +119,7 @@ test("traversal, empty and duplicate file names cannot alter the workspace", asy
   const view = render(AuthorPage, { data: pageData() });
   for (const path of ["", "extension.ts", "../escape.ts", "/absolute.ts", "bad\\\\file.ts", "empty//file.ts"]) {
     await fireEvent.input(view.getByLabelText("Add a file"), { target: { value: path } });
-    await fireEvent.click(view.getByRole("button", { name: "Add file", exact: true }));
+    await fireEvent.click(view.getByRole("button", { name: "Add file" }));
     expect(view.getByRole("alert")).toBeVisible();
   }
   expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("original");
@@ -171,7 +171,7 @@ test("human rejection targets one approval without activating code", async () =>
   const data = pageData(true);
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(data.state)); vi.stubGlobal("fetch", fetcher);
   const view = render(AuthorPage, { data });
-  await fireEvent.click(view.getByRole("button", { name: "Reject", exact: true }));
+  await fireEvent.click(view.getByRole("button", { name: "Reject" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ approvalId: "approval", decision: false });
   expect(fetcher.mock.calls.every((call) => !String(call[1]?.body).includes('"activate"'))).toBe(true);

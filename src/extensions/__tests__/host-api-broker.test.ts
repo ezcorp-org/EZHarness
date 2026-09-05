@@ -3,12 +3,12 @@ import { configureHostApiTransport, handleHostApi, routeMatches, validateHostApi
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import { grantsToCapabilitySet, hostApiRouteCapability, intersectPermissions } from "../capability-types";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
-import type { JsonRpcRequest } from "../types";
+import type { ExtensionPermissions, JsonRpcRequest } from "../types";
 
 let activeUser = true;
 mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "user", status: activeUser ? "active" : "inactive" }) }));
 
-const permissions = { routes: [{ method: "GET", path: "/api/conversations/:id" }, { method: "POST", path: "/api/conversations" }] };
+const permissions: NonNullable<ExtensionPermissions["hostApi"]> = { routes: [{ method: "GET", path: "/api/conversations/:id" }, { method: "POST", path: "/api/conversations" }] };
 
 test("API broker matches exact segments and methods", () => {
   expect(routeMatches("/api/conversations/:id", "/api/conversations/conv_1")).toBe(true);
