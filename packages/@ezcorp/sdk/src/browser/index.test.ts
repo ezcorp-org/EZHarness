@@ -13,8 +13,12 @@ function fixture(overrides: Record<string, unknown> = {}) {
   const connects: unknown[] = [];
   const target = Object.assign(events, { document: { URL: "https://host.test/api/extensions/test/browser" }, __EZCORP_CANVAS_NONCE__: nonce, crypto, parent: { postMessage(message: unknown, origin: string, ports: MessagePort[]) {
     connects.push({ message, origin, count: ports.length });
-    port = ports[0]!;
-    port.onmessage = event => { const waiting = waiters.shift(); if (waiting) waiting(event.data); else inbox.push(event.data); };
+    port = structuredClone(ports[0]!, { transfer: ports });
+    port.onmessage = event => {
+      const waiting = waiters.shift();
+      if (waiting) waiting(event.data); else inbox.push(event.data);
+      if (event.data.type === "ezcorp.canvas.close") port.postMessage({ type: "ezcorp.canvas.closed", nonce });
+    };
     port.start();
   } }, ...overrides }) as unknown as CanvasWindow;
   const bridge = createCanvasBridge(target);
@@ -51,6 +55,7 @@ test("cancels one exact call, keeps its sibling active, and closes on pagehide",
   await data.next();
   data.events.dispatchEvent(new Event("pagehide"));
   await expect(third).rejects.toThrow("closed");
+  expect(await data.next()).toEqual({ type: "ezcorp.canvas.close", nonce: data.nonce });
   await expect(data.bridge.request("camera.stop", {})).rejects.toThrow("closed");
   expect(() => data.bridge.subscribeCamera(() => {})).toThrow("closed");
 });

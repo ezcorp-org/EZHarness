@@ -26,7 +26,9 @@ JPEG camera frames, a camera-stopped event, or `ezcorp.canvas.closed` when the
 host revokes the connection. The host owns camera access and
 consent; the extension does not receive a browser camera grant.
 
-`close()` rejects pending requests, sends a host close message, and closes both
-ports. Page hide calls it automatically. Aborting a request sends cancellation for
+`close()` rejects pending requests and sends a host close message. It retains the
+port until the host confirms closure, with a one-second drain limit, so immediate
+port disposal cannot discard the close message. Page hide calls it automatically.
+Aborting a request sends cancellation for
 its exact request ID. Cancellation cannot undo effects that already committed.
 The host must support the canvas cancel and close messages to stop its work.

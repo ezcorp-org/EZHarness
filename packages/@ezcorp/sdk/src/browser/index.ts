@@ -32,6 +32,14 @@ export function createCanvasBridge(target: CanvasWindow): CanvasBridge {
   const pending = new Map<string, Pending>();
   const listeners = new Set<(event: CanvasCameraEvent) => void>();
   let closed = false;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  function dispose(): void {
+    if (closeTimer) clearTimeout(closeTimer);
+    port.onmessage = null;
+    port.onmessageerror = null;
+    port.close();
+    channel.port2.close();
+  }
   function finish(id: string, error: Error | undefined, result?: unknown): void {
     const call = pending.get(id);
     if (!call) return;
@@ -51,16 +59,20 @@ export function createCanvasBridge(target: CanvasWindow): CanvasBridge {
     target.removeEventListener("pagehide", close);
     try { send({ type: "ezcorp.canvas.close", nonce }); }
     finally {
-      port.onmessage = null;
-      port.onmessageerror = null;
-      port.close();
-      channel.port2.close();
       for (const id of pending.keys()) finish(id, new Error("Extension bridge is closed."));
       listeners.clear();
+      closeTimer = setTimeout(dispose, 1000);
     }
   }
   port.onmessage = event => {
-    if (closed) return;
+    if (closed) {
+      const data = event.data;
+      if (data && typeof data === "object" && data.type === "ezcorp.canvas.closed" && data.nonce === nonce && Object.keys(data).every(key => key === "type" || key === "nonce")) {
+        try { send({ type: "ezcorp.canvas.closed-ack", nonce }); }
+        finally { dispose(); }
+      }
+      return;
+    }
     let data: Record<string, unknown>;
     try {
       assertJson(event.data, maxResponseBytes);
@@ -69,8 +81,8 @@ export function createCanvasBridge(target: CanvasWindow): CanvasBridge {
     } catch { close(); return; }
     if (data.nonce !== nonce) return;
     if (data.type === "ezcorp.canvas.closed" && Object.keys(data).every(key => key === "type" || key === "nonce")) {
-      try { for (const listener of listeners) listener({ type: "ezcorp.canvas.closed", nonce }); }
-      finally { close(); }
+      try { send({ type: "ezcorp.canvas.closed-ack", nonce }); for (const listener of listeners) listener({ type: "ezcorp.canvas.closed", nonce }); }
+      finally { close(); dispose(); }
       return;
     }
     if (data.type === "ezcorp.canvas.camera" || data.type === "ezcorp.canvas.camera-stopped") {
@@ -93,7 +105,7 @@ export function createCanvasBridge(target: CanvasWindow): CanvasBridge {
   port.start();
   target.addEventListener("pagehide", close, { once: true });
   try { target.parent.postMessage({ type: "ezcorp.canvas.connect", nonce }, origin, [channel.port2]); }
-  catch (error) { close(); throw error; }
+  catch (error) { close(); dispose(); throw error; }
   return {
     async request<Result>(method: CanvasMethod, params: Record<string, unknown>, options: CanvasRequestOptions = {}): Promise<Result> {
       if (closed) throw new Error("Extension bridge is closed.");
