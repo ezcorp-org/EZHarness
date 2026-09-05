@@ -362,6 +362,7 @@ run_legs() {
       src/__tests__/project-proposal-review.component.test.ts \
       src/__tests__/extension-review-location.server.test.ts \
       src/__tests__/mcp-control-request.server.test.ts \
+      src/__tests__/mcp-staging-client.unit.test.ts \
       src/__tests__/extension-credential-resolver.server.test.ts \
       src/__tests__/extension-host-api-transport.server.test.ts \
       src/__tests__/extension-legacy-cutover.server.test.ts \

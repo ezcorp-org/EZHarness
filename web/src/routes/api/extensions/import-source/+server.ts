@@ -31,7 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const valid = source.kind === "bundled" ? typeof source.name === "string"
       : source.kind === "marketplace" ? typeof source.versionId === "string"
       : source.kind === "local" ? typeof source.path === "string"
-      : source.kind === "github" && typeof source.repository === "string" && (source.ref === undefined || typeof source.ref === "string") && (source.directory === undefined || typeof source.directory === "string");
+      : source.kind === "github" && typeof source.repository === "string" && (source.ref === undefined || typeof source.ref === "string") && (source.directory === undefined || typeof source.directory === "string") && (source.projectId === undefined || typeof source.projectId === "string");
     if (!valid) return json({ code: "invalid_input", message: "Provide a bundled, marketplace, local, or GitHub source" }, { status: 400 });
     return json(await importExtensionSource({ principalId: user.id, scope: "global", kind: "human" }, source as ExtensionSourceInput));
   } catch (error) { return extensionControlError(error); }

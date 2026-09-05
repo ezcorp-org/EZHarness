@@ -17,8 +17,11 @@ An active administrator in a human session can call
 - `{kind:"marketplace",versionId:"version-id"}`: source from an integrity-checked
   published release, rebuilt locally and reviewed again before activation.
 
-Private GitHub imports require an explicit host-configured scoped source
-credential resolver. No global Git identity or child-supplied token is used.
+For private GitHub source, add `projectId` to the GitHub request. The selected
+project must have the exact repository as its Git origin and a host-stored
+GitHub credential. Each source request checks the active administrator,
+project membership, origin, and current credential again. Use a read-only
+repository-scoped credential. No global Git identity or child-supplied token is used.
 Local source and uploaded skills remain UTF-8 text snapshots; binary assets are
 refused explicitly until the contract has a typed binary representation.
 

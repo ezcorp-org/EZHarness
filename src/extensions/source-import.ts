@@ -16,11 +16,29 @@ export type ExtensionSourceInput =
   | { kind: "marketplace"; versionId: string }
   | { kind: "bundled"; name: string }
   | { kind: "local"; path: string }
-  | { kind: "github"; repository: string; ref?: string; directory?: string };
+  | { kind: "github"; repository: string; ref?: string; directory?: string; projectId?: string };
 
 const EXCLUDED = new Set(["node_modules", ".git", ".ezcorp", "dist", "coverage", "test-results", "playwright-report"]);
-type GitHubSourceCredentialResolver = (actor: LifecycleActor, repository: string) => Promise<string | null>;
-let sourceCredentialResolver: GitHubSourceCredentialResolver = async () => null;
+type GitHubSourceCredentialResolver = (actor: LifecycleActor, repository: string, projectId?: string) => Promise<string | null>;
+let sourceCredentialResolver: GitHubSourceCredentialResolver = resolveProjectSourceCredential;
+
+export async function resolveProjectSourceCredential(actor: LifecycleActor, repository: string, projectId?: string): Promise<string | null> {
+  if (projectId === undefined) return null;
+  if (typeof projectId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) throw new LifecycleError("invalid_source", "Select a valid project for private source access.");
+  await requireSourceAdministrator(actor);
+  const { getProject } = await import("../db/queries/projects");
+  const { checkProjectRole } = await import("../auth/middleware");
+  const { readProjectGit } = await import("./project-git-broker");
+  const { getSecret } = await import("./secrets-store");
+  const user = await getUserById(actor.principalId);
+  const project = await getProject(projectId);
+  if (!user || !project?.path || await checkProjectRole({ user }, projectId, "member") instanceof Response) throw new LifecycleError("forbidden", "Current project membership is required for private source access.");
+  const origin = await readProjectGit(project.path, "origin");
+  if (origin !== `https://github.com/${repository}`) throw new LifecycleError("source_mismatch", "The selected project must have this exact GitHub repository as its origin.");
+  const token = await getSecret("github-projects", projectId, "apiToken");
+  if (!token) throw new LifecycleError("credential_required", "Configure the host-owned GitHub credential for the selected project.");
+  return token;
+}
 
 export function configureGitHubSourceCredentials(resolver: GitHubSourceCredentialResolver): void { sourceCredentialResolver = resolver; }
 
@@ -51,7 +69,7 @@ async function readBounded(response: Response, limit: number): Promise<Uint8Arra
   } finally { reader.releaseLock(); }
 }
 
-export async function collectGitHubSource(input: Extract<ExtensionSourceInput, { kind: "github" }>, options: { token?: string; fetch?: typeof fetch; resolveHost?: ResolveHost; signal?: AbortSignal } = {}): Promise<WorkspaceFiles> {
+export async function collectGitHubSource(input: Extract<ExtensionSourceInput, { kind: "github" }>, options: { token?: string; resolveCredential?: () => Promise<string | null>; fetch?: typeof fetch; resolveHost?: ResolveHost; signal?: AbortSignal } = {}): Promise<WorkspaceFiles> {
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(input.repository) || input.repository.split("/").some(part => part === "." || part === "..")) throw new LifecycleError("invalid_source", "Use an owner/repository GitHub identifier");
   const ref = input.ref ?? "HEAD";
   if (!ref || ref.length > 200 || ref.split("/").some(part => part === "." || part === "..") || [...ref].some((character) => character.charCodeAt(0) <= 32)) throw new LifecycleError("invalid_ref", "Use a bounded Git branch, tag, or commit");
@@ -59,7 +77,8 @@ export async function collectGitHubSource(input: Extract<ExtensionSourceInput, {
   if (prefix.startsWith("/") || prefix.split("/").some((part) => part === ".." || part === ".") || prefix.includes("\\")) throw new LifecycleError("invalid_source", "Use a relative source directory without traversal");
   const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000);
   async function request(path: string, limit: number): Promise<unknown> {
-    const response = await guardedFetch(`https://api.github.com/repos/${input.repository}/${path}`, { redirect: "error", signal, headers: { accept: "application/vnd.github+json", "user-agent": "ezcorp-extension-import", ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) } }, { mode: "read", maxRedirects: 0, maxBodyBytes: limit, timeoutMs: 30_000, retryConnectionFailures: false, fetchImpl: options.fetch, resolveHost: options.resolveHost });
+    const token = options.resolveCredential ? await options.resolveCredential() : options.token;
+    const response = await guardedFetch(`https://api.github.com/repos/${input.repository}/${path}`, { redirect: "error", signal, headers: { accept: "application/vnd.github+json", "user-agent": "ezcorp-extension-import", ...(token ? { authorization: `Bearer ${token}` } : {}) } }, { mode: "read", maxRedirects: 0, maxBodyBytes: limit, timeoutMs: 30_000, retryConnectionFailures: false, fetchImpl: options.fetch, resolveHost: options.resolveHost });
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBounded(response, limit)));
   }
   const commit = await request(`commits/${encodeURIComponent(ref)}`, 1024 * 1024) as { commit?: { tree?: { sha?: unknown } } };
@@ -100,7 +119,7 @@ export async function importExtensionSource(actor: LifecycleActor, input: Extens
   await requireSourceAdministrator(actor);
   let files: WorkspaceFiles;
   if (input.kind === "marketplace") files = await collectMarketplaceSource(input.versionId);
-  else if (input.kind === "github") files = await collectGitHubSource(input, { token: await sourceCredentialResolver(actor, input.repository) ?? undefined });
+  else if (input.kind === "github") files = await collectGitHubSource(input, { resolveCredential: () => sourceCredentialResolver(actor, input.repository, input.projectId) });
   else {
     if (input.kind === "bundled") files = (await snapshotFirstPartyExtension(getProjectRoot(), input.name)).files;
     else {

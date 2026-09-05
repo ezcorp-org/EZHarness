@@ -26,6 +26,13 @@ test("marketplace source references stage a rebuild instead of activating a publ
   expect(mocks.importSource).toHaveBeenCalledWith({ principalId: "admin", scope: "global", kind: "human" }, { kind: "marketplace", versionId: "version-1" });
   expect((await response.json()).operation.id).toBe("build");
 });
+test("private source carries a project selection, not caller-supplied credentials", async () => {
+  const source = { kind: "github", repository: "owner/private", projectId: "project" };
+  expect((await POST(event(source))).status).toBe(200);
+  expect(mocks.importSource).toHaveBeenCalledWith({ principalId: "admin", scope: "global", kind: "human" }, source);
+  expect((await POST(event({ ...source, projectId: { token: "untrusted" } }))).status).toBe(400);
+  expect(mocks.importSource).toHaveBeenCalledTimes(1);
+});
 test("rejects malformed and oversized import requests", async () => {
   expect((await POST(event({ kind: "github", repository: 5 }))).status).toBe(400);
   expect((await POST(event({ kind: "local", path: "a".repeat(20_000) }))).status).toBe(413);
