@@ -39,13 +39,17 @@ while(true) {
   cat "$run_root/runner.log" >&2
   exit 1
 fi
-podman run -d --name "$container" --network none --userns=keep-id:uid=1000,gid=1000 \
+podman run -d --log-driver=none --name "$container" --network none --userns=keep-id:uid=1000,gid=1000 \
   -e BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
   -e EZCORP_EXTENSION_RUNNER_SOCKET=/run/ez-extension-runner/runner.sock \
   -e EZCORP_EXTENSION_RUNNER_TOKEN_FILE=/run/secrets/extension-runner-token \
   -v "$run_root/socket:/run/ez-extension-runner:ro" \
   -v "$run_root/token:/run/secrets/extension-runner-token:ro" \
   "${1:?Pass the locally built application image}" >/dev/null
+podman exec "$container" bun -e '
+const module = await import("@ezcorp/harness-client");
+if (typeof module.HarnessClient !== "function") throw new Error("Production image cannot import HarnessClient");
+'
 bun build scripts/verify-extension-container.ts --target=bun --outfile "$run_root/verify.js"
 podman cp "$run_root/verify.js" "$container:/tmp/verify-extension-container.js"
 podman exec "$container" bun /tmp/verify-extension-container.js

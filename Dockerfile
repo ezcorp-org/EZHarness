@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM oven/bun:1.3.14 AS builder
+FROM docker.io/oven/bun:1.3.14 AS builder
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
@@ -34,7 +34,7 @@ RUN bun run --cwd packages/@ezcorp/sdk build \
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM oven/bun:1.3.14-slim
+FROM docker.io/oven/bun:1.3.14-slim
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
