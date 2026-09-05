@@ -118,7 +118,7 @@ async function initialize(): Promise<LifecycleServices> {
     runner: async () => runner,
     dispatchNotification: async (extensionId, method, params) => {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
-      await enqueueExtensionNotification(extensionId, method, params);
+      await enqueueExtensionNotification(extensionId, method, params ?? {});
     },
     resolve: async (id: string) => {
       const state = await repository.read(id);

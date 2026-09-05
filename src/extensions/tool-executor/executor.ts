@@ -45,6 +45,7 @@ import { dispatchReverseRpcWithTimeout } from "./reverse-rpc-timeout";
 import { handleHostApi } from "../host-api-broker";
 import { handleProjectPullRequest } from "../project-pr-broker";
 import { handleNetworkBroker } from "../network-broker";
+import { handleCredentialBroker } from "../credential-broker";
 import { PermissionDeniedError, type ArgsResolver, type ToolExecutorOptions } from "./errors";
 import { resolveReverseRpcMeta as provResolveReverseRpcMeta } from "./provenance";
 import {
@@ -1286,6 +1287,10 @@ export class ToolExecutor {
 
   async handlePiNetworkBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
     return handleNetworkBroker(this.rpcDeps(), extensionId, request);
+  }
+
+  async handlePiCredentialBroker(extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
+    return handleCredentialBroker(this.rpcDeps(), extensionId, request);
   }
 
   /** `ezcorp/RbacCheck` reverse-RPC — see {@link rpcHandlePiRbacCheck}. */

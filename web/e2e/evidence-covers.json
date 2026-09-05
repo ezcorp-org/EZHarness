@@ -1,4 +1,7 @@
 {
+  "web/e2e/real-auth/extension-author-flow.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
   "web/e2e/admin-routing-cost.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ],

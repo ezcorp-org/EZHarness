@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
-import { clearExpiredCredentialHandles, handleCredentialBroker, injectCredentialHeaders } from "../credential-broker";
+import { clearExpiredCredentialHandles, configureCredentialResolver, handleCredentialBroker, injectCredentialHeaders } from "../credential-broker";
 import { clearExpiredNetworkBodies, handleNetworkBroker } from "../network-broker";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
 import type { JsonRpcRequest } from "../types";
@@ -29,6 +29,16 @@ test("env returns opaque scoped handles and rejects raw host env access", async 
   expect((await handleCredentialBroker(deps, "ext-a", request("ezcorp/env.get", { name: "OPENAI_API_KEY" }))).error).toBeDefined();
   state.granted = true; state.allowed = false;
   expect((await handleCredentialBroker(deps, "ext-a", request("ezcorp/env.get", { name: "OPENAI_API_KEY" }))).error).toBeDefined();
+});
+
+test("configured host credential resolver never returns secret bytes to the caller", async () => {
+  const { deps, request } = fixture();
+  configureCredentialResolver(async () => "configured-host-secret");
+  try {
+    const response = await handleCredentialBroker(deps, "ext-a", request("ezcorp/env.get", { name: "OPENAI_API_KEY" }));
+    expect(response.result).toMatch(/^ezcred_v4_[a-f0-9]{64}$/);
+    expect(JSON.stringify(response)).not.toContain("configured-host-secret");
+  } finally { configureCredentialResolver(async () => null); }
 });
 
 test("credential substitution requires exact origin, active invocation and current grants", async () => {

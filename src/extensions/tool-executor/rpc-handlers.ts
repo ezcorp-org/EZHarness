@@ -938,6 +938,7 @@ export async function handlePiFinalizeToolCall(
  * `FsRpcResponse` return (the table casts them at the call site, as before).
  */
 export interface ReverseRpcDispatch {
+  handlePiCredentialBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiHostApi(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiProjectPullRequest(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiNetworkBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
@@ -984,6 +985,7 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/api.events": (self, extensionId, request) => self.handlePiHostApi(extensionId, request),
   "ezcorp/project.openPr": (self, extensionId, request) => self.handlePiProjectPullRequest(extensionId, request),
   "ezcorp/network.fetch": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
+  "ezcorp/env.get": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
   "ezcorp/network.read": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/invoke": (s, e, r) => s.handlePiInvoke(e, r),
   // Phase 3: per-operation fs.* handlers come BEFORE the legacy path-check

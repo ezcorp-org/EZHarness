@@ -8,6 +8,8 @@ export class BrokerError extends Error {
 }
 export interface CredentialScope { extensionId: string; userId: string; conversationId: string | null }
 export type CredentialResolver = (name: string, scope: CredentialScope) => Promise<string | null>;
+let credentialResolver: CredentialResolver = async () => null;
+export function configureCredentialResolver(resolve: CredentialResolver): void { credentialResolver = resolve; }
 const policies = {
   OPENAI_API_KEY: { origin: "https://api.openai.com", path: "/", account: false },
   OPENAI_ACCESS_TOKEN: { origin: "https://chatgpt.com", path: "/backend-api/codex", account: true },
@@ -44,7 +46,7 @@ export async function handleCredentialBroker(deps: RpcHandlerDeps, extensionId: 
     if (request.method !== "ezcorp/env.get" || typeof name !== "string" || !Object.hasOwn(policies, name)) throw new BrokerError("credential_unsupported", "Only approved provider credential handles are available.");
     await authorizeCredential(deps, scope, name);
     clearExpiredCredentialHandles();
-    const resolve = options.resolveCredential ?? (async () => null);
+    const resolve = options.resolveCredential ?? credentialResolver;
     const value = await resolve(name, scope);
     if (value === null) return { jsonrpc: "2.0", id: request.id, result: null };
     if (typeof value !== "string" || !value || value.length > 16384 || /[\r\n]/.test(value)) throw new BrokerError("credential_invalid", "Provider credential is not valid.");

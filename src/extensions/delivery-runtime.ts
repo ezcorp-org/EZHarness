@@ -43,7 +43,7 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
   wireProcess(delivery.installationId, process);
   const token = registerCallProvenance(input.provenance);
   try {
-    const response = await process.call(input.method, { ...input.params, _meta: { ezCallId: token, releaseId: delivery.releaseId, expectedGeneration: delivery.generation } });
+    const response = await process.call(input.method, { ...delivery.transportContext, ...input.params, _meta: { ezCallId: token, releaseId: delivery.releaseId, expectedGeneration: delivery.generation } });
     if (response.error) throw new LifecycleError("delivery_rejected", "Extension rejected its delivery.");
   } finally { releaseCallProvenance(token); }
 }
@@ -69,11 +69,13 @@ export async function enqueueExtensionNotification(extensionId: string, method: 
   const installation = state?.installation;
   if (!installation?.enabled || !installation.activeReleaseId) throw new LifecycleError("delivery_revoked", "Installation is not active.");
   const owned = provenance.ownerless ? { ...provenance, onBehalfOf: installation.ownerId, ownerless: false } : provenance;
-  const cleanParams = Object.fromEntries(Object.entries(params).filter(([key]) => key !== "_meta"));
+  const transientKeys = new Set(["ezcorp/webhook-fire", "ezcorp/schedule-fire", "ezcorp/trigger-fire"].includes(method) ? ["catchUp", "attempt", "retry", "firedAt"] : []);
+  const cleanParams = Object.fromEntries(Object.entries(params).filter(([key]) => key !== "_meta" && !transientKeys.has(key)));
+  const transportContext = Object.fromEntries(Object.entries(params).filter(([key]) => transientKeys.has(key)));
   const sourceId = meta?.deliveryId ?? params.deliveryId ?? params.fireId ?? params.id;
   const deduplicationId = typeof sourceId === "string" ? await sha256(canonicalJson([method, sourceId, owned.onBehalfOf])) : crypto.randomUUID();
   const queue = await getExtensionDeliveryQueue();
-  const delivery = await queue.enqueue({ installationId: extensionId, releaseId: installation.activeReleaseId, generation: installation.generation, principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: method.includes("webhook") ? "webhook" : method.includes("schedule") || method.includes("trigger-fire") ? "schedule" : "event", input: { method, params: cleanParams, provenance: owned } satisfies DeliveryInput });
+  const delivery = await queue.enqueue({ installationId: extensionId, releaseId: installation.activeReleaseId, generation: installation.generation, principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: method.includes("webhook") ? "webhook" : method.includes("schedule") || method.includes("trigger-fire") ? "schedule" : "event", input: { method, params: cleanParams, provenance: owned } satisfies DeliveryInput, transportContext });
   const deadline = Date.now() + 60000;
   for (;;) {
     await drainExtensionDeliveries();
