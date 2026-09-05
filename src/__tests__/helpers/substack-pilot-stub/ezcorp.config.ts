@@ -1,16 +1,7 @@
-// Stub manifest mirroring the real substack-pilot extension shape, used
-// by `substack-pilot-chat-e2e.test.ts` to register the extension in the
-// test DB without pulling in the real `docs/extensions/examples/.../ezcorp.config.ts`
-// (which declares mcpServers + scripts + skills the test doesn't need).
-//
-// Tool names + inputSchema shapes match the production manifest verbatim
-// so the MockAgent's tool_use frames hit the same code paths as a real
-// LLM would.
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
-import { defineExtension } from "../../../extensions/sdk/define";
-
-export default defineExtension({
-  schemaVersion: 2,
+export default defineRuntimeManifest({
+  schemaVersion: 4,
   name: "substack-pilot",
   version: "1.0.0",
   description: "Stub substack-pilot used by chat-E2E tests.",
