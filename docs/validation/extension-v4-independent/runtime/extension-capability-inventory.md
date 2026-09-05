@@ -10,7 +10,7 @@ Final full run: `artifacts/all-first-party-lifecycle-freeze2.jsonl.gz` (SHA-256 
 
 The report source digest is the lifecycle workspace digest after dependency resolution. The lock records the authored source snapshot. Thirteen `package.json`-bearing sources have different values because dependency resolution writes a changed or new `package-lock.json` into the lifecycle workspace; only four of those sources declare dependencies. The fourteenth `package.json` source, graded-card-scanner, already had the resolved lock and therefore matches. See `scripts/verify-first-party-lifecycle-v4.ts` lines 52–61, `packages/@ezcorp/extension-runner/src/dependencies.ts` lines 35–80, and `scripts/regenerate-manifest-lock.ts` lines 23–33. Names, final manifests, artifacts, and releases were validated separately. Digest inequality is not presented as lock equality.
 
-The capability table cites 92 distinct exact test sources. `artifacts/capability-test-sources.txt` is the reproducible sorted list; every listed file exists and was included in both executed backend test pools.
+The capability table cites 92 distinct exact test sources. `artifacts/capability-test-sources.txt` is the reproducible sorted list; every listed file exists. The first 91 were included in both executed backend pools; the new weather/city integration was executed in its focused red/green run and awaits the final broad pool.
 
 ## Extension lifecycle status
 

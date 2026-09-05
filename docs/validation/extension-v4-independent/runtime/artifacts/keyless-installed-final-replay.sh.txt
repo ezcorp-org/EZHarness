@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo="${1:-$PWD}"
+helper="$repo/src/__tests__/helpers/first-party-release.ts"
+test_file="$repo/docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-final.test.ts.txt"
+tmp_test="$(mktemp --suffix=.test.ts)"
+backup="$(mktemp)"
+cp "$helper" "$backup"
+cleanup() { cp "$backup" "$helper"; rm -f "$backup" "$tmp_test"; }
+trap cleanup EXIT
+python3 - "$helper" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text(); old='resolveHost: async () => ["1.1.1.1"], '
+assert old in s, "synthetic resolver seam changed"
+p.write_text(s.replace(old, ""))
+PY
+sed "s#/home/dev/work/EZCorp/extension-v4-audit-runtime#$repo#g" "$test_file" > "$tmp_test"
+EXTENSION_TEST_BUN="${EXTENSION_TEST_BUN:-/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun}"
+"$EXTENSION_TEST_BUN" test "$tmp_test"
+cmp -s "$helper" "$backup" || { echo "helper restoration failed" >&2; exit 1; }
