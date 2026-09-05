@@ -24,7 +24,7 @@ export interface LifecycleRepository {
   create(state: InstallationState): Promise<void>;
   read(installationId: string): Promise<InstallationState | null>;
   list(ownerId: string, scope: string): Promise<InstallationRecord[]>;
-  transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>): Promise<Result>;
+  transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>, actor?: LifecycleActor): Promise<Result>;
 }
 
 export interface BlobStore {

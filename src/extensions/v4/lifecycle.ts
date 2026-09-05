@@ -27,7 +27,7 @@ export class ExtensionLifecycle {
 
   private async transaction<Result>(actor: LifecycleActor, installationId: string, change: (state: InstallationState) => Result | Promise<Result>): Promise<Result> {
     await this.inspect(actor, installationId);
-    return this.dependencies.repository.transact(installationId, change);
+    return this.dependencies.repository.transact(installationId, change, actor);
   }
 
   private workspace(state: InstallationState, workspaceId: string): WorkspaceRecord {
@@ -350,6 +350,7 @@ export class ExtensionLifecycle {
   private async stop(actor: LifecycleActor, installationId: string, uninstall: boolean): Promise<InstallationRecord> {
     await this.dependencies.authorize(actor, uninstall ? "uninstall" : "disable");
     await this.transaction(actor, installationId, (state) => {
+      if (!state.installation.enabled && (state.installation.uninstalled || !uninstall) && !Object.values(state.approvals).some((approval) => approval.status === "pending" || approval.status === "approved") && !Object.values(state.operations).some((operation) => operation.kind === "activate" && !["active", "failed", "cancelled"].includes(operation.state))) return;
       state.installation.enabled = false;
       state.installation.generation += 1;
       state.installation.status = "reconciling";

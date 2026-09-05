@@ -1,4 +1,5 @@
-import { desc, eq, and, inArray, like, lt, or } from "drizzle-orm";
+import { desc, eq, and, inArray, like, lt, or, sql } from "drizzle-orm";
+import type { MigrationDb } from "../migrations/types";
 import { getDb } from "../connection";
 import { nowMinusInterval, safeIntervalCount } from "./sql-interval";
 import { auditLog } from "../schema";
@@ -7,6 +8,11 @@ import { redactForAudit } from "../../extensions/audit-redaction";
 import { persistError } from "./error-logs";
 
 export type { AuditEntry };
+
+export async function insertTransactionalAuditEntry(database: MigrationDb, id: string, userId: string, action: string, target: string, metadata: Record<string, unknown>): Promise<void> {
+  const safeMetadata = JSON.stringify(redactForAudit(metadata).redacted);
+  await database.execute(sql`INSERT INTO audit_log (id, user_id, action, target, metadata) VALUES (${id}, ${userId}, ${action}, ${target}, ${safeMetadata}::jsonb) ON CONFLICT (id) DO NOTHING`);
+}
 
 /**
  * Default `audit_log` retention window, in days.

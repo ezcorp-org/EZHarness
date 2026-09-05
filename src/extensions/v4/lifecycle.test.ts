@@ -21,6 +21,7 @@ let blobs: FileBlobStore;
 
 beforeAll(async () => {
   database = new PGlite();
+  await database.exec("CREATE TABLE audit_log (id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL, target TEXT, metadata JSONB, created_at TIMESTAMPTZ DEFAULT NOW())");
   const db = drizzle(database);
   await up(db);
   await up(db);
@@ -97,6 +98,31 @@ async function approved(setup: Awaited<ReturnType<typeof releaseFixture>>, key =
 }
 
 describe("durable extension lifecycle", () => {
+  test("approval and lifecycle mutations audit atomically once with the real actor and retained release binding", async () => {
+    const setup = await releaseFixture();
+    const input = await approved(setup);
+    await setup.lifecycle.activate(actor, input);
+    await setup.lifecycle.activate(actor, input);
+    await setup.lifecycle.disable(human, input.installationId);
+    await setup.lifecycle.disable(human, input.installationId);
+    await setup.lifecycle.uninstall(human, input.installationId);
+    await setup.lifecycle.uninstall(human, input.installationId);
+    const rows = (await database.query<{ action: string; user_id: string; metadata: Record<string, unknown> }>("SELECT action, user_id, metadata FROM audit_log WHERE target = $1 ORDER BY created_at", [input.installationId])).rows;
+    for (const action of ["ext:approval_pending", "ext:approval_approved", "ext:approval_consumed", "ext:activated", "ext:disabled", "ext:uninstalled"]) expect(rows.filter((row) => row.action === action)).toHaveLength(1);
+    expect(rows.find((row) => row.action === "ext:approval_approved")).toMatchObject({ user_id: human.principalId, metadata: { actorKind: "human", approvalReleaseId: setup.releaseId } });
+    expect(rows.find((row) => row.action === "ext:uninstalled")).toMatchObject({ metadata: { purgeData: false, source: "release-v4", oldVersion: "1.0.0", releaseId: setup.releaseId } });
+  });
+
+  test("audit storage failure rolls back consent and retry cannot duplicate the decision", async () => {
+    const setup = await releaseFixture();
+    const approval = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: [], expectedActiveReleaseId: null });
+    await database.exec("ALTER TABLE audit_log RENAME TO unavailable_audit_log");
+    try { await expect(setup.lifecycle.approve(human, setup.installation.id, approval.id, true)).rejects.toThrow(); }
+    finally { await database.exec("ALTER TABLE unavailable_audit_log RENAME TO audit_log"); }
+    expect((await setup.lifecycle.inspect(actor, setup.installation.id)).approvals[approval.id]?.status).toBe("pending");
+    await setup.lifecycle.approve(human, setup.installation.id, approval.id, true);
+    expect((await database.query("SELECT id FROM audit_log WHERE target = $1 AND action = 'ext:approval_approved'", [setup.installation.id])).rows).toHaveLength(1);
+  });
   test("independent candidate coverage is immutable and bound into the release digest", async () => {
     const verification = { catalog: "verified" as const, smoke: "not_declared" as const, capabilities: [{ capability: "storage", state: "unexercised" as const, calls: 0 }] };
     const setup = await releaseFixture(harness({ verifyCandidate: async () => verification }));

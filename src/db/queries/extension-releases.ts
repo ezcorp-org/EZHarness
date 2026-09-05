@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../migrations/types";
-import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleRepository } from "../../extensions/v4/types";
+import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleRepository, type LifecycleActor } from "../../extensions/v4/types";
+import { insertTransactionalAuditEntry } from "./audit-log";
+import { digestObject } from "../../extensions/v4/blobs";
 
 export interface ReleaseDatabase extends MigrationDb {
   transaction<Result>(work: (transaction: MigrationDb) => Promise<Result>): Promise<Result>;
@@ -62,7 +64,7 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
     return releaseRows<{ payload: string }>(await this.database.execute(sql`SELECT payload FROM extension_release_installations WHERE owner_id = ${ownerId} AND scope = ${scope} ORDER BY id`)).map((row) => JSON.parse(row.payload));
   }
 
-  async transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>): Promise<Result> {
+  async transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>, actor?: LifecycleActor): Promise<Result> {
     return this.database.transaction(async (transaction) => {
       const state = await readState(transaction, installationId, true);
       if (!state) throw new LifecycleError("not_found", "Installation not found.");
@@ -78,6 +80,7 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
         }
       }
       await writeRecords(transaction, state, original);
+      if (actor) await writeLifecycleAudit(transaction, original, state, actor);
       await transaction.execute(sql`UPDATE extension_release_installations SET payload = ${JSON.stringify(state.installation)} WHERE id = ${installationId}`);
       if (state.installation.generation !== original.installation.generation || state.installation.enabled !== original.installation.enabled) {
         await transaction.execute(sql`UPDATE extension_release_deliveries SET state = 'cancelled' WHERE installation_id = ${installationId} AND state IN ('queued', 'leased') AND (generation <> ${state.installation.generation} OR ${!state.installation.enabled})`);
@@ -85,6 +88,25 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
       return structuredClone(result);
     });
   }
+}
+
+async function writeLifecycleAudit(database: MigrationDb, previous: InstallationState, current: InstallationState, actor: LifecycleActor): Promise<void> {
+  const installation = current.installation;
+  const before = previous.installation;
+  const release = installation.activeReleaseId ? current.releases[installation.activeReleaseId] : undefined;
+  const priorRelease = before.activeReleaseId ? previous.releases[before.activeReleaseId] : undefined;
+  const write = async (identity: unknown, action: string, details: Record<string, unknown>) => {
+    const id = `extension-lifecycle:${digestObject([installation.id, identity])}`;
+    await insertTransactionalAuditEntry(database, id, actor.principalId, action, installation.id, { actor: actor.principalId, actorKind: actor.kind, ownerId: installation.ownerId, scope: installation.scope, generation: installation.generation, releaseId: release?.id ?? null, releaseDigest: release?.releaseDigest ?? null, source: "release-v4", ...details });
+  };
+  for (const approval of Object.values(current.approvals)) {
+    const prior = previous.approvals[approval.id];
+    if (prior?.status === approval.status) continue;
+    await write(["approval", approval.id, approval.status], `ext:approval_${approval.status}`, { approvalId: approval.id, approvalReleaseId: approval.releaseId, approvalReleaseDigest: approval.releaseDigest, grants: approval.grants });
+  }
+  if (before.generation === installation.generation) return;
+  const action = installation.uninstalled && !before.uninstalled ? "ext:uninstalled" : installation.enabled ? "ext:activated" : "ext:disabled";
+  await write(["generation", installation.generation], action, { previousReleaseId: before.activeReleaseId, oldVersion: priorRelease?.manifest.version ?? null, version: release?.manifest.version ?? null, purgeData: false, grants: installation.grants });
 }
 
 export async function createDatabaseLifecycleRepository(): Promise<DatabaseLifecycleRepository> {
