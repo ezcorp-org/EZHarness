@@ -470,11 +470,11 @@ async function handleReopen(
     "./reopen-extension"
   );
   try {
-    const { draftId, name: extName } = await reopenInstalledAsDraft(
+    const result = await reopenInstalledAsDraft(
       name,
       ctx.userId,
     );
-    return rpcResult(req.id, { draftId, name: extName });
+    return rpcResult(req.id, result);
   } catch (err) {
     if (err instanceof ReopenError) {
       log.warn("ezcorp/drafts.reopen rejected", {
