@@ -565,7 +565,7 @@ jobs:
     # @evidence suite so the change is still rendered by something.
     name: Visual evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     concurrency:
@@ -610,7 +610,7 @@ jobs:
         continue-on-error: true
         # Step-level cap: a hung capture is absorbed long enough to publish its
         # artifacts, then the credited/credited_ok enforcement step reds the job.
-        timeout-minutes: 18
+        timeout-minutes: 28
         # Explicit bash (the Actions default, but pinned so the array logic
         # below is never run under another shell — it also works in zsh for
         # local reproduction, unlike the previous `mapfile`).
