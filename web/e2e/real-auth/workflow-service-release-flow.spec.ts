@@ -12,22 +12,31 @@ test("a human consents to a sealed service workflow; a real worker cannot fire a
   const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
   const manifest = {
     schemaVersion: 4, name, version: "1.0.0", description: "Real service delegation proof", author: { name: "E2E" }, entrypoint: "./extension.ts",
-    permissions: { workflows: { names: [], allowDelegated: true } },
-    tools: ["fire", "observe"].map(tool => ({ name: tool, description: tool === "fire" ? "Fire the exact human-consented job" : "Report the host-issued invocation principal", inputSchema: { type: "object", properties: {}, additionalProperties: false }, outputSchema: { type: "object" } })),
+    permissions: { workflows: { names: [], allowDelegated: true }, storage: true, filesystem: ["/data"] },
+    tools: ["fire", "observe", "inspect"].map(tool => ({ name: tool, description: tool === "fire" ? "Fire the exact human-consented job" : tool === "inspect" ? "Read the persisted effect count without writes" : "Report the service principal and execute approved storage and data operations", inputSchema: { type: "object", properties: {}, additionalProperties: false }, outputSchema: { type: "object" } })),
   };
   const workspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", {
     action: "edit", installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision,
     deletes: ["src/echo.ts", "src/echo.test.ts"],
     writes: {
       "manifest.json": JSON.stringify(manifest),
-      "manifest.test.ts": 'import { test, expect } from "bun:test";\nimport manifest from "./manifest.json";\ntest("only exact delegated jobs are declared", () => { expect(manifest.permissions.workflows).toEqual({ names: [], allowDelegated: true }); expect(manifest.tools.map(tool => tool.name)).toEqual(["fire", "observe"]); });\n',
+      "manifest.test.ts": 'import { test, expect } from "bun:test";\nimport manifest from "./manifest.json";\ntest("only exact delegated jobs and bounded data are declared", () => { expect(manifest.permissions.workflows).toEqual({ names: [], allowDelegated: true }); expect(manifest.permissions.storage).toBe(true); expect(manifest.permissions.filesystem).toEqual(["/data"]); expect(manifest.tools.map(tool => tool.name)).toEqual(["fire", "observe", "inspect"]); });\n',
       "extension.ts": `import { createRuntimeExtension, getInvocationContext, serve } from "@ezcorp/sdk/v4";
-import { createToolDispatcher, toolResult, Workflows } from "@ezcorp/sdk/runtime";
+import { createToolDispatcher, toolResult, Workflows, Storage, fsRead, fsWrite } from "@ezcorp/sdk/runtime";
 import manifest from "./manifest.json";
+const storage = new Storage("global");
+const readState = async () => ({ storage: (await storage.get("proof")).value, file: await fsRead("/data/proof.json") });
 const extension = await createRuntimeExtension({ manifest, register: async () => {
   createToolDispatcher({
     fire: async () => toolResult(JSON.stringify(await new Workflows().runFor({ jobRef: ${JSON.stringify(jobRef)}, input: {} }))),
-    observe: () => toolResult(JSON.stringify({ principalId: getInvocationContext()?.principalId }))
+    observe: async () => {
+      const previous = await storage.get<{ count: number }>("proof");
+      const value = { count: (previous.value?.count ?? 0) + 1, marker: ${JSON.stringify(marker)} };
+      await storage.set("proof", value);
+      await fsWrite("/data/proof.json", JSON.stringify(value));
+      return toolResult(JSON.stringify({ principalId: getInvocationContext()?.principalId, ...await readState() }));
+    },
+    inspect: async () => toolResult(JSON.stringify(await readState()))
   });
 } });
 await serve(extension);
@@ -50,7 +59,7 @@ await serve(extension);
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
   await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 
-  const serviceResponse = await request.post("/api/service-accounts", { data: { name, maxTokensPerDay: 10000 } });
+  const serviceResponse = await request.post("/api/service-accounts", { data: { name, scopes: ["read", "write"], maxTokensPerDay: 10000 } });
   expect(serviceResponse.status(), await serviceResponse.text()).toBe(201);
   const { account } = await serviceResponse.json();
   const consent = { extensionId: created.installation.id, workflowName: `${name}:service`, ownerKind: "service", ownerServiceAccountId: account.id, triggerKind: "manual" };
@@ -85,12 +94,22 @@ await serve(extension);
   expect(trace.run, JSON.stringify(trace)).toMatchObject({ userId: null, jobRef, status: "success" });
   expect(trace.steps).toHaveLength(2);
   expect(trace.steps.find((step: { stepName: string }) => step.stepName === "proof").output).toEqual({ success: true, output: { marker } });
-  expect(trace.steps.find((step: { stepName: string }) => step.stepName === "identity").output).toEqual({ success: true, output: { principalId: account.id } });
+  const stored = { count: 1, marker };
+  const persisted = { storage: stored, file: JSON.stringify(stored) };
+  expect(trace.steps.find((step: { stepName: string }) => step.stepName === "identity").output).toEqual({ success: true, output: { principalId: account.id, ...persisted } });
+  const inspectState = async () => {
+    const result = await client.invokeExtensionTool(conversation.id, name, "inspect", {});
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (typeof result.output !== "string") throw new Error("The real inspection tool must return JSON text");
+    return JSON.parse(result.output);
+  };
+  expect(await inspectState()).toEqual(persisted);
   const revoked = await request.delete(`/api/workflows/delegations/${delegation.id}`);
   expect(revoked.status(), await revoked.text()).toBe(200);
   expect(await revoked.json()).toEqual({ revoked: true });
   const denied = await client.invokeExtensionTool(conversation.id, name, "fire", {});
   expect(denied.success, JSON.stringify(denied)).toBe(false);
   expect((await readRuns()).map(item => item.id)).toEqual([run!.id]);
+  expect(await inspectState()).toEqual(persisted);
   await client.extensionControl("extensions_release", { action: "disable", installationId: created.installation.id });
 });
