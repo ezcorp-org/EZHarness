@@ -76,7 +76,7 @@ import type {
   JsonRpcRequest,
 } from "../types";
 import type { AgentDefinition, WorkflowDefinition, WorkflowRun } from "../../types";
-import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
+import { systemCachedWorkflow, workflowDelegationReleaseBinding, type CachedWorkflow } from "../../runtime/workflow-scope";
 import { workflowReleaseFixture } from "../../__tests__/helpers/workflow-release";
 
 /** The calling extension. Stands in for `ez-factory`. */
@@ -225,6 +225,7 @@ async function delegate(spec: {
     // row to version, which is the documented unversioned path
     // (`resolveDelegationVersionPin`).
     definitionVersionId: null,
+    extensionReleaseBinding: entry ? workflowDelegationReleaseBinding(entry) : null,
     projectId: spec.projectId ?? null,
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
@@ -431,10 +432,15 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     const asUser = authorizeDelegationConsent(
       cachedEntries, SELF_SHIPPED_WF.name, "user", ownerUserId,
     );
-    const asService = authorizeDelegationConsent(
+    const unboundService = authorizeDelegationConsent(
       cachedEntries, SELF_SHIPPED_WF.name, "service", serviceAccountId,
     );
+    const asService = authorizeDelegationConsent(
+      cachedEntries, SELF_SHIPPED_WF.name, "service", serviceAccountId,
+      workflowDelegationReleaseBinding(cachedEntries.find(entry => entry.definition.name === SELF_SHIPPED_WF.name)!),
+    );
     expect(asUser.ok).toBe(true);
+    expect(unboundService.ok).toBe(false);
     expect(asService.ok).toBe(true);
   });
 });
