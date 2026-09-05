@@ -64,6 +64,7 @@ test.describe("projects — mutating routes are membership-gated", () => {
     expect(createRes.status(), await createRes.text()).toBe(201);
     const project = (await createRes.json()) as { id: string; path: string };
     expect(project.id).toBeTruthy();
+    const secondEmail = `e2e-authz-second-${project.id}@example.com`;
 
     const meRes = await request.get("/api/auth/me");
     expect(meRes.status()).toBe(200);
@@ -113,7 +114,7 @@ test.describe("projects — mutating routes are membership-gated", () => {
 
     // ── 4. A second user, so the admin can stop being a member ────────
     const inviteRes = await request.post("/api/auth/invite", {
-      data: { email: "e2e-authz-second@example.com", role: "member" },
+      data: { email: secondEmail, role: "member" },
     });
     expect(inviteRes.status(), await inviteRes.text()).toBe(201);
     const invite = ((await inviteRes.json()) as { invite: { token: string } }).invite;
@@ -125,7 +126,7 @@ test.describe("projects — mutating routes are membership-gated", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: "Second User",
-        email: "e2e-authz-second@example.com",
+        email: secondEmail,
         password: "e2e-Second-User-Passw0rd!",
       }),
     });
