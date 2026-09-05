@@ -122,7 +122,7 @@ import {
 import type { WorkflowDefinition, WorkflowRunStatus } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
 import { canRunWorkflow, workflowExtensionLiveness } from "../runtime/workflow-authz";
-import { systemCachedWorkflow, type CachedWorkflow } from "../runtime/workflow-scope";
+import { workflowReleaseCanAccess } from "../runtime/workflow-release-assets";
 import { listWorkflowRunsForCaller, RUN_STATUS_FILTERS } from "../runtime/workflow-run-trace";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { formatGateRelay } from "../runtime/workflow-approval-relay";
@@ -740,8 +740,8 @@ export async function handleWorkflowsRpc(
     );
   }
   const fullName = namespacedWorkflowName(ctx.extensionName, name);
-  const definition = runtime.getWorkflows().find((w) => w.name === fullName);
-  if (!definition) {
+  const decisionEntry = runtime.getCachedWorkflows?.().find(entry => entry.definition.name === fullName);
+  if (decisionEntry?.source !== "extension") {
     return deny("WORKFLOW_NOT_FOUND", `Workflow not found: ${fullName}`, -32602);
   }
 
@@ -770,7 +770,6 @@ export async function handleWorkflowsRpc(
   //      workflow is a `system` cache entry, whose run audience is
   //      "anyone", so the ladder rung itself refuses nobody this handler
   //      already admitted. What it adds is the liveness check.
-  const decisionEntry = cachedEntryFor(runtime, fullName, definition);
   const runnable = await canRunWorkflow(
     decisionEntry,
     // `role: "member"` — the LOWER privilege, deliberately. A reverse-RPC
@@ -788,7 +787,7 @@ export async function handleWorkflowsRpc(
   }
 
   try {
-    startWorkflowRun(runtime, definition, input, projectId, ownedCtx, jobRef);
+    startWorkflowRun(runtime, decisionEntry.definition, input, projectId, ownedCtx, jobRef);
   } catch (err) {
     return deny(
       "WORKFLOWS_DISPATCH_FAILED",
@@ -1492,10 +1491,11 @@ async function runForDelegation(
   //     `WorkflowPrincipal.id` is a non-null `string`, which a `service`
   //     delegation cannot satisfy — so the shared half is imported and
   //     the ladder half comes from the consent policy above.
-  const live = await workflowExtensionLiveness(authz.entry.definition.name);
+  const live = await workflowExtensionLiveness(authz.entry.definition.name, authz.entry);
   if (!live.allowed) {
     return lostAccess(denyAs, row, live.reason);
   }
+  if (authz.entry.extensionRelease && !await workflowReleaseCanAccess(authz.entry, ownerId, row.projectId)) return lostAccess(denyAs, row, "Workflow release is not available to this principal.");
   const definition = authz.entry.definition;
 
   // D6. The consent record, recomputed from LIVE state and reconciled.
@@ -2050,40 +2050,6 @@ function startDelegatedRun(
         error: String(err),
       });
     });
-}
-
-/**
- * The cache entry rung 12b authorizes — the one carrying the provenance
- * the ladder reads, for the definition rung 12 already resolved.
- *
- * Prefers the runtime's own `getCachedWorkflows()` reader, which is what
- * production registers (`web/src/lib/server/context.ts`) and is therefore
- * byte-identical to what the REST route authorizes against.
- *
- * The fallback is NOT a permissive default and is not a guess. It is
- * reached only when the runtime was registered WITHOUT the provenance
- * reader — a backend-only boot, or a unit context — and it reconstructs
- * the value `buildWorkflowCache` builds for exactly this class of entry:
- * an extension-shipped workflow is wrapped by `systemCachedWorkflow(w,
- * "extension")` there, unconditionally. Rung 12 has already proved the
- * name resolves to an extension asset in the merged cache, and extension
- * entries are concatenated FIRST in that cache, so the two agree by
- * construction rather than by luck.
- *
- * A `system` entry is the WEAKEST authorization outcome available here,
- * so if the two ever disagreed, the fallback is the one that authorizes
- * LESS — it cannot admit a caller the real entry would refuse for
- * ownership, only for liveness, and liveness is checked either way.
- */
-function cachedEntryFor(
-  runtime: WorkflowRuntime,
-  fullName: string,
-  definition: WorkflowDefinition,
-): CachedWorkflow {
-  const cached = runtime.getCachedWorkflows?.().find(
-    (w) => w.definition.name === fullName,
-  );
-  return cached ?? systemCachedWorkflow(definition, "extension");
 }
 
 /**

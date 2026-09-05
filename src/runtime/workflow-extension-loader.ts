@@ -100,6 +100,16 @@ export async function loadExtensionWorkflows(
   return out;
 }
 
+export function loadExtensionWorkflowFiles(extensionName: string, files: Record<string, string>): WorkflowDefinition[] {
+  const output: WorkflowDefinition[] = [];
+  const claimed = new Set<string>();
+  for (const file of Object.keys(files).sort()) {
+    if (file.includes("/") || !file.endsWith(".workflow.yaml")) continue;
+    appendWorkflowAsset(extensionName, file, files[file]!, claimed, output);
+  }
+  return output;
+}
+
 async function loadOne(
   source: ExtensionWorkflowSource,
   out: WorkflowDefinition[],
@@ -126,16 +136,25 @@ async function loadOne(
   }
 
   for (const file of files.sort()) {
+    try {
+      appendWorkflowAsset(extensionName, file, await Bun.file(file).text(), claimed, out);
+    } catch (error) {
+      log.warn("Failed to read extension workflow", { extensionName, file, error: String(error) });
+    }
+  }
+}
+
+function appendWorkflowAsset(extensionName: string, file: string, source: string, claimed: Set<string>, out: WorkflowDefinition[]): void {
     let def: WorkflowDefinition;
     try {
-      def = parse(await Bun.file(file).text()) as WorkflowDefinition;
+      def = parse(source) as WorkflowDefinition;
     } catch (err) {
       log.warn("Failed to load extension workflow", {
         extensionName,
         file,
         error: String(err),
       });
-      continue;
+      return;
     }
 
     const declaredName = (def as { name?: unknown } | null)?.name;
@@ -144,7 +163,7 @@ async function loadOne(
         `Skipping extension workflow with an invalid name — must match ${WORKFLOW_NAME_RE.source} and must not contain the namespace separator`,
         { extensionName, file, declaredName: String(declaredName) },
       );
-      continue;
+      return;
     }
 
     const name = namespacedWorkflowName(extensionName, declaredName);
@@ -154,7 +173,7 @@ async function loadOne(
         file,
         name,
       });
-      continue;
+      return;
     }
 
     // Validate the NAMESPACED definition — what actually enters the cache
@@ -176,10 +195,9 @@ async function loadOne(
         file,
         errors,
       });
-      continue;
+      return;
     }
 
     claimed.add(name);
     out.push(namespaced);
-  }
 }

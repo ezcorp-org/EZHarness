@@ -17,6 +17,7 @@
  */
 import { errorJson } from "$lib/server/http-errors";
 import { getCachedWorkflows } from "$lib/server/context";
+import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess } from "$server/runtime/workflow-release-assets";
 import {
   authorizeWorkflow,
   callerFromUser,
@@ -131,6 +132,7 @@ export async function resolveWorkflowOr(
         : denialMessage(result.reason, action, result.visibility);
     return errorJson(status, message);
   }
+  if (result.entry.source === "extension" && !await workflowReleaseCanAccess(result.entry, user.id, projectId)) return errorJson(404, notFoundMessage ?? "Workflow not found");
   return { entry: result.entry, caller };
 }
 
@@ -220,5 +222,6 @@ export async function listVisibleWorkflows(
   projectId?: string | null,
 ): Promise<WorkflowWire[]> {
   const caller = await callerFor(user, projectId);
-  return visibleWorkflows(getCachedWorkflows(), caller).map((entry) => toWire(entry, caller));
+  const visible = visibleWorkflows(getCachedWorkflows(), caller);
+  return (await filterAccessibleWorkflowEntries(visible, user.id, projectId)).map((entry) => toWire(entry, caller));
 }

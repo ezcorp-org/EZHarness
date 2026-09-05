@@ -91,6 +91,7 @@ export type WorkflowSource = "extension" | "yaml" | "db";
  * DB-only provenance does not belong on the graph type.
  */
 export interface CachedWorkflow {
+  extensionRelease?: { installationId: string; binding: string; ownerId: string; scope: string };
   definition: WorkflowDefinition;
   source: WorkflowSource;
   /** DB rows only — `null` for yaml/extension, which have no row. */

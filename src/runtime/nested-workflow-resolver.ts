@@ -39,6 +39,7 @@
  * and the read is a single indexed query.
  */
 import { listProjectIdsForUser } from "../db/queries/project-members";
+import { workflowReleaseCanAccess } from "./workflow-release-assets";
 import {
   NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
@@ -106,6 +107,8 @@ export function makeNestedWorkflowResolver(
     // `undefined` for BOTH "no such workflow" and "not yours", deliberately:
     // the executor turns this into one message, and distinguishing them would
     // make a nested step an existence oracle for private workflow names.
-    return resolved.ok ? resolved.entry.definition : undefined;
+    if (!resolved.ok) return undefined;
+    if (resolved.entry.source === "extension" && !await workflowReleaseCanAccess(resolved.entry, userId, ctx.projectId)) return undefined;
+    return resolved.entry.definition;
   };
 }
