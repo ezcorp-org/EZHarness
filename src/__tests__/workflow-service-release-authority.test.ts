@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import type { CachedWorkflow } from "../runtime/workflow-scope";
 
 mockDbConnection();
 const { users, projects, projectMembers, serviceAccounts, workflowDelegations, workflowRuns } = await import("../db/schema");
@@ -121,7 +122,7 @@ test("human delegations require a live exact release consent and cannot widen it
 async function nestedFixture(options: { hostChild?: boolean; stepSubstitute?: import("../runtime/workflow-executor").WorkflowExecutorOptions["stepSubstitute"] } = {}) {
   const setup = await fixture();
   const { db, release, authority } = setup;
-  const child = { ...release.entry, ...(options.hostChild ? { source: "yaml" as const, extensionRelease: undefined } : {}), definition: { ...release.entry.definition, name: options.hostChild ? "host-child" : "sealed:child", steps: [{ name: "result", kind: "transform" as const, output: { finished: "yes" } }] } };
+  const child: CachedWorkflow = { ...release.entry, ...(options.hostChild ? { source: "yaml" as const, extensionRelease: undefined } : {}), definition: { ...release.entry.definition, name: options.hostChild ? "host-child" : "sealed:child", steps: [{ name: "result", kind: "transform", output: { finished: "yes" } }] } };
   release.entry.definition.steps = [{ name: "child", kind: "workflow", workflow: child.definition.name, input: {} }];
   await db.update(workflowDelegations).set({ extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry, [release.entry.definition.name, child.definition.name]) }).where(eq(workflowDelegations.id, "delegation"));
   const { WorkflowExecutor } = await import("../runtime/workflow-executor");
