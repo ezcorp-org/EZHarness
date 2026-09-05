@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, resolveDependencies } from "../src";
 import { provision, source } from "./helpers";
 import { command } from "../src/core";
+import { createExtensionFiles } from "../../../../src/extensions/extension-control";
 
 let root: string;
 let runner: PodmanRunner;
@@ -16,6 +17,16 @@ beforeAll(async () => {
   await runner.initialize();
 }, 60_000);
 afterAll(async () => { await runner.close(); await rm(root, { recursive: true, force: true }); });
+
+test("authoring scaffold builds with private service umask", async () => {
+  const previous = process.umask(0o077);
+  try {
+    const files = createExtensionFiles("private-scaffold");
+    const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(result.diagnostics).toEqual([]);
+    expect(result.state).toBe("succeeded");
+  } finally { process.umask(previous); }
+}, 120_000);
 
 test("real isolated build, typecheck, feature tests, discovery, invocation and restart", async () => {
   const files = source("async (input,ctx) => ({...input, broker: await ctx.call('storage.get',{key:'fixture'})})");

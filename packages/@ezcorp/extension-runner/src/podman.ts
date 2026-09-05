@@ -101,14 +101,19 @@ export class PodmanRunner implements Runner {
     this.containers.set(id, name);
     return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
   }
+  private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
+    const target = join(directory, relativePath(path));
+    await mkdir(dirname(target), { recursive: true, mode: 0o755 });
+    for (let parent = dirname(target); parent !== directory; parent = dirname(parent)) await chmod(parent, 0o755);
+    await writeFile(target, content, { mode: 0o400, flag: "wx" });
+    await chmod(target, executable ? 0o555 : 0o444);
+  }
   private async stage(files: WorkspaceFiles): Promise<string> {
     const directory = await mkdtemp(join(this.root, "stage-"));
     await chmod(directory, 0o755);
     try {
       for (const [path, content] of Object.entries(files)) {
-        const target = join(directory, relativePath(path));
-        await mkdir(dirname(target), { recursive: true, mode: 0o755 });
-        await writeFile(target, content, { mode: 0o444, flag: "wx" });
+        await this.writeStaged(directory, path, content);
       }
       return directory;
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
@@ -142,9 +147,7 @@ export class PodmanRunner implements Runner {
       for (const path of Object.keys(input.files)) if (path.startsWith("node_modules/") || path.startsWith(".runner/")) throw new RunnerError("reserved_path", "Source cannot replace provisioned dependencies or runner files");
       staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
       for (const [path, bytes] of Object.entries(dependencies.binary)) {
-        const target = join(staged, relativePath(path));
-        await mkdir(dirname(target), { recursive: true, mode: 0o755 });
-        await writeFile(target, bytes, { mode: dependencies.executable.includes(path) ? 0o555 : 0o444, flag: "wx" });
+        await this.writeStaged(staged, path, bytes, dependencies.executable.includes(path));
       }
       this.requireBuilding(input.operationId);
       const typescriptFiles = Object.keys(input.files).filter(path => /\.[cm]?tsx?$/.test(path));
@@ -239,9 +242,7 @@ export class PodmanRunner implements Runner {
       if (!Array.isArray(executable) || executable.some(path => typeof path !== "string")) throw new RunnerError("artifact_corrupt", "Invalid executable catalog");
       for (const [path, content] of Object.entries(dependencies)) {
         if (!path.startsWith("node_modules/") || typeof content !== "string") throw new RunnerError("artifact_corrupt", "Invalid dependency closure");
-        const target = join(staged, relativePath(path));
-        await mkdir(dirname(target), { recursive: true, mode: 0o755 });
-        await writeFile(target, Buffer.from(content, "base64"), { mode: executable.includes(path) ? 0o555 : 0o444, flag: "wx" });
+        await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
       const child = this.launch(input.workerId, limits, stage, ["./.runner/extension.js"]);
