@@ -99,6 +99,10 @@ export class ReleaseProcess extends ExtensionProcess {
       ...(Object.keys(metadata).length ? { metadata } : {}),
     };
     const binding = releaseBinding(snapshot);
+    const assertCurrentBinding = async () => {
+      if (Date.now() >= context.deadline || !resolveCallProvenance(token)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
+      if (releaseBinding(await this.active()) !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
+    };
     let accepting = false;
     const runner = await this.runtime!.runner();
     let worker: RunnerExecution | undefined;
@@ -111,9 +115,7 @@ export class ReleaseProcess extends ExtensionProcess {
         if (Object.keys(envelope).some(key => key !== "context" && key !== "input") || !Object.hasOwn(envelope, "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context)) throw new ContractError("CONTEXT_MISMATCH", "Capability context does not match active invocation");
         const liveProvenance = resolveCallProvenance(token);
         if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
-        const current = await this.active();
-        const liveBinding = releaseBinding(current);
-        if (liveBinding !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
+        await assertCurrentBinding();
         if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
         const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _meta: { ezCallId: token } };
         delete input._toolName;
@@ -135,6 +137,7 @@ export class ReleaseProcess extends ExtensionProcess {
       if (this.releaseClosed) throw new ContractError("CLOSED", "Runtime closed during startup");
       const discovered = validateManifest(await worker.request("extension/discover", {}));
       if (canonicalJson(discovered) !== canonicalJson(snapshot.release.manifest)) throw new ContractError("CATALOG_MISMATCH", "Runtime metadata does not match approved release");
+      await assertCurrentBinding();
       if (method === "tools/call") {
         const tool = snapshot.release.manifest.tools?.find(tool => tool.name === params.name);
         if (!tool) throw new ContractError("UNDECLARED_CONTRIBUTION", "Tool is not declared");
@@ -142,6 +145,7 @@ export class ReleaseProcess extends ExtensionProcess {
         compileValueSchema(tool.inputSchema)(input);
         accepting = true;
         const result = await worker.request("extension/invoke", { name: tool.name, input, context });
+        await assertCurrentBinding();
         compileValueSchema(tool.outputSchema)(result);
         return result;
       }
@@ -151,6 +155,7 @@ export class ReleaseProcess extends ExtensionProcess {
       compileValueSchema(contribution.inputSchema)(input);
       accepting = true;
       const result = await worker.request("extension/dispatch", { method, input, context });
+      await assertCurrentBinding();
       compileValueSchema(contribution.outputSchema)(result);
       return result;
     } finally {

@@ -85,7 +85,7 @@ describe("release runtime", () => {
       return { content: [], isError: false };
     });
     try {
-      await fixture.process.callTool("read", {}, { ezCallId: fixture.token });
+      await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token })).rejects.toThrow("changed");
       await expect(fixture.reverse[0]!("ezcorp/storage", { context: lastContext, input: {} })).rejects.toThrow("no longer active");
       expect(effects).toBe(0);
     } finally { fixture.cleanup(); }
