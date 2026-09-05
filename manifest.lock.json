@@ -60,9 +60,9 @@
     "docs-updater": {
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
-      "files": 9,
-      "bytes": 119144,
-      "sourceDigest": "688607398249707dc34ac96bb1840f60b3b1c156fa507b4e54934e0c08ca064e"
+      "files": 8,
+      "bytes": 106917,
+      "sourceDigest": "bd51979558c0facc15a6034d9677097bc51c4669fe0d3da575468fda5cb6ac2a"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -333,16 +333,16 @@
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",
       "entrypoint": "extension.ts",
-      "files": 7,
-      "bytes": 82962,
-      "sourceDigest": "937f009e62a9dcffe607a4634a989df5bb7b001e5c36594fef2572fe6c419c54"
+      "files": 8,
+      "bytes": 83238,
+      "sourceDigest": "551865487ed599f088818d0986cf8931f9968a2c3a62f189a282ec175d8233d4"
     },
     "memory-extractor": {
       "directory": "extensions/memory-extractor",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 77484,
-      "sourceDigest": "10766ce6497810546a10b17111603cedd7ef3489b7ea2f2147b8425974e953e6"
+      "bytes": 77359,
+      "sourceDigest": "542109039e92a831d2bffefe48748245197f285749de2d6c6cd8eda4a0a848e2"
     },
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",

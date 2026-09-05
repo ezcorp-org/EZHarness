@@ -50,7 +50,7 @@ import {
   _setShellForTests,
   _setProjectRootForTests,
   type ShellResult,
-} from "./index";
+} from "../../../../docs/extensions/examples/docs-updater/index";
 import type { LoopApprovalLabel, LoopRunState } from "@ezcorp/sdk/runtime";
 
 // ── in-memory Storage (mirrors the host storage RPC contract) ───────
