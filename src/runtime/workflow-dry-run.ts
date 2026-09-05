@@ -75,6 +75,11 @@ import type {
 import type { AgentExecutor } from "./executor";
 import { EventBus } from "./events";
 import { WorkflowExecutor } from "./workflow-executor";
+const pureExecutors = new WeakSet<WorkflowExecutor>();
+
+export function isPureWorkflowExecutor(executor: WorkflowExecutor): boolean {
+  return pureExecutors.has(executor);
+}
 import { conditionRefs, evaluateCondition } from "./workflow-condition";
 import { resolveConditionRef, type RefContext } from "./workflow-refs";
 import { stepKind } from "./workflow-validator";
@@ -414,6 +419,7 @@ export async function dryRunWorkflow(
     },
   );
 
+  pureExecutors.add(executor);
   const run: WorkflowRun = await executor.runWorkflow(definition, input);
   // Before any report exists: a violation means a guarantee fired, and the
   // caller must not get something that reads like a verdict on their graph.

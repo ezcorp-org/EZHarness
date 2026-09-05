@@ -14,6 +14,8 @@ import {
   WorkflowDryRunViolation,
 } from "../runtime/workflow-dry-run";
 import type { WorkflowDefinition } from "../types";
+import { WorkflowExecutor } from "../runtime/workflow-executor";
+import { EventBus } from "../runtime/events";
 
 const toolBearing: WorkflowDefinition = {
   name: "ship",
@@ -26,6 +28,14 @@ const toolBearing: WorkflowDefinition = {
 };
 
 describe("dry run cannot dispatch, structurally", () => {
+  test("namespaced pure evaluation cannot grant real execution or dispatch through its predicate", async () => {
+    const definition = { ...toolBearing, name: "unapproved:ship" };
+    expect((await dryRunWorkflow(definition, { topic: "release" })).stubbed).toEqual(["draft", "publish"]);
+    await expect(dryRunWorkflow(definition, {}, () => true)).rejects.toThrow(WorkflowDryRunViolation);
+    const executor = new WorkflowExecutor(dryRunAgentExecutor(), new EventBus(), { persist: false, toolRunnerFactory: dryRunToolRunnerFactory });
+    await expect(executor.runWorkflow(definition, {})).rejects.toThrow("release authority");
+  });
+
   test("a tool-bearing graph dry-runs to completion with stubs", async () => {
     // Also the merge tripwire for `stepSubstitute`. If that option is ever
     // lost from the executor, the agent and tool steps here DISPATCH, the

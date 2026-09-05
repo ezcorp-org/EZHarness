@@ -67,6 +67,7 @@ import {
   type WorkflowStepIterationUpsert,
 } from "../db/queries/workflow-step-iterations";
 import { workflowExecutionHash } from "./workflow-definition-hash";
+import { isPureWorkflowExecutor } from "./workflow-dry-run";
 import {
   getWorkflowApproval,
   hasPendingApproval,
@@ -794,7 +795,7 @@ export class WorkflowExecutor {
       steps: [],
     };
     const entry = executionEntry(workflow);
-    if (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
+    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, userId ?? null, projectId))) {
       throw new Error("Workflow release authority is no longer available");
     }
 
@@ -889,7 +890,7 @@ export class WorkflowExecutor {
       return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
     }
 
-    if (!await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
+    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
       return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
     }
     return this.executeFrom({
