@@ -1,5 +1,5 @@
 /**
- * B5 — an MCP extension's network permission is visible and grantable.
+ * B5 — an MCP extension's network permission is visible in release review.
  *
  * Before the fix, `installMcpExtension` synthesized `permissions: {}` for
  * every MCP row. The detail page renders its "Network Access" checkbox row
@@ -133,6 +133,10 @@ test.describe("Extensions — MCP network permission", () => {
 		await captureEvidence(page, testInfo, "mcp-network-permission-granted", {
 			fullPage: true,
 		});
+		// The real-auth release-gate spec proves the live approval submission.
+		// This mock visual proof also pins the supported route into that flow.
+		await page.getByTestId("review-extension-release").click();
+		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
 	});
 
 	test("a stdio server naming no host shows the deny-by-default state", async ({

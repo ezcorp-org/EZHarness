@@ -109,6 +109,8 @@ test.describe("Extension install-granted capabilities", () => {
 		await expect(permissions).toContainText("Current grants");
 		await expect(permissions).toContainText("storage");
 		await captureEvidence(page, testInfo, "install-granted-capabilities-v4");
+		await page.getByTestId("review-extension-release").click();
+		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
 
 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
 			expect(
