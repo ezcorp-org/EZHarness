@@ -104,13 +104,19 @@ export class ReleaseProcess extends ExtensionProcess {
       ...(Object.keys(metadata).length ? { metadata } : {}),
     };
     const binding = releaseBinding(snapshot);
+    const assertInvocationActive = () => {
+      checkCancellation();
+      if (this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
+      const liveProvenance = resolveCallProvenance(token);
+      if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
+    };
     const assertCurrentBinding = async () => {
-      checkCancellation();
-      if (Date.now() >= context.deadline || !resolveCallProvenance(token)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
+      assertInvocationActive();
       const current = await this.active();
-      checkCancellation();
+      assertInvocationActive();
       if (releaseBinding(current) !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
     };
+    const effectAdmission = { prepare: assertCurrentBinding, assertActive: assertInvocationActive };
     let accepting = false;
     const runner = await this.runtime!.runner();
     checkCancellation();
@@ -136,8 +142,6 @@ export class ReleaseProcess extends ExtensionProcess {
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_CONTEXT", "Invalid capability envelope");
         const envelope = raw as Record<string, unknown>;
         if (Object.keys(envelope).some(key => key !== "context" && key !== "input") || !Object.hasOwn(envelope, "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context)) throw new ContractError("CONTEXT_MISMATCH", "Capability context does not match active invocation");
-        const liveProvenance = resolveCallProvenance(token);
-        if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
         await assertCurrentBinding();
         if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
         if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") return locks.request(rpcMethod, envelope.input as Record<string, unknown>);
@@ -148,11 +152,11 @@ export class ReleaseProcess extends ExtensionProcess {
           if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
           if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
           if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
-          await locks.effect(rpcMethod, async () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input }), checkCancellation);
+          await locks.effect(rpcMethod, async () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input }), effectAdmission);
           return { ok: true };
         }
         if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
-        const response = await locks.effect(rpcMethod, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }), checkCancellation);
+        const response = await locks.effect(rpcMethod, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }), effectAdmission);
         if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
         if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
         assertJson(response.result);
