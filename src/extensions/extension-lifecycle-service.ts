@@ -87,7 +87,7 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
       const output = result && typeof result === "object" ? result as Record<string, unknown> : undefined;
       const text = Array.isArray(output?.content) ? output.content.filter((part) => part?.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n") : typeof output?.text === "string" ? output.text : typeof result === "string" ? result : canonicalJson(result);
       if (expected?.textIncludes !== undefined && !text.includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
-      if (expected?.isError === false && result && typeof result === "object" && "isError" in result && result.isError === true) throw new LifecycleError("smoke_assertion_failed", "Smoke test returned an error.");
+      if (expected?.isError !== undefined && (output?.isError === true) !== expected.isError) throw new LifecycleError("smoke_assertion_failed", "Smoke test error status did not match the expected status.");
     }
     const report: CandidateVerificationReport = { catalog: "verified", smoke: discovered.smokeTest ? "passed" : "not_declared", capabilities: broker.coverage() };
     if (report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });

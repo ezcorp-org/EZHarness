@@ -83,6 +83,19 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
 }
 
 describe("candidate verification", () => {
+  test("smoke error status assertions check both expected outcomes", async () => {
+    for (const expected of [true, false]) {
+      const candidate = structuredClone(release);
+      candidate.manifest.tools![0]!.outputSchema = { type: "object" };
+      candidate.manifest.smokeTest!.expect = { isError: expected };
+      for (const actual of [true, false, undefined]) {
+        const fixture = candidateRunner(async (method) => method === "extension/discover" ? candidate.manifest : actual === undefined ? {} : { isError: actual });
+        if ((actual === true) === expected) expect((await verifyExtensionCandidate(fixture.runner, candidate)).smoke).toBe("passed");
+        else await expect(verifyExtensionCandidate(fixture.runner, candidate)).rejects.toMatchObject({ code: "smoke_assertion_failed" });
+        expect(fixture.closed()).toBe(true);
+      }
+    }
+  });
   test("text assertions inspect literal tool text rather than JSON-escaped transport", async () => {
     const candidate = structuredClone(release);
     candidate.manifest.tools![0]!.outputSchema = { type: "object" };

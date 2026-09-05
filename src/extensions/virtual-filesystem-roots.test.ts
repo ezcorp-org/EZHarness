@@ -33,6 +33,6 @@ test("production virtual roots enforce current user, conversation ownership and 
   await expect(roots()).rejects.toThrow("Project root unavailable");
   await database.delete(projectMembers).where(eq(projectMembers.userId, owner!.id));
   await expect(roots()).rejects.toThrow("Project membership");
-  await database.update(users).set({ status: "suspended" }).where(eq(users.id, owner!.id));
+  await database.update(users).set({ status: "inactive" }).where(eq(users.id, owner!.id));
   await expect(roots()).rejects.toThrow("Active user");
 });
