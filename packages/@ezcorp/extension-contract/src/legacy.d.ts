@@ -341,7 +341,7 @@ export interface ExtensionPageDeclaration {
 // the import here (rather than re-declaring the interface) means
 // schema/seed/preview shape changes in one place propagate to both
 // sides — see `packages/@ezcorp/sdk/src/entities/types.ts`.
-import type { EntityDeclaration } from "./entities";
+import type { EntityDeclaration } from "@ezcorp/extension-contract/entities";
 import type { HostApiPermission } from "./types";
 
 export interface ExtensionManifestV2 {

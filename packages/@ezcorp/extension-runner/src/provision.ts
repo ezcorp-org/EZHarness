@@ -47,11 +47,12 @@ async function bundleTrustedPackages(sdkRoot: string): Promise<WorkspaceFiles> {
     const packageRoot = join(root, name);
     const metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
     if (name === "sdk") metadata.exports["./v4/runtime"] ??= { bun: "./src/v4/runtime.ts", types: "./dist/v4/runtime.d.ts" };
-    const entrypoints = metadata.exports as Record<string, { bun: string; types: string }>;
-    sources.push(...Object.values(entrypoints).map(value => resolve(packageRoot, value.bun)));
+    const entrypoints = metadata.exports as Record<string, { bun?: string; types: string }>;
+    sources.push(...Object.values(entrypoints).flatMap(value => value.bun ? [resolve(packageRoot, value.bun)] : []));
     const destination = `node_modules/${metadata.name}`;
     Object.assign(files, await readTree(join(packageRoot, "dist"), `${destination}/dist`, true));
-    files[`${destination}/package.json`] = JSON.stringify({ name: metadata.name, version: metadata.version, type: "module", exports: Object.fromEntries(Object.entries(entrypoints).map(([entry, value]) => [entry, { types: value.types, default: value.bun.replace(/\.ts$/, ".js") }])) });
+    Object.assign(files, await readTree(join(packageRoot, "src"), `${destination}/src`, true));
+    files[`${destination}/package.json`] = JSON.stringify({ name: metadata.name, version: metadata.version, type: "module", exports: Object.fromEntries(Object.entries(entrypoints).map(([entry, value]) => [entry, { types: value.types, ...(value.bun ? { default: value.bun.replace(/\.ts$/, ".js") } : {}) }])) });
   }
   const result = await Bun.build({ entrypoints: sources, root, naming: { entry: "[dir]/[name].[ext]", chunk: "sdk/shared/[name]-[hash].[ext]" }, splitting: true, target: "bun", format: "esm", packages: "bundle" });
   if (!result.success) throw new RunnerError("sdk_build_failed", "Trusted SDK could not be bundled");
