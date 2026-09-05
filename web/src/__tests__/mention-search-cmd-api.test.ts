@@ -19,6 +19,10 @@ mock.module("$lib/server/security/api-keys", () => ({
 	requireScope: () => null,
 }));
 
+mock.module("$lib/server/workflow-access", () => ({
+	listVisibleWorkflows: async () => [],
+}));
+
 // Shared mutable registry used by the context mock. Individual tests
 // swap out its backing array to simulate different discovery outcomes.
 let nextCommands: Array<{
