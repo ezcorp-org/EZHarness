@@ -192,11 +192,14 @@
 	let bannerText = $state<string>("");
 	let bannerError = $state<string>("");
 	let dismissTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastSeededOutput: unknown = $state(undefined);
 
 	// When the tool output arrives (history hydration / first render),
 	// seed the live state. This effect runs whenever the parsed payload
 	// changes — typically once on mount.
 	$effect(() => {
+		if (toolCall.output === lastSeededOutput) return;
+		lastSeededOutput = toolCall.output;
 		if (payload.knobValues) {
 			liveAppliedValues = payload.knobValues;
 			const initial: Record<string, string> = {};

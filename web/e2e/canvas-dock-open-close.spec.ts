@@ -70,7 +70,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 	});
 
-	test("persisted dock call restores after a fresh page load", async ({ page, mockApi }) => {
+	test("persisted dock call restores after a fresh page load @evidence", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg],
 			messageToolCalls: { m2: [{ id: "tc-dock-saved", extensionId: "claude-design", toolName: "claude-design__open-canvas", input: { draftId: "d-1" }, outputSummary: "Canvas ready", fullOutput: JSON.stringify(payload), success: true, durationMs: 50, status: "success", messageId: "m2", cardType: "design-canvas", cardLayout: "dock" }] },
