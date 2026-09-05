@@ -1,4 +1,9 @@
 {
+  "web/e2e/real-auth/extension-browser-scanner.spec.ts": [
+    "web/src/lib/components/extensions/ExtensionBrowser.svelte",
+    "web/src/routes/(app)/extensions/preview/[installationId]/**",
+    "extensions/barcode-scanner/**"
+  ],
   "web/e2e/real-auth/extension-source-import.spec.ts": [
     "web/src/routes/(app)/extensions/import-source/**",
     "web/src/routes/(app)/extensions/author/+page.svelte"
