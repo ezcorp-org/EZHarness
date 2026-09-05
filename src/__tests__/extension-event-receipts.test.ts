@@ -3,11 +3,12 @@ import { eq, sql } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 import { releaseRuntimeFixture } from "./helpers/release-runtime";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
-import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EVENT_RECEIPT_RETENTION_MS } from "../db/queries/extension-event-receipts";
+import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT, EVENT_RECEIPT_GLOBAL_LIMIT } from "../db/queries/extension-event-receipts";
 import { up } from "../db/migrations/add-extension-event-receipts";
 import { ExtensionDeliveryQueue } from "../extensions/v4/deliveries";
 import type { MigrationDb } from "../db/migrations/types";
 import { settings } from "../db/schema";
+import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 
 mockDbConnection();
 beforeEach(setupTestDb);
@@ -105,4 +106,38 @@ test("retention preserves pending and uncertain deliveries and expires terminal 
   expect(await context.database.transaction(transaction => purgeExpiredEventReceipts(transaction, EVENT_RECEIPT_RETENTION_MS))).toBe(1);
   expect(await getEventReceipt(context.database, context.admission)).toBeNull();
   await expect(purgeExpiredEventReceipts(context.database, -1)).rejects.toHaveProperty("code", "invalid_event_scope");
+});
+
+test("owner admission quota is atomic under races and does not block equal retries", async () => {
+  const context = await fixture();
+  await context.database.execute(sql`INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'existing-' || generate_series, 'owner', 'digest', ${EVENT_RECEIPT_RETENTION_MS}, '{}' FROM generate_series(1,${EVENT_RECEIPT_OWNER_LIMIT - 1})`);
+  const results = await Promise.allSettled(["last-one", "last-two"].map(key => context.database.transaction(transaction => admitEventInTransaction(transaction, { ...context.admission, key }, async () => []))));
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.find(result => result.status === "rejected");
+  expect(rejected?.status === "rejected" && rejected.reason.code).toBe("event_admission_full");
+  const winningKey = results[0]?.status === "fulfilled" ? "last-one" : "last-two";
+  expect((await context.database.transaction(transaction => admitEventInTransaction(transaction, { ...context.admission, key: winningKey }, async () => { throw new Error("retry republished"); }))).accepted).toBe(false);
+  expect(await context.queue.claim()).toBeNull();
+}, 30_000);
+
+test("global capacity is bounded across owners and a missing lock fails closed", async () => {
+  const context = await fixture();
+  await context.database.execute(sql`INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'existing-' || generate_series, 'other-' || generate_series, 'digest', ${EVENT_RECEIPT_RETENTION_MS}, '{}' FROM generate_series(1,${EVENT_RECEIPT_GLOBAL_LIMIT})`);
+  await expect(context.database.transaction(transaction => admitEventInTransaction(transaction, context.admission, async () => []))).rejects.toHaveProperty("code", "event_admission_full");
+  expect(await getEventReceipt(context.database, context.admission)).toBeNull();
+  await context.database.execute(sql`DELETE FROM extension_event_admission_lock`);
+  await expect(context.database.transaction(transaction => admitEventInTransaction(transaction, context.admission, async () => []))).rejects.toHaveProperty("code", "event_admission_unavailable");
+}, 30_000);
+
+test("host maintenance purges expired receipts in bounded batches without dropping pending history", async () => {
+  const context = await fixture();
+  await context.database.transaction(transaction => admitEventInTransaction(transaction, context.admission, async () => [], 0));
+  const pending = { ...context.admission, key: "pending-history" };
+  await context.database.transaction(transaction => admitEventInTransaction(transaction, pending, id => context.publish(transaction, id), 0));
+  const daemon = new HostMaintenanceDaemon({ now: () => EVENT_RECEIPT_RETENTION_MS, skipLockfile: true });
+  await daemon.tickOnce();
+  expect(await getEventReceipt(context.database, context.admission)).toBeNull();
+  expect(await getEventReceipt(context.database, pending)).not.toBeNull();
+  await context.database.execute(sql`DROP TABLE extension_event_receipts`);
+  expect((await daemon.tickOnce()).errors).toEqual([]);
 });

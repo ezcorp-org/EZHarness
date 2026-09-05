@@ -5,6 +5,8 @@ import { releaseRows } from "./extension-releases";
 import { LifecycleError } from "../../extensions/v4/types";
 
 export const EVENT_RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+export const EVENT_RECEIPT_OWNER_LIMIT = 10000;
+export const EVENT_RECEIPT_GLOBAL_LIMIT = 100000;
 
 export interface EventAdmissionIdentity {
   principalId: string;
@@ -48,12 +50,16 @@ export async function admitEventInTransaction(
   if (Buffer.byteLength(payload) > 256 * 1024) throw new LifecycleError("event_payload_limit", "Event admission exceeds the durable payload limit.");
   const identityDigest = await sha256(canonicalJson([admission.scope, await sha256(payload)]));
   const receipt: EventReceipt = { id, scope: admission.scope, acceptedAt: now, retainUntil: now + EVENT_RECEIPT_RETENTION_MS, deliveryIds: [] };
+  const locks = releaseRows<{ id: number }>(await transaction.execute(sql`SELECT id FROM extension_event_admission_lock WHERE id = 1 FOR UPDATE`));
+  if (locks.length !== 1) throw new LifecycleError("event_admission_unavailable", "The event admission capacity lock is unavailable.");
   const inserted = releaseRows<{ id: string }>(await transaction.execute(sql`INSERT INTO extension_event_receipts(id, principal_id, identity_digest, retain_until, payload) VALUES (${id}, ${admission.principalId}, ${identityDigest}, ${receipt.retainUntil}, ${JSON.stringify(receipt)}) ON CONFLICT (id) DO NOTHING RETURNING id`));
   if (!inserted.length) {
     const [existing] = releaseRows<{ identity_digest: string; payload: string }>(await transaction.execute(sql`SELECT identity_digest, payload FROM extension_event_receipts WHERE id = ${id} FOR UPDATE`));
     if (!existing || existing.identity_digest !== identityDigest) throw new LifecycleError("event_conflict", "This event key was already used for a different payload or scope.");
     return { receipt: JSON.parse(existing.payload) as EventReceipt, accepted: false };
   }
+  const [counts] = releaseRows<{ total: number; owned: number }>(await transaction.execute(sql`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE principal_id = ${admission.principalId})::int AS owned FROM extension_event_receipts`));
+  if (!counts || counts.total > EVENT_RECEIPT_GLOBAL_LIMIT || counts.owned > EVENT_RECEIPT_OWNER_LIMIT) throw new LifecycleError("event_admission_full", "Event admission capacity is exhausted; retry after retained receipts become eligible for cleanup.");
   receipt.deliveryIds = (await publish(id)).map(delivery => delivery.id);
   if (receipt.deliveryIds.length > 1000 || receipt.deliveryIds.some(deliveryId => !deliveryId || deliveryId.length > 256)) throw new LifecycleError("event_recipient_limit", "Event admission exceeds the recipient limit.");
   await transaction.execute(sql`UPDATE extension_event_receipts SET payload = ${JSON.stringify(receipt)} WHERE id = ${id}`);

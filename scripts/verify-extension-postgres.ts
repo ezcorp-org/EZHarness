@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sql";
 import { sql } from "drizzle-orm";
 import { up } from "../src/db/migrations/add-extension-releases";
 import { up as upEventReceipts } from "../src/db/migrations/add-extension-event-receipts";
-import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EVENT_RECEIPT_RETENTION_MS } from "../src/db/queries/extension-event-receipts";
+import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT, EVENT_RECEIPT_GLOBAL_LIMIT } from "../src/db/queries/extension-event-receipts";
 import { publishDomainEvent } from "../src/extensions/domain-event-outbox";
 import type { MigrationDb } from "../src/db/migrations/types";
 import { DatabaseLifecycleRepository } from "../src/db/queries/extension-releases";
@@ -77,6 +77,18 @@ try {
   const emptyAdmission = { ...admission, key: "zero-recipients" };
   assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => []))).accepted, true);
   assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => { throw new Error("replayed zero-recipient event"); }))).accepted, false);
+  await client.unsafe("INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'quota-' || generate_series, 'owner', 'digest', $1, '{}' FROM generate_series(1,$2)", [EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT - 2]);
+  const competingClient = new SQL(url, { max: 1 });
+  try {
+    await competingClient.unsafe(`SET search_path TO ${schema}`);
+    const competingDriver = drizzle(competingClient);
+    const admissions = await Promise.allSettled([driver, competingDriver].map((database, index) => database.transaction(transaction => admitEventInTransaction(transaction, { ...admission, key: `concurrent-${index}` }, async () => []))));
+    assert.equal(admissions.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(admissions.filter(result => result.status === "rejected" && result.reason.code === "event_admission_full").length, 1);
+  } finally { await competingClient.close(); }
+  assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => []))).accepted, false);
+  await client.unsafe("INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'global-' || generate_series, 'other-' || generate_series, 'digest', $1, '{}' FROM generate_series(1,$2)", [EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_GLOBAL_LIMIT - EVENT_RECEIPT_OWNER_LIMIT]);
+  await assert.rejects(driver.transaction(transaction => admitEventInTransaction(transaction, { ...admission, principalId: "new-owner", key: "global-full" }, async () => [])), { code: "event_admission_full" });
   const delivery = await queue.enqueue({ installationId: installation.id, releaseId: release.id, generation: 2, principalId: "owner", scope: "global", deduplicationId: randomUUID(), kind: "event", input: { event: "example" } });
   const claimed = await queue.claim();
   assert.equal(claimed?.id, delivery.id);

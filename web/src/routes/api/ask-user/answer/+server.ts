@@ -43,6 +43,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (cause.code === "event_not_found") return errorJson(404, "Not found");
     if (cause.code === "event_conflict") return errorJson(409, "This question already has a different answer.");
     if (cause.code === "invalid_answer") return errorJson(400, "Invalid body");
+    if (cause.code === "event_admission_full") return errorJson(503, "Event admission capacity is full. Try again after maintenance cleanup.");
     throw cause;
   }
 

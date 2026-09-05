@@ -218,4 +218,10 @@ describe("POST /api/ask-user/answer", () => {
     }
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
+
+  test("admission quota exhaustion returns 503 rather than accepting a lost answer", async () => {
+    admissionFailure = new LifecycleError("event_admission_full", "Full");
+    expect((await POST(makeEvent({ toolCallId: "tc-live", answer: "answer" }) as never)).status).toBe(503);
+    expect(mockBusEmit).not.toHaveBeenCalled();
+  });
 });

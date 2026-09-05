@@ -811,7 +811,7 @@ describe("HostMaintenanceDaemon — tick safety", () => {
       .select()
       .from(auditLog)
       .where(eq(auditLog.action, "ext:permission-grant-expired"));
-    const ours = rows.filter((r) => r.target === "ext-audit");
+    const ours = rows.filter((row: { target: string | null }) => row.target === "ext-audit");
     expect(ours).toHaveLength(2);
   });
 

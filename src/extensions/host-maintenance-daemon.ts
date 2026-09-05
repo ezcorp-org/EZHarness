@@ -496,6 +496,12 @@ export class HostMaintenanceDaemon {
         }
       }
 
+      try {
+        const { purgeExpiredEventReceipts } = await import("../db/queries/extension-event-receipts");
+        await db.transaction((transaction: import("../db/migrations/types").MigrationDb) => purgeExpiredEventReceipts(transaction, now));
+      } catch (cause) {
+        log.warn("tick: event receipt cleanup failed", { error: String(cause), tickCount: this.tickCount });
+      }
       return { ...outcome, approvalTimeouts, triggerSweep };
     } catch (err) {
       log.warn("tick: sweep crashed — daemon continues", {
