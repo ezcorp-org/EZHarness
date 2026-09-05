@@ -163,9 +163,11 @@ export class ReleaseProcess extends ExtensionProcess {
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_CONTEXT", "Invalid capability envelope");
         const envelope = raw as Record<string, unknown>;
         if (Object.keys(envelope).some(key => key !== "context" && key !== "input") || !Object.hasOwn(envelope, "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context)) throw new ContractError("CONTEXT_MISMATCH", "Capability context does not match active invocation");
-        await assertCurrentBinding();
         if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
-        if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") return locks.request(rpcMethod, envelope.input as Record<string, unknown>);
+        if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") {
+          await assertCurrentBinding();
+          return locks.request(rpcMethod, envelope.input as Record<string, unknown>);
+        }
         const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _meta: { ezCallId: token } };
         delete input._toolName;
         if (method === "tools/call") input._toolName = params.name;
