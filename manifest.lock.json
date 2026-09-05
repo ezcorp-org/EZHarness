@@ -60,9 +60,9 @@
     "docs-updater": {
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 106933,
-      "sourceDigest": "f2fe644ca0da84aa5f81dcd3272e7e7fb45287178a8102f552af6ffb8cf52825"
+      "files": 9,
+      "bytes": 115160,
+      "sourceDigest": "dd5f73fd8ad74bbf68e65a2f42eba54c2c1e739774aba2aef0bf0ed6983f7286"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",

@@ -1,5 +1,22 @@
 # docs-updater — proactive PR-drafter (flagship loop)
 
+## Version 4 execution boundary
+
+Git reads use closed host operations against a human-bound project. Pull request
+changes require a separate host review at the link in the proposal summary.
+The host pins the repository, commit, changed files, and human-approved write
+paths. Without that binding, the project remains read-only. Extension settings
+can narrow the write paths but cannot grant access.
+
+The host review page executes the selected ready, merge, or close operation.
+The extension's Approve and Decline buttons only record a matching completed
+host operation. Pending, rejected, failed, and mismatched decisions are errors;
+extension storage cannot authorize GitHub writes. An out-of-scope draft is
+reported but is not automatically closed. Self-project merges remain forbidden.
+
+The standalone shell helpers described below remain business-flow test fixtures;
+version 4 does not execute them or receive a GitHub credential.
+
 The user's exact example, honestly scoped: **it drafts a docs PR, a human
 approves, and on the `/repo` self-dev mount the merge stays manual on GitHub.**
 It is the Phase-3 flagship of the Loops campaign — the first loop that composes

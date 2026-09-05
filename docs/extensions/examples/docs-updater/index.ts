@@ -869,6 +869,29 @@ export async function docsUpdaterOnComplete(
   const { number: prNumber, ownerRepo } = target;
   const prRef = `#${prNumber}`;
   const writePaths = resolveWritePaths(ctx.settings);
+  if (getInvocationContext()) {
+    const channel = getChannel();
+    const number = Number(prNumber);
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error("Invalid pull request number");
+    const changed = await channel.request<{ files: string[]; unavailable: false }>("ezcorp/project.pullRequest", { action: "files", number });
+    const outside = filterOutsideWritePaths(changed.files, writePaths);
+    if (outside.length > 0) {
+      return { kind: "terminal", status: "rejected_out_of_scope", outcome: { headHash, prRef, closed: false, note: `out-of-scope paths: ${outside.join(", ")}; no close authorized` } };
+    }
+    const review = await channel.request<{ proposalId: string; reviewUrl: string }>("ezcorp/project.pullRequest", { action: "propose", number, merge: ctx.settings.auto_merge === true, runId: ctx.run.id });
+    if (!/^\/extensions\/project-proposals\/[A-Za-z0-9_-]+$/.test(review.reviewUrl) || typeof review.proposalId !== "string" || !review.proposalId) throw new Error("Invalid host review response");
+    const observe = async (action: "finalize" | "close") => {
+      const decision = await channel.request<{ state: string; action?: string; result?: { marked: "ready" | "merged" | "closed"; note?: string } }>("ezcorp/project.pullRequest", { action, proposalId: review.proposalId });
+      if (decision.state !== "completed" || decision.action !== action || !decision.result || (action === "close" ? decision.result.marked !== "closed" : !["ready", "merged"].includes(decision.result.marked))) throw new Error(`Host review is ${decision.state}; no matching completed ${action} operation`);
+      return decision.result;
+    };
+    return {
+      kind: "proposal", status: "pr_drafted",
+      proposal: { title: `Docs update for ${headHash.slice(0, 8)}`, summary: `Drafted PR ${prRef}. [Review this exact pull request](${review.reviewUrl}). Complete the host review before recording its result here.`, kind: "pr", ref: prRef },
+      finalize: async () => ({ ...await observe("finalize"), headHash, prRef }),
+      discard: async () => { await observe("close"); },
+    };
+  }
   const selfRepo = isSelfRepo(repo);
   const autoMerge = ctx.settings.auto_merge === true;
   const shell = getShell(repo);
@@ -965,6 +988,7 @@ export function buildDashboard(runs: LoopRunState<DocsOutcome>[]): PageBuilder {
       const title = run.proposal?.title ?? `Run ${run.id.slice(0, 8)}`;
       s.section(`${title} — ${statusLabel(run)}`, (row) => {
         if (run.proposal?.ref) row.markdownBlock(`PR: \`${run.proposal.ref}\``);
+        if (run.proposal?.summary) row.markdownBlock(run.proposal.summary);
         if (run.status === "awaiting_approval") {
           row.button(
             "Approve",
