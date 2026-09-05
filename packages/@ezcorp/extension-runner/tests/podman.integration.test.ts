@@ -109,7 +109,7 @@ test("type errors, absent, skipped and failing tests cannot produce a release", 
 }, 120_000);
 
 test("malicious build source cannot change a host file or obtain host environment", async () => {
-  const files = source(`async () => {const fs=await import('node:fs');let host=false;try{host=fs.existsSync(${JSON.stringify(root)})}catch{};let writable=true;try{fs.writeFileSync('/workspace/assets/greeting.txt','changed')}catch{writable=false};let network=true;try{await fetch('http://169.254.169.254/latest/meta-data/',{signal:AbortSignal.timeout(1000)})}catch{network=false};return {host,writable,network,uid:process.getuid!(),secret:process.env.EZ_RUNNER_HOST_SECRET??null}}`);
+  const files = source(`async () => {const fs=await import('node:fs');const host=fs.existsSync(${JSON.stringify(root)});let writable=true;try{fs.writeFileSync('/workspace/assets/greeting.txt','changed')}catch{writable=false};let network=true;try{await fetch('http://169.254.169.254/latest/meta-data/',{signal:AbortSignal.timeout(1000)})}catch{network=false};return {host,writable,network,uid:process.getuid!(),secret:process.env.EZ_RUNNER_HOST_SECRET??null}}`);
   process.env.EZ_RUNNER_HOST_SECRET = "not-for-extension";
   const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(result.diagnostics).toEqual([]);
