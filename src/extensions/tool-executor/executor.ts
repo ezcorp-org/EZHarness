@@ -242,6 +242,7 @@ export class ToolExecutor {
     messageId: string | null,
     _opts?: {
       callerExtensionId?: string;
+      expectedReleaseBinding?: string;
       _callDepth?: number;
       metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
       /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
@@ -856,6 +857,7 @@ export class ToolExecutor {
           ownerless: !this.currentUserId,
         });
         meta.ezCallId = ezCallId;
+        if (_opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = _opts.expectedReleaseBinding;
         // Only pass the fourth `options` arg when there's something to set —
         // keeps the 3-arg call shape for the common case (tests assert with
         // strict `toHaveBeenCalledWith` arity). The token is released the

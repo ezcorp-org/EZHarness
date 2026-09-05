@@ -1,4 +1,4 @@
-import { ContractError, assertJson, canonicalJson, compileValueSchema, validateInvocationContext, validateManifest, validateResourceLimits } from "@ezcorp/extension-contract";
+import { ContractError, assertJson, canonicalJson, compileValueSchema, sha256, validateInvocationContext, validateManifest, validateResourceLimits } from "@ezcorp/extension-contract";
 import type { InstallationRecord, InvocationContext, JsonValue, ReleaseRecord, ResourceLimits, Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { resolveCallProvenance } from "./call-provenance";
 import { ExtensionProcess } from "./subprocess";
@@ -80,7 +80,7 @@ export class ReleaseProcess extends ExtensionProcess {
     const snapshot = await this.active();
     if (method === "tools/list") return { tools: snapshot.release.manifest.tools ?? [] };
     const meta = params._meta && typeof params._meta === "object" && !Array.isArray(params._meta) ? params._meta as Record<string, unknown> : {};
-    if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation)) throw new ContractError("RELEASE_CHANGED", "Queued delivery no longer targets the active release generation");
+    if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
     const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
     const provenance = token ? resolveCallProvenance(token) : undefined;
     if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || !provenance.onBehalfOf) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");

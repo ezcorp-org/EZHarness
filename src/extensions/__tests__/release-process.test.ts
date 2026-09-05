@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime } from "../release-process";
+import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding } from "../release-process";
+import { sha256 } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
@@ -143,10 +144,24 @@ describe("release runtime", () => {
   test("typed outputs adapt to tool cards and queued generation mismatches refuse dispatch", async () => {
     const fixture = harness();
     try {
-      await expect(fixture.process.call("page/render", { _meta: { ezCallId: fixture.token, releaseId: "old-release", expectedGeneration: 1 } })).rejects.toThrow("Queued delivery");
+      await expect(fixture.process.call("page/render", { _meta: { ezCallId: fixture.token, releaseId: "old-release", expectedGeneration: 1 } })).rejects.toThrow("active release generation");
       fixture.mutate(value => { value.release.manifest.tools![0]!.outputSchema = { type: "string" }; });
       fixture.invoke(async () => "typed output");
       expect(await fixture.process.callTool("read", {}, { ezCallId: fixture.token })).toEqual({ content: [{ type: "text", text: "typed output" }], isError: false });
     } finally { fixture.cleanup(); }
   });
+});
+
+test("browser binding cannot adopt changed grants or a later release at worker dispatch", async () => {
+  const fixture = harness();
+  try {
+    const expectedReleaseBinding = await sha256(releaseBinding(fixture.snapshot()));
+    const meta = { ezCallId: fixture.token, expectedReleaseBinding };
+    expect((await fixture.process.callTool("read", {}, meta)).isError).toBe(false);
+    fixture.mutate(value => { value.installation.grants = []; });
+    await expect(fixture.process.callTool("read", {}, meta)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    fixture.mutate(value => { value.installation.grants = ["storage"]; value.installation.generation = 2; value.installation.acknowledgedGeneration = 2; });
+    await expect(fixture.process.callTool("read", {}, meta)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    expect(fixture.starts).toHaveLength(1);
+  } finally { fixture.cleanup(); }
 });

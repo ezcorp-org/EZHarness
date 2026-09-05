@@ -28,6 +28,7 @@ const postBodySchema = z.object({
   conversationId: z.string().optional(),
   invocationId: z.string().optional(),
   messageId: z.string().optional(),
+  expectedReleaseBinding: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 }).strict();
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -47,7 +48,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!parsed.success) {
     return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
   }
-  const { extensionName, toolName, input, conversationId, invocationId, messageId } = parsed.data;
+  const { extensionName, toolName, input, conversationId, invocationId, messageId, expectedReleaseBinding } = parsed.data;
   if (!extensionName || !toolName || !conversationId || !invocationId) {
     return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
   }
@@ -162,11 +163,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };
   let retryCount = 0;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= (expectedReleaseBinding ? 0 : MAX_RETRIES); attempt++) {
     try {
       const result = await toolExecutor.executeToolCall(
         namespacedTool, input ?? {}, conversationId, messageId ?? null,
-        { metadata },
+        { metadata, ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
       );
 
       if (!result.isError) {
