@@ -1,23 +1,5 @@
-/**
- * Pipeline test (Loops EZ Mode Phase 4, reviewer C1/C1b): activate → route →
- * claim → fire, exercising the REAL `activateExtension` + the REAL public
- * `POST /api/hooks/:ext/:slug` handler + the REAL `buildFireContext` wrapper.
- *
- * The point is the ACTIVATE WIRING: this test never hand-calls
- * `reconcileWebhooks` — `activateExtension` must call it (item 5). If that wiring
- * regresses, the spy assertion fails AND the route POST below has no secret to
- * authenticate against (so it would 401). `reconcileWebhooks`'s own DB
- * correctness is covered by `src/__tests__/webhook-storage.test.ts`; here it is
- * a spy that writes the row + secret into a shared in-memory store the route
- * then reads — so activate → route → fire is one connected chain.
- *
- * The subprocess half (fire → loop `check`/`act`) is covered faithfully by
- * `docs/extensions/examples/webhook-ticket-loop/subprocess.integration.test.ts`
- * (real subprocess). This test proves the HOST half: activate registers +
- * mints, the route accepts + persists, and the dispatched fire is the delimited
- * UNTRUSTED `WebhookInput` a loop's `check` receives.
- */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import type { InstallationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
 
 interface DeliveryRow {
   id: string;
@@ -75,6 +57,7 @@ vi.mock("$server/extensions/webhook-store", () => ({
 
 vi.mock("$server/extensions/webhook-secret", () => ({
   getWebhookSecret: async (_ext: string, slug: string) => registry.get(slug)?.secret ?? null,
+  ensureWebhookSecret: async () => null,
 }));
 
 // Real buildFireContext (the wrapper under assertion); drainDelivery captures
@@ -102,7 +85,14 @@ vi.mock("$server/db/queries/extensions", () => ({
   getExtension: async () => storedExtension,
   updateExtension: async (_id: string, update: Record<string, unknown>) => ({ ...storedExtension, ...update }),
   resetFailures: async () => {},
+  serializeJsonbFields: (value: unknown) => value,
 }));
+const installation: InstallationRecord = { id: "ext-uuid-1", ownerId: "admin-1", scope: "global", activeReleaseId: "release-1", generation: 1, enabled: true, uninstalled: false, status: "reconciling", acknowledgedGeneration: 0, grants: ["webhooks:tickets"] };
+const transaction = {
+  execute: async () => [{ payload: JSON.stringify(installation) }],
+  insert: () => ({ values: () => ({ onConflictDoUpdate: async () => {} }) }),
+};
+vi.mock("$server/db/connection", () => ({ getDb: () => ({ transaction: async (work: (value: typeof transaction) => unknown) => work(transaction) }) }));
 vi.mock("$server/extensions/registry", () => ({
   ExtensionRegistry: { getInstance: () => ({ reload: async () => {} }) },
 }));
@@ -110,14 +100,16 @@ vi.mock("$server/extensions/security", () => ({ hasSecurityViolation: async () =
 vi.mock("$lib/server/extension-helpers", () => ({
   clampExtensionPermissions: (submitted: { webhooks?: string[] }) => ({ webhooks: submitted.webhooks ?? [] }),
 }));
-vi.mock("$server/extensions/clamp-permissions", () => ({ emitEnvKeyLeakWarnings: async () => {} }));
 vi.mock("$server/extensions/schedule-reconcile", () => ({ reconcileSchedules: async () => {} }));
 vi.mock("$server/extensions/npm-deps", () => ({
   verifyNpmDependencies: () => ({ ok: true, issues: [] }),
   formatNpmDepError: () => "",
 }));
 
-const { activateExtension } = await import("../lib/server/extensions/activate-extension");
+const { publishExtensionGeneration } = await import("$server/extensions/extension-lifecycle-service");
+async function publish() {
+  await publishExtensionGeneration(installation, { id: "release-1", manifest: storedExtension.manifest } as ReleaseRecord);
+}
 const { POST, __resetWebhookLimiterForTests } = await import(
   "../routes/api/hooks/[extensionId]/[slug]/+server"
 );
@@ -143,7 +135,7 @@ beforeEach(() => {
   storedExtension = {
     id: "ext-uuid-1",
     name: EXT_NAME,
-    manifest: { permissions: { webhooks: ["tickets"] } },
+    manifest: { schemaVersion: 4, name: EXT_NAME, version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: { webhooks: ["tickets"] } },
     grantedPermissions: {},
     installPath: null,
   };
@@ -152,11 +144,10 @@ beforeEach(() => {
 describe("webhook pipeline: activate → route → fire", () => {
   test("activate wires reconcile → registry row + secret minted → POST accepted → fire is the wrapped WebhookInput", async () => {
     // 1. Activate with a webhook grant (the wiring under test).
-    const result = await activateExtension("ext-uuid-1", { submittedPermissions: { webhooks: ["tickets"] } }, "admin-1");
-    expect(result.ok).toBe(true);
+    await publish();
     // Wiring guard — activate MUST call reconcileWebhooks with the NAME (not the
     // row UUID) and the clamped granted slug. Removing item 5 fails this.
-    expect(reconcileWebhooks).toHaveBeenCalledWith(EXT_NAME, ["tickets"]);
+    expect(reconcileWebhooks).toHaveBeenCalledWith(EXT_NAME, ["tickets"], expect.any(Function), expect.any(Function), transaction);
     // Effect: the registry row + its shown-once secret now exist.
     const minted = registry.get("tickets");
     expect(minted).toBeTruthy();
@@ -188,7 +179,7 @@ describe("webhook pipeline: activate → route → fire", () => {
   });
 
   test("an HMAC-signed delivery on the activated hook is also accepted", async () => {
-    await activateExtension("ext-uuid-1", { submittedPermissions: { webhooks: ["tickets"] } }, "admin-1");
+    await publish();
     const token = registry.get("tickets")!.secret;
     const body = '{"id":"T-2"}';
     const res = await deliver(

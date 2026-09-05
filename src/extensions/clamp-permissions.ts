@@ -924,6 +924,9 @@ export function clampExtensionPermissions(
     if (submitted.loopEvents === true && manifest.loopEvents === true) {
       clamped.loopEvents = true;
     }
+    if (submitted.appendMessages && manifest.appendMessages && typeof manifest.appendMessages.excludedDefault === "boolean" && submitted.appendMessages.excludedDefault === manifest.appendMessages.excludedDefault) {
+      clamped.appendMessages = { excludedDefault: manifest.appendMessages.excludedDefault };
+    }
     if (submitted.spawnAgents && manifest.spawnAgents) {
       // spawnAgents is a structured permission — both maxPerHour and
       // maxConcurrent must be present at grant time. The grant cannot

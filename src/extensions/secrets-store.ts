@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
+import type { Database, DbTransaction } from "../db/connection";
 import {
   decrypt,
   decryptWithAad,
@@ -14,7 +15,7 @@ import {
 } from "../db/queries/extension-secrets";
 import type { SecretMeta, SecretScope } from "../db/queries/extension-secrets";
 import type { MigrationDb } from "../db/migrations/types";
-import { insertAuditEntry } from "../db/queries/audit-log";
+import { insertAuditEntry, insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { extensionLogger } from "../logger";
 
@@ -58,6 +59,7 @@ const GH_PAT_SUFFIX = ":apiToken";
 const GH_EXTENSION_ID = "github-projects";
 
 type SecretOpts = {
+  database?: Database | DbTransaction;
   /** Scope: whose row this secret is. `null` (the default) = project / global
    *  scope — readable by host code that has NO user context (e.g. the poll
    *  daemon). A non-null `userId` files the secret in a per-user slot only a
@@ -102,7 +104,11 @@ export async function setSecret(
   opts?: SecretOpts,
 ): Promise<void> {
   const ciphertext = encryptWithAad(value, aadFor(extensionId, projectId));
-  await insertOrReplaceSecret(scopeFor(extensionId, projectId, name, opts), ciphertext);
+  await insertOrReplaceSecret(scopeFor(extensionId, projectId, name, opts), ciphertext, opts?.database);
+  if (opts?.database) {
+    await insertTransactionalAuditEntry(opts.database, crypto.randomUUID(), auditActor(opts), EXT_AUDIT_ACTIONS.SECRET_SET, extensionId, { projectId, name });
+    return;
+  }
   await insertAuditEntry(auditActor(opts), EXT_AUDIT_ACTIONS.SECRET_SET, extensionId, {
     projectId,
     name,
@@ -153,7 +159,7 @@ export async function hasSecret(
   name: string,
   opts?: SecretOpts,
 ): Promise<boolean> {
-  const row = await getSecretRow(scopeFor(extensionId, projectId, name, opts));
+  const row = await getSecretRow(scopeFor(extensionId, projectId, name, opts), opts?.database);
   if (!row) return false;
   try {
     decryptWithAad(row.ciphertext, aadFor(extensionId, projectId));

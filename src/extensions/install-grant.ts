@@ -38,6 +38,9 @@ const GRANT_PERMISSION_KEYS = [
   "storage",
   "mcpInvoke",
   "taskEvents",
+  "loopEvents",
+  "webhooks",
+  "appendMessages",
   "spawnAgents",
   "agentConfig",
   "eventSubscriptions",
@@ -164,6 +167,9 @@ export function manifestRequestedGrant(
   // tool is denied.
   if (p.mcpInvoke !== undefined) requested.mcpInvoke = p.mcpInvoke;
   if (p.taskEvents !== undefined) requested.taskEvents = p.taskEvents;
+  if (p.loopEvents !== undefined) requested.loopEvents = p.loopEvents;
+  if (p.webhooks !== undefined) requested.webhooks = p.webhooks;
+  if (p.appendMessages !== undefined) requested.appendMessages = p.appendMessages;
   if (p.spawnAgents) requested.spawnAgents = p.spawnAgents;
   if (p.agentConfig) requested.agentConfig = p.agentConfig;
   if (p.eventSubscriptions !== undefined) {

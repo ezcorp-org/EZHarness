@@ -171,11 +171,14 @@ export async function getExtensionInstallationState(installationId: string) { re
 
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null, sourceFiles?: WorkspaceFiles): Promise<void> {
   const { getDb } = await import("../db/connection");
-  const { extensions } = await import("../db/schema");
+  const { extensions, extensionWebhooks, extensionSchedules } = await import("../db/schema");
   const { serializeJsonbFields } = await import("../db/queries/extensions");
   const { buildFullGrantFromManifest } = await import("./install-grant");
   const { ExtensionRegistry } = await import("./registry");
   const { runEntitySeed } = await import("./entities/seed");
+  const { reconcileWebhooks } = await import("./webhook-reconcile");
+  const { reconcileSchedules } = await import("./schedule-reconcile");
+  const { ensureWebhookSecret } = await import("./webhook-secret");
   await getDb().transaction(async (transaction: import("../db/connection").DbTransaction) => {
     if (release?.manifest.entities?.length) await transaction.execute(sql`LOCK TABLE extension_storage IN SHARE ROW EXCLUSIVE MODE`);
     const result = await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
@@ -184,17 +187,26 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));
+      const [projection] = await transaction.select({ name: extensions.name }).from(extensions).where(eq(extensions.id, installation.id));
+      if (projection) {
+        await transaction.update(extensionWebhooks).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionWebhooks.extensionId, projection.name));
+        await transaction.update(extensionSchedules).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionSchedules.extensionId, installation.id));
+      }
       return;
     }
     const manifest = release.manifest as unknown as import("./types").ExtensionManifestV2;
     const granted = buildFullGrantFromManifest(manifest);
     const values = serializeJsonbFields({ id: installation.id, name: release.manifest.name, version: release.manifest.version, description: release.manifest.description, manifest, source: "release-v4", installPath: null, enabled: true, grantedPermissions: granted, installedPermissions: granted, checksumVerified: true, isBundled: false, disabledByUser: false, creatorUserId: installation.ownerId, updatedAt: new Date() });
     await transaction.insert(extensions).values(values).onConflictDoUpdate({ target: extensions.id, set: values });
+    await reconcileWebhooks(manifest.name, granted.webhooks ?? [], () => new Date(), (name, slug) => ensureWebhookSecret(name, slug, installation.ownerId, transaction), transaction);
+    await reconcileSchedules(installation.id, granted.schedule && typeof granted.schedule === "object" ? granted.schedule.crons ?? [] : [], () => new Date(), transaction);
     if (manifest.entities?.length) {
       if (!sourceFiles) throw new LifecycleError("seed_source_missing", "Entity seeds require the verified immutable release files.");
       await runEntitySeed({ extensionId: installation.id, entities: manifest.entities, sourceDir: "", sourceFiles, userId: installation.ownerId, database: transaction });
     }
   });
+  const { getPageCache } = await import("./page-cache");
+  getPageCache().invalidateExtension(installation.id);
   await ExtensionRegistry.getInstance().reload();
 }
 
