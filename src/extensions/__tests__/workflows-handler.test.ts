@@ -36,9 +36,11 @@ import {
 } from "../workflows-handler";
 import {
   registerWorkflowRuntime,
+  getWorkflowRuntime,
   _resetWorkflowRuntimeForTests,
 } from "../../runtime/workflow/runtime-registry";
 import { createUser } from "../../db/queries/users";
+import * as conversationQueries from "../../db/queries/conversations";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import {
   extensions, conversations, projects, conversationExtensions,
@@ -52,6 +54,8 @@ import type {
   JsonRpcRequest,
 } from "../types";
 import type { WorkflowDefinition, WorkflowRun } from "../../types";
+import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
+import { releaseBinding } from "../release-process";
 import {
   systemCachedWorkflow,
   type CachedWorkflow,
@@ -61,6 +65,7 @@ let userId: string;
 let extensionId: string;
 let projectId: string;
 let conversationId: string;
+let releaseFixture: ReturnType<typeof releaseRuntimeFixture>;
 
 const EXT_NAME = "wf-trigger-ext";
 
@@ -88,6 +93,12 @@ const HOST_WORKFLOW: WorkflowDefinition = {
   description: "host",
   steps: [{ name: "t", kind: "transform", output: { host: "yes" } }],
 };
+
+function cachedWorkflow(definition: WorkflowDefinition): CachedWorkflow {
+  if (!definition.name.startsWith(`${EXT_NAME}:`)) return systemCachedWorkflow(definition, "yaml");
+  const snapshot = releaseFixture.snapshot;
+  return { definition, source: "extension", id: null, userId, projectId: null, visibility: "private", forkedFrom: null, extensionRelease: { installationId: extensionId, binding: releaseBinding(snapshot), ownerId: userId, scope: snapshot.installation.scope } };
+}
 
 function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFLOW]) {
   registerWorkflowRuntime({
@@ -117,6 +128,7 @@ function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFL
       },
     },
     getWorkflows: () => workflows,
+    getCachedWorkflows: () => workflows.map(cachedWorkflow),
   });
 }
 
@@ -200,6 +212,8 @@ beforeEach(async () => {
   _resetWorkflowRateLimitForTests(extensionId);
   _resetWorkflowRuntimeForTests();
   started = [];
+  releaseFixture = releaseRuntimeFixture(extensionId, { schemaVersion: 4, name: EXT_NAME, version: "0.0.1", description: "Fixture", author: { name: "Test" }, permissions: { workflows: { names: ["deploy"], maxRunsPerHour: 20 } } }, { ownerId: userId });
+  releaseFixture.configure();
   delete process.env.EZCORP_DISABLE_CAPABILITY_TOOLS;
   registerRuntime();
 });
@@ -345,6 +359,7 @@ describe("accept path", () => {
         },
       },
       getWorkflows: () => [SHIPPED],
+      getCachedWorkflows: () => [cachedWorkflow(SHIPPED)],
     });
 
     // "Did not block" is asserted STRUCTURALLY, not with a stopwatch. This
@@ -410,6 +425,7 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
         },
       },
       getWorkflows: () => cache,
+      getCachedWorkflows: () => cache.map(cachedWorkflow),
     });
 
     const before = await handleWorkflowsRpc(req(), ctx());
@@ -734,6 +750,7 @@ describe("enforcement ladder — rejections", () => {
         runWorkflow: () => Promise.reject(new Error("executor bug")),
       } as never,
       getWorkflows: () => [SHIPPED],
+      getCachedWorkflows: () => [cachedWorkflow(SHIPPED)],
     });
     const unhandled: unknown[] = [];
     const onUnhandled = (e: unknown) => unhandled.push(e);
@@ -764,6 +781,7 @@ describe("enforcement ladder — rejections", () => {
         },
       } as never,
       getWorkflows: () => [SHIPPED],
+      getCachedWorkflows: () => [cachedWorkflow(SHIPPED)],
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1577,20 +1595,43 @@ describe("rung 12b — which cache entry gets authorized", () => {
   }
 
   test("the REGISTERED entry is used when the runtime exposes one", async () => {
-    // Production registers `getCachedWorkflows` (web/src/lib/server/context.ts),
-    // so this — not the fallback — is the path that actually runs. An
-    // extension-shipped workflow is a `system` entry, so it authorizes.
-    registerWithCache([systemCachedWorkflow(SHIPPED, "extension")]);
+    registerWithCache([cachedWorkflow(SHIPPED)]);
     const res = await handleWorkflowsRpc(req(), ctx());
     expect("result" in res).toBe(true);
     expect(started).toHaveLength(1);
   });
 
+  test("a release swap while the conversation read waits cannot authorize the old definition with a new binding", async () => {
+    let entries = [cachedWorkflow(SHIPPED)];
+    registerWithCache(entries);
+    registerWorkflowRuntime({ ...getWorkflowRuntime()!, getCachedWorkflows: () => entries });
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const original = conversationQueries.getConversation;
+    const reader = spyOn(conversationQueries, "getConversation").mockImplementation(async (...args) => {
+      entered.resolve();
+      await resume.promise;
+      return original(...args);
+    });
+    try {
+      const response = handleWorkflowsRpc(req(), ctx());
+      await entered.promise;
+      releaseFixture.snapshot.installation.generation++;
+      releaseFixture.snapshot.installation.acknowledgedGeneration++;
+      entries = [cachedWorkflow({ ...SHIPPED, description: "Replacement definition" })];
+      resume.resolve();
+      expect((await response).error?.data).toMatchObject({ reason: "WORKFLOWS_PERM_DENIED" });
+      expect(started).toEqual([]);
+      const next = await handleWorkflowsRpc(req(), ctx());
+      expect(next.error).toBeUndefined();
+      expect(started[0]?.workflow).toBe(entries[0]!.definition);
+    } finally {
+      resume.resolve();
+      reader.mockRestore();
+    }
+  });
+
   test("a PRIVATE entry owned by someone else is REFUSED", async () => {
-    // The fallback constructs a `system` entry, which authorizes everyone.
-    // If the real reader were ignored, a `workflow_definitions` row squatting
-    // an extension-namespaced name would be runnable by any caller. This is
-    // the case that proves the registered entry wins.
     registerWithCache([
       {
         definition: SHIPPED,
@@ -1605,16 +1646,12 @@ describe("rung 12b — which cache entry gets authorized", () => {
     const res = await handleWorkflowsRpc(req(), ctx());
     expect("error" in res).toBe(true);
     expect((res as { error: { data: { reason: string } } }).error.data.reason).toBe(
-      "WORKFLOWS_PERM_DENIED",
+      "WORKFLOW_NOT_FOUND",
     );
     expect(started).toEqual([]);
   });
 
-  test("a cache that does not carry the name at all falls back and still runs", async () => {
-    // Rung 12 already proved the name resolves, so a reader that answers
-    // without it is a runtime that registered a narrower view — the
-    // reconstructed `system` entry is the same value `buildWorkflowCache`
-    // would have produced for an extension asset.
+  test("a cache without the bound extension name denies rather than using a flat fallback", async () => {
     registerWithCache([systemCachedWorkflow(HOST_WORKFLOW, "yaml")]);
     // `getWorkflows` must still resolve the namespaced name for rung 12.
     registerWorkflowRuntime({
@@ -1643,7 +1680,8 @@ describe("rung 12b — which cache entry gets authorized", () => {
       getCachedWorkflows: () => [systemCachedWorkflow(HOST_WORKFLOW, "yaml")],
     });
     const res = await handleWorkflowsRpc(req(), ctx());
-    expect("result" in res).toBe(true);
+    expect(res.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_FOUND" });
+    expect(started).toEqual([]);
   });
 });
 
