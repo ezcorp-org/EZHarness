@@ -1189,8 +1189,8 @@
 					</p>
 				{:else}
 					<p class="mb-3 text-xs text-[var(--color-text-muted)]">
-						Removes {ext.name}, its tools, its permissions and its files. You choose
-						what happens to the files it wrote.
+						Stops {ext.name}, its tools and its permissions. Release history, settings,
+						secrets, stored data and files are kept.
 					</p>
 					<!-- `text-red-700 dark:text-red-400`: `--color-red-400` (#ff8a85)
 					     is retinted once in `:root` for DARK surfaces and never

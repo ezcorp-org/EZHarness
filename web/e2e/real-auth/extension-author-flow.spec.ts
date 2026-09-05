@@ -50,7 +50,7 @@ test("nested workspace → isolated build → exact human approval → activatio
   await page.getByRole("button", { name: "Disable installation", exact: true }).click();
   await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeDisabled();
   await page.goto(`/extensions/${created.installation.id}`);
-  await page.getByRole("button", { name: "Uninstall", exact: true }).click();
+  await page.getByTestId("extension-detail-uninstall-button").click();
   const dialog = page.getByTestId("uninstall-dialog");
   await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
   await expect(dialog.getByRole("radio")).toHaveCount(0);
