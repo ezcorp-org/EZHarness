@@ -24,12 +24,12 @@ export async function waitForExtensionBuild(client: HarnessClient, installationI
     return state.operations[operationId]!.state;
   }, { timeout: 240000, intervals: [1000], message: "The real isolated candidate build must finish." }).not.toMatch(/^(queued|building|verifying)$/);
   expect(state!.operations[operationId]!.state, JSON.stringify(state!.operations[operationId]!.diagnostics)).toBe("verified");
-  expect(Object.keys(state!.releases)).toHaveLength(1);
+  expect(state!.releases[state!.operations[operationId]!.releaseId!]).toBeDefined();
   return state!;
 }
 
-export async function requestRelease(client: HarnessClient, state: InstallationState): Promise<LifecycleApproval> {
-  const release = Object.values(state.releases)[0]!;
+export async function requestRelease(client: HarnessClient, state: InstallationState, releaseId?: string): Promise<LifecycleApproval> {
+  const release = releaseId ? state.releases[releaseId]! : Object.values(state.releases)[0]!;
   const result = await client.extensionControl<{ approval: LifecycleApproval }>("extensions_release", { installationId: state.installation.id, action: "requestApproval", releaseId: release.id, expectedActiveReleaseId: state.installation.activeReleaseId });
   return result.approval;
 }
