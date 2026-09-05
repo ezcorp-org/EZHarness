@@ -1182,6 +1182,8 @@ describe("resumeArgsFromRow", () => {
       definitionHash: null,
       projectId: "proj-9",
       userId: null,
+      runAsKind: null,
+      runAs: null,
       startedAt: row!.startedAt,
       // C7. A resumed run re-derives its nesting depth by walking this
       // pointer, so a projection that dropped it would resume a nested run
@@ -1199,5 +1201,9 @@ describe("resumeArgsFromRow", () => {
       // queries, and look perfectly healthy.
       delegationId: null,
     });
+    const serviceArgs = resumeArgsFromRow({ ...row!, runAsKind: "service", runAs: "service-account" });
+    expect(serviceArgs.runAsKind).toBe("service");
+    expect(serviceArgs.runAs).toBe("service-account");
+    expect(serviceArgs.userId).toBeNull();
   });
 });
