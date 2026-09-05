@@ -20,11 +20,12 @@ import { ContractError, validateRuntimeLockKey } from "@ezcorp/extension-contrac
 
 const tails = new Map<string, Promise<unknown>>();
 
-async function waitForTurn<T>(previous: Promise<unknown>, action: () => Promise<T>): Promise<T> {
+async function waitForTurn<T>(previous: Promise<unknown>, action: (deadline?: number) => Promise<T>): Promise<T> {
   const context = getExtensionContext();
-  if (!context) return previous.then(action);
+  if (!context) return previous.then(() => action());
   context.signal.throwIfAborted();
-  const remaining = Math.min(30_000, context.invocation.deadline - Date.now());
+  const deadline = Math.min(Date.now() + 30_000, context.invocation.deadline);
+  const remaining = deadline - Date.now();
   if (remaining <= 0) throw new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline");
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
@@ -38,14 +39,14 @@ async function waitForTurn<T>(previous: Promise<unknown>, action: () => Promise<
     if (timer) clearTimeout(timer);
     if (abort) context.signal.removeEventListener("abort", abort);
   }
-  return action();
+  return action(deadline);
 }
 
-async function hostLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+async function hostLock<T>(key: string, fn: () => Promise<T>, waitDeadline: number): Promise<T> {
   const context = getExtensionContext();
   if (!context) return fn();
   validateRuntimeLockKey(key);
-  const deadline = Math.min(context.invocation.deadline, Date.now() + 30_000);
+  const deadline = Math.min(context.invocation.deadline, waitDeadline);
   let fence: string | undefined;
   while (!fence) {
     context.signal.throwIfAborted();
@@ -71,7 +72,7 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
   // The tail we publish back to the map: it resolves when `fn` settles
   // (success OR failure), so the next caller runs no matter what.
-  const run = waitForTurn(prev, () => hostLock(key, fn));
+  const run = waitForTurn(prev, deadline => hostLock(key, fn, deadline ?? 0));
   // Publish a tail that NEVER rejects, so future `.then(() => fn())`
   // always moves forward. Caller still sees the real rejection via `run`.
   const tail = run.catch(() => undefined);
@@ -94,9 +95,9 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export function createMutex(key?: string): <T>(fn: () => Promise<T>) => Promise<T> {
   let tail: Promise<unknown> = Promise.resolve();
   return <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = waitForTurn(tail, () => {
+    const run = waitForTurn(tail, deadline => {
       if (getExtensionContext() && key === undefined) throw new ContractError("LOCK_KEY_REQUIRED", "v4 createMutex requires a stable explicit key");
-      return key === undefined ? fn() : hostLock(key, fn);
+      return key === undefined ? fn() : hostLock(key, fn, deadline ?? 0);
     });
     tail = run.catch(() => undefined);
     return run;

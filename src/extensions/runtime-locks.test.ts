@@ -5,6 +5,9 @@ import { domainEventSourceFixture } from "../__tests__/helpers/domain-event-sour
 import { InvocationLocks, inspectRuntimeLocks, recoverRuntimeLock, validateRuntimeLockRequest, verifyInvocationLocks } from "./runtime-locks";
 import { extensionRuntimeLocks, users, auditLog } from "../db/schema";
 import type { InvocationContext } from "@ezcorp/extension-contract";
+import { ExtensionControl } from "./extension-control";
+import { ExtensionLifecycle } from "./v4/lifecycle";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 
 mockDbConnection();
 beforeEach(setupTestDb);
@@ -173,4 +176,76 @@ test("persisted admitted effects block recovery even after the host session clos
   await data.database.execute(sql`UPDATE extension_release_installations SET payload = (payload::jsonb || '{"enabled":false}'::jsonb)::text WHERE id = ${data.installationId}`);
   await expect(recoverRuntimeLock({ principalId: data.owner.id, scope: "global", kind: "human" }, data.installationId, "counter", fence, true)).rejects.toThrow("live host effects");
   expect(await inspectRuntimeLocks(data.installationId)).toHaveLength(1);
+});
+
+test("closing during SQL admission quarantines the committed key instead of orphaning ownership", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const started = deferred();
+  const finish = deferred();
+  const blocking = data.database.transaction(async (transaction) => { await transaction.execute(sql`LOCK TABLE extension_runtime_locks IN ACCESS EXCLUSIVE MODE`); started.resolve(); await finish.promise; });
+  await started.promise;
+  const admission = session.request("ezcorp/lock.acquire", { key: "raced" });
+  await session.close();
+  finish.resolve();
+  await blocking;
+  await expect(admission).rejects.toThrow("ended during lock admission");
+  expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ key: "raced", state: "quarantined", effects: 0 });
+});
+
+test("concurrent admission cannot exceed the SQL invocation capacity", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const results = await Promise.allSettled(Array.from({ length: 9 }, (_, index) => session.request("ezcorp/lock.acquire", { key: `parallel-${index}` })));
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(8);
+  expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+  expect(await inspectRuntimeLocks(data.installationId)).toHaveLength(8);
+});
+
+test("host effect concurrency remains bounded even without any held lock", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const finish = deferred();
+  const effects = Array.from({ length: 32 }, () => session.effect("ezcorp/storage", async () => finish.promise));
+  await expect(session.effect("ezcorp/storage", async () => null)).rejects.toThrow("concurrent host effects");
+  finish.resolve();
+  await Promise.all(effects);
+  expect(await session.effect("ezcorp/storage", async () => 1)).toBe(1);
+});
+
+test("lock recovery and its audit entry roll back together", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const fence = await acquire(session);
+  await session.effect("ezcorp/network.fetch", async () => ({ error: { message: "outcome_unknown" } }));
+  await session.close();
+  await data.database.update(users).set({ role: "admin" }).where(eq(users.id, data.owner.id));
+  await data.database.execute(sql`UPDATE extension_release_installations SET payload = (payload::jsonb || '{"enabled":false}'::jsonb)::text WHERE id = ${data.installationId}`);
+  await data.database.execute(sql`ALTER TABLE audit_log ADD CONSTRAINT reject_lock_recovery CHECK (action <> 'ext:lock-recovered')`);
+  try {
+    await expect(recoverRuntimeLock({ principalId: data.owner.id, scope: "global", kind: "human" }, data.installationId, "counter", fence, true)).rejects.toThrow();
+    expect(await inspectRuntimeLocks(data.installationId)).toHaveLength(1);
+    expect(await data.database.select().from(auditLog)).toHaveLength(0);
+  } finally { await data.database.execute(sql`ALTER TABLE audit_log DROP CONSTRAINT reject_lock_recovery`); }
+});
+
+test("control inspection and recovery use owner access before human administrator recovery", async () => {
+  const data = await fixture();
+  const unavailable = async (): Promise<never> => { throw new Error("This fixture must not build or publish"); };
+  const lifecycle = new ExtensionLifecycle({ repository: new DatabaseLifecycleRepository(data.database), blobs: { put: unavailable, get: unavailable }, runnerProfile: "test", runnerImageDigest: "test", validatorVersion: "test", buildLimits: { memoryBytes: 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024, outputBytes: 1024, timeoutMs: 1000 }, runner: { build: unavailable, cancel: unavailable, collectArtifacts: unavailable }, authorize: unavailable, verifyCandidate: unavailable, publish: unavailable });
+  const control = new ExtensionControl(lifecycle);
+  const actor = { principalId: data.owner.id, scope: "global", kind: "human" as const };
+  const session = data.create();
+  const fence = await acquire(session);
+  await session.effect("ezcorp/network.fetch", async () => ({ error: { message: "outcome_unknown" } }));
+  await session.close();
+  const input = { installationId: data.installationId, locks: true };
+  await expect(control.execute({ ...actor, principalId: "stranger" }, "extensions_inspect", input)).rejects.toThrow("not found");
+  expect(await control.execute(actor, "extensions_inspect", input)).toMatchObject({ locks: [{ key: "counter", fence, state: "quarantined" }] });
+  const recovery = { installationId: data.installationId, action: "recoverLock", lockKey: "counter", expectedFence: fence, acknowledgeUncertainEffects: true };
+  await expect(control.execute({ ...actor, kind: "agent" }, "extensions_release", recovery)).rejects.toThrow("Human administrator");
+  await data.database.update(users).set({ role: "admin" }).where(eq(users.id, data.owner.id));
+  await data.database.execute(sql`UPDATE extension_release_installations SET payload = (payload::jsonb || '{"enabled":false}'::jsonb)::text WHERE id = ${data.installationId}`);
+  expect(await control.execute(actor, "extensions_release", recovery)).toEqual({ recovered: true });
+  expect(await inspectRuntimeLocks(data.installationId)).toEqual([]);
 });
