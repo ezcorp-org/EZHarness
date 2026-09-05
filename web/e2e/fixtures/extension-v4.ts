@@ -34,6 +34,32 @@ export async function requestRelease(client: HarnessClient, state: InstallationS
   return result.approval;
 }
 
+export async function createAndActivateExtension({ page, request, baseURL, name }: {
+  page: Page; request: APIRequestContext; baseURL: string; name: string;
+}): Promise<{ client: HarnessClient; state: InstallationState }> {
+  const { client } = await extensionClient(request, baseURL);
+  const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
+  const state = await buildWorkspace(client, created);
+  const release = Object.values(state.releases)[0]!;
+  return { client, state: await approveAndActivateWorkspace(page, client, created, state, release.id) };
+}
+
+async function approveAndActivateWorkspace(page: Page, client: HarnessClient, created: CreatedWorkspace, state: InstallationState, releaseId: string): Promise<InstallationState> {
+  await requestRelease(client, state, releaseId);
+  await page.goto(created.openUrl);
+  const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
+  await expect(approve).toBeDisabled();
+  await page.getByLabel("I reviewed this release and its permissions.").check();
+  await approve.click();
+  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
+  expect(active.installation.activeReleaseId).toBe(releaseId);
+  expect(active.installation.enabled).toBe(true);
+  expect(active.installation.acknowledgedGeneration).toBe(active.installation.generation);
+  return active;
+}
+
 export async function importAndActivateBundledExtension({ page, request, baseURL, name }: {
   page: Page; request: APIRequestContext; baseURL: string; name: string;
 }): Promise<{ client: HarnessClient; state: InstallationState }> {
@@ -49,17 +75,7 @@ export async function importAndActivateBundledExtension({ page, request, baseURL
   const state = await waitForExtensionBuild(client, created.installation.id, created.operation.id);
   const release = state.releases[state.operations[created.operation.id]!.releaseId!]!;
   expect(release.manifest.name).toBe(name);
-  await requestRelease(client, state, release.id);
-  await page.goto(created.openUrl);
-  const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
-  await expect(approve).toBeDisabled();
-  await page.getByLabel("I reviewed this release and its permissions.").check();
-  await approve.click();
-  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
-  const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
-  expect(active.installation.activeReleaseId).toBe(release.id);
-  expect(active.installation.enabled).toBe(true);
+  const active = await approveAndActivateWorkspace(page, client, created, state, release.id);
   const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
   expect(tools.status(), await tools.text()).toBe(200);
   expect((await tools.json()).tools.map((tool: { name: string }) => tool.name).sort()).toEqual((release.manifest.tools ?? []).map(tool => tool.name).sort());

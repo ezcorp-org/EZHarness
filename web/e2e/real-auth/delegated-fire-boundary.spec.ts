@@ -38,6 +38,7 @@
  * the first half of all three.
  */
 import { test, expect } from "../fixtures/hydration.js";
+import { createAndActivateExtension } from "../fixtures/extension-v4";
 
 const STAMP = Date.now();
 
@@ -51,6 +52,15 @@ interface DelegationWire {
 }
 
 test.describe("the delegated fire has no HTTP surface, and consent refuses what D7 would", () => {
+  let extensionId: string;
+  test.beforeAll(async ({ browser, request, baseURL }) => {
+    test.setTimeout(300000);
+    const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+    try {
+      const { state } = await createAndActivateExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: `fire-origin-${Date.now().toString(36)}` });
+      extensionId = state.installation.id;
+    } finally { await context.close(); }
+  });
   test("no route accepts a job ref, and a service delegation for a project workflow is refused", async ({
     request,
     baseURL,
@@ -85,11 +95,7 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
     expect(forkBody.name).not.toBe(systemName);
     const projectName = forkBody.name;
 
-    const extensionsRes = await request.get("/api/extensions");
-    expect(extensionsRes.status(), await extensionsRes.text()).toBe(200);
-    const installed = (await extensionsRes.json()) as Array<{ id: string }>;
-    const extensionId = installed[0]?.id;
-    expect(extensionId, "the real tier must bootstrap at least one extension").toBeTruthy();
+    expect(extensionId, "The origin has an exact human-approved active release.").toBeTruthy();
 
     const account = await request.post("/api/service-accounts", {
       data: { name: `e2e-runfor-acct-${STAMP}`, maxTokensPerDay: 50_000 },
