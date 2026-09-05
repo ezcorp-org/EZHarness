@@ -328,7 +328,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   ExtensionRegistry.resetInstance();
-  configureReleaseRuntime(null);
+  configureReleaseRuntime({ runner: async () => { throw new Error("Test runtime is closed"); }, resolve: async () => null });
   await closeTestDb();
   restoreModuleMocks();
 });

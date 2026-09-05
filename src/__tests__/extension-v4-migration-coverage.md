@@ -124,3 +124,13 @@ host, canonical v4 hashes are independent of object key order, and an added tool
 is refused by actual candidate discovery verification. Automatic manifest refresh
 and re-enable are retired; existing lifecycle tests bind human approval to the
 exact immutable release rather than a mutable stored tool-array shape.
+
+Substack-pilot installer coverage now builds the real source in the isolated
+runner, checks sealed hashes and all three settings, and publishes the exact
+release only after human approval. Entity seeds use the sealed artifact files.
+Both credential-shaped and benign Substack environment names are refused by
+the actual credential broker without invoking a host credential resolver.
+Settings remain available; v4 does not expose arbitrary host environment values.
+The chat suite retains the full seven-tool catalog and three-step draft flow
+through the real executor and release adapter, with a controlled runner response
+fixture. It additionally checks the owner identity and exact invocation inputs.

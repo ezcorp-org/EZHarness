@@ -1,264 +1,96 @@
-/**
- * Host installer end-to-end coverage for the `substack-pilot` extension.
- *
- * Coverage gap #2. install-gate.test.ts (in the extension's own tests dir)
- * already exercises `checkEnvKeyLeakInstallGate` against the manifest in
- * isolation. This file proves the bigger contract: that `installFromLocal`
- * — the host's real install entrypoint — accepts substack-pilot's manifest
- * end-to-end (env-leak gate, settings registration via the persisted
- * manifest payload, checksum, DB write) AND that re-adding a
- * credential-shaped env grant trips `EnvKeyLeakInstallError` through the
- * real installer (not just the gate function called directly).
- *
- * Mocks: same shape as src/__tests__/installer.test.ts —
- *   - `../db/queries/extensions` is mocked with an in-memory Map so we
- *     can read what `createExtension` was handed without standing up
- *     PGlite. (PGlite is single-writer; the brief explicitly forbids
- *     running two DB-touching test suites in parallel, so we route
- *     around the constraint by mocking the queries layer instead.)
- *   - `../extensions/registry` is mocked to a no-op reload.
- *
- * NOT mocked:
- *   - `loadManifest` — reads the real `ezcorp.config.ts` on disk.
- *   - `runEnvKeyLeakInstallGate` — runs against the real
- *     `clamp-permissions` predicate.
- *   - `computeChecksum` / `computePackageChecksums` — hash real files.
- */
+import { afterAll, beforeAll, expect, mock, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { PodmanRunner, buildLimits, DEFAULT_IMAGE, provisionToolchain } from "@ezcorp/extension-runner";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
+import { createUser } from "../db/queries/users";
+import { getExtensionByName } from "../db/queries/extensions";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { ExtensionLifecycle, FileBlobStore, type LifecycleActor } from "../extensions/v4";
+import { publishExtensionGeneration, verifyExtensionCandidate } from "../extensions/extension-lifecycle-service";
+import { requestedReleaseGrants } from "../extensions/extension-control";
+import { snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
+import { getProjectRoot } from "../extensions/project-root";
+import { handleCredentialBroker } from "../extensions/credential-broker";
+import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
+import type { RpcHandlerDeps } from "../extensions/tool-executor/rpc-handlers";
+import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
+import { ExtensionRegistry } from "../extensions/registry";
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-} from "../extensions/types";
+mockDbConnection();
+let root: string;
+let runner: PodmanRunner;
+let lifecycle: ExtensionLifecycle;
+let actor: LifecycleActor;
+let installationId: string;
+const settingsKeys = ["substack_publication_url", "substack_session_token", "substack_user_id"];
 
-// ── Mock DB + registry (same shape installer.test.ts uses) ──────────
+beforeAll(async () => {
+  await setupTestDb();
+  const user = await createUser({ email: "substack-install@example.test", name: "Owner", passwordHash: "fixture", role: "admin" });
+  actor = { principalId: user.id, kind: "human", scope: "global" };
+  root = await mkdtemp(join(tmpdir(), "substack-install-v4-"));
+  runner = new PodmanRunner({ root: join(root, "runner"), ...await provisionToolchain() });
+  await runner.initialize();
+  lifecycle = new ExtensionLifecycle({
+    repository: new DatabaseLifecycleRepository(getTestDb()), blobs: new FileBlobStore(join(root, "blobs")),
+    runner, buildLimits, runnerProfile: "podman-v1", runnerImageDigest: DEFAULT_IMAGE, validatorVersion: "runner-v4.1",
+    authorize: async identity => { if (identity.principalId !== actor.principalId) throw new Error("Unknown principal"); },
+    verifyCandidate: release => verifyExtensionCandidate(runner, release),
+    publish: async (installation, release) => publishExtensionGeneration(installation, release, release ? await runner.collectArtifacts(release.artifactDigest) : undefined),
+  });
+}, 120000);
 
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
-const mockExtensions = extStore.store;
-
-mock.module("../db/queries/extensions", () => ({
-  createExtension: extStore.createExtension,
-  getExtensionByName: extStore.getExtensionByName,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  listExtensions: extStore.listExtensions,
-}));
-
-mock.module("../extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({ reload: async () => {} }),
-  },
-}));
-
-afterAll(() => restoreModuleMocks());
-
-const { installFromLocal } = await import("../extensions/installer");
-const { loadManifest } = await import("../extensions/loader");
-const { EnvKeyLeakInstallError } = await import("../extensions/clamp-permissions");
-
-// ── Constants ───────────────────────────────────────────────────
-
-// Absolute path to the substack-pilot example so this test doesn't
-// depend on the test runner's cwd. installFromLocal accepts an
-// absolute path; the source row will be `local:<abs path>`.
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const SUBSTACK_PILOT_PATH = resolve(
-  __dirname,
-  "../../docs/extensions/examples/substack-pilot",
-);
-
-// Granted permissions matching what the manifest declares + what the
-// permission-prompt UI would emit on user approval. `network: ["*"]`
-// matches the manifest. The grantedAt timestamps are required by the
-// host's audit machinery; using a single now() is fine for tests.
-const grantedPermissions: ExtensionPermissions = {
-  storage: true,
-  llm: {
-    providers: ["anthropic", "openai"],
-    maxCallsPerHour: 120,
-    maxCallsPerDay: 600,
-    maxTokensPerCall: 2048,
-  },
-  network: ["*"],
-  shell: true,
-  grantedAt: {
-    storage: Date.now(),
-    llm: Date.now(),
-    network: Date.now(),
-    shell: Date.now(),
-  },
-};
-
-beforeEach(() => {
-  mockExtensions.clear();
+afterAll(async () => {
+  await runner?.close();
+  ExtensionRegistry.resetInstance();
+  await closeTestDb();
+  if (root) await rm(root, { recursive: true, force: true });
 });
 
-// ════════════════════════════════════════════════════════════════════
-// installFromLocal — happy-path end-to-end through the real install path
-// ════════════════════════════════════════════════════════════════════
+test("Substack source seals settings and checksums, then publishes only its exact human-approved release", async () => {
+  const source = await snapshotFirstPartyExtension(getProjectRoot(), "substack-pilot");
+  const created = await lifecycle.createWorkspace(actor, { files: source.files });
+  installationId = created.installation.id;
+  const operation = await lifecycle.build(actor, { installationId, workspaceId: created.workspace.id, expectedRevision: 1, idempotencyKey: "substack-build" });
+  const built = await lifecycle.runBuild(actor, installationId, operation.id);
+  expect(built.diagnostics).toEqual([]);
+  expect(built.state).toBe("verified");
+  const state = await lifecycle.inspect(actor, installationId);
+  const release = state.releases[built.releaseId!]!;
+  expect(release.manifest).toMatchObject({ schemaVersion: 4, name: "substack-pilot", version: "1.0.0" });
+  expect(release.sourceDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(release.artifactDigest).toMatch(/^[a-f0-9]{64}$/);
+  expect(Object.keys(release.manifest.settings ?? {}).sort()).toEqual(settingsKeys);
+  for (const setting of Object.values(release.manifest.settings ?? {})) expect(setting).toMatchObject({ type: "text", label: expect.any(String), pattern: expect.any(String) });
+  expect(release.manifest.permissions.env ?? []).toEqual([]);
+  expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null, grants: [] });
+  expect(await getExtensionByName("substack-pilot")).toBeNull();
+  const approval = await lifecycle.requestApproval(actor, { installationId, releaseId: release.id, grants: requestedReleaseGrants(release.manifest), expectedActiveReleaseId: null });
+  await expect(lifecycle.activate(actor, { installationId, approvalId: approval.id, idempotencyKey: "no-review" })).rejects.toThrow();
+  await expect(lifecycle.approve({ ...actor, kind: "agent" }, installationId, approval.id, true)).rejects.toThrow();
+  expect(await getExtensionByName("substack-pilot")).toBeNull();
+  await lifecycle.approve(actor, installationId, approval.id, true);
+  const activated = await lifecycle.activate(actor, { installationId, approvalId: approval.id, idempotencyKey: "reviewed" });
+  expect(activated.diagnostics).toEqual([]);
+  const projection = await getExtensionByName("substack-pilot");
+  expect(projection).toMatchObject({ id: installationId, name: "substack-pilot", creatorUserId: actor.principalId, enabled: true, source: "release-v4", installPath: null });
+  expect(projection?.manifest.settings).toEqual(release.manifest.settings);
+  expect((await lifecycle.inspect(actor, installationId)).installation.grants).toEqual(requestedReleaseGrants(release.manifest));
+}, 120000);
 
-describe("installFromLocal(substack-pilot) — happy path", () => {
-  test("installs the extension with checksum, persists manifest + grants", async () => {
-    const installed = await installFromLocal(
-      SUBSTACK_PILOT_PATH,
-      grantedPermissions,
-      false /* enabled */,
-    );
-
-    // Identity + version pinned to the on-disk manifest. If the
-    // extension ever bumps these we'll need to update; that's fine —
-    // these assertions exist to catch silent name/version drift.
-    expect(installed.name).toBe("substack-pilot");
-    expect(installed.version).toBe("1.0.0");
-
-    // Source string reflects the absolute path we passed in.
-    expect(installed.source).toBe(`local:${SUBSTACK_PILOT_PATH}`);
-
-    // Persisted manifest carries the entrypoint checksum (64 hex chars).
-    // The installer computes this against index.ts; if the file is
-    // missing or unreadable, computeChecksum throws and the install
-    // fails — so seeing a checksum here is itself a check that the
-    // entrypoint resolved correctly.
-    //
-    // schemaVersion is 3 in the persisted shape: loader.ts always
-    // migrates v2 manifests through `migrateManifestV2ToV3` before
-    // returning them, so the installer never sees v2 on the way to
-    // createExtension. The `_inheritedFromV2: true` marker is the
-    // breadcrumb that distinguishes a migrated v2 from a hand-authored v3.
-    const manifest = installed.manifest as unknown as Record<string, unknown> & {
-      checksum?: string;
-    };
-    expect(manifest.schemaVersion).toBe(3);
-    expect(manifest._inheritedFromV2).toBe(true);
-    expect(typeof manifest.checksum).toBe("string");
-    expect(manifest.checksum).toMatch(/^[a-f0-9]{64}$/);
-
-    // Settings block survives the install round-trip — this is what the
-    // brief calls "settings registration". There's no separate settings
-    // table; the manifest carrying these three fields IS the registration
-    // (the SettingsForm reads them off the installed extension row).
-    const settings = manifest.settings as Record<string, unknown> | undefined;
-    expect(settings).toBeDefined();
-    expect(Object.keys(settings ?? {}).sort()).toEqual([
-      "substack_publication_url",
-      "substack_session_token",
-      "substack_user_id",
-    ]);
-
-    // Each field has the shape SettingsForm expects: text type, label,
-    // description, regex pattern. We don't re-validate the patterns
-    // here (install-gate.test.ts already does that against the manifest
-    // directly); we just confirm they survived through the installer.
-    for (const key of [
-      "substack_publication_url",
-      "substack_session_token",
-      "substack_user_id",
-    ]) {
-      const f = (settings as Record<string, Record<string, unknown>>)[key];
-      expect(f?.type).toBe("text");
-      expect(typeof f?.label).toBe("string");
-      expect(typeof f?.pattern).toBe("string");
-    }
-
-    // Grants we passed in round-tripped through the DB write.
-    const persistedGrants = installed.grantedPermissions as ExtensionPermissions;
-    expect(persistedGrants.storage).toBe(true);
-    expect(persistedGrants.shell).toBe(true);
-    expect(persistedGrants.network).toEqual(["*"]);
-    expect(persistedGrants.llm?.providers).toEqual(["anthropic", "openai"]);
-
-    // checksumVerified comes from the installer's `true` literal for
-    // local installs (it computed the checksum itself, so it can vouch
-    // for it). enabled is the param we passed.
-    expect(installed.checksumVerified).toBe(true);
-    expect(installed.enabled).toBe(false);
-
-    // Exactly one DB row created.
-    expect(mockExtensions.size).toBe(1);
-  });
-});
-
-// ════════════════════════════════════════════════════════════════════
-// installFromLocal — env-key-leak gate fires for credential-shaped names
-// ════════════════════════════════════════════════════════════════════
-//
-// Regression guard through the REAL installer. install-gate.test.ts
-// already proves `checkEnvKeyLeakInstallGate` rejects this name in
-// isolation. This test goes one layer up: it synthesizes a manifest
-// copy that adds the bad permission and feeds it through
-// `installFromLocal` via the `preloadedManifest` option. That option
-// exists specifically so callers can supply a pre-validated manifest
-// without re-running `loadManifest` — perfect for a unit test that
-// wants to swap out one field without writing a whole tmp dir.
-//
-// Why this matters beyond install-gate.test.ts:
-//   - It proves `runEnvKeyLeakInstallGate` actually runs INSIDE the
-//     installer flow (vs. being silently bypassed by an early-exit
-//     refactor).
-//   - It proves a refused install creates NO DB row — the gate fires
-//     BEFORE `createExtension`, leaving zero residue.
-
-describe("installFromLocal(substack-pilot) — env-leak gate refusal", () => {
-  test("synthesized permissions.env: [SUBSTACK_SESSION_TOKEN] throws EnvKeyLeakInstallError", async () => {
-    // Start from the real on-disk manifest, then mutate ONLY the env
-    // permission. We deliberately use loadManifest to get the same
-    // shape the installer would otherwise compute itself, so the only
-    // difference between this test and the happy-path test above is
-    // the synthesized env grant.
-    const baseManifest = await loadManifest(SUBSTACK_PILOT_PATH);
-    const evilManifest: ExtensionManifestV2 = {
-      ...baseManifest,
-      permissions: {
-        ...(baseManifest.permissions ?? {}),
-        env: ["SUBSTACK_SESSION_TOKEN"],
-      },
-    };
-
-    expect(
-      installFromLocal(
-        SUBSTACK_PILOT_PATH,
-        grantedPermissions,
-        false,
-        { preloadedManifest: evilManifest },
-      ),
-    ).rejects.toBeInstanceOf(EnvKeyLeakInstallError);
-
-    // No DB row written — the gate fires BEFORE createExtension. This
-    // is the guarantee install-gate.test.ts can't make on its own
-    // because it doesn't exercise the installer flow.
-    expect(mockExtensions.size).toBe(0);
-  });
-
-  test("benign env (no credential pattern) still installs", async () => {
-    // Counterpart sanity check: confirms the gate's pattern matching
-    // is the gating condition, not "any env entry at all". A name
-    // like SUBSTACK_USER_ID doesn't match ENV_KEY_LEAK_PATTERN
-    // (`_TOKEN$|_SECRET$|_KEY$|_PASSWORD$`), so the install should
-    // succeed. Without this counterpart a future "block any env" PR
-    // could pass the negative test above and silently break the
-    // installer for legitimate uses.
-    const baseManifest = await loadManifest(SUBSTACK_PILOT_PATH);
-    const benignManifest: ExtensionManifestV2 = {
-      ...baseManifest,
-      permissions: {
-        ...(baseManifest.permissions ?? {}),
-        env: ["SUBSTACK_USER_ID"],
-      },
-    };
-
-    const installed = await installFromLocal(
-      SUBSTACK_PILOT_PATH,
-      grantedPermissions,
-      false,
-      { preloadedManifest: benignManifest },
-    );
-    expect(installed.name).toBe("substack-pilot");
-    expect(mockExtensions.size).toBe(1);
-  });
+for (const name of ["SUBSTACK_SESSION_TOKEN", "SUBSTACK_USER_ID"]) test(`Substack setting ${name} cannot read host environment through the credential broker`, async () => {
+  const before = await lifecycle.inspect(actor, installationId);
+  const token = registerCallProvenance({ actorExtensionId: installationId, onBehalfOf: actor.principalId, conversationId: null, runId: null, parentCallId: null, kind: "tool", ownerless: false });
+  const resolveCredential = mock(async () => "host-secret-must-not-leak");
+  try {
+    const dependencies: RpcHandlerDeps = { registry: ExtensionRegistry.getInstance(), engine: createStubPermissionEngine(), resolveExtensionScopeGrant: async () => false };
+    const response = await handleCredentialBroker(dependencies, installationId, { jsonrpc: "2.0", id: name, method: "ezcorp/env.get", params: { name, _meta: { ezCallId: token } } }, { resolveCredential });
+    expect(response).toMatchObject({ error: { message: "Only approved provider credential handles are available." } });
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(JSON.stringify(response)).not.toContain("host-secret-must-not-leak");
+    expect((await lifecycle.inspect(actor, installationId)).installation).toEqual(before.installation);
+    expect(Object.keys((await getExtensionByName("substack-pilot"))!.manifest.settings ?? {}).sort()).toEqual(settingsKeys);
+  } finally { releaseCallProvenance(token); }
 });
