@@ -153,7 +153,7 @@ async function initialize(): Promise<LifecycleServices> {
     verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
-    publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest) : undefined); },
+    publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
   });
   return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations };
 }

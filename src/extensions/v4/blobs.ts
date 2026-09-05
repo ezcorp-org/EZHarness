@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, link, unlink, realpath, lstat } from "node:fs/promises";
 import { resolve, join } from "node:path";
-import { canonicalJson, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { canonicalJson, validateArtifactFiles, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { LifecycleError, type BlobStore } from "./types";
 
 export { canonicalJson } from "@ezcorp/extension-contract";
@@ -19,20 +19,21 @@ export function validatePath(path: string): void {
   try { validateWorkspacePath(path); } catch { throw new LifecycleError("invalid_path", "Use a bounded relative file path without traversal."); }
 }
 
-export function validateFiles(files: WorkspaceFiles): void {
-  validateWorkspaceFiles(files);
+export function validateFiles(files: WorkspaceFiles, kind: "workspace" | "artifact" = "workspace"): void {
+  if (kind === "artifact") validateArtifactFiles(files);
+  else validateWorkspaceFiles(files);
 }
 
-export async function putFiles(blobs: BlobStore, files: WorkspaceFiles): Promise<string> {
-  validateFiles(files);
+export async function putFiles(blobs: BlobStore, files: WorkspaceFiles, kind: "workspace" | "artifact" = "workspace"): Promise<string> {
+  validateFiles(files, kind);
   return blobs.put(new TextEncoder().encode(canonicalJson(files)));
 }
 
-export async function getFiles(blobs: BlobStore, digest: string): Promise<WorkspaceFiles> {
+export async function getFiles(blobs: BlobStore, digest: string, kind: "workspace" | "artifact" = "workspace"): Promise<WorkspaceFiles> {
   const bytes = await blobs.get(digest);
   if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored content does not match its digest.");
   const files: WorkspaceFiles = JSON.parse(new TextDecoder().decode(bytes));
-  validateFiles(files);
+  validateFiles(files, kind);
   return files;
 }
 
@@ -49,6 +50,7 @@ export class FileBlobStore implements BlobStore {
   }
 
   async put(bytes: Uint8Array): Promise<string> {
+    if (bytes.byteLength > 192 * 1024 * 1024) throw new LifecycleError("artifact_corrupt", "Stored content exceeds the artifact byte limit.");
     await this.directory();
     const digest = digestBytes(bytes);
     const temporary = join(this.root, `.stage-${randomUUID()}`);
@@ -78,7 +80,7 @@ export class FileBlobStore implements BlobStore {
     const handle = await open(join(this.root, digest), constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
       const stat = await handle.stat();
-      if (!stat.isFile() || stat.size > 64 * 1024 * 1024) throw new LifecycleError("artifact_corrupt", "Stored content is not a bounded regular file.");
+      if (!stat.isFile() || stat.size > 192 * 1024 * 1024) throw new LifecycleError("artifact_corrupt", "Stored content is not a bounded regular file.");
       const bytes = await handle.readFile();
       if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored content does not match its digest.");
       return bytes;

@@ -199,8 +199,7 @@ export class ExtensionLifecycle {
       if (digestObject(result.manifest) !== result.evidence.discoveryDigest) throw new LifecycleError("discovery_mismatch", "Discovered metadata does not match its evidence digest.");
       if (result.imageDigest !== this.dependencies.runnerImageDigest || result.evidence.protocolVersion !== 4 || result.evidence.validatorVersion !== this.dependencies.validatorVersion || !result.evidence.tests.length || result.evidence.tests.some((test) => test.passed !== true)) throw new LifecycleError("verification_failed", "Required build evidence is missing, stale, or failed.");
       const artifacts = await this.dependencies.runner.collectArtifacts(result.artifactDigest);
-      validateFiles(artifacts);
-      const artifactDigest = await putFiles(this.dependencies.blobs, artifacts);
+      const artifactDigest = await putFiles(this.dependencies.blobs, artifacts, "artifact");
       if (artifactDigest !== result.artifactDigest) throw new LifecycleError("artifact_mismatch", "Collected artifact bytes do not match the build digest.");
       const releaseInput = { installationId, workspaceId: operation.workspaceId!, workspaceRevision: operation.workspaceRevision!, sourceDigest: operation.sourceDigest!, artifactDigest, imageDigest: result.imageDigest, manifest: result.manifest, evidence: result.evidence, runnerProfile: this.dependencies.runnerProfile, policyDigest: this.policyDigest() };
       const release: LifecycleRelease = { ...releaseInput, id: randomUUID(), releaseDigest: digestObject(releaseInput), createdAt: this.timestamp() };
@@ -284,7 +283,7 @@ export class ExtensionLifecycle {
       const approval = this.approval(snapshot, input.approvalId);
       const release = this.checkApproval(snapshot, approval, true);
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
-      const artifacts = await getFiles(this.dependencies.blobs, release.artifactDigest);
+      const artifacts = await getFiles(this.dependencies.blobs, release.artifactDigest, "artifact");
       await this.dependencies.verifyCandidate(release, artifacts);
       await this.dependencies.authorize(actor, "activate", release, approval.grants);
       await this.dependencies.prepareActivation?.(snapshot.installation, snapshot.installation.activeReleaseId ? this.release(snapshot, snapshot.installation.activeReleaseId) : null, release, claimed.operation);

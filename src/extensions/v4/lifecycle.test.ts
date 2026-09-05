@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { up } from "../../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
-import { canonicalJson, digestObject, FileBlobStore } from "./blobs";
+import { canonicalJson, digestObject, FileBlobStore, getFiles, putFiles } from "./blobs";
 import { ExtensionLifecycle } from "./lifecycle";
 import { LifecycleError, type LifecycleActor, type LifecycleDependencies, type LifecycleRepository } from "./types";
 
@@ -382,6 +382,13 @@ describe("durable extension lifecycle", () => {
 });
 
 describe("host immutable blob store", () => {
+  test("compiled artifacts can exceed source limits without relaxing workspace admission", async () => {
+    const files = { "extension.js": "x".repeat(21 * 1024 * 1024) };
+    await expect(putFiles(blobs, files)).rejects.toThrow();
+    const digest = await putFiles(blobs, files, "artifact");
+    expect((await getFiles(blobs, digest, "artifact"))["extension.js"]?.length).toBe(files["extension.js"].length);
+    await expect(getFiles(blobs, digest)).rejects.toThrow();
+  });
   test("concurrent identical writes are content addressed and tampering fails", async () => {
     const bytes = new TextEncoder().encode(canonicalJson({ "file.ts": "one" }));
     const results = await Promise.all([blobs.put(bytes), blobs.put(bytes)]);
