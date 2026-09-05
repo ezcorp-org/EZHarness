@@ -49,7 +49,7 @@ mock.module("../../../db/queries/extensions", () => ({
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../subprocess";
-import { buildHarnessEnv, wireFsHandler } from "@ezcorp/sdk/test";
+import { buildHarnessEnv, makeFsRpcHandler, wireFsHandler } from "@ezcorp/sdk/test";
 
 const TODO_TRACKER_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `todo-tracker-e2e-pipeline-${Date.now()}`);
@@ -132,6 +132,45 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     if (!first || first.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("critical one");
     expect(first.text).not.toContain("low-priority chore");
+  }, 30_000);
+
+  test("denied filesystem reveals no project data, then the same process recovers when allowed", async () => {
+    writeFileSync(join(cwd, "secret.ts"), "// TODO: must-not-cross-denied-boundary\n");
+    const extId = "todo-tracker-denial-" + Math.random().toString(36).slice(2, 8);
+    const proc = new ExtensionProcess(
+      extId,
+      TODO_TRACKER_ENTRYPOINT,
+      buildHarnessEnv(extId, { filesystem: true }),
+      { persistent: true, callTimeoutMs: 15_000 },
+    );
+    procs.push(proc);
+
+    const filesystem = makeFsRpcHandler(tmpdir());
+    let deny = true;
+    let deniedCalls = 0;
+    proc.setRequestHandler(async (request) => {
+      if (request.method.startsWith("ezcorp/fs.") && deny) {
+        deniedCalls++;
+        return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message: "filesystem permission denied" } };
+      }
+      return filesystem(request) ?? {
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32601, message: `Method not found: ${request.method}` },
+      };
+    });
+
+    const denied = await proc.callTool("scan-todos", {});
+    expect(denied.isError).toBe(false);
+    expect(denied.content[0]).toMatchObject({ type: "text" });
+    expect(denied.content[0]?.type === "text" ? denied.content[0].text : "").not.toContain("must-not-cross-denied-boundary");
+    expect(deniedCalls).toBe(1);
+
+    deny = false;
+    const allowed = await proc.callTool("scan-todos", {});
+    expect(allowed.isError).toBe(false);
+    expect(allowed.content[0]?.type === "text" ? allowed.content[0].text : "").toContain("must-not-cross-denied-boundary");
+    expect(proc.isRunning).toBe(true);
   }, 30_000);
 
   test("3 sequential scan-todos calls on same persistent process — resetFailures counter rises", async () => {
