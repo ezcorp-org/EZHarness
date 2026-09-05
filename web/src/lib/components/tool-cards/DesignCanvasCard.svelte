@@ -469,7 +469,7 @@
 			{#each knobs as k (k.key)}
 				<label class="knob">
 					<span>
-						{k.label}{#if k.kind === "range"} ({values[k.key] ?? k.current ?? ""}{k.unit ?? ""}){/if}
+						{k.label}{#if k.kind === "range"}{" "}({values[k.key] ?? k.current ?? ""}{k.unit ?? ""}){/if}
 						{#if dirtyKeys.has(k.key)}
 							<span
 								class="dirty-dot"
