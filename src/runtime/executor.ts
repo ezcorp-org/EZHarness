@@ -560,7 +560,7 @@ export class AgentExecutor {
           if (userId) toolExec.setCurrentUserId(userId);
           if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
           const conversationId = control?.serviceInvocation ? workflowScopeKey(control.serviceInvocation.workflowRunId) : run.id;
-          ctx.tools = toolExec.createToolsContext(conversationId, run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(control?.serviceInvocation ? { serviceInvocation: control.serviceInvocation } : {}) });
+          ctx.tools = toolExec.createToolsContext(conversationId, control?.serviceInvocation ? null : run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(control?.serviceInvocation ? { serviceInvocation: control.serviceInvocation } : {}) });
         }
       } catch {
         // Extension loading failure is non-fatal for code-based agents
