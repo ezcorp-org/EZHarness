@@ -71,6 +71,8 @@ export class ExtensionControl {
       entrypoint: "extension.ts",
       template: createExtensionFiles(),
       features: ["tools", "skills", "agents", "workflows", "pages", "entities", "settings", "secrets", "storage", "files", "events", "schedules", "loops", "webhooks", "attachments", "MCP"],
+      runtime: { helpers: "@ezcorp/sdk", transport: "Invocation-scoped ctx.call; SDK helpers use the same channel.", concurrency: "Use withLock for multi-step storage updates. Locks are shared across workers; failed effects can require human recovery." },
+      browser: { sdk: "@ezcorp/sdk/browser", config: "ezcorp.browser.json", configFields: ["schemaVersion", "entrypoint", "html", "styles", "tools"], preview: "/extensions/<name>/preview?conversationId=<owned-id>", rules: ["Build browser assets offline with the sealed toolchain.", "Only declared tools are callable through the private host port.", "The host owns session, conversation, release binding, and camera consent."] },
       flow: ["extensions_workspace", "extensions_build", "extensions_inspect", "extensions_release"],
       rules: ["Read the current revision before editing.", "Use ctx.call for host capabilities.", "Feature tests belong to the builder; host security checks cannot be changed.", "A human must approve the exact tested release.", "An installed record does not prove a working extension."],
     };

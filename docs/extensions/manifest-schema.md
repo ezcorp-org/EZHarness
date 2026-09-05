@@ -1,5 +1,7 @@
 # Manifest reference
 
+The default scaffold passes its manifest and handlers to `defineExtension` from `@ezcorp/sdk/v4`.
+
 The release manifest is declarative data with `schemaVersion: 4`. The shared workspace scaffold defines it inline in `extension.ts`. A package can instead import manifest data or a worker-only `defineRuntimeManifest` module. The host never evaluates an executable configuration file; it validates the data returned by isolated discovery.
 
 The authoritative definitions are [the contract package](../../packages/@ezcorp/extension-contract/src/index.ts) and its [wire schema](../../packages/@ezcorp/extension-contract/src/wire-schema.json). Use `validateManifest` from `@ezcorp/sdk/v4` or `@ezcorp/extension-contract`. Do not maintain another handwritten validator or manifest type.

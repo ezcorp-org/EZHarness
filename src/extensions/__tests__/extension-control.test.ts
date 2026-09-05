@@ -42,7 +42,7 @@ describe("extension control", () => {
 
   test("describes one SDK contract with nested tested source and no approval tool", async () => {
     const { control } = fixture();
-    expect(await control.execute(actor, "extensions_describe", {})).toMatchObject({ schemaVersion: 4, sdk: "@ezcorp/sdk/v4" });
+    expect(await control.execute(actor, "extensions_describe", {})).toMatchObject({ schemaVersion: 4, sdk: "@ezcorp/sdk/v4", runtime: { helpers: "@ezcorp/sdk" }, browser: { sdk: "@ezcorp/sdk/browser", config: "ezcorp.browser.json", configFields: ["schemaVersion", "entrypoint", "html", "styles", "tools"], preview: "/extensions/<name>/preview?conversationId=<owned-id>" } });
     const files = createExtensionFiles("safe-name", "test");
     expect(files).toEqual(scaffoldWorkspace({ name: "safe-name", description: "test" }).files);
     expect(files["extension.ts"]).toContain("defineExtension");

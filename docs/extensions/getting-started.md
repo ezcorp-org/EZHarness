@@ -16,6 +16,8 @@ The full repeatable sequence is in [Authoring](AUTHORING.md). The harness can bu
 
 ## Local source
 
+The default scaffold uses `defineExtension` from `@ezcorp/sdk/v4` to declare the manifest and handlers.
+
 Run the CLI from the repository root. There is no installed `ezcorp` binary.
 
 ```sh

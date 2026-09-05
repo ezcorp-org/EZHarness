@@ -32,6 +32,8 @@ Use `@ezcorp/sdk/v4` for `defineExtension`, `serve`, `validateManifest`, and the
 
 Handlers use `ctx.call(method, input)` or supported `@ezcorp/sdk/runtime` helpers during an active invocation. The host validates release, worker, principal, scope, deadline, and grants. Saving a context and using it after completion fails.
 
+The runtime helpers work in both `defineExtension` and `createRuntimeExtension` handlers. They share the active invocation channel; do not start another channel or stdin reader.
+
 Important retained surfaces include:
 
 - `ezcorp/storage`: scoped host storage and bounded batches.
@@ -64,6 +66,8 @@ Durable domain events are queued in the source transaction. Live progress and co
 
 Writes and batches enforce quotas transactionally. A batch does not make a preceding separate read atomic. See [Storage](data-storage.md) for concurrency and filesystem rules.
 
+`withLock(key, action)` and `createMutex(key)` coordinate separate workers through host-held ownership. Use explicit stable keys. Inspect quarantine with `extensions_inspect` and `locks: true`; only a human administrator can use `extensions_release` with `action: "recoverLock"`. See [Runtime locks](../extension-runtime-locks.md).
+
 ## CLI
 
 Invoke `bun src/cli.ts ext ...` from the repository root; there is no installed binary.
@@ -85,3 +89,7 @@ Installation and update need an active administrator selected by `EZCORP_USER_ID
 Declare the settings schema as manifest data. The host validates and resolves values for the active user. The UI provides save and reset; tools read the resolved settings from their invocation context. Use defaults for absent values. See [Settings](settings.md).
 
 See [Manifest reference](manifest-schema.md) for declarations and capability limits.
+
+## Browser client
+
+See [Browser extensions](browser.md) for the sealed build config, private SDK client, trusted preview, and camera consent.

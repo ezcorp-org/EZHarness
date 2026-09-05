@@ -14,7 +14,9 @@ The host binds the installation and scope IDs. Extension-supplied user or conver
 
 Use `Storage` from `@ezcorp/sdk/runtime` during an active v4 invocation, for example `new Storage("user")`. Its `get`, `set`, `delete`, `list`, and `batch` methods call the host's bounded storage API. The host enforces value limits, installation quotas, and scope checks.
 
-Write batches commit together. A separate `get` followed by `set` is not an atomic update. Process-local state and mutexes do not coordinate separate workers. Shared read-modify-write operations require the host-backed coordination supported by the current SDK; use a stable explicit key and keep the critical section bounded. Do not perform an automatic callback retry around non-idempotent external effects.
+Write batches commit together. A separate `get` followed by `set` is not an atomic update. Process-local state and mutexes do not coordinate separate workers. Use SDK `withLock(key, action)` or `createMutex(key)` for shared read-modify-write operations. Keys are installation-scoped; include the logical record or conversation in a stable key when those records can change independently. Keep the critical section bounded. Do not perform an automatic callback retry around non-idempotent external effects.
+
+Expired locks are not stolen. Uncertain effects quarantine the key. Recovery requires a disabled installation, human administrator, exact fence, and no admitted effects. A crash with an unresolved effect count remains blocked rather than releasing ownership by time alone. See [Runtime locks](../extension-runtime-locks.md) for limits and recovery.
 
 ## Files
 
