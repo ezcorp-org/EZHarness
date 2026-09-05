@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mocks = vi.hoisted(() => ({ getExtensionByRef: vi.fn(), updateExtension: vi.fn(), upsertSetting: vi.fn() }));
 vi.mock("$server/db/queries/extensions", () => mocks);
@@ -9,7 +10,9 @@ import { POST } from "../routes/api/extensions/[id]/reapprove/+server";
 import { GET, PUT } from "../routes/api/extensions/[id]/permissions/+server";
 
 function event(authMethod = "session", scopes = ["extensions", "read"], user: unknown = { id: "owner", role: "admin" }) {
-  return { params: { id: "installation" }, locals: { authMethod, scopes, user }, request: { json: vi.fn(() => { throw new Error("Retired mutations must not parse attacker input"); }) } } as unknown as Parameters<typeof POST>[0];
+  const input = makeRequestEvent("http://localhost/api/extensions/installation/permissions", { params: { id: "installation" }, locals: { authMethod, scopes, user } });
+  vi.spyOn(input.request, "json").mockImplementation(() => { throw new Error("Retired mutations must not parse attacker input"); });
+  return input;
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.getExtensionByRef.mockResolvedValue({ grantedPermissions: { storage: true } }); });
 
@@ -34,11 +37,11 @@ test("retired mutations still require authentication and extension scope", async
 });
 
 test("permission reads require read scope and cannot expose uninstalled references", async () => {
-  expect((await GET(event("api-key", ["extensions"]) as Parameters<typeof GET>[0])).status).toBe(403);
+  expect((await GET(event("api-key", ["extensions"]))).status).toBe(403);
   expect(mocks.getExtensionByRef).not.toHaveBeenCalled();
-  const response = await GET(event() as Parameters<typeof GET>[0]);
+  const response = await GET(event());
   expect(await response.json()).toEqual({ storage: true });
   expect(mocks.getExtensionByRef).toHaveBeenCalledWith("installation");
   mocks.getExtensionByRef.mockResolvedValue(null);
-  expect((await GET(event() as Parameters<typeof GET>[0])).status).toBe(404);
+  expect((await GET(event())).status).toBe(404);
 });
