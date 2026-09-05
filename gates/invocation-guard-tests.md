@@ -8,3 +8,5 @@
   EVIDENCE: Actual SQL test captures exact transaction object, refuses guard after tentative write, proves rollback and no context leakage outside effect. Lifecycle store owner confirms supplied transaction uses FOR SHARE on durable control row. Root owns copied guard source; only tests are committed here.
 
 Review finding: Direct host entity tools bypass storage-handler's fenced transaction. Reported to root for guard-aware transaction integration; wrapping only the handler in effect scope does not protect raw storage queries. Full backend/test types pass; root-owned browser fixture ByRoleOptions exact properties still fail web typecheck in this leaf snapshot.
+
+Entity follow-up: /tmp/v4-entity-guard-red.log proves two SQL rows (record and index) survive a cancelled read before the fix. With root's transaction-bound entity handler, /tmp/v4-entity-guard-green.log passes 12 tests and 44 assertions: zero stored rows, exact guard/read transaction identity, no worker dispatch. /tmp/v4-entity-guard-types.log passes backend/test typecheck.

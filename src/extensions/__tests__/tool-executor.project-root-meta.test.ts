@@ -16,7 +16,9 @@
 // is the shared test-pglite db/connection redirect — the queries under test
 // (getConversation / getProject) are the REAL ones, backed by real rows.
 
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { eq } from "drizzle-orm";
+import * as storageQueries from "../../db/queries/extension-storage";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
 
@@ -24,7 +26,7 @@ mockDbConnection();
 
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import { conversations, projects, users, extensions, messages } from "../../db/schema";
+import { conversations, projects, users, extensions, messages, extensionStorage } from "../../db/schema";
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../types";
 
@@ -51,8 +53,9 @@ function makeManifest(): ExtensionManifestV2 {
  *  (the 3rd arg) — that's where the host injects `ezProjectRoot`. */
 interface CapturedCall { meta?: Record<string, unknown>; options?: { signal?: AbortSignal; invocationGuard?: import("../runtime-locks").InvocationGuard }; calls?: number }
 
-function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; beforeProcess?: () => Promise<void> } = {}): ExtensionRegistry {
+function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; entity?: boolean; beforeProcess?: () => Promise<void> } = {}): ExtensionRegistry {
   const manifest = makeManifest();
+  if (options.entity) manifest.entities = [{ type: "note", label: "Note", pluralLabel: "Notes", schema: { type: "object", properties: { title: { type: "string" } } }, scope: "user" }];
   if (options.mcp) { manifest.kind = "mcp"; manifest.mcpServers = [{ name: "fixture", transport: "http", url: "https://fixture.test/mcp" }]; }
   const fakeProc = {
     callTool: async (
@@ -73,7 +76,7 @@ function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; beforePr
     getRegisteredTool: (toolName: string) => {
       const t = manifest.tools?.find((x) => x.name === toolName);
       if (!t) return null;
-      return { extensionId: EXT_ID, originalName: toolName, name: toolName, description: "", inputSchema: { type: "object" } };
+      return { extensionId: EXT_ID, originalName: toolName, name: toolName, description: "", inputSchema: { type: "object" }, ...(options.entity ? { entityKind: "create", entityType: "note" } : {}) };
     },
     getManifest: () => manifest,
     getGrantedPermissions: () => ({ grantedAt: {} }) as unknown as ReturnType<ExtensionRegistry["getGrantedPermissions"]>,
@@ -198,6 +201,33 @@ describe("ToolExecutor · conversation project-root → _meta.ezProjectRoot (B5)
     const result = await executor.executeToolCall(TOOL, {}, projectConvId, null, { invocationGuard: async () => { if (!allowed) throw new Error("claim cancelled"); } });
     expect(result.isError).toBe(true);
     expect(captured.calls ?? 0).toBe(0);
+  });
+
+  test("entity cancellation during an actual SQL read rolls back record and index in the guarded transaction", async () => {
+    const captured: CapturedCall = {};
+    const controller = new AbortController();
+    const guardedTransactions: unknown[] = [];
+    const readTransactions: unknown[] = [];
+    const original = storageQueries.getStorageValue;
+    const read = spyOn(storageQueries, "getStorageValue").mockImplementation(async (...args) => {
+      const result = await original(...args);
+      readTransactions.push(args[4]);
+      controller.abort(new Error("cancelled during entity read"));
+      return result;
+    });
+    const executor = new ToolExecutor(makeRegistry(captured, { entity: true }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    try {
+      const result = await executor.executeToolCall(TOOL, { slug: "cancelled-note", data: { title: "must roll back" } }, projectConvId, null, { signal: controller.signal, invocationGuard: async database => { if (database) guardedTransactions.push(database); } });
+      expect(await getTestDb().select().from(extensionStorage).where(eq(extensionStorage.extensionId, EXT_ID))).toHaveLength(0);
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toContain("cancelled during entity read");
+      expect(readTransactions.length).toBeGreaterThan(0);
+      expect(guardedTransactions.length).toBeGreaterThan(0);
+      expect(readTransactions.every(database => database === guardedTransactions[0])).toBe(true);
+      expect(guardedTransactions[0]).not.toBe(getTestDb());
+      expect(captured.calls ?? 0).toBe(0);
+    } finally { read.mockRestore(); }
   });
 
   test("code-agent tools context keeps the caller cancellation signal", async () => {
