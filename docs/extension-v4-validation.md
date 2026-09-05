@@ -2,7 +2,7 @@
 
 ## Result
 
-Production source is frozen at `af531cdd` (tree `beaa01d3b2a58bab7ed4ea9e95e049b3cc17e723`). Test-only coverage isolation and evidence documents are validated at `b5c4d0e6`. The original checkout was not modified.
+The consolidated source and base freeze is `181b7512` (tree `faa5d8ac42d605ccdbd9e079942c80269278e01d`, base `65edc5bc`). Final leaf evidence is integrated through `94f0020e`. A fresh fetch immediately before coverage confirmed that `origin/main` remained at the integrated base. The original checkout was not modified.
 
 All required local executable checks pass. Gate integrity remains deliberately red with 84 migration-policy findings that require a maintainer. No agent applied an approval label, reduced a threshold, added an exclusion, or waived visual evidence. Draft PR 246 can be updated for review, but it must not merge until the policy disposition, hosted CI, and non-author review pass.
 
@@ -10,24 +10,24 @@ All required local executable checks pass. Gate integrity remains deliberately r
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Backend isolated wrapper | 24,544 pass; 0 fail; 1,559 files | `/tmp/ez-final-backend-sol2.log` |
-| Plain web | 4,120 pass; 0 fail; 221 files | `/tmp/ez-test-revision-test-web.log` |
-| Web Vitest | 7,046 pass; 0 fail; 543 files | `/tmp/ez-test-revision-vitest.log` |
-| Typecheck | All four lanes pass | `/tmp/ez-freeze-typecheck.log` |
-| Svelte check | 0 errors; 13 warnings; 5 files | `/tmp/ez-freeze-svelte-check.log` |
-| Lint | 0 errors; 105 warnings; 11 informational findings | `/tmp/ez-freeze-lint.log` |
-| Full coverage | Bun 25,803/0; Node 4,551/0; 1,246 enforced files pass | `/tmp/ez-final-coverage-sol4.log` |
-| New-file coverage | 131 new source files gated | `/tmp/ez-final-new-file-coverage-sol-final.log` |
-| Patch coverage | All changed executable lines covered in 370 files | `/tmp/ez-final-patch-coverage-sol-final.log` |
-| Full real-auth browser lane | 54 of 54 pass | `/tmp/ez-real-auth54-service-final-clean.log` |
-| Mock browser lane | 210 pass; 12 baseline skips; 0 fail | `/tmp/ez-freeze-mock-gate.log` |
-| Visual evidence | 11 surfaces; 23 Playwright specs | `/tmp/ez-final-visual-evidence-sol-final.log` |
-| Production image | 8 of 8 pass | `/tmp/ez-service-final-container-verify.log` |
-| First-party candidates | 50 of 50 pass | `/tmp/ez-all50-frozen.jsonl` |
-| External PostgreSQL | 7 fences; lock cohort 2 tests/4 assertions | `/tmp/ez-sol-runtime-postgres-final.log`, `/tmp/ez-sol-runtime-locks-postgres-final.log` |
-| Gate integrity | 84 maintainer-only migration findings | `/tmp/ez-final-gate-integrity-sol-final.log` |
+| Backend isolated wrapper | 24,544 pass; 0 fail; 1,559 files | `/tmp/ez-finalbase-backend-sol.log` |
+| Plain web | 4,120 pass; 0 fail; 221 files | `/tmp/ez-final2-test-web.log` |
+| Web Vitest | 7,046 pass; 0 fail; 543 files | `/tmp/ez-final2-vitest.log` |
+| Typecheck | All four lanes pass | `/tmp/ez-final2-typecheck-relinked.log` |
+| Svelte check | 0 errors; 13 warnings; 5 files | `/tmp/ez-final2-svelte-check.log` |
+| Lint | 0 errors; 105 warnings; 11 informational findings | `/tmp/ez-final2-lint.log` |
+| Full coverage | Bun 25,803/0; Node 4,551/0; 1,246 enforced files pass | `/tmp/ez-final2-coverage-sol.log` |
+| New-file coverage | 131 new source files gated | `/tmp/ez-final2-new-file-coverage-sol.log` |
+| Patch coverage | All changed executable lines covered in 370 files | `/tmp/ez-final2-patch-coverage-sol.log` |
+| Full real-auth browser lane | 54 of 54 pass | `/tmp/ez-real-auth54-181b7512.log` |
+| Mock browser lane | 210 pass; 12 baseline skips; 0 fail | `/tmp/ez-final2-mock-gate.log` |
+| Visual evidence | 11 surfaces; 23 Playwright specs | `/tmp/ez-final2-visual-evidence-sol.log` |
+| Production image | 8 of 8 pass | `/tmp/ez-service-final-181b7512-container-verify.log` |
+| First-party candidates | 50 of 50 pass | `/tmp/ez-all50-181b7512.jsonl` |
+| External PostgreSQL | 7 fences; lock cohort 2 tests/4 assertions | `gates/workflow-service-effects.md` |
+| Gate integrity | 84 maintainer-only migration findings | `/tmp/ez-final2-gate-integrity-sol.log` |
 
-The first backend attempt found a stale nested `fast-uri@3.1.5` link although the lock requires 3.1.6. `bun install --force --frozen-lockfile` repaired the local dependency tree. The exact parser contract then passed 13 tests and 178 assertions before the full backend rerun (`/tmp/ez-final-contract-uri-after-force.log`).
+Forced frozen installs were required in both the root and web workspaces. They resolve MCP SDK 1.30.0 to Zod 4.5.2 and retain `fast-uri` 3.1.6; lockfile contents alone did not repair stale nested symlinks. The SDK, AI kit, harness client, contract, schema, runner and PostgreSQL package gates all pass on the resolved dependency tree; their exact receipts are recorded in `gates/workflow-service-effects.md`.
 
 The final coverage repair does not hide production code. Three Bun route tests now install one shared, typed, fail-closed workflow-access mock before importing the route, and restore that mock after the test. Exact producer proofs emit no foreign `workflow-access.ts` coverage record. The final full wrapper and both coverage gates pass.
 
