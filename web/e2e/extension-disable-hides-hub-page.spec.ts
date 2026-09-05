@@ -182,8 +182,10 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		await expect(page.getByTestId("hub-tab")).toHaveCount(1, { timeout: 5000 });
 		await expect(page.getByTestId("hub-tab")).toHaveText("Briefing");
-		await expect(page).toHaveURL(/\/hub\/core%3Abriefing$/);
-		await expect(page.getByTestId("hub-page-title")).toHaveText("Briefing");
+		await expect(page.getByTestId("hub-error-card")).toContainText(
+			"This page doesn't exist (the extension may be disabled).",
+		);
+		await expect(page.getByTestId("hub-page-title")).toHaveCount(0);
 		await expect(page.getByText("Notes Dashboard", { exact: true })).toHaveCount(0);
 
 		await captureEvidence(page, testInfo, "hub-tab-bar-after-disable");
