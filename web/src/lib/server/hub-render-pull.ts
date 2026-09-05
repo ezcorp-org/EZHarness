@@ -114,21 +114,9 @@ export interface PageRenderScope {
   view?: string;
 }
 
-/** The cache/single-flight variant key for a scope. A run-detail is keyed by
- *  the run id ALONE (independent of which hub/project surfaced the link), so
- *  the same run detail caches once; a step detail adds a `:step:<name>` suffix
- *  so it caches SEPARATELY from the run detail. The bare `run:<id>` key stays
- *  byte-identical (cache + single-flight backward compat). Otherwise the project
- *  id (`""` = global). A `view` selector appends `:view:<value>` to whatever the
- *  base key is — so a `view` render caches SEPARATELY, and a bare (no-view) key
- *  stays byte-identical to the pre-view behaviour. */
-function variantKey(scope?: PageRenderScope): string {
-  const base = scope?.run
-    ? scope.step
-      ? `run:${scope.run}:step:${scope.step}`
-      : `run:${scope.run}`
-    : scope?.project?.id ?? "";
-  return scope?.view ? `${base}:view:${scope.view}` : base;
+/** Cache identity includes the principal, current authority, and complete scope. */
+function variantKey(userId: string, authority: string, scope?: PageRenderScope): string {
+  return JSON.stringify([userId, authority, scope?.project ?? null, scope?.listProjects ?? false, scope?.run ?? null, scope?.step ?? null, scope?.view ?? null]);
 }
 
 export type RenderExtensionPageResult =
@@ -143,6 +131,7 @@ export type RenderExtensionPageResult =
     };
 
 export interface RenderPullDeps {
+  authorize: (extension: Extension, userId: string, scope?: PageRenderScope) => Promise<string>;
   findPage: typeof findEnabledExtensionPage;
   /** Spawn (if needed) + wire the subprocess, returning a caller. The
    *  viewing `userId` scopes the render's reverse-RPC provenance so the
@@ -230,26 +219,21 @@ async function productionCallPage(
   // is authorized — without this the render's reads fail the provenance
   // gate ("unresolved") and the page silently renders empty. Released in
   // `finally` the moment the render returns (token kind: "render").
-  const ezCallId = registerCallProvenance({
-    onBehalfOf: userId,
-    conversationId: null,
-    runId: null,
-    parentCallId: null,
-    actorExtensionId: extension.id,
-    kind: "render",
-    ownerless: false,
-  });
   // perProject context: one project on the project hub; the FULL list on
   // the global hub (so the page can render its all-projects home view).
   // Late-bound import, same rationale as the collaborators above.
   let projectParams: Record<string, unknown> = {};
   if (scope?.project) {
-    projectParams = { project: scope.project };
+    projectParams = { project: { ...scope.project, path: "/project" } };
   } else if (scope?.listProjects) {
-    const { listProjects } = await import("$server/db/queries/projects");
-    const all = await listProjects();
+    const [{ listProjects }, { getUserById }, { getProjectMembership }] = await Promise.all([
+      import("$server/db/queries/projects"), import("$server/db/queries/users"), import("$server/db/queries/project-members"),
+    ]);
+    const user = await getUserById(userId);
+    if (user?.status !== "active") throw new Error("Page access denied");
+    const all = (await Promise.all((await listProjects()).map(async project => user.role === "admin" || await getProjectMembership(userId, project.id) ? project : null))).filter(project => project !== null);
     projectParams = {
-      projects: all.map((p) => ({ id: p.id, name: p.name, path: p.path })),
+      projects: all.map((p) => ({ id: p.id, name: p.name, path: "/project" })),
     };
   }
   // A run-detail request rides ALONGSIDE any project context — the page reads
@@ -262,6 +246,16 @@ async function productionCallPage(
   // to an alternate surface. Independent of `run` (unlike `step`), so it is
   // forwarded whenever present.
   const viewParam = scope?.view ? { view: scope.view } : {};
+  const ezCallId = registerCallProvenance({
+    onBehalfOf: userId,
+    conversationId: null,
+    runId: null,
+    parentCallId: null,
+    actorExtensionId: extension.id,
+    ...(scope?.project ? { projectId: scope.project.id } : {}),
+    kind: "render",
+    ownerless: false,
+  });
   try {
     return await proc.call("ezcorp/page.render", {
       pageId,
@@ -278,11 +272,37 @@ async function productionCallPage(
 
 function defaultDeps(): RenderPullDeps {
   return {
+    authorize: authorizePageRender,
     findPage: findEnabledExtensionPage,
     callPage: productionCallPage,
     cache: getPageCache(),
     timeoutMs: RENDER_PULL_TIMEOUT_MS,
   };
+}
+
+async function authorizePageRender(extension: Extension, userId: string, scope?: PageRenderScope): Promise<string> {
+  const [{ getUserById }, { getProjectMembership }, { resolveActiveRelease, getReleaseRuntime, releaseBinding }, { getExtension }] = await Promise.all([
+    import("$server/db/queries/users"), import("$server/db/queries/project-members"), import("$server/extensions/release-process"), import("$server/db/queries/extensions"),
+  ]);
+  const user = await getUserById(userId);
+  if (user?.status !== "active") throw new Error("Page access denied");
+  const projection = await getExtension(extension.id);
+  if (!projection?.enabled) throw new Error("Page access denied");
+  const active = await resolveActiveRelease(extension.id, getReleaseRuntime());
+  const installationScope = active.installation.scope;
+  if (installationScope !== "global" && !installationScope.startsWith("project:")) throw new Error("Page access denied");
+  const projects = new Set([...(installationScope.startsWith("project:") ? [installationScope.slice(8)] : []), ...(scope?.project ? [scope.project.id] : [])]);
+  for (const projectId of projects) {
+    if (user.role !== "admin" && !await getProjectMembership(userId, projectId)) throw new Error("Page access denied");
+  }
+  const visibleProjects: string[] = [];
+  if (scope?.listProjects) {
+    const { listProjects } = await import("$server/db/queries/projects");
+    for (const project of await listProjects()) {
+      if (user.role === "admin" || await getProjectMembership(userId, project.id)) visibleProjects.push(project.id);
+    }
+  }
+  return JSON.stringify([releaseBinding(active), user.role, projection.grantedPermissions, visibleProjects.sort()]);
 }
 
 function grantedEvents(extension: Extension): string[] {
@@ -309,13 +329,15 @@ function pullAndCache(
   pageId: string,
   userId: string,
   deps: RenderPullDeps,
+  authority: string,
   scope?: PageRenderScope,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   const generation = deps.cache.generation(extension.id, pageId);
-  const key = `${extension.id}:${pageId}:${variantKey(scope)}:g${generation}`;
+  const key = JSON.stringify([extension.id, pageId, variantKey(userId, authority, scope), generation]);
   const existing = inflightPulls.get(key);
   if (existing) return existing;
-  const pull = doPullAndCache(extension, pageId, userId, deps, scope, generation).finally(() => {
+  if (inflightPulls.size >= 128) return Promise.resolve({ error: "Too many page renders — try again." });
+  const pull = doPullAndCache(extension, pageId, userId, deps, authority, scope, generation).finally(() => {
     inflightPulls.delete(key);
   });
   inflightPulls.set(key, pull);
@@ -330,6 +352,7 @@ async function doPullAndCache(
   pageId: string,
   userId: string,
   deps: RenderPullDeps,
+  authority: string,
   scope?: PageRenderScope,
   generation?: number,
 ): Promise<{ tree: HubPageTree } | { error: string }> {
@@ -362,7 +385,8 @@ async function doPullAndCache(
     return { error: "This page produced invalid content." };
   }
 
-  deps.cache.set(extension.id, pageId, tree, variantKey(scope), generation);
+  if (await deps.authorize(extension, userId, scope) !== authority) return { error: "Page access changed — refresh this page." };
+  deps.cache.set(extension.id, pageId, tree, variantKey(userId, authority, scope), generation);
   return { tree };
 }
 
@@ -404,7 +428,10 @@ export async function renderExtensionPage(
   const scope: PageRenderScope | undefined = view
     ? { ...(baseScope ?? {}), view }
     : baseScope;
-  const variant = variantKey(scope);
+  let authority: string;
+  try { authority = await deps.authorize(extension, userId, scope); }
+  catch { deps.cache.invalidateExtension(extension.id); return { notFound: true }; }
+  const variant = variantKey(userId, authority, scope);
 
   const cached = deps.cache.get(extension.id, pageId, variant);
   if (cached && !cached.stale) {
@@ -413,7 +440,7 @@ export async function renderExtensionPage(
   if (cached) {
     // Serve stale instantly; refresh in the background so the NEXT
     // request (or the client's invalidation-driven re-pull) is fresh.
-    void pullAndCache(extension, pageId, userId, deps, scope).catch((err) => {
+    void pullAndCache(extension, pageId, userId, deps, authority, scope).catch((err) => {
       log.warn("background page refresh failed", {
         extension: extension.name,
         pageId,
@@ -423,7 +450,9 @@ export async function renderExtensionPage(
     return { page: cached.tree, renderedAt: cached.renderedAt, stale: true };
   }
 
-  const pulled = await pullAndCache(extension, pageId, userId, deps, scope);
+  let pulled: { tree: HubPageTree } | { error: string };
+  try { pulled = await pullAndCache(extension, pageId, userId, deps, authority, scope); }
+  catch { deps.cache.invalidateExtension(extension.id); return { notFound: true }; }
   if ("error" in pulled) return { error: pulled.error };
   return { page: pulled.tree, renderedAt: Date.now() };
 }

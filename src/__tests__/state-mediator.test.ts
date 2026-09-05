@@ -1,5 +1,6 @@
 import { test, expect, describe, } from "bun:test";
 import { EventBus } from "../runtime/events";
+import { withStateProvenance } from "./helpers/state-provenance";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "../extensions/types";
 import {
@@ -36,7 +37,7 @@ const MANIFEST: MediatorManifest = {
 function setup(manifest: MediatorManifest | undefined = MANIFEST, noManifest = false) {
   const bus = new EventBus<AgentEvents>();
   const getManifest = (_id: string) => (noManifest ? undefined : manifest);
-  const mediator = new ExtensionStateMediator(bus, getManifest);
+  const mediator = withStateProvenance(new ExtensionStateMediator(bus, getManifest));
   const events: AgentEvents["ext:state"][] = [];
   bus.on("ext:state", (e) => events.push(e));
   return { bus, mediator, events };
@@ -82,7 +83,7 @@ describe("ExtensionStateMediator", () => {
       expect(evt).toHaveProperty("state");
       expect(evt).toHaveProperty("timestamp");
       expect(Object.keys(evt).sort()).toEqual(
-        ["extensionId", "extensionName", "state", "timestamp"].sort(),
+        ["extensionId", "extensionName", "state", "timestamp", "userId"].sort(),
       );
     });
   });

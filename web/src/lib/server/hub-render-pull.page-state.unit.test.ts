@@ -93,6 +93,7 @@ describe("renderExtensionPage arms the invalidation wiring", () => {
 
 	function makeDeps(): Partial<RenderPullDeps> {
 		return {
+			authorize: async () => "approved-release",
 			findPage: async () => ({
 				extension: EXT,
 				page: { id: "dashboard", title: "ez-code-factory", perProject: true },
@@ -123,6 +124,7 @@ describe("write-after-invalidate race (generation-stamped pulls)", () => {
 		let resolveFirst!: (v: { jsonrpc: "2.0"; id: number; result: HubPageTree }) => void;
 		const calls: string[] = [];
 		const deps: Partial<RenderPullDeps> = {
+			authorize: async () => "approved-release",
 			findPage: async () => ({
 				extension: EXT,
 				page: { id: "dashboard", title: "t", perProject: false },
@@ -148,7 +150,7 @@ describe("write-after-invalidate race (generation-stamped pulls)", () => {
 		cache.invalidate(EXT.id, "dashboard");
 		// The SSE-triggered re-pull must NOT join the doomed in-flight pull —
 		// its dedup key carries the NEW generation, so a second render runs.
-		const fresh = renderExtensionPage("ez-code-factory", "dashboard", "u2", deps);
+		const fresh = renderExtensionPage("ez-code-factory", "dashboard", "u1", deps);
 		resolveFirst({ jsonrpc: "2.0", id: 1, result: { title: "stale", nodes: [] } });
 		const [doomedResult, freshResult] = await Promise.all([doomed, fresh]);
 
@@ -156,6 +158,7 @@ describe("write-after-invalidate race (generation-stamped pulls)", () => {
 		expect(doomedResult.page?.title).toBe("stale"); // the caller still gets ITS result…
 		expect(freshResult.page?.title).toBe("fresh");
 		// …but the doomed render never poisoned the cache: the cached tree is fresh.
-		expect(cache.get(EXT.id, "dashboard", "")!.tree.title).toBe("fresh");
+		expect((await renderExtensionPage("ez-code-factory", "dashboard", "u1", deps)).page?.title).toBe("fresh");
+		expect(calls).toHaveLength(2);
 	});
 });
