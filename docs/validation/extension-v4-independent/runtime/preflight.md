@@ -99,7 +99,7 @@ The repair gives the handler an immutable invocation-scoped context whose one `c
 
 The final targeted SDK cohort passes 22 tests and 99 assertions with zero failures. Evidence: `/tmp/ez-runtime-sdk-served-green4.log`.
 
-The real rootless Podman worker regression builds and runs the extension artifact, starts host calls, confirms the invocation stays pending, releases the host replies, and confirms the worker returns the expected result. It passes 1 test and 6 assertions; 10 unrelated tests were filtered out. Evidence: `/tmp/ez-runtime-rootless-lifetime-green.log`.
+The real rootless Podman worker regression builds and runs the extension artifact, starts a host call, completes an independent discovery round trip on the same worker, confirms the first invocation is still unsettled, releases the host reply, and confirms the worker returns the expected result. Controlled removal of the shared admission wrapper makes this test fail with `Expected false, Received true`; restoring the wrapper passes 1 test and 7 assertions. Ten unrelated tests were filtered out. Evidence: `/tmp/ez-runtime-rootless-lifetime-fault-red.log` and `/tmp/ez-runtime-rootless-lifetime-fault-restored-green.log`.
 
 The full SDK default suite passes 1,028 tests and 2,341 assertions, with one documented rootless MCP opt-in skip. Evidence: `/tmp/ez-runtime-sdk-default.log`. The separate opted-in MCP run passes 7 tests and 32 assertions with no skips. Evidence: `/tmp/ez-runtime-sdk-mcp-optin.log`.
 

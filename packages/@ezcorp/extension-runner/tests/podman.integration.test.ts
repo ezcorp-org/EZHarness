@@ -65,9 +65,11 @@ test("real isolated worker drains admitted host calls before invocation teardown
     return null;
   });
   try {
-    const invocation = worker.request("extension/invoke", { name: "echo", input: {}, context });
+    let settled = false;
+    const invocation = worker.request("extension/invoke", { name: "echo", input: {}, context }).finally(() => { settled = true; });
     await hostStarted.promise;
-    expect(await Promise.race([invocation.then(() => "settled", () => "settled"), new Promise<string>(resolve => setImmediate(() => resolve("pending")))])).toBe("pending");
+    expect(await worker.request("extension/discover", {})).toMatchObject({ name: "runner-test" });
+    expect(settled).toBe(false);
     hostFinished.resolve();
     expect(await invocation).toEqual({ complete: true });
   } finally {
