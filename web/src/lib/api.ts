@@ -584,10 +584,13 @@ export type McpServerSpec =
 	| { transport: "http"; name: string; url: string; headers?: Record<string, string> }
 	| { transport: "sse"; name: string; url: string; headers?: Record<string, string> };
 
-/** Edit-after-install: re-point an existing MCP extension at a new server
- *  config. The server re-connects + re-lists tools before persisting; a 502
- *  (connection failure) leaves the stored config untouched. Returns the
- *  updated extension record. */
+export function extensionReviewLocation(value: unknown): string {
+  if (!value || typeof value !== "object" || !("openUrl" in value) || typeof value.openUrl !== "string") throw new Error("The server did not return an extension review workspace.");
+  const location = new URL(value.openUrl, "https://extension-review.invalid");
+  if (location.origin !== "https://extension-review.invalid" || location.pathname !== "/extensions/author" || !location.searchParams.get("installation")) throw new Error("The server returned an invalid extension review location.");
+  return location.pathname + location.search;
+}
+
 export async function updateMcpServer(
 	id: string,
 	body: { description?: string; server: McpServerSpec },

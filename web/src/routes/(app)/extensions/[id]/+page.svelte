@@ -18,7 +18,7 @@
 	import UninstallDialog from "$lib/components/extensions/UninstallDialog.svelte";
 	import { goto } from "$app/navigation";
 	import { addToast } from "$lib/toast.svelte.js";
-	import { updateMcpServer, type McpServerSpec } from "$lib/api";
+	import { updateMcpServer, extensionReviewLocation, type McpServerSpec } from "$lib/api";
 
 	// Phase 56: per-capability TTL UI. The picker default seed comes
 	// from the batch-loaded expired-grants response: each row carries
@@ -920,20 +920,13 @@
 				server = { transport: mcpTransport, name: mcpName.trim(), url: mcpUrl.trim(), headers: parseHeaders(mcpHeaders) };
 			}
 
-			const before = new Set((ext.manifest.tools ?? []).map((t) => t.name));
-			const updated = (await updateMcpServer(ext.id, {
-				description: mcpDescription.trim(),
-				server,
-			})) as { manifest?: { tools?: Array<{ name: string }> } };
-			const afterTools = updated?.manifest?.tools ?? [];
-			const after = new Set(afterTools.map((t) => t.name));
-			mcpToolDelta = {
-				added: [...after].filter((n) => !before.has(n)),
-				removed: [...before].filter((n) => !after.has(n)),
-			};
-			mcpEditOpen = false;
-			showTemporarySuccess("Connection updated");
-			await loadExtension();
+			const staged = await updateMcpServer(ext.id, {
+        description: mcpDescription.trim(),
+        server,
+      });
+      mcpEditOpen = false;
+      showTemporarySuccess("Build pending; human approval is required.");
+      await goto(extensionReviewLocation(staged));
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : "Failed to update connection";
 		} finally {

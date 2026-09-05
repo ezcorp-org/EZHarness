@@ -38,7 +38,7 @@ vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 // The page imports `updateMcpServer` + the `McpServerSpec` type from
 // $lib/api. The type is erased by the compiler; only the function needs a
 // runtime stub. We never click "Test & Save" here, so it's never invoked.
-vi.mock("$lib/api", () => ({ updateMcpServer: vi.fn() }));
+vi.mock("$lib/api", async (importOriginal) => ({ ...await importOriginal<typeof import("$lib/api")>(), updateMcpServer: vi.fn() }));
 
 import ExtensionDetailPage from "../routes/(app)/extensions/[id]/+page.svelte";
 

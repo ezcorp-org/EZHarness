@@ -34,3 +34,9 @@ Every leaf runs in its own worktree. No edits to primary checkout. Do not revert
 ## Status
 
 - Worktree created from fetched origin/main; original dirty checkout preserved.
+- Real rootless-runner editor and external-client flows pass. A third real chat-loop test creates source and submits an isolated build. These results do not replace the final full-suite gate.
+- Full backend rerun: 23,404 passed and 526 failed across 1,486 files. Remaining failures include legacy install/registry expectations and integration gaps. Log: `/tmp/ez-extension-v4-backend2.log`.
+- Full web Vitest run: 522 files passed and 4 failed. The three legacy API files now pass after migration; webhook publication exposed missing production reconciliation and is being fixed.
+- All 50 first-party candidates were built through the lifecycle: 32 passed, 18 failed, none untested. Dependency archive, strict type checking, and source fixes are under retest. Log: `/tmp/extension-candidate-current-all.jsonl`.
+- Container build passed. First production boot exposed a missing bundled pgvector asset; externalizing its package fixes the asset path. The rebuilt image is under boot validation.
+- Security review found legacy grant-write routes, stale Bun environment caching, missing transactional lifecycle audit, and caller overrides that could outlive a grant. Each has an explicit owner and regression test work. No push or PR until the final gates pass.

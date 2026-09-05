@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
+  import { goto } from "$app/navigation";
+  import { extensionReviewLocation } from "$lib/api";
 	import { addToast } from "$lib/toast.svelte.js";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
@@ -153,7 +155,7 @@
 	// POST returns the created extension; we surface "Connected · N tools
 	// found" inline (reading manifest.tools.length) instead of silently
 	// appending the card.
-	let mcpInstallResult = $state<{ name: string; toolCount: number } | null>(null);
+	let mcpInstallResult = $state<{ name: string; openUrl: string } | null>(null);
 
 	// Permission review dialog — open when the admin enables an extension
 	let reviewExt = $state<ExtensionRecord | null>(null);
@@ -364,22 +366,16 @@
 			if (!res.ok) {
 				throw new Error(await extractError(res, "MCP install failed"));
 			}
-			// The endpoint returns the freshly-installed extension (connect +
-			// tools/list already ran server-side). Surface the connected tool
-			// count so the user gets explicit confirmation of what was found.
-			const installed = await res.json().catch(() => null);
-			const toolCount = Array.isArray(installed?.manifest?.tools)
-				? installed.manifest.tools.length
-				: 0;
-			mcpInstallResult = { name: mcpName.trim(), toolCount };
+			const openUrl = extensionReviewLocation(await res.json());
+      mcpInstallResult = { name: mcpName.trim(), openUrl };
 			mcpName = "";
 			mcpDescription = "";
 			mcpCommand = "";
 			mcpArgs = "";
 			mcpUrl = "";
 			mcpHeaders = "";
-			addToast({ type: "success", message: "MCP server connected" });
-			await loadExtensions();
+			addToast({ type: "info", message: "Build pending; human approval is required." });
+      await goto(openUrl);
 		} catch (e) {
 			addToast({ type: "error", message: e instanceof Error ? e.message : "MCP install failed" });
 		} finally {
@@ -394,8 +390,9 @@
 				const data = await res.json();
 				throw new Error(data.error || "Refresh failed");
 			}
-			addToast({ type: "success", message: "MCP tools refreshed" });
-			await loadExtensions();
+			const openUrl = extensionReviewLocation(await res.json());
+      addToast({ type: "info", message: "Refresh staged. The active release is unchanged." });
+      await goto(openUrl);
 		} catch (e) {
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Refresh failed" });
 		}
@@ -885,10 +882,9 @@
 						data-testid="mcp-install-confirmation"
 					>
 						<span>
-							<span class="font-medium">Connected</span> ·
-							<span data-testid="mcp-install-tool-count">{mcpInstallResult.toolCount}</span>
-							tool{mcpInstallResult.toolCount === 1 ? "" : "s"} found
-							in <span class="font-medium">{mcpInstallResult.name}</span>
+							<span class="font-medium">Build pending</span> ·
+              {mcpInstallResult.name} needs human approval.
+              <a class="underline" href={mcpInstallResult.openUrl}>Review the tested release</a>
 						</span>
 						<button
 							onclick={() => (mcpInstallResult = null)}

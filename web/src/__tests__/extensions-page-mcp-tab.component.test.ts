@@ -21,6 +21,8 @@ import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
+vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
+import { goto } from "$app/navigation";
 
 import ExtensionsPage from "../routes/(app)/extensions/+page.svelte";
 
@@ -125,7 +127,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 		await waitFor(() => expect(queryByText("local-ext")).toBeNull());
 	});
 
-	test("successful MCP install renders 'Connected · N tools found' from manifest.tools.length", async () => {
+	test("MCP source staging opens the review workspace without claiming activation", async () => {
 		const installed = makeExt({
 			id: "db-mcp",
 			name: "db-mcp",
@@ -144,7 +146,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 		restoreFetch = installFetch({
 			list: [],
 			afterInstall: [installed],
-			installed,
+			installed: { openUrl: "/extensions/author?installation=db-mcp&workspace=draft" },
 		});
 		const { getByText, getByPlaceholderText, findByTestId } = render(ExtensionsPage, {
 			props: { data: { bundledExtensions: [], installedExtensions: [] } },
@@ -160,7 +162,10 @@ describe("Extensions page — MCP tab + guided install", () => {
 		// Confirmation banner reads the returned manifest's tool count (3).
 		const banner = await findByTestId("mcp-install-confirmation");
 		expect(banner).toBeInTheDocument();
-		expect(await findByTestId("mcp-install-tool-count")).toHaveTextContent("3");
+		expect(banner).toHaveTextContent("Build pending");
+		expect(banner).toHaveTextContent("needs human approval");
+		expect(banner).not.toHaveTextContent("Connected");
+		expect(goto).toHaveBeenCalledWith("/extensions/author?installation=db-mcp&workspace=draft");
 		expect(banner).toHaveTextContent("db-mcp");
 	});
 });

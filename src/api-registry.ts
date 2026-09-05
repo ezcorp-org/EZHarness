@@ -254,7 +254,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/marketplace/:id", description: "Get marketplace listing details", category: "marketplace" },
   { method: "DELETE", path: "/api/marketplace/:id", description: "Soft-remove a listing (status → \"removed\"), audited as marketplace:remove — distinct from the legacy DELETE /api/marketplace/:id/delete path (requires an admin-role key)", category: "marketplace", scope: "admin", responseDescription: "{ ok: true }" },
   { method: "DELETE", path: "/api/marketplace/:id/delete", description: "Remove marketplace listing", category: "marketplace" },
-  { method: "POST", path: "/api/marketplace/:id/install", description: "Install agent from marketplace", category: "marketplace" },
+  { method: "POST", path: "/api/marketplace/:id/install", description: "Stage marketplace source for isolated build and human review", category: "marketplace", scope: "session" },
   { method: "POST", path: "/api/marketplace/:id/rate", description: "Rate a marketplace listing", category: "marketplace" },
   { method: "POST", path: "/api/marketplace/:id/flag", description: "Flag listing for moderation", category: "marketplace" },
   { method: "GET", path: "/api/marketplace/:id/flags", description: "Get flags for a listing (admin)", category: "marketplace" },

@@ -33,7 +33,7 @@ export default defineConfig({
 		},
 	},
 	ssr: {
-		external: ['@electric-sql/pglite', '@huggingface/transformers', 'onnxruntime-node']
+		external: ['@electric-sql/pglite', '@electric-sql/pglite-pgvector', '@huggingface/transformers', 'onnxruntime-node']
 	},
 	resolve: {
 		alias: [
