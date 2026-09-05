@@ -113,6 +113,14 @@ export async function runStorageMigration(runner: Runner, input: StorageMigratio
   } finally { await worker.close(); }
 }
 
+export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecycleRepository, migrations: ExtensionDataMigrations, id: string, database?: import("../db/migrations/types").MigrationDb) {
+  if (database) await database.execute(sql`LOCK TABLE extension_storage IN ROW EXCLUSIVE MODE`);
+  const state = await repository.read(id, database);
+  if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id, database)) return null;
+  const release = state.releases[state.installation.activeReleaseId];
+  return release ? { release, installation: state.installation, limits: executionLimits } : null;
+}
+
 interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
 let services: Promise<LifecycleServices> | undefined;
 
@@ -132,12 +140,7 @@ async function initialize(): Promise<LifecycleServices> {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
       await enqueueExtensionNotification(extensionId, method, params ?? {});
     },
-    resolve: async (id, database) => {
-      const state = await repository.read(id, database);
-      if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id, database)) return null;
-      const release = state.releases[state.installation.activeReleaseId];
-      return release ? { release, installation: state.installation, limits: executionLimits } : null;
-    },
+    resolve: (id, database) => resolveExtensionReleaseSnapshot(repository, migrations, id, database),
   });
   const { getProjectRoot } = await import("./project-root");
   const blobs = new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases"));

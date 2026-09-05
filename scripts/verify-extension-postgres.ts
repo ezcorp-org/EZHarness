@@ -12,6 +12,8 @@ import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EV
 import { publishDomainEvent } from "../src/extensions/domain-event-outbox";
 import type { MigrationDb } from "../src/db/migrations/types";
 import { DatabaseLifecycleRepository } from "../src/db/queries/extension-releases";
+import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership } from "../src/db/queries/workflow-authority";
+import { resolveExtensionReleaseSnapshot } from "../src/extensions/extension-lifecycle-service";
 import { ExtensionDeliveryQueue } from "../src/extensions/v4/deliveries";
 import { ExtensionDataMigrations } from "../src/extensions/v4/data-migrations";
 import type { OperationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
@@ -95,8 +97,58 @@ try {
   const stored = await client.unsafe("SELECT value FROM extension_storage WHERE extension_id=$1", [installation.id]);
   assert.deepEqual(stored[0].value, { migrated: { quote: "a\"b", nested: [1, true, null] } });
   const queue = new ExtensionDeliveryQueue(driver);
-  await client.unsafe("CREATE TABLE users(id TEXT PRIMARY KEY,status TEXT); CREATE TABLE conversations(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,title TEXT); CREATE TABLE extensions(id TEXT PRIMARY KEY,name TEXT,enabled BOOLEAN,granted_permissions JSONB); CREATE TABLE conversation_extensions(conversation_id TEXT,extension_id TEXT,effective_granted_permissions JSONB)");
-  await client.unsafe("INSERT INTO users VALUES ('owner','active'); INSERT INTO conversations VALUES ('conversation','owner',NULL,'original')");
+  await client.unsafe("CREATE TABLE users(id TEXT PRIMARY KEY,status TEXT,role TEXT DEFAULT 'member'); CREATE TABLE project_members(user_id TEXT,project_id TEXT); CREATE TABLE conversations(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,title TEXT); CREATE TABLE extensions(id TEXT PRIMARY KEY,name TEXT,enabled BOOLEAN,granted_permissions JSONB); CREATE TABLE conversation_extensions(conversation_id TEXT,extension_id TEXT,effective_granted_permissions JSONB)");
+  await client.unsafe("INSERT INTO users(id,status) VALUES ('owner','active'); INSERT INTO conversations VALUES ('conversation','owner',NULL,'original'); INSERT INTO project_members VALUES ('owner','project'); CREATE TABLE authority_effect_proof(label TEXT PRIMARY KEY)");
+  const authorityPeer = new SQL(url, { max: 1 });
+  try {
+    await authorityPeer.unsafe(`SET search_path TO ${schema}`);
+    const peerId = (await authorityPeer.unsafe("SELECT pg_backend_pid() AS id"))[0].id;
+    const ownerConnectionId = (await client.unsafe("SELECT pg_backend_pid() AS id"))[0].id;
+    const proveFence = async (label: string, read: (transaction: MigrationDb) => Promise<void>, revoke: () => Promise<unknown>, write?: (transaction: MigrationDb) => Promise<void>) => {
+      let revoked: Promise<{ ok: boolean; error?: unknown }> | undefined;
+      await driver.transaction(async transaction => {
+        await read(transaction);
+        revoked = revoke().then(() => ({ ok: true }), error => ({ ok: false, error }));
+        const deadline = Date.now() + 5000;
+        while (true) {
+          const blockers = await transaction.execute(sql`SELECT pg_blocking_pids(${peerId}::int) AS blockers`);
+          if ((blockers[0].blockers as number[]).includes(ownerConnectionId)) break;
+          assert.ok(Date.now() < deadline, `${label} revocation did not wait for the admitted effect transaction`);
+          await Bun.sleep(10);
+        }
+        await write?.(transaction);
+        await transaction.execute(sql`INSERT INTO authority_effect_proof VALUES (${label})`);
+      });
+      assert.deepEqual(await revoked, { ok: true });
+    };
+    const active = (await repository.read(installation.id))!.installation;
+    await proveFence("release", async transaction => {
+      assert.equal((await repository.read(installation.id, transaction))?.installation.enabled, true);
+    }, () => authorityPeer.unsafe("UPDATE extension_release_installations SET payload=$1 WHERE id=$2", [JSON.stringify({ ...active, enabled: false, generation: active.generation + 1 }), installation.id]));
+    assert.equal((await repository.read(installation.id))?.installation.enabled, false);
+    await repository.transact(installation.id, state => { state.installation = active; });
+    await proveFence("publication", async transaction => {
+      assert.equal((await resolveExtensionReleaseSnapshot(repository, migrations, installation.id, transaction))?.installation.enabled, true);
+    }, () => drizzle(authorityPeer).transaction(async transaction => {
+      await transaction.execute(sql`LOCK TABLE extension_storage IN SHARE ROW EXCLUSIVE MODE`);
+      await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
+      await transaction.execute(sql`UPDATE extension_release_installations SET payload = ${JSON.stringify({ ...active, enabled: false, generation: active.generation + 1 })} WHERE id = ${installation.id}`);
+    }), async transaction => {
+      await transaction.execute(sql`INSERT INTO extension_storage (id, extension_id, scope, key, value, size_bytes) VALUES ('guarded-publication-effect', ${installation.id}, 'global', 'publication', '{}'::jsonb, 2)`);
+    });
+    assert.equal(await driver.transaction(transaction => resolveExtensionReleaseSnapshot(repository, migrations, installation.id, transaction)), null);
+    await repository.transact(installation.id, state => { state.installation = active; });
+    await proveFence("owner", async transaction => {
+      assert.equal((await readWorkflowAuthorityUser("owner", transaction))?.status, "active");
+    }, () => authorityPeer.unsafe("UPDATE users SET status='inactive' WHERE id='owner'"));
+    assert.equal((await readWorkflowAuthorityUser("owner", driver))?.status, "inactive");
+    await client.unsafe("UPDATE users SET status='active' WHERE id='owner'");
+    await proveFence("membership", async transaction => {
+      assert.equal(await readWorkflowAuthorityMembership("owner", "project", transaction), true);
+    }, () => authorityPeer.unsafe("DELETE FROM project_members WHERE user_id='owner' AND project_id='project'"));
+    assert.equal(await readWorkflowAuthorityMembership("owner", "project", driver), false);
+    assert.equal((await client.unsafe("SELECT COUNT(*)::int AS total FROM authority_effect_proof"))[0].total, 4);
+  } finally { await authorityPeer.close(); }
   await client.unsafe("INSERT INTO conversation_extensions VALUES ('conversation',$1,NULL)", [installation.id]);
   await client.unsafe("INSERT INTO extensions VALUES ($1,'fixture',true,($2::text)::jsonb)", [installation.id, JSON.stringify({ eventSubscriptions: ["tool:complete"] })]);
   await repository.transact(installation.id, state => { state.installation.grants = [JSON.stringify(["eventSubscriptions", ["tool:complete"]])]; });
@@ -143,7 +195,7 @@ try {
   assert.equal(claimed?.id, delivery.id);
   await repository.transact(installation.id, (state) => { state.installation.enabled = false; state.installation.generation += 1; });
   assert.equal((await queue.inspect(installation.id, delivery.id))?.state, "cancelled");
-  console.log("PostgreSQL lifecycle validation passed: JSON fidelity, competing writes, rollback, storage migration gate, delivery fencing, atomic event receipts, replay, scoped identity, retention, recovery, and cross-host browser cancellation with SQL effect fencing.");
+  console.log("PostgreSQL lifecycle validation passed: JSON fidelity, competing writes, rollback, storage migration gate, delivery fencing, atomic event receipts, replay, scoped identity, retention, recovery, cross-host browser cancellation, and release/owner/membership revocation ordered after admitted SQL effects.");
 } finally {
   await client.unsafe("SET search_path TO public");
   await client.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
