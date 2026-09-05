@@ -16,7 +16,7 @@ function provider(input: string | URL | Request): Promise<Response> {
 }
 
 for (const probe of [
-  { name: "weather", hosts: ["geocoding-api.open-meteo.com", "api.open-meteo.com"], tool: "get_weather", input: { location: "Austin", unit: "celsius" }, valid: (value: any) => value.location?.name === "Austin" && value.current?.temperature === 34.2 },
+  { name: "weather", hosts: undefined, tool: "get_weather", input: { location: "Austin", unit: "celsius" }, valid: (value: any) => value.location?.name === "Austin" && value.current?.temperature === 34.2 },
   { name: "city-conditions", hosts: ["geocoding-api.open-meteo.com", "api.open-meteo.com", "air-quality-api.open-meteo.com", "www.atlantaallergy.com"], tool: "city_conditions", input: { city: "Austin", unit: "celsius" }, valid: (value: any) => value.ok === true && value.weather?.tempC === 34.2 },
 ]) test(`${probe.name} uses current sandbox fetch authority and recovers after denial`, async () => {
   await setupTestDb();
