@@ -2,7 +2,7 @@ import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { createMessage } from "../db/queries/conversations";
-import { messages, toolCalls } from "../db/schema";
+import { messages, toolCalls, messageAttachments } from "../db/schema";
 import { domainEventSourceFixture, fillDomainEventQueue } from "../__tests__/helpers/domain-event-source";
 import { handleAppendMessageRpc } from "./append-message-handler";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
@@ -19,9 +19,10 @@ afterAll(closeTestDb);
 async function fixture() {
   const { database, owner, conversation, installationId, grantedPermissions } = await domainEventSourceFixture(["run:turn_saved", "conversation:tree-changed"]);
   const parent = await createMessage(conversation!.id, { role: "user", content: "Parent" });
+  const [attachment] = await database.insert(messageAttachments).values({ conversationId: conversation.id, messageId: parent.id, filename: "result.txt", mimeType: "text/plain", sizeBytes: 6, storagePath: "/fixture/result.txt", kind: "text" }).returning();
   const context = { conversationId: conversation!.id, userId: owner!.id, grantedPermissions };
-  const append = (bus?: EventBus<AgentEvents>) => handleAppendMessageRpc(installationId, { jsonrpc: "2.0", id: "append", method: "ezcorp/append-message", params: { parentMessageId: parent.id, role: "extension", content: "Saved extension result", toolCalls: [{ name: "probe", input: {}, output: { text: "result" }, status: "complete" }] } }, { ...context, bus });
-  return { database, installationId, conversation: conversation!, parent, append, queue: new ExtensionDeliveryQueue(database) };
+  const append = (bus?: EventBus<AgentEvents>) => handleAppendMessageRpc(installationId, { jsonrpc: "2.0", id: "append", method: "ezcorp/append-message", params: { parentMessageId: parent.id, role: "extension", content: "Saved extension result", attachmentIds: [attachment!.id], toolCalls: [{ name: "probe", input: {}, output: { text: "result" }, status: "complete" }] } }, { ...context, bus });
+  return { database, installationId, conversation: conversation!, parent, attachment: attachment!, append, queue: new ExtensionDeliveryQueue(database) };
 }
 
 test("an extension append queues its saved-turn delivery without an in-memory bus", async () => {
@@ -30,6 +31,7 @@ test("an extension append queues its saved-turn delivery without an in-memory bu
   expect(response).toHaveProperty("result.messageId");
   const messageId = (response.result as { messageId: string }).messageId;
   expect((await context.database.select().from(messages).where(eq(messages.id, messageId)))[0]).toMatchObject({ role: "extension", excluded: true, parentMessageId: context.parent.id });
+  expect((await context.database.select().from(messageAttachments).where(eq(messageAttachments.id, context.attachment.id)))[0]?.messageId).toBe(messageId);
   const recovered = new ExtensionDeliveryQueue(context.database);
   const delivered = await recovered.dispatch(async delivery => {
     expect(delivery.input).toMatchObject({ method: "ezcorp/event/run:turn_saved", params: { messageId, content: "Saved extension result", final: true } });
@@ -44,6 +46,7 @@ test("full durable delivery queue rolls back the message and anchored tool rows"
   await expect(context.append()).rejects.toMatchObject({ code: "event_queue_full" });
   expect((await context.database.select().from(messages).where(eq(messages.conversationId, context.conversation.id))).map(row => row.id)).toEqual([context.parent.id]);
   expect(await context.database.select().from(toolCalls).where(eq(toolCalls.conversationId, context.conversation.id))).toEqual([]);
+  expect((await context.database.select().from(messageAttachments).where(eq(messageAttachments.id, context.attachment.id)))[0]?.messageId).toBe(context.parent.id);
 });
 
 test("postcommit bus failure cannot remove the stored turn or its delivery", async () => {

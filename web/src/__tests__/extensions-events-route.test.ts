@@ -161,7 +161,6 @@ mock.module("$server/extensions/registry", () => ({
 const mockEnsureWired = mock(async (..._args: unknown[]) => {});
 mock.module("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
-    constructor() {}
     async ensureSubprocessRpcWired(...args: unknown[]) {
       return mockEnsureWired(...args);
     }

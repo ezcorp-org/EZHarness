@@ -66,8 +66,6 @@ export interface ToolCallRow {
  * analytics dimensions — both the built-in and extension-tool paths call
  * through here so the schema contract lives in one place.
  *
- * Never throws: the caller has already started returning data to the
- * LLM / user, and a DB glitch must not block that path.
  */
 /**
  * Bulk-load `(messageId, output)` pairs for a set of message IDs.
