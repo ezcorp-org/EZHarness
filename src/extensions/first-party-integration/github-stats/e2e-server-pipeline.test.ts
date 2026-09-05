@@ -20,6 +20,7 @@ async function denied(name: string, input: Record<string, unknown>) {
 for (const name of ["repo-stats", "user-profile", "repo-languages"]) {
   test(`${name} reaches the production network permission denial`, async () => {
     await denied(name, name === "user-profile" ? { username: "octocat" } : { owner: "octocat", repo: "hello-world" });
+    expect(session.starts()).toBe(1);
   }, 30_000);
 }
 
