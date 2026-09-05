@@ -27,7 +27,12 @@ const GIT_POLICY = ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=fals
 const FORBIDDEN_CONFIG = /^(?:include(?:if)?\.|filter\.|http\.|protocol\.|gpg\.|extensions\.worktreeconfig|core\.(?:sshcommand|gitproxy|alternaterefscommand)|diff\..*\.(?:command|textconv)|remote\..*\.(?:uploadpack|receivepack|proxy)|url\.)/i;
 const MAX_OUTPUT = 16 * 1024 * 1024;
 
-function createRunner(githubToken?: string): ProjectCommandRunner {
+export async function checkProjectGitConfiguration(run: ProjectCommandRunner, projectRoot: string): Promise<void> {
+  const result = await run(["git", "config", "--local", "--no-includes", "--name-only", "--list"], projectRoot);
+  if (result.exitCode !== 0 || result.stdout.split("\n").some(key => FORBIDDEN_CONFIG.test(key))) throw new Error("Repository command hooks, filters, or indirect configuration require removal before project operations");
+}
+
+export function createProjectCommandRunner(githubToken?: string, limits = { timeoutMs: 120_000, outputBytes: MAX_OUTPUT }): ProjectCommandRunner {
   return async (argv, cwd, input) => {
     const environment: Record<string, string> = {
       PATH: process.env.PATH ?? "",
@@ -49,7 +54,7 @@ function createRunner(githubToken?: string): ProjectCommandRunner {
     }
     const command = argv[0] === "git" ? ["git", ...GIT_POLICY, ...argv.slice(1)] : argv;
     const child = Bun.spawn(command, { cwd, env: environment, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 120_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), limits.timeoutMs);
     async function bounded(stream: ReadableStream<Uint8Array>): Promise<string> {
       const chunks: Uint8Array[] = [];
       let bytes = 0;
@@ -59,7 +64,7 @@ function createRunner(githubToken?: string): ProjectCommandRunner {
           const { done, value } = await reader.read();
           if (done) break;
           bytes += value.byteLength;
-          if (bytes > MAX_OUTPUT) { child.kill("SIGKILL"); throw new Error("Project command output limit exceeded"); }
+          if (bytes > limits.outputBytes) { child.kill("SIGKILL"); throw new Error("Project command output limit exceeded"); }
           chunks.push(value);
         }
       } finally { reader.releaseLock(); }
@@ -77,7 +82,7 @@ function createRunner(githubToken?: string): ProjectCommandRunner {
 export async function openProjectPullRequest(input: ProjectPullRequestInput, options: ProjectPullRequestOptions = {}): Promise<{ ok: boolean; url?: string; error?: string }> {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(input.runId) || input.runId.includes("..") || !input.title.trim() || input.title.length > 500 || input.body.length > 100_000) return { ok: false, error: "Invalid pull request input" };
   const projectRoot = await realpath(input.projectRoot);
-  const run = options.run ?? createRunner(options.githubToken);
+  const run = options.run ?? createProjectCommandRunner(options.githubToken);
   async function checked(argv: string[], cwd = projectRoot, stdin?: string): Promise<string> {
     const result = await run(argv, cwd, stdin);
     if (result.exitCode !== 0) throw new Error(`${argv[0]} ${argv[1]} failed (exit ${result.exitCode})`);
@@ -86,8 +91,7 @@ export async function openProjectPullRequest(input: ProjectPullRequestInput, opt
   let temporaryRoot: string | undefined;
   let worktree: string | undefined;
   try {
-    const config = await checked(["git", "config", "--local", "--no-includes", "--name-only", "--list"]);
-    if (config.split("\n").some((key) => FORBIDDEN_CONFIG.test(key))) throw new Error("Repository command hooks, filters, or indirect configuration require removal before opening a pull request");
+    await checkProjectGitConfiguration(run, projectRoot);
     const remote = (await checked(["git", "remote", "get-url", "origin"])).trim();
     const remoteMatch = /^(?:https:\/\/github\.com\/|git@github\.com:)([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+?)(?:\.git)?$/.exec(remote);
     if (!remoteMatch) throw new Error("Pull requests require an exact github.com origin");
