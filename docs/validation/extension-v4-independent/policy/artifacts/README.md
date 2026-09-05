@@ -6,7 +6,7 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 
 ## Receipt identity
 
-- Final frozen candidate: `9ccce310facd28f0ad2898318fe081ef9f70e433`; tree `f4b0174bac5b121464d381da24b21022ac0f4c36`.
+- Final source freeze: `ac53921ce07db8569eb8895456eda8271d6aab3f`; tree `ead56e1b614b215f7790eab41195f7c6a6d901d1`.
 - Merged policy audit head used for portable reruns: `e24dc218a831bf1e3c2d0a9e86bd644110282ea7`.
 - Tree: `d9bd9d7b3170deedd4eec04446010abb5bc2447b`.
 - Current base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`.
@@ -24,6 +24,10 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 - Gate integrity stdout/stderr at the merged audit head: exit 1 with exactly 84 findings and no approval override.
 - Final freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
 - Final freeze visual-evidence runner test stdout/stderr: 7 passed, 0 failed, 23 assertions.
+- Second-freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
+- Second-freeze controlled faults for the effective event-grant filter and todo root-denial propagation, plus the restored combined green run.
+
+The second-freeze fault receipts are also stored as standalone compressed files beside this README. They came from the independently verified runtime evidence commit `7e53802e`; the policy bundle copies the same bytes. The event fault uses manifest declarations instead of effective grants and fails the denied drain. The todo fault removes root-denial propagation and fails because the tool reports success. The restored cohort passes 30 tests with 116 assertions. `freeze2-todo-root-denial-fault.diff` reconstructs the exact one-line todo mutation without changing the frozen source.
 
 Each raw run records the head, tree, command or mutation, and actual exit. Restored logs record a zero `git diff --exit-code` before their passing test. The temporary source was removed after execution. A final source check confirmed no diff in `lifecycle.ts`, `blobs.ts`, `invocation-channel.ts`, or `test-coverage.sh`.
 

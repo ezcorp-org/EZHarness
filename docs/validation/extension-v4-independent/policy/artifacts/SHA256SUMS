@@ -1,6 +1,11 @@
-5117716e385f8758e9290f1daddb20fce0cdc2ed3906d4c6126812bc07725b2b  docs/validation/extension-v4-independent/policy/artifacts/policy-raw-receipts.tar.gz
+23e3f9d4f6a7f3619f4368fb4b1ccb2577a86131eafb5ddaf674b4dc8c66ab7b  docs/validation/extension-v4-independent/policy/artifacts/policy-raw-receipts.tar.gz
 ed519139dc9516294f23ff1c453c49d760a5bf596d76e402b44c96d1ec86ef0d  docs/validation/extension-v4-independent/policy/artifacts/raw-blob-digest-mutation.diff
 dcc5ebfee8b698dfc3a017ea3758d060b728224e1189d680027ca412925b38fe  docs/validation/extension-v4-independent/policy/artifacts/raw-human-guard-mutation.diff
 0b2cbc4ae581530b4d25d47bc43e53dbd1a56e2a7879f1929f3f8d3de90f123c  docs/validation/extension-v4-independent/policy/artifacts/raw-sdk-admission-mutation.diff
 8f470b20cd4bf6d1492f7c6f6e5cc6826cfa3858c8d4a62646a2bc4c5c9b87a4  docs/validation/extension-v4-independent/policy/artifacts/raw-strict-sdk-gate-mutation.diff
 51874331c4535efddde7e2d6c7879e551e6607404b7dc899510366fc1cf3dfb1  docs/validation/extension-v4-independent/policy/artifacts/raw-temporary-falsy-concurrency-test.ts.txt
+8c5a0cb34f57cf77ed934f23c033ee145d020b56a5cb9341602d77122153eb4b  docs/validation/extension-v4-independent/policy/artifacts/freeze2-todo-root-denial-fault.diff
+d359368172935fa619988771ee5468475b8c0ef0007eda79e53dac9ec44200d0  docs/validation/extension-v4-independent/policy/artifacts/freeze2-event-grant-filter-deterministic-fault.log.gz
+77958f3508844075e635666fc37a14519293b6809ad513d1043d71f5ec3a8fbd  docs/validation/extension-v4-independent/policy/artifacts/freeze2-event-grant-filter-deterministic-fault.diff.gz
+6db53dc87825dcc24a1bb2e9c74cac7cc2c147ef1b81676d68aa9358e6c9d76b  docs/validation/extension-v4-independent/policy/artifacts/freeze2-todo-root-denial-fault.log.gz
+a30f0a197804a4dee8e5bf73f903a4add7329842263f330d8702eba7646b3073  docs/validation/extension-v4-independent/policy/artifacts/freeze2-todo-event-green.log.gz
