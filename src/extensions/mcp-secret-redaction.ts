@@ -102,7 +102,6 @@ import type {
  * between the redactor and the host derivation it must not break.
  */
 export const TOKEN_URL_RE = /[a-z][a-z0-9+.-]*:\/\/\S+/i;
-export function mcpReleaseSecretScope(workspaceId: string): string { return `mcp-workspace:${workspaceId}`; }
 
 /** `<scheme>://<userinfo>@` at the START of a URL string. `[^/?#@]*` stops at
  *  the authority, so a later `@` inside a path or query never matches. */

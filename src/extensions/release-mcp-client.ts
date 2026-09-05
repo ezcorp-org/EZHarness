@@ -5,10 +5,9 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { ContractError, canonicalJson, compileValueSchema, normalizeMcpCatalog, valueSchemaValidator } from "@ezcorp/extension-contract";
 import { McpClient } from "../mcp/client";
 import { guardedStreamingFetch } from "../search/egress";
-import { rehydrateMcpServerSecrets } from "../db/queries/extensions";
+import { rehydrateMcpWorkspaceCredentials } from "./mcp-workspace-credentials";
 import { resolveCallProvenance } from "./call-provenance";
 import { getPermissionEngine } from "./permission-engine";
-import { mcpReleaseSecretScope } from "./mcp-secret-redaction";
 import { getReleaseRuntime, releaseBinding, resolveActiveRelease } from "./release-process";
 import type { ReleaseRuntimeDependencies } from "./release-process";
 import type { ExtensionProcess } from "./subprocess";
@@ -16,13 +15,13 @@ import type { ToolCallResult, ToolDefinition } from "./types";
 
 export interface ReleaseMcpServices {
   client(): Client;
-  secrets: typeof rehydrateMcpServerSecrets;
+  secrets: typeof rehydrateMcpWorkspaceCredentials;
   fetch: typeof guardedStreamingFetch;
   permissionEngine: typeof getPermissionEngine;
 }
 const services: ReleaseMcpServices = {
   client: () => new Client({ name: "ezcorp-release", version: "4.0.0" }, { capabilities: {}, jsonSchemaValidator: valueSchemaValidator }),
-  secrets: rehydrateMcpServerSecrets,
+  secrets: rehydrateMcpWorkspaceCredentials,
   fetch: guardedStreamingFetch,
   permissionEngine: getPermissionEngine,
 };
@@ -68,7 +67,7 @@ export class ReleaseMcpClient extends McpClient {
       if (decision.decision !== "allow") throw new ContractError("CAPABILITY_DENIED", "MCP network access is not approved");
     };
     await authorize(new URL(server.url));
-    const hydrated = await this.remote.secrets(mcpReleaseSecretScope(snapshot.release.workspaceId), server);
+    const hydrated = await this.remote.secrets(this.extensionId, snapshot.release.workspaceId, server);
     if (hydrated.transport === "stdio") throw new ContractError("INVALID_MCP", "MCP transport changed");
     const fetcher = ((input: string | URL | Request, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(String(input), init);

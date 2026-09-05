@@ -6,10 +6,11 @@ import { validateManifest, valueSchemaValidator } from "@ezcorp/extension-contra
 import { guardedStreamingFetch } from "../search/egress";
 import { getUserById } from "../db/queries/users";
 import { insertAuditEntry } from "../db/queries/audit-log";
-import { getExtension, persistMcpSecret, rehydrateMcpServerSecrets } from "../db/queries/extensions";
+import { getExtension } from "../db/queries/extensions";
+import { persistMcpWorkspaceCredentials, rehydrateMcpWorkspaceCredentials } from "./mcp-workspace-credentials";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
 import { mcpManifestPermissions, mcpNetworkHosts, withMcpToolCapabilities } from "./mcp-capabilities";
-import { mcpReleaseSecretScope, mcpServerHasPlaintextSecret, mergeMcpServerSecrets, redactMcpServer } from "./mcp-secret-redaction";
+import { mcpServerHasPlaintextSecret, mergeMcpServerSecrets, redactMcpServer } from "./mcp-secret-redaction";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
 import type { McpServerDefinition } from "./types";
 
@@ -59,7 +60,7 @@ export async function stageMcpExtension(actor: LifecycleActor, input: { name: st
   };
   const lifecycle = await getExtensionLifecycle();
   const created = await lifecycle.createWorkspace(actor, { files, ...(input.installationId ? { installationId: input.installationId } : {}) });
-  await persistMcpSecret(mcpReleaseSecretScope(created.workspace.id), input.server);
+  await persistMcpWorkspaceCredentials(created.installation.id, created.workspace.id, input.server);
   const operation = await lifecycle.build(actor, { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, idempotencyKey: `mcp-stage:${created.workspace.sourceDigest}` });
   void lifecycle.runBuild(actor, created.installation.id, operation.id).catch(() => undefined);
   await insertAuditEntry(actor.principalId, "extension.mcp.release_staged", created.installation.id, { workspaceId: created.workspace.id, operationId: operation.id, transport: input.server.transport });
@@ -76,6 +77,8 @@ export async function restageMcpExtension(actor: LifecycleActor, id: string, upd
   const state = await (await getExtensionLifecycle()).inspect(actor, id);
   const release = state.installation.activeReleaseId ? state.releases[state.installation.activeReleaseId] : undefined;
   if (!release) throw new LifecycleError("release_required", "An active release is required before editing this connection");
-  const previous = await rehydrateMcpServerSecrets(mcpReleaseSecretScope(release.workspaceId), server);
-  return stageMcpExtension(actor, { name: existing.name, description: update?.description ?? manifest.description, server: update ? mergeMcpServerSecrets(update.server, previous) : previous, installationId: id });
+  const previous = await rehydrateMcpWorkspaceCredentials(id, release.workspaceId, server);
+  const sameOrigin = !update || (update.server.transport !== "stdio" && previous.transport !== "stdio" && new URL(update.server.url).origin === new URL(previous.url).origin);
+  const next = update ? sameOrigin ? mergeMcpServerSecrets(update.server, previous) : update.server : previous;
+  return stageMcpExtension(actor, { name: existing.name, description: update?.description ?? manifest.description, server: next, installationId: id });
 }

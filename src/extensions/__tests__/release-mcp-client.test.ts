@@ -22,7 +22,7 @@ function fixture() {
   let hop: string | undefined;
   const runtime: ReleaseRuntimeDependencies = { resolve: async () => structuredClone(snapshot), runner: async () => { throw new Error("No local worker for remote MCP"); } };
   const remote: Partial<ReleaseMcpServices> = {
-    secrets: async (_name, server) => server,
+    secrets: async (_installation, _workspace, server) => server,
     permissionEngine: () => createStubPermissionEngine(deny ? "deny-all" : "allow-all"),
     fetch: async (url, init, options) => {
       await options.authorizeUrl!(new URL(hop ?? url));

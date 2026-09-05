@@ -1,0 +1,34 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { sql } from "drizzle-orm";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { setupTestDb, closeTestDb, mockDbConnection } from "../../__tests__/helpers/test-pglite";
+import { getDb } from "../../db/connection";
+import { encryptWithAad } from "../../providers/encryption";
+import { persistMcpWorkspaceCredentials, rehydrateMcpWorkspaceCredentials, deleteMcpWorkspaceCredentials } from "../mcp-workspace-credentials";
+import { redactMcpServer } from "../mcp-secret-redaction";
+mockDbConnection();
+beforeAll(setupTestDb);
+afterAll(closeTestDb);
+
+test("workspace credentials are encrypted, immutable, scope-bound and removable", async () => {
+  const server = { name: "remote", transport: "http" as const, url: "https://example.com/mcp?token=secret-query", headers: { Authorization: "Bearer secret-header" } };
+  const redacted = redactMcpServer(server);
+  await persistMcpWorkspaceCredentials("installation", "workspace", server);
+  const rows = await getDb().execute(sql`SELECT * FROM extension_mcp_credentials`);
+  expect(rows.rows).toHaveLength(1);
+  expect(JSON.stringify(rows.rows)).not.toContain("secret-query");
+  expect(JSON.stringify(rows.rows)).not.toContain("secret-header");
+  expect(await rehydrateMcpWorkspaceCredentials("installation", "workspace", redacted)).toEqual(server);
+  await expect(rehydrateMcpWorkspaceCredentials("installation", "workspace", { ...server, url: "https://attacker.example/mcp" })).rejects.toThrow();
+  expect(await rehydrateMcpWorkspaceCredentials("other", "workspace", redacted)).toEqual(redacted);
+  await expect(persistMcpWorkspaceCredentials("installation", "workspace", server)).rejects.toThrow();
+  await getDb().execute(sql`UPDATE extension_mcp_credentials SET installation_id = 'other' WHERE workspace_id = 'workspace'`);
+  await expect(rehydrateMcpWorkspaceCredentials("other", "workspace", redacted)).rejects.toThrow();
+  await deleteMcpWorkspaceCredentials("other");
+  expect((await getDb().execute(sql`SELECT * FROM extension_mcp_credentials`)).rows).toHaveLength(0);
+  await persistMcpWorkspaceCredentials("installation", "empty", { name: "offline", transport: "stdio", command: "/packaged/server" });
+  expect((await getDb().execute(sql`SELECT * FROM extension_mcp_credentials`)).rows).toHaveLength(0);
+  const malformed = encryptWithAad("invalid", canonicalJson(["mcp-v4", "installation", "invalid", redacted]));
+  await getDb().execute(sql`INSERT INTO extension_mcp_credentials (installation_id,workspace_id,ciphertext) VALUES ('installation','invalid',${malformed})`);
+  await expect(rehydrateMcpWorkspaceCredentials("installation", "invalid", redacted)).rejects.toThrow("Invalid MCP workspace credentials");
+});

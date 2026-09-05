@@ -38,6 +38,7 @@ mock.module("../../search/egress", () => ({ guardedStreamingFetch: fetcher }));
 mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "admin", role, status: active ? "active" : "disabled" }) }));
 mock.module("../../db/queries/extensions", () => ({ getExtension: async () => currentExtension, persistMcpSecret: async (scope: string, server: unknown) => { storedScope = scope; storedServer = server; }, rehydrateMcpServerSecrets: async (scope: string, server: unknown) => { expect(scope).toBe("mcp-workspace:workspace-old"); return server; } }));
 mock.module("../../db/queries/audit-log", () => ({ insertAuditEntry: async () => {} }));
+mock.module("../mcp-workspace-credentials", () => ({ persistMcpWorkspaceCredentials: async (_installation: string, workspace: string, server: unknown) => { storedScope = workspace; storedServer = server; }, rehydrateMcpWorkspaceCredentials: async (_installation: string, workspace: string, server: unknown) => { expect(workspace).toBe("workspace-old"); return server; } }));
 mock.module("../extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => lifecycle }));
 const { probeRemoteMcp, stageMcpExtension, restageMcpExtension } = await import("../mcp-control");
 afterAll(restoreModuleMocks);
@@ -59,7 +60,7 @@ test("staging writes only redacted source and workspace-scoped auth before build
   const server = { transport: "http" as const, name: "remote", url: "https://example.com/mcp?token=secret-query", headers: { Authorization: "Bearer private-secret" } };
   const result = await stageMcpExtension(actor, { name: "remote", server });
   expect(result.operation.id).toBe("operation");
-  expect(storedScope).toBe("mcp-workspace:workspace-new");
+  expect(storedScope).toBe("workspace-new");
   expect(storedServer).toEqual(server);
   expect(JSON.stringify(recordedFiles)).not.toContain("private-secret");
   expect(JSON.stringify(recordedFiles)).not.toContain("secret-query");
@@ -93,5 +94,11 @@ test("restaging keeps the active connection unchanged and uses its scoped creden
   expect(currentExtension).toEqual(original);
   expect(lifecycle.createWorkspace.mock.calls[0]?.[1]).toMatchObject({ installationId: "installation" });
   await restageMcpExtension(actor, "installation", { server: { transport: "http", name: "remote", url: "https://example.com/changed" }, description: "Changed" });
-  expect(storedScope).toBe("mcp-workspace:workspace-new");
+  expect(storedScope).toBe("workspace-new");
+});
+
+test("a connection origin change never carries existing authentication into the probe", async () => {
+  currentExtension = { name: "remote", manifest: { schemaVersion: 4, kind: "mcp", description: "Remote", mcpServers: [{ transport: "http", name: "remote", url: "https://example.com/mcp", headers: { Authorization: "old-secret" } }] } };
+  await restageMcpExtension(actor, "installation", { server: { transport: "http", name: "remote", url: "https://different.example/mcp", headers: { Authorization: "" } } });
+  expect(storedServer).toMatchObject({ url: "https://different.example/mcp", headers: { Authorization: "" } });
 });
