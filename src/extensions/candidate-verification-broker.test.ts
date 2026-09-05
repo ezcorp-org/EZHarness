@@ -94,3 +94,64 @@ test("service evidence reports tested and unexercised capabilities and cannot hi
   await expect(verifyExtensionCandidate(runner, release)).rejects.toMatchObject({ code: "candidate_capability_blocked" });
   expect(closed).toBe(2);
 });
+
+test("fixture storage preserves scope separation, TTL expiry, list limits and deletion", async () => {
+  const context = invocation();
+  const broker = await createCandidateVerificationBroker(release, context);
+  broker.begin("smoke");
+  const call = (input: unknown) => broker.reverseRpc("ezcorp/storage", { context, input });
+  try {
+    for (const scope of ["global", "user", "conversation"]) await call({ action: "set", scope, key: "shared", value: scope });
+    for (const scope of ["global", "user", "conversation"]) expect(await call({ action: "get", scope, key: "shared" })).toMatchObject({ value: scope });
+    await call({ action: "set", scope: "user", key: "short-lived", value: true, ttlSeconds: 0.001 });
+    await Bun.sleep(5);
+    expect(await call({ action: "get", scope: "user", key: "short-lived" })).toMatchObject({ exists: false });
+    expect(await call({ action: "list", scope: "user", prefix: "sha", limit: 1 })).toMatchObject({ keys: [{ key: "shared" }] });
+    expect(await call({ action: "delete", scope: "user", key: "shared" })).toMatchObject({ deleted: true });
+    expect(await call({ action: "delete", scope: "user", key: "shared" })).toMatchObject({ deleted: false });
+    expect(await call({ action: "get", scope: "conversation", key: "shared" })).toMatchObject({ value: "conversation" });
+  } finally { await broker.close(); }
+});
+
+test("fixture construction rejects traversal and non-verification identities", async () => {
+  for (const patch of [{ releaseId: "different" }, { scopeId: "global" }, { principalId: "production-owner" }]) await expect(createCandidateVerificationBroker(release, { ...invocation(), ...patch })).rejects.toMatchObject({ code: "invalid_verification_context" });
+  await expect(createCandidateVerificationBroker(release, invocation(), { dataFiles: { "../outside": "must not write" } })).rejects.toThrow();
+  const context = invocation();
+  const broker = await createCandidateVerificationBroker(release, context);
+  expect(() => broker.begin("undeclared")).toThrow();
+  broker.begin("smoke");
+  try {
+    for (const raw of [null, [], { context, input: [] }, { context, input: null }]) await expect(broker.reverseRpc("ezcorp/storage", raw)).rejects.toMatchObject({ code: "test_context_mismatch" });
+    await expect(broker.reverseRpc("ezcorp/fs.read", { context, input: { path: "/etc/passwd" } })).rejects.toMatchObject({ code: "test_capability_denied" });
+    await broker.reverseRpc("ezcorp/fs.write", { context, input: { path: "/data/safe", content: "safe", _toolName: "undeclared", _meta: { ezCallId: "forged" } } });
+    expect(broker.coverage()).toContainEqual({ capability: "filesystem", state: "denied", calls: 2 });
+    const copy = broker.coverage();
+    copy.length = 0;
+    expect(broker.coverage().length).toBeGreaterThan(0);
+  } finally { await broker.close(); }
+  expect(() => broker.begin("smoke")).toThrow();
+  await broker.close();
+});
+
+test("chunked network fixtures are bound to their invocation and offsets", async () => {
+  const context = invocation();
+  const otherContext = invocation();
+  const body = "fixture".repeat(50_000);
+  const broker = await createCandidateVerificationBroker(release, context, { network: [{ url: "https://example.com/large", method: "POST", requestBody: "input", status: 200, body }] });
+  const other = await createCandidateVerificationBroker(release, otherContext);
+  broker.begin("smoke"); other.begin("smoke");
+  try {
+    const response = await broker.reverseRpc("ezcorp/network.fetch", { context, input: { url: "https://example.com/large", init: { method: "POST", body: Buffer.from("input").toString("base64") } } }) as { bodyId: string; bodyBytes: number };
+    expect(response.bodyBytes).toBe(body.length);
+    await expect(other.reverseRpc("ezcorp/network.read", { context: otherContext, input: { bodyId: response.bodyId, offset: 0 } })).rejects.toMatchObject({ code: "test_capability_denied" });
+    let result = "";
+    let done = false;
+    while (!done) {
+      const chunk = await broker.reverseRpc("ezcorp/network.read", { context, input: { bodyId: response.bodyId, offset: result.length } }) as { body: string; done: boolean };
+      result += Buffer.from(chunk.body, "base64").toString("utf8");
+      done = chunk.done;
+    }
+    expect(result).toBe(body);
+    await expect(broker.reverseRpc("ezcorp/network.read", { context, input: { bodyId: response.bodyId, offset: 0 } })).rejects.toMatchObject({ code: "test_capability_denied" });
+  } finally { await broker.close(); await other.close(); }
+});
