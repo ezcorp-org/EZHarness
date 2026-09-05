@@ -38,6 +38,7 @@ test("production runner entrypoint starts and builds a source with public declar
     }
     const client = new RunnerClient({ socketPath, token: (await readFile(tokenFile, "utf8")).trim() });
     const files = source();
+    files["scaffold.test.ts"] = "import {expect,test} from 'bun:test';import {scaffoldWorkspace} from '@ezcorp/sdk/scaffold';test('public scaffold export survives trusted packaging',()=>expect(scaffoldWorkspace({name:'public-seed',description:'Test'}).files['src/echo.ts']).toContain('text: input.text'));";
     files["declarations.ts"] = "import type {ExtensionManifestV2} from '@ezcorp/extension-contract/legacy';import type {HostApiPermission} from '@ezcorp/extension-contract/types';import type {EntityDeclaration} from '@ezcorp/extension-contract/entities';export type Contract={legacy:ExtensionManifestV2;api:HostApiPermission;entity:EntityDeclaration};";
     const result = await client.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
     expect(result.diagnostics).toEqual([]);

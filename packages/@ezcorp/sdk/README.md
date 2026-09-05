@@ -58,6 +58,7 @@ Main public entry points:
 | `@ezcorp/sdk/runtime` | Runtime helpers that speak the host protocol: fs (`atomicRead`, `atomicWrite`, `loadJSON`, `saveJSON`, `findProjectRoot`, `getExtensionDataDir`), lock (`withLock`, `createMutex`), rpc (`createToolDispatcher`, `toolResult`, `toolError`), channel (`getChannel`, `JsonRpcError`), plus Phase 2 wrappers `fetchPermitted`, `invoke`, `PanelBuilder`, `registerLifecycleHook`, and `Storage`. |
 | `@ezcorp/sdk/entities` | Declarative-entity toolkit: the `EntityDeclaration` type, slug helpers (`isValidSlug`, `assertValidSlug`), record validation (`validateRecord`, `assertRecord`), KV-backed storage (`readEntityRecord`, `writeEntityRecord`, `listEntityRecords`), and tool builders (`buildEntityToolDefinitions`, `buildEntityToolHandlers`). |
 | `@ezcorp/sdk/test` | Filesystem test harness, runtime reset helpers, mock restoration, and isolated entrypoint registration assertions. Test helpers do not approve releases. |
+| `@ezcorp/sdk/scaffold` | Pure source generators: `scaffoldExtension` for contribution presets and `scaffoldWorkspace` for the host's echo workspace. |
 
 ## Persistent extension data
 
