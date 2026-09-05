@@ -24,6 +24,7 @@ test("authoring scaffold builds with private service umask", async () => {
     const files = createExtensionFiles("private-scaffold");
     files["src/union.ts"] = "type Outcome={ok:true;value:string}|{ok:false;error:string};export function read(outcome:Outcome){if(!outcome.ok)return outcome.error;return outcome.value}";
     files["src/import.ts"] = "import {read} from './union.ts'; export const value=read({ok:true,value:'typed-import'});";
+    files["contract.test.ts"] = "import {test,expect} from 'bun:test';import {canonicalJson,validateManifest} from '@ezcorp/extension-contract';test('sealed contract runtime',()=>expect(canonicalJson({b:1,a:2})).toBe('{\"a\":2,\"b\":1}'));";
     const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");

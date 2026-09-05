@@ -142,7 +142,7 @@ export class PodmanRunner implements Runner {
       const sdk = this.options.sdkFiles ?? {};
       const toolchain = this.options.toolchainFiles ?? {};
       if (!toolchain["node_modules/typescript/bin/tsc"]) throw new RunnerError("toolchain_unavailable", "Pinned TypeScript toolchain must be provisioned by the runner administrator", "typecheck");
-      for (const path of Object.keys(sdk)) if (!path.startsWith("node_modules/@ezcorp/sdk/")) throw new RunnerError("sdk_invalid", "SDK provision must remain in its package");
+      for (const path of Object.keys(sdk)) if (!path.startsWith("node_modules/@ezcorp/sdk/") && !path.startsWith("node_modules/@ezcorp/extension-contract/")) throw new RunnerError("sdk_invalid", "SDK provision must remain in its trusted packages");
       for (const path of Object.keys(toolchain)) if (!path.startsWith("node_modules/")) throw new RunnerError("toolchain_invalid", "Toolchain provision must remain in node_modules");
       for (const path of Object.keys(input.files)) if (path.startsWith("node_modules/") || path.startsWith(".runner/")) throw new RunnerError("reserved_path", "Source cannot replace provisioned dependencies or runner files");
       staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
