@@ -32,6 +32,9 @@ import type { ExtensionPermissions } from "$server/extensions/types";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { readManifestPages } from "$lib/server/hub-extension-pages";
 import { logger } from "$server/logger";
+import { authorizeExtensionBrowser } from "$lib/server/extension-browser";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { buildFullGrantFromManifest } from "$server/extensions/install-grant";
 
 const log = logger.child("ext-events");
 
@@ -238,6 +241,25 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         "$server/extensions/file-organizer-events"
       );
       if (IN_PROCESS_EVENTS.has(event)) {
+        try {
+          const authority = await authorizeExtensionBrowser(name, user.id);
+          const binding = await getExtensionProjectBinding(ext.id);
+          const declaredEvents = authority.active.release.manifest.permissions.eventSubscriptions;
+          const declaredGrants = buildFullGrantFromManifest(authority.active.release.manifest);
+          if (authority.extension.id !== ext.id || authority.active.installation.ownerId !== authority.user.id
+            || authority.active.release.manifest.name !== name
+            || !authority.active.release.manifest.pages?.some(page => page.id === pageId)
+            || !declaredGrants.eventSubscriptions?.includes(fullEventName)
+            || !authority.active.installation.grants.includes(canonicalJson(["eventSubscriptions", declaredEvents]))
+            || !authority.extension.grantedPermissions.eventSubscriptions?.includes(fullEventName)
+            || !binding || binding.ownerId !== authority.user.id
+            || binding.releaseId !== authority.active.release.id || binding.generation !== authority.active.installation.generation
+            || authority.active.installation.scope !== "global" && authority.active.installation.scope !== `project:${binding.projectId}`
+            || await checkProjectRole({ user: authority.user }, binding.projectId, "member") instanceof Response
+            || !await getProject(binding.projectId)) return errorJson(404, "Not found");
+        } catch {
+          return errorJson(404, "Not found");
+        }
         const { getProjectRoot } = await import("$server/extensions/bundled");
         const { join } = await import("node:path");
         const dataDir = join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer");

@@ -14,11 +14,14 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const h = vi.hoisted(() => {
   const FO_MANIFEST = {
+    name: "file-organizer",
     pages: [{ id: "review" }, { id: "overview" }, { id: "folders" }],
+    permissions: { eventSubscriptions: ["file-organizer:accept", "file-organizer:select-segment", "file-organizer:reject", "file-organizer:set-mode"] },
     settings: { quarantine_ttl_days: { default: 30 }, quarantine_cap_gb: { default: 5 } },
   };
   return {
     FO_MANIFEST,
+    currentEvent: "",
     state: {
       ext: { id: "ext-fo", enabled: true, manifest: FO_MANIFEST } as { id: string; enabled: boolean; manifest: unknown } | null,
       dispatchResult: { handled: true, changed: true, ok: true } as { handled: boolean; changed?: boolean; ok?: boolean; message?: string },
@@ -41,13 +44,20 @@ const h = vi.hoisted(() => {
 
 vi.mock("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
 vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown }) => l.user, checkProjectRole: async () => undefined }));
-vi.mock("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
+vi.mock("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => h.state.inProcessEvents.has(h.currentEvent) ? { ownerId: "session-user", projectId: "project", releaseId: "release", generation: 1 } : null }));
+vi.mock("$server/db/queries/projects", () => ({ getProject: async () => ({ id: "project", path: "/proj" }) }));
+vi.mock("$lib/server/extension-browser", () => ({ authorizeExtensionBrowser: async () => ({
+  user: { id: "session-user", role: "member", status: "active" },
+  extension: { id: "ext-fo", grantedPermissions: h.FO_MANIFEST.permissions },
+  active: { installation: { ownerId: "session-user", scope: "global", generation: 1, grants: [JSON.stringify(["eventSubscriptions", h.FO_MANIFEST.permissions.eventSubscriptions])] }, release: { id: "release", manifest: h.FO_MANIFEST } },
+}) }));
 vi.mock("$lib/server/context", () => ({ getBus: () => ({ emit: () => {} }) }));
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
     new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
 }));
-vi.mock("$server/runtime/sse-conversation-filter", () => ({
+vi.mock("$server/runtime/sse-conversation-filter", async (importOriginal) => ({
+  ...await importOriginal<typeof import("$server/runtime/sse-conversation-filter")>(),
   isRegisteredExtensionEvent: (e: string) =>
     new Set([
       "file-organizer:accept",
@@ -98,6 +108,7 @@ vi.mock("$server/logger", () => ({
 const { POST } = await import("../routes/api/extensions/[name]/events/[event]/+server");
 
 function hubReq(event: string, payload: Record<string, unknown>, pageId = "review") {
+  h.currentEvent = event;
   return {
     request: new Request(`http://localhost/api/extensions/file-organizer/events/${event}`, {
       method: "POST",
