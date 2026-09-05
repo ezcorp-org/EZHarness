@@ -422,23 +422,21 @@ describe("github-stats/index.ts", () => {
 });
 
 describe("code-review-delegator/index.ts", () => {
-  test("references ezcorp/invoke", async () => {
+  test("delegates through the scoped SDK invoke helper", async () => {
     const content = await readText(
       join(EXAMPLES_DIR, "code-review-delegator", "index.ts"),
     );
-    expect(content).toContain("ezcorp/invoke");
+    expect(content).toContain('from "@ezcorp/sdk/runtime"');
+    expect(content).toContain('invoke<ToolCallResult>("project-analyzer.readFile"');
+    expect(content).toContain('invoke<ToolCallResult>("code-quality.analyzeFile"');
   });
 });
 
 describe("markdown-utils/ezcorp.config.ts", () => {
-  test("exports a valid manifest, auto-promoted to v3 by the loader", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-    const manifest = await loadManifest(join(EXAMPLES_DIR, "markdown-utils"));
-    // Phase 1: the loader runs migrateManifestV2ToV3 after validation
-    // so every downstream consumer reads v3 shape. The on-disk manifest
-    // is still v2 (`schemaVersion: 2`); the loader sets the result to
-    // v3 with `_inheritedFromV2: true`.
-    expect(manifest.schemaVersion).toBe(3);
-    expect((manifest as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
+  test("discovers validated v4 metadata without host-side config promotion", async () => {
+    const { discoverFirstPartyManifest } = await import("./helpers/first-party-manifest");
+    const manifest = await discoverFirstPartyManifest(join(EXAMPLES_DIR, "markdown-utils"));
+    expect(manifest.schemaVersion).toBe(4);
+    expect(Object.hasOwn(manifest, "_inheritedFromV2")).toBe(false);
   });
 });

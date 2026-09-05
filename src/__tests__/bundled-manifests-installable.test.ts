@@ -30,7 +30,7 @@ import {
   resolveBundledExtensions,
   getProjectRoot,
 } from "../extensions/bundled";
-import { loadManifest } from "../extensions/loader";
+import { discoverFirstPartyManifest as loadManifest } from "./helpers/first-party-manifest";
 
 const projectRoot = getProjectRoot();
 
