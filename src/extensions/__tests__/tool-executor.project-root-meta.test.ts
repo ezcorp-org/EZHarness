@@ -49,7 +49,7 @@ function makeManifest(): ExtensionManifestV2 {
 
 /** Registry whose fake subprocess records the `_meta` handed to `callTool`
  *  (the 3rd arg) — that's where the host injects `ezProjectRoot`. */
-interface CapturedCall { meta?: Record<string, unknown>; options?: { signal?: AbortSignal }; calls?: number }
+interface CapturedCall { meta?: Record<string, unknown>; options?: { signal?: AbortSignal; invocationGuard?: import("../runtime-locks").InvocationGuard }; calls?: number }
 
 function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; beforeProcess?: () => Promise<void> } = {}): ExtensionRegistry {
   const manifest = makeManifest();
@@ -59,7 +59,7 @@ function makeRegistry(captured: CapturedCall, options: { mcp?: boolean; beforePr
       _name: string,
       _args: unknown,
       meta?: Record<string, unknown>,
-      callOptions?: { signal?: AbortSignal },
+      callOptions?: CapturedCall["options"],
     ): Promise<ToolCallResult> => {
       captured.meta = meta;
       captured.options = callOptions;
@@ -165,6 +165,38 @@ describe("ToolExecutor · conversation project-root → _meta.ezProjectRoot (B5)
     registry.getRegisteredTool = () => { throw new Error("lookup must not run"); };
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
     await expect(executor.executeToolCall(TOOL, {}, projectConvId, null, { signal: controller.signal })).rejects.toThrow("caller stopped");
+    expect(captured.calls ?? 0).toBe(0);
+  });
+
+  for (const mcp of [false, true]) test(`forwards the host guard unchanged to ${mcp ? "MCP" : "subprocess"}`, async () => {
+    const captured: CapturedCall = {};
+    let checks = 0;
+    const invocationGuard = async () => { checks++; };
+    const executor = new ToolExecutor(makeRegistry(captured, { mcp }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    const result = await executor.executeToolCall(TOOL, { invocationGuard: "child-controlled" }, projectConvId, null, { invocationGuard });
+    expect(result.isError).toBe(false);
+    expect(checks).toBeGreaterThanOrEqual(2);
+    expect(captured.options?.invocationGuard).toBe(invocationGuard);
+    expect(captured.calls).toBe(1);
+  });
+
+  test("guard denial before claim cannot enter registry lookup", async () => {
+    const captured: CapturedCall = {};
+    const registry = makeRegistry(captured);
+    registry.getRegisteredTool = () => { throw new Error("lookup must not run"); };
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+    await expect(executor.executeToolCall(TOOL, {}, projectConvId, null, { invocationGuard: async () => { throw new Error("claim cancelled"); } })).rejects.toThrow("claim cancelled");
+    expect(captured.calls ?? 0).toBe(0);
+  });
+
+  test("guard is rechecked after delayed process resolution", async () => {
+    const captured: CapturedCall = {};
+    let allowed = true;
+    const executor = new ToolExecutor(makeRegistry(captured, { beforeProcess: async () => { allowed = false; } }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    const result = await executor.executeToolCall(TOOL, {}, projectConvId, null, { invocationGuard: async () => { if (!allowed) throw new Error("claim cancelled"); } });
+    expect(result.isError).toBe(true);
     expect(captured.calls ?? 0).toBe(0);
   });
 

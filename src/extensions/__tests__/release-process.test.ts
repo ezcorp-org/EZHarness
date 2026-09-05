@@ -5,6 +5,72 @@ import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../rele
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { spyOn } from "bun:test";
+import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
+import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+
+test("reverse dispatch reinstalls the captured host guard instead of transport ambient context", async () => {
+  const fixture = harness();
+  const entered = Promise.withResolvers<void>();
+  const finish = Promise.withResolvers<void>();
+  const controller = new AbortController();
+  const guard = async () => {};
+  const foreignGuard = async () => { throw new Error("foreign context"); };
+  const observed: unknown[] = [];
+  fixture.process.setRequestHandler(async request => { observed.push(getRuntimeToolContext()); return { jsonrpc: "2.0", id: request.id, result: {} }; });
+  fixture.invoke(async () => { entered.resolve(); await finish.promise; return { content: [], isError: false }; });
+  try {
+    const pending = withRuntimeToolContext({ signal: controller.signal, invocationGuard: guard }, () => fixture.process.callTool("read", {}, { ezCallId: fixture.token }, { signal: controller.signal, invocationGuard: guard }));
+    await entered.promise;
+    await withRuntimeToolContext({ signal: AbortSignal.abort(), invocationGuard: foreignGuard }, () => fixture.reverse[0]!("ezcorp/storage", { context: fixture.starts[0]!.context, input: { invocationGuard: "child-controlled" } }));
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({ signal: controller.signal, invocationGuard: guard });
+    finish.resolve();
+    expect((await pending).isError).toBe(false);
+  } finally { finish.resolve(); fixture.cleanup(); }
+});
+
+test("durable guard denial prevents worker startup despite child metadata claiming approval", async () => {
+  const fixture = harness();
+  try {
+    await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token, invocationGuard: "allow" }, { invocationGuard: async () => { throw new Error("claim not active"); } })).rejects.toThrow("claim not active");
+    expect(fixture.starts).toHaveLength(0);
+  } finally { fixture.cleanup(); }
+});
+
+test("durable guard is rechecked after runner resolution before any worker starts", async () => {
+  const fixture = harness();
+  const runtime = releaseRuntimeFixture("installation", fixture.snapshot().release.manifest);
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  let allowed = true;
+  const process = new ReleaseProcess("installation", { resolve: async () => runtime.snapshot, runner: async () => { entered.resolve(); await resume.promise; return runtime.runner; } });
+  try {
+    const pending = process.callTool("read", {}, { ezCallId: fixture.token }, { invocationGuard: async () => { if (!allowed) throw new Error("claim cancelled while resolving"); } });
+    void pending.catch(() => undefined);
+    await entered.promise;
+    allowed = false;
+    resume.resolve();
+    await expect(pending).rejects.toThrow("claim cancelled while resolving");
+    expect(runtime.calls).toHaveLength(0);
+  } finally { resume.resolve(); process.kill(); fixture.cleanup(); }
+});
+
+test("durable guard is consulted for every reverse call, not child input", async () => {
+  const fixture = harness();
+  let allowed = true;
+  let effects = 0;
+  fixture.process.setRequestHandler(async request => { effects++; return { jsonrpc: "2.0", id: request.id, result: {} }; });
+  fixture.invoke(async (params, rpc) => {
+    await rpc("ezcorp/storage", { context: params.context, input: { invocationGuard: "child allow" } });
+    allowed = false;
+    await expect(rpc("ezcorp/storage", { context: params.context, input: { invocationGuard: "child allow" } })).rejects.toThrow("claim cancelled");
+    return { content: [], isError: false };
+  });
+  try {
+    await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token }, { invocationGuard: async () => { if (!allowed) throw new Error("claim cancelled"); } })).rejects.toThrow("claim cancelled");
+    expect(effects).toBe(1);
+  } finally { fixture.cleanup(); }
+});
 
 for (const invalidation of ["token", "deadline", "kill"] as const) {
   for (const channel of ["broker", "page"] as const) test(`${invalidation} during binding read prevents later ${channel} effects`, async () => {

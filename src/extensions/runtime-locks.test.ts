@@ -146,6 +146,24 @@ test("a cancellation-shaped error after admission cannot clear an uncertain writ
   expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ state: "quarantined", effects: 0 });
 });
 
+test("invocation guard uses the exact mutation transaction and refusal rolls back writes", async () => {
+  const data = await fixture();
+  const session = data.create();
+  const seen: unknown[] = [];
+  const guard = async (database?: import("../db/migrations/types").MigrationDb) => { seen.push(database); throw new Error("durable invocation cancelled"); };
+  let transactionSeen: unknown;
+  await expect(session.effect("ezcorp/storage", async () => data.database.transaction(async transaction => {
+    transactionSeen = transaction;
+    await transaction.update(users).set({ name: "must roll back" }).where(eq(users.id, data.owner.id));
+    await verifyInvocationLocks(transaction);
+  }), { assertActive: () => {}, verifyTransaction: guard })).rejects.toThrow("durable invocation cancelled");
+  expect(seen).toEqual([transactionSeen]);
+  expect(transactionSeen).not.toBe(data.database);
+  expect((await data.database.select().from(users).where(eq(users.id, data.owner.id)))[0]?.name).toBe(data.owner.name);
+  await data.database.transaction(verifyInvocationLocks);
+  expect(seen).toHaveLength(1);
+});
+
 test("close times out waiting for effects and recovery cannot bypass a live pending write", async () => {
   const data = await fixture();
   const session = data.create();

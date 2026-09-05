@@ -83,6 +83,43 @@ test("pre-aborted remote MCP calls make no transport requests", async () => {
   } finally { await value.cleanup(); }
 });
 
+test("stdio forwards the exact host invocation guard without exposing it to child metadata", async () => {
+  const value = fixture();
+  value.snapshot.release.manifest.mcpServers = [{ name: "stdio", transport: "stdio", command: "server" }];
+  const observed: unknown[] = [];
+  const guard = async () => {};
+  const client = new ReleaseMcpClient("mcp", async () => ({ callTool: async (_name: string, _args: unknown, meta: unknown, options: unknown) => { observed.push({ meta, options }); return { content: [], isError: false }; } }) as unknown as import("../subprocess").ExtensionProcess, value.runtime, value.remote);
+  try {
+    await client.connect();
+    await client.callTool("echo", { text: "hello" }, { ezCallId: value.token }, { invocationGuard: guard });
+    expect(observed).toEqual([{ meta: { ezCallId: value.token }, options: { skipTimeout: false, signal: undefined, invocationGuard: guard } }]);
+  } finally { await client.close(); await value.cleanup(); }
+});
+
+test("remote MCP guard denial makes no transport request", async () => {
+  const value = fixture();
+  try {
+    await value.client.connect();
+    await expect(value.client.callTool("echo", { text: "hello" }, { ezCallId: value.token }, { invocationGuard: async () => { throw new Error("claim cancelled"); } })).rejects.toThrow("claim cancelled");
+    expect(value.requests).toEqual([]);
+  } finally { await value.cleanup(); }
+});
+
+test("remote MCP rechecks its guard after asynchronous network policy resolution", async () => {
+  const value = fixture();
+  let allowed = true;
+  const policy = createStubPermissionEngine("allow-all");
+  const original = policy.authorize.bind(policy);
+  let networkChecks = 0;
+  policy.authorize = async (context, needed) => { const result = await original(context, needed); if (needed.some(capability => capability.kind === "network") && ++networkChecks === 2) allowed = false; return result; };
+  const client = new ReleaseMcpClient("mcp", async () => { throw new Error("unused"); }, value.runtime, { ...value.remote, permissionEngine: () => policy });
+  try {
+    await client.connect();
+    await expect(client.callTool("echo", { text: "hello" }, { ezCallId: value.token }, { invocationGuard: async () => { if (!allowed) throw new Error("claim cancelled during policy"); } })).rejects.toThrow("claim cancelled during policy");
+    expect(value.requests).toEqual([]);
+  } finally { await client.close(); await value.cleanup(); }
+});
+
 for (const method of ["initialize", "tools/list", "tools/call", "sse"]) {
   test(`remote MCP abort cancels ${method} transport without retrying`, async () => {
     let arrived!: () => void;
