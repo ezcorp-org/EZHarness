@@ -127,6 +127,36 @@ describe("host-owned bundled source staging", () => {
     expect(Object.keys(state.workspaces)).toHaveLength(2);
   });
 
+  for (const scenario of [
+    { name: "addition", before: [], after: ["run:complete"] },
+    { name: "unchanged", before: ["run:complete"], after: ["run:complete"] },
+    { name: "removal", before: ["run:complete"], after: [] },
+    { name: "partial overlap", before: ["run:complete", "tool:complete"], after: ["run:complete", "task:update"] },
+    { name: "brief answer", before: [], after: ["brief:answer"] },
+    { name: "missing declaration", before: ["run:complete"], after: undefined },
+    { name: "append messages without subscriptions", before: [], after: [] },
+    { name: "empty stored subscriptions", before: [], after: ["task:update"] },
+  ]) test(`subscription ${scenario.name} stays a candidate without rewriting an approved release`, async () => {
+    files = { "extension.ts": JSON.stringify({ eventSubscriptions: scenario.before }) };
+    const state = await stage();
+    state.installation.activeReleaseId = "approved-release";
+    state.installation.enabled = true;
+    state.installation.grants = scenario.before.map((event) => `eventSubscriptions:${event}`);
+    const approved = structuredClone(state.installation);
+    files = { "extension.ts": JSON.stringify({ eventSubscriptions: scenario.after, appendMessages: scenario.name.startsWith("append") }) };
+    const expectedDigest = digestObject(files);
+    update.mockClear();
+    await stage();
+    expect(state.installation).toEqual(approved);
+    expect(state.approvals).toEqual({});
+    expect(update).not.toHaveBeenCalled();
+    expect(Object.values(state.workspaces).some((candidate) => candidate.sourceDigest === expectedDigest)).toBe(true);
+    expect(build.mock.calls.at(-1)?.[1].idempotencyKey).toBe(`bundled-bootstrap:${expectedDigest}`);
+    await stage();
+    expect(workspace).toHaveBeenCalledTimes(2);
+    expect(state.installation).toEqual(approved);
+  });
+
   test("revokes stale legacy capabilities once, including event subscriptions and draft authority", async () => {
     legacy.set("candidate", { id: "legacy-id", enabled: false, grantedPermissions: { shell: true, eventSubscriptions: [{ event: "*" }], custom: { drafts: true }, grantedAt: { shell: "old" } } });
     await stage();

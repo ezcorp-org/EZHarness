@@ -19,6 +19,10 @@ release-policy tests remain. Runtime feature parity is checked separately by
 the sealed first-party candidate suite; these bootstrap tests do not claim it.
 
 Disk-based drift healing has no production callers and is removed, not renamed.
+The eight manifest-drift-event-subscriptions cases now run in
+bundled-v4-bootstrap as the subscription candidate matrix. Additions, removals,
+overlap, missing and empty declarations preserve approved grants, store the
+exact new snapshot, and reuse the same build identity on the next boot.
 The former bundled-drift-reapprove suite's grant-order and declaration-only
 comparisons remain covered by bundled-ceiling.test.ts canonicalization tests.
 Exact human approval, stale policy, generation races, immutable release records,
