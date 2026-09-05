@@ -70,6 +70,7 @@ import { getWorkflowRunRow } from "../db/queries/workflow-runs";
 import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
+  workflowResumeEntry,
   type WorkflowRuntime,
 } from "./workflow/runtime-registry";
 import { acquireLockfile, releaseLockfile, selfToken } from "../startup/process-lockfile";
@@ -352,7 +353,8 @@ export class WorkflowRunner {
       log.warn("claimed run vanished before resume", { runId });
       return;
     }
-    const workflow = runtime.getWorkflows().find((w) => w.name === row.workflowName);
+    const entry = workflowResumeEntry(runtime, row.workflowName);
+    const workflow = entry?.definition;
     if (!workflow) {
       log.warn("claimed run has no definition; leaving for the recovery sweep", {
         runId,
@@ -378,6 +380,8 @@ export class WorkflowRunner {
       workflow,
       runId,
       this.instanceId,
+      undefined,
+      entry,
     );
     log.info("resumed a parked run", { runId, status: run.status });
   }

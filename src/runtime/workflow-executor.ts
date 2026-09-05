@@ -43,6 +43,9 @@ import { MAX_WORKFLOW_NESTING_DEPTH } from "./workflow-closure";
 import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
+import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
+import { workflowReleaseCanAccess } from "./workflow-release-assets";
+import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
   finalizeWorkflowRunRow,
@@ -63,7 +66,7 @@ import {
   upsertWorkflowStepIteration,
   type WorkflowStepIterationUpsert,
 } from "../db/queries/workflow-step-iterations";
-import { workflowDefinitionHash } from "./workflow-definition-hash";
+import { workflowExecutionHash } from "./workflow-definition-hash";
 import {
   getWorkflowApproval,
   hasPendingApproval,
@@ -247,6 +250,7 @@ export interface WorkflowExecutorOptions {
 /** Per-call inputs to {@link WorkflowExecutor.resumeWorkflow} that come
  *  from the CALLER rather than from the run's row. */
 export interface ResumeWorkflowOptions {
+  entry?: CachedWorkflow;
   /**
    * The caller's `claimed_by` identity, when it is resuming a run whose
    * claim it already holds.
@@ -773,6 +777,10 @@ export class WorkflowExecutor {
       startedAt: Date.now(),
       steps: [],
     };
+    const entry = executionEntry(workflow);
+    if (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
+      throw new Error("Workflow release authority is no longer available");
+    }
 
     // `userId` scopes workflow:* SSE delivery to the initiating user
     // (fail-closed filter — see sse-conversation-filter.ts). CLI runs
@@ -784,7 +792,8 @@ export class WorkflowExecutor {
     // trace at all. The definition-id lookup is a name→row resolution;
     // a YAML workflow simply has no row, which is what the nullable FK
     // is for.
-    await this.persistWrite("insert", async () => {
+    const persistStart = entry.source === "extension" ? this.persistCritical : this.persistWrite;
+    await persistStart.call(this, "insert", async () => {
       const definition = await getWorkflowByName(workflow.name);
       // The version this run executes. Resolved at START, so an edit
       // landing mid-run cannot retroactively change what the run says it
@@ -795,7 +804,7 @@ export class WorkflowExecutor {
         : undefined;
       // The fingerprint of the graph THIS RUN WAS HANDED — not of the row
       // that happens to own the name.
-      const ranHash = workflowDefinitionHash(workflow);
+      const ranHash = workflowExecutionHash(workflow, entry.extensionRelease);
       // ── Only claim a version whose content is what we ran ────────────
       //
       // The lookup above is by NAME, and a name does not identify a graph:
@@ -859,6 +868,9 @@ export class WorkflowExecutor {
       });
     });
 
+    if (!await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
+      throw new Error("Workflow release authority is no longer available");
+    }
     return this.executeFrom({
       workflow,
       input,
@@ -935,6 +947,7 @@ export class WorkflowExecutor {
     signal?: AbortSignal,
     opts?: ResumeWorkflowOptions,
   ): Promise<WorkflowRun> {
+    const entry = opts?.entry ?? executionEntry(workflow);
     const workflowRun: WorkflowRun = {
       id: row.id,
       workflowName: row.workflowName,
@@ -1085,7 +1098,13 @@ export class WorkflowExecutor {
     // Drift. Until definitions are versioned this hash is the only guard,
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
-    const currentHash = workflowDefinitionHash(workflow);
+    if (entry.definition !== workflow || !await workflowReleaseCanAccess(entry, row.userId ?? null, row.projectId)) {
+      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+    }
+    const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
+    if (entry.source === "extension" && row.definitionHash === null) {
+      return refuseTransient("not-resumable", "Workflow run has no pinned release authority");
+    }
     if (row.definitionHash !== null && row.definitionHash !== currentHash) {
       return refuseTerminal(
         "definition-changed",
@@ -1104,6 +1123,10 @@ export class WorkflowExecutor {
       return refuseTerminal("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
     }
 
+    const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
+    if (!await workflowReleaseCanAccess(entry, row.userId ?? null, row.projectId)) {
+      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+    }
     return this.executeFrom({
       workflow,
       input: row.input ?? {},
@@ -1120,7 +1143,7 @@ export class WorkflowExecutor {
       skippedSteps: loaded.skippedSteps,
       // DERIVED from the parent chain rather than defaulted to 0: resuming
       // at depth 0 would let a nested run escape the cap simply by parking.
-      depth: await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH),
+      depth,
       // Same argument, C3's ceiling: taken from the row so a resumed run
       // is bounded by the same delegation the first process was.
       delegationId: row.delegationId ?? null,
@@ -2895,7 +2918,12 @@ export async function resumeClaimedRun(
   runId: string,
   claimedBy: string,
   signal?: AbortSignal,
+  entry?: CachedWorkflow,
 ): Promise<WorkflowRun> {
+  const runtime = getWorkflowRuntime();
+  const captured = entry ?? (runtime
+    ? workflowResumeEntry(runtime, workflow.name)
+    : systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml"));
   const row = await getWorkflowRunRow(runId);
   if (!row) {
     return {
@@ -2913,12 +2941,35 @@ export async function resumeClaimedRun(
     };
   }
 
+  if (!captured || captured.definition !== workflow ||
+      !await workflowReleaseCanAccess(captured, row.userId, row.projectId)) {
+    await releaseWorkflowRunClaim(runId, claimedBy);
+    return {
+      id: runId,
+      workflowName: workflow.name,
+      status: "suspended",
+      startedAt: row.startedAt.getTime(),
+      steps: [],
+      result: {
+        success: false,
+        output: null,
+        error: { code: "not-resumable", message: "Workflow release authority is no longer available" },
+      },
+    };
+  }
   const run = await executor.resumeWorkflow(workflow, resumeArgsFromRow(row), signal, {
     resumedBy: claimedBy,
+    entry: captured,
   });
 
   if (run.status === "suspended") {
     await releaseWorkflowRunClaim(runId, claimedBy);
   }
   return run;
+}
+
+function executionEntry(workflow: WorkflowDefinition): CachedWorkflow {
+  const runtime = getWorkflowRuntime();
+  return runtime?.getCachedWorkflows?.().find((entry) => entry.definition.name === workflow.name)
+    ?? systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml");
 }

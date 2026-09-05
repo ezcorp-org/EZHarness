@@ -30,6 +30,7 @@
  */
 import { createHash } from "node:crypto";
 import type { WorkflowDefinition } from "../types";
+import type { CachedWorkflow } from "./workflow-scope";
 
 /**
  * JSON with object keys sorted at every depth, so two structurally equal
@@ -80,9 +81,10 @@ export function stableStringify(value: unknown): string {
  * What C6 did change: a run records a version only when the graph it was
  * HANDED matches that version's `steps_hash`, and `definition_hash` is
  * always this function over the graph that ran. So when a version is
- * claimed the two are the same value and cannot diverge; when none is
- * claimed the hash still describes what executed, which is what makes a
- * resume compare against the right graph.
+ * claimed the two are the same value and cannot diverge. Extension runs
+ * instead use `workflowExecutionHash`, which also pins their exact release
+ * authority and cannot claim a graph-only DB version. Host workflow hashes
+ * and DB version hashes retain the original graph-only contract.
  *
  * That is why the material below is the `steps` array specifically, and
  * never the DB row or its mutable metadata: hashing `description` or
@@ -96,4 +98,11 @@ export function workflowDefinitionHash(def: WorkflowDefinition): string {
     defaultModel: def.defaultModel,
   });
   return createHash("sha256").update(material).digest("hex");
+}
+
+export function workflowExecutionHash(definition: WorkflowDefinition, release?: CachedWorkflow["extensionRelease"]): string {
+  const definitionHash = workflowDefinitionHash(definition);
+  return release
+    ? createHash("sha256").update(stableStringify({ definitionHash, extensionRelease: release })).digest("hex")
+    : definitionHash;
 }

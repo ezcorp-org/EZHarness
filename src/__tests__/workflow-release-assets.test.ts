@@ -4,6 +4,8 @@ import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../exte
 import { executionLimits } from "@ezcorp/extension-runner";
 import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { eq } from "drizzle-orm";
+import type { CachedWorkflow } from "../runtime/workflow-scope";
+import type { WorkflowDefinition } from "../types";
 
 mockDbConnection();
 const { loadReleaseWorkflowEntries: loadSealedWorkflowEntries, workflowReleaseIsCurrent, workflowReleaseCanAccess, filterAccessibleWorkflowEntries } = await import("../runtime/workflow-release-assets");
@@ -31,6 +33,175 @@ async function fixture() {
   configureReleaseRuntime(runtime);
   return { files, snapshot, runtime, registry };
 }
+
+async function claimedReleaseRun(entry: CachedWorkflow, userId: string | null = "owner", projectId: string | null = null) {
+  const { insertWorkflowRun, suspendWorkflowRun, claimWorkflowRun } = await import("../db/queries/workflow-runs");
+  const id = crypto.randomUUID();
+  await insertWorkflowRun({ id, workflowName: entry.definition.name, input: {}, startedAt: new Date(), userId, projectId });
+  await suspendWorkflowRun(id, { reason: "manual", cursor: { batchIndex: 0, completedSteps: [], prevStepName: null } });
+  expect(await claimWorkflowRun({ workflowRunId: id, claimedBy: "release-test", now: new Date() })).toBe(true);
+  return id;
+}
+
+test("shared resume checks the persisted principal and current release before dispatch", async () => {
+  const setup = await fixture();
+  await getTestDb().insert(users).values(["owner", "stranger"].map(id => ({ id, email: `${id}@test.invalid`, passwordHash: "h", name: id })));
+  const [entry] = await loadReleaseWorkflowEntries(setup.registry);
+  const { resumeClaimedRun } = await import("../runtime/workflow-executor");
+  const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const calls: WorkflowDefinition[] = [];
+  const executor = { resumeWorkflow: async (definition: WorkflowDefinition, row: { id: string }) => {
+    calls.push(definition);
+    return { id: row.id, workflowName: definition.name, status: "suspended" as const, startedAt: 0, steps: [] };
+  } };
+  const allowed = await claimedReleaseRun(entry!);
+  expect((await resumeClaimedRun(executor, entry!.definition, allowed, "release-test", undefined, entry)).result).toBeUndefined();
+  expect(calls).toEqual([entry!.definition]);
+  for (const denial of ["stranger", "unowned", "unacknowledged", "disabled", "replacement", "identity"] as const) {
+    setup.snapshot.installation.enabled = denial !== "disabled";
+    setup.snapshot.installation.acknowledgedGeneration = denial === "unacknowledged" ? 0 : 1;
+    setup.snapshot.installation.generation = denial === "replacement" ? 2 : 1;
+    const id = await claimedReleaseRun(entry!, denial === "stranger" ? "stranger" : denial === "unowned" ? null : "owner");
+    const definition = denial === "identity" ? structuredClone(entry!.definition) : entry!.definition;
+    const result = await resumeClaimedRun(executor, definition, id, "release-test", undefined, entry);
+    expect(result.result?.error).toMatchObject({ code: "not-resumable" });
+    expect((await getWorkflowRunRow(id))?.status).toBe("suspended");
+  }
+  expect(calls).toHaveLength(1);
+});
+
+test("shared resume denies a lost project membership and does not substitute flat definitions", async () => {
+  const setup = await fixture();
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  await getTestDb().insert(projects).values({ id: "project", name: "Project", path: "/tmp/project" });
+  await getTestDb().insert(projectMembers).values({ userId: "owner", projectId: "project", role: "member" });
+  setup.snapshot.installation.scope = "project:project";
+  const [entry] = await loadReleaseWorkflowEntries(setup.registry);
+  const { resumeClaimedRun } = await import("../runtime/workflow-executor");
+  const { workflowResumeEntry, registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
+  const executor = { resumeWorkflow: async () => { throw new Error("Denied workflow must not run"); }, runWorkflow: async () => { throw new Error("Cannot start a new workflow"); } };
+  const runtime = { getWorkflows: () => [{ ...entry!.definition, description: "replacement" }], getCachedWorkflows: () => [entry!], workflowExecutor: executor };
+  expect(workflowResumeEntry(runtime, entry!.definition.name)).toBe(entry);
+  expect(workflowResumeEntry(runtime, "missing")).toBeUndefined();
+  registerWorkflowRuntime(runtime);
+  try {
+    const id = await claimedReleaseRun(entry!, "owner", "project");
+    await getTestDb().delete(projectMembers).where(eq(projectMembers.userId, "owner"));
+    expect((await resumeClaimedRun(executor, entry!.definition, id, "release-test")).result?.error).toMatchObject({ code: "not-resumable" });
+    runtime.getCachedWorkflows = () => [];
+    const missing = await claimedReleaseRun(entry!);
+    expect((await resumeClaimedRun(executor, entry!.definition, missing, "release-test")).result?.error).toMatchObject({ code: "not-resumable" });
+  } finally { _resetWorkflowRuntimeForTests(); }
+  const unbound = await claimedReleaseRun(entry!);
+  expect((await resumeClaimedRun(executor, entry!.definition, unbound, "release-test")).result?.error).toMatchObject({ code: "not-resumable" });
+});
+
+test("real restart resume pins the original release even when replacement graph bytes match", async () => {
+  const setup = await fixture();
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  const { WorkflowExecutor, WorkflowSuspendedError, resumeClaimedRun } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
+  const { claimWorkflowRun, getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const { workflowDefinitionHash, workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
+  const { workflowRuns } = await import("../db/schema");
+  for (const mode of ["same", "replacement", "legacy-null", "legacy-graph"] as const) {
+    setup.snapshot.installation.generation = 1;
+    setup.snapshot.installation.acknowledgedGeneration = 1;
+    let entries = await loadReleaseWorkflowEntries(setup.registry);
+    const bus = new EventBus<import("../types").AgentEvents>();
+    const agents = new AgentExecutor(loadAgentsStatic([]), bus);
+    const original = new WorkflowExecutor(agents, bus, { persist: true, stepSubstitute: () => { throw new WorkflowSuspendedError("emit", "manual"); } });
+    registerWorkflowRuntime({ getWorkflows: () => entries.map(entry => entry.definition), getCachedWorkflows: () => entries, workflowExecutor: original });
+    try {
+      const started = await original.runWorkflow(entries[0]!.definition, {}, undefined, "owner");
+      expect(started.status).toBe("suspended");
+      const saved = await getWorkflowRunRow(started.id);
+      expect(saved?.definitionHash).toBe(workflowExecutionHash(entries[0]!.definition, entries[0]!.extensionRelease));
+      expect(saved?.definitionHash).not.toBe(workflowDefinitionHash(entries[0]!.definition));
+      if (mode === "replacement") {
+        setup.snapshot.installation.generation = 2;
+        setup.snapshot.installation.acknowledgedGeneration = 2;
+        entries = await loadReleaseWorkflowEntries(setup.registry);
+      } else if (mode.startsWith("legacy-")) {
+        await getTestDb().update(workflowRuns).set({ definitionHash: mode === "legacy-null" ? null : workflowDefinitionHash(entries[0]!.definition) }).where(eq(workflowRuns.id, started.id));
+      }
+      expect(await claimWorkflowRun({ workflowRunId: started.id, claimedBy: "restart", now: new Date() })).toBe(true);
+      const restarted = new WorkflowExecutor(agents, bus, { persist: true });
+      const result = await resumeClaimedRun(restarted, entries[0]!.definition, started.id, "restart", undefined, entries[0]);
+      if (mode === "same") expect(result.status).toBe("success");
+      else expect(result.result?.error).toMatchObject({ code: mode === "legacy-null" ? "not-resumable" : "definition-changed" });
+    } finally { _resetWorkflowRuntimeForTests(); }
+  }
+});
+
+test("timeout decisions defer when the original release fingerprint or authority is absent", async () => {
+  const setup = await fixture();
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  setup.files["deploy.workflow.yaml"] = "name: deploy\nsteps:\n  - name: gate\n    kind: approval\n    prompt: Continue?\n    choices: [approve]\n    onTimeout: abort\n";
+  setup.snapshot.release.artifactDigest = await sha256(canonicalJson(setup.files));
+  let entries = await loadReleaseWorkflowEntries(setup.registry);
+  const { parkWorkflowApproval, getWorkflowApproval } = await import("../db/queries/workflow-approvals");
+  const { releaseWorkflowRunClaim, getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
+  const { workflowRuns } = await import("../db/schema");
+  const { sweepExpiredWorkflowApprovals } = await import("../runtime/workflow-approval-timeout-sweep");
+  const id = await claimedReleaseRun(entries[0]!);
+  await releaseWorkflowRunClaim(id, "release-test");
+  await getTestDb().update(workflowRuns).set({ definitionHash: workflowExecutionHash(entries[0]!.definition, entries[0]!.extensionRelease) }).where(eq(workflowRuns.id, id));
+  await parkWorkflowApproval({ workflowRunId: id, stepName: "gate", prompt: "Continue?", choices: ["approve"], requireItemConsent: false, itemIds: [], expiresAt: new Date(0) });
+  const runtime = { getWorkflows: () => entries.map(entry => entry.definition), getCachedWorkflows: () => entries, workflowExecutor: { runWorkflow: async () => { throw new Error("Cannot start"); }, resumeWorkflow: async () => { throw new Error("Cannot resume"); } } };
+  setup.snapshot.installation.enabled = false;
+  expect((await sweepExpiredWorkflowApprovals({ runtime, now: new Date() })).deferred).toBe(1);
+  setup.snapshot.installation.enabled = true;
+  setup.snapshot.installation.generation = 2;
+  setup.snapshot.installation.acknowledgedGeneration = 2;
+  entries = await loadReleaseWorkflowEntries(setup.registry);
+  expect((await sweepExpiredWorkflowApprovals({ runtime, now: new Date() })).deferred).toBe(1);
+  expect((await getWorkflowApproval(id, "gate"))?.status).toBe("pending");
+  expect((await getWorkflowRunRow(id))?.status).toBe("suspended");
+  setup.snapshot.installation.generation = 1;
+  setup.snapshot.installation.acknowledgedGeneration = 1;
+  entries = await loadReleaseWorkflowEntries(setup.registry);
+  expect((await sweepExpiredWorkflowApprovals({ runtime, now: new Date() })).aborted).toBe(1);
+});
+
+test("direct execution rechecks release authority after durable reads and never runs revoked steps", async () => {
+  const setup = await fixture();
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  const [entry] = await loadReleaseWorkflowEntries(setup.registry);
+  const { WorkflowExecutor, resumeArgsFromRow } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
+  const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
+  const { workflowRuns } = await import("../db/schema");
+  const bus = new EventBus<import("../types").AgentEvents>();
+  let effects = 0;
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, stepSubstitute: () => { effects++; return undefined; } });
+  registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [entry!], workflowExecutor: executor });
+  try {
+    await expect(executor.runWorkflow(structuredClone(entry!.definition), {}, undefined, "owner")).rejects.toThrow("release authority");
+    let reads = 0;
+    setup.runtime.resolve = async () => {
+      if (++reads === 3) setup.snapshot.installation.enabled = false;
+      return setup.snapshot;
+    };
+    await expect(executor.runWorkflow(entry!.definition, {}, undefined, "owner")).rejects.toThrow("release authority");
+    const id = await claimedReleaseRun(entry!);
+    await getTestDb().update(workflowRuns).set({ definitionHash: workflowExecutionHash(entry!.definition, entry!.extensionRelease) }).where(eq(workflowRuns.id, id));
+    const row = await getWorkflowRunRow(id);
+    expect((await executor.resumeWorkflow(entry!.definition, resumeArgsFromRow(row!), undefined, { resumedBy: "release-test", entry })).result?.error).toMatchObject({ code: "not-resumable" });
+    setup.snapshot.installation.enabled = true;
+    reads = 0;
+    expect((await executor.resumeWorkflow(entry!.definition, resumeArgsFromRow(row!), undefined, { resumedBy: "release-test", entry })).result?.error).toMatchObject({ code: "not-resumable" });
+    expect(effects).toBe(0);
+  } finally { _resetWorkflowRuntimeForTests(); }
+});
 
 test("loads sealed workflow assets without an install path and retains private ownership", async () => {
   const { registry, runtime } = await fixture();
