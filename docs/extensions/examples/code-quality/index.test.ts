@@ -1,5 +1,5 @@
 import { beforeEach, expect, spyOn, test } from "bun:test";
-import { getChannel, toolResult } from "@ezcorp/sdk/runtime";
+import { getChannel, toolError, toolResult } from "@ezcorp/sdk/runtime";
 import { tools, _internals, start } from "./index";
 
 beforeEach(() => { spyOn(getChannel(), "request").mockResolvedValue(toolResult("// TODO repair\n")); });
@@ -32,3 +32,19 @@ test("registers the tool dispatcher without a custom transport", () => {
   start();
   expect(registration).toHaveBeenCalledWith("tools/call", expect.any(Function));
 });
+
+for (const [name, delegatedTool, input] of [
+  ["analyzeFile", "project-analyzer.readFile", { filePath: "private" }],
+  ["analyzeDirectory", "project-analyzer.listFiles", { dirPath: "private" }],
+] as const) {
+  test(`${name} preserves the delegated error and does not retry`, async () => {
+    const denied = toolError(`${delegatedTool} denied`);
+    const request = spyOn(getChannel(), "request").mockReset().mockResolvedValueOnce(denied);
+    expect(await tools[name]!(input)).toEqual(denied);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith("ezcorp/invoke", { tool: delegatedTool, arguments: { path: "private" } }, undefined);
+    request.mockReset().mockRejectedValueOnce(new Error("Transport denied"));
+    expect(await tools[name]!(input)).toEqual(toolError("Transport denied"));
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+}

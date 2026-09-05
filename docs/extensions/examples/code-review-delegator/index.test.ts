@@ -28,3 +28,14 @@ test("recommendations and registration retain their behavior", () => {
   start();
   expect(registration).toHaveBeenCalledWith("tools/call", expect.any(Function));
 });
+
+test("a denied file read preserves its error and never invokes quality analysis", async () => {
+  const denied = toolError("read denied");
+  const request = spyOn(getChannel(), "request").mockReset().mockResolvedValueOnce(denied);
+  expect(await tools.reviewFile!({ filePath: "private" })).toEqual(denied);
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith("ezcorp/invoke", { tool: "project-analyzer.readFile", arguments: { path: "private" } }, undefined);
+  request.mockReset().mockRejectedValueOnce(new Error("Transport denied"));
+  expect(await tools.reviewFile!({ filePath: "private" })).toEqual(toolError("Transport denied"));
+  expect(request).toHaveBeenCalledTimes(1);
+});

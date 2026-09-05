@@ -40,15 +40,15 @@
       "directory": "docs/extensions/examples/code-quality",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 9414,
-      "sourceDigest": "4f34b135363709e8ae501a679e4d70ecc0798b79b0353acdf6b025e0ed4853d7"
+      "bytes": 10306,
+      "sourceDigest": "f102cefd065c66bf9570d96366bba8d48cba8c82b40b1b0a20dc5a103a3a85f4"
     },
     "code-review-delegator": {
       "directory": "docs/extensions/examples/code-review-delegator",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 7461,
-      "sourceDigest": "f500080a5ab86a53756185a508245091809cb0472d3ace6ce270d7230391fb71"
+      "bytes": 8175,
+      "sourceDigest": "18d2dc94f2c864d82b38662aa2d66f2ededb5e5819942fa2d564e29e007e4be5"
     },
     "cron-dashboard": {
       "directory": "docs/extensions/examples/cron-dashboard",
