@@ -12,6 +12,9 @@ let conversationProject: string | null = null;
 let projectMember = true;
 let binding: ExtensionProjectBinding | null = null;
 let beforeDispatch = () => {};
+let eventWired = true;
+let eventGranted = true;
+let paused = false;
 const jobs: ExtensionDelivery[] = [];
 const invocations: { method: string; params: Record<string, unknown> }[] = [];
 const process = { async call(method: string, params: Record<string, unknown>) { invocations.push({ method, params }); if (outcomeError) throw new Error("unknown effect"); return { jsonrpc: "2.0", id: "response", result: null }; } };
@@ -36,14 +39,43 @@ const queue = {
 mock.module("../extension-lifecycle-service", () => ({ getExtensionDeliveryQueue: async () => queue, getExtensionInstallationState: async () => ({ installation: { id: "installation", ownerId: "owner", scope: "global", generation: 3, activeReleaseId: "release", enabled: active } }) }));
 mock.module("../../db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: userActive ? "active" : "inactive" }) }));
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ userId: conversationOwner, projectId: conversationProject }) }));
+mock.module("../../db/queries/conversation-extensions", () => ({ getConversationExtensionIds: async () => eventWired ? ["installation"] : [] }));
+mock.module("../../db/queries/extensions", () => ({ getExtension: async () => ({ enabled: active, grantedPermissions: { eventSubscriptions: eventGranted ? ["test"] : [] } }) }));
+mock.module("../loops-kill-switch", () => ({ loopsKillSwitchEngaged: async () => paused }));
 mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => binding }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => projectMember ? undefined : new Response(null, { status: 403 }) }));
 mock.module("../registry", () => ({ ExtensionRegistry: { getInstance: () => ({ getProcess: async () => process }) } }));
 const { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime, drainExtensionDeliveries } = await import("../delivery-runtime");
 
 function token(ownerless = false) { return registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: ownerless ? null : "caller", conversationId: ownerless ? null : "conversation", runId: null, parentCallId: null, kind: "event", ownerless }); }
-afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; });
+afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; eventWired = true; eventGranted = true; paused = false; });
 afterAll(() => restoreModuleMocks());
+
+test("the emergency pause retains queued delivery without consuming a worker attempt", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  paused = true;
+  const ezCallId = token();
+  try {
+    const pending = enqueueExtensionNotification("installation", "ezcorp/event/test", { _meta: { ezCallId } });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(jobs[0]?.state).toBe("queued");
+    expect(invocations).toHaveLength(0);
+    paused = false;
+    await pending;
+    expect(invocations).toHaveLength(1);
+  } finally { releaseCallProvenance(ezCallId); }
+});
+
+test("event wiring and live event grant are checked again before worker dispatch", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  for (const revoke of ["wiring", "grant"] as const) {
+    eventWired = true; eventGranted = true;
+    beforeDispatch = () => { if (revoke === "wiring") eventWired = false; else eventGranted = false; };
+    const ezCallId = token();
+    try { await expect(enqueueExtensionNotification("installation", "ezcorp/event/test", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_outcome_unknown"); } finally { releaseCallProvenance(ezCallId); }
+  }
+  expect(invocations).toHaveLength(0);
+});
 
 test("queues frozen release identity and acknowledges handler completion", async () => {
   const wire = mock(() => {});

@@ -1,0 +1,73 @@
+import { sql } from "drizzle-orm";
+import { assertJson, canonicalJson, sha256, type InstallationRecord } from "@ezcorp/extension-contract";
+import type { MigrationDb } from "../db/migrations/types";
+import { releaseRows } from "../db/queries/extension-releases";
+import type { AgentEvents } from "../types";
+import type { EventBus } from "../runtime/events";
+import { DIRECT_CARRIER_EVENT_TYPES } from "../runtime/sse-conversation-filter";
+import { ExtensionDeliveryQueue, type ExtensionDelivery } from "./v4/deliveries";
+import { LifecycleError } from "./v4/types";
+import type { ExtensionPermissions } from "./types";
+
+export interface DomainExtensionEvent {
+  id: string;
+  type: keyof AgentEvents & string;
+  conversationId: string;
+  payload: Record<string, unknown>;
+}
+
+const persistedPayloads = new WeakSet<object>();
+const HEAVY_EVENTS = new Set(["tool:start", "tool:complete", "tool:permission_request"]);
+
+export function isPersistedDomainEvent(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && persistedPayloads.has(payload);
+}
+
+export function emitPersistedDomainEvent(bus: EventBus<AgentEvents> | undefined, event: DomainExtensionEvent): void {
+  persistedPayloads.add(event.payload);
+  bus?.emit(event.type, event.payload as AgentEvents[typeof event.type]);
+}
+
+export function sanitizeDomainEvent(type: string, payload: Record<string, unknown>, includeFullPayload: boolean): Record<string, unknown> {
+  const { _meta, ...clean } = payload;
+  if (!HEAVY_EVENTS.has(type) || includeFullPayload) return clean;
+  const { input, output, ...metadata } = clean;
+  return metadata;
+}
+
+interface TargetRow { installation: string; permissions: ExtensionPermissions | string; name: string }
+
+export async function publishDomainEvent(transaction: MigrationDb, event: DomainExtensionEvent): Promise<ExtensionDelivery[]> {
+  if (!event.id || event.id.length > 256 || !event.conversationId || event.conversationId.length > 256 || !DIRECT_CARRIER_EVENT_TYPES.has(event.type)) throw new LifecycleError("invalid_event", "A bounded host domain event identity is required.");
+  const serialized = JSON.stringify({ ...event.payload, conversationId: event.conversationId });
+  if (Buffer.byteLength(serialized) > 256 * 1024) throw new LifecycleError("event_payload_limit", "Domain event exceeds the durable payload limit.");
+  const payload = JSON.parse(serialized) as Record<string, unknown>;
+  assertJson(payload);
+  const owners = releaseRows<{ user_id: string | null; project_id: string | null }>(await transaction.execute(sql`SELECT c.user_id, c.project_id FROM conversations c JOIN users u ON u.id = c.user_id WHERE c.id = ${event.conversationId} AND u.status = 'active' FOR SHARE OF c, u`));
+  const owner = owners[0];
+  if (!owner?.user_id) return [];
+  const targets = releaseRows<TargetRow>(await transaction.execute(sql`SELECT i.payload AS installation, e.granted_permissions AS permissions, e.name FROM conversation_extensions ce JOIN extension_release_installations i ON i.id = ce.extension_id JOIN extensions e ON e.id = i.id WHERE ce.conversation_id = ${event.conversationId} AND e.enabled = true ORDER BY i.id FOR UPDATE OF i`));
+  const deliveries: ExtensionDelivery[] = [];
+  const deduplicationId = await sha256(canonicalJson(["domain", event.type, event.id, event.conversationId]));
+  const eventDigest = await sha256(canonicalJson(payload));
+  for (const target of targets) {
+    const installation = JSON.parse(target.installation) as InstallationRecord;
+    const permissions = typeof target.permissions === "string" ? JSON.parse(target.permissions) as ExtensionPermissions : target.permissions;
+    const declaration = installation.grants.map(grant => JSON.parse(grant) as [string, unknown]).find(([name]) => name === "eventSubscriptions")?.[1] as string[] | { events?: string[]; includeFullPayload?: boolean } | undefined;
+    const sealedEvents = Array.isArray(declaration) ? declaration : declaration?.events;
+    if (!installation.enabled || installation.uninstalled || !installation.activeReleaseId || !permissions.eventSubscriptions?.includes(event.type) || !sealedEvents?.includes(event.type)) continue;
+    const pending = releaseRows<{ count: number }>(await transaction.execute(sql`SELECT COUNT(*)::int AS count FROM extension_release_deliveries WHERE installation_id = ${installation.id} AND state IN ('queued', 'leased') AND deduplication_id <> ${deduplicationId}`));
+    if ((pending[0]?.count ?? 0) >= 10000) throw new LifecycleError("event_queue_full", "Domain event queue capacity is exhausted; the state transaction was not committed.");
+    const run = payload.run as { id?: unknown } | undefined;
+    deliveries.push(await ExtensionDeliveryQueue.enqueueInTransaction(transaction, {
+      installationId: installation.id, releaseId: installation.activeReleaseId, generation: installation.generation,
+      principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: "event",
+      input: { eventDigest, method: `ezcorp/event/${event.type}`, params: sanitizeDomainEvent(event.type, payload, !Array.isArray(declaration) && declaration?.includeFullPayload === true), provenance: {
+        onBehalfOf: owner.user_id, conversationId: event.conversationId, ...(owner.project_id ? { projectId: owner.project_id } : {}),
+        runId: typeof run?.id === "string" ? run.id : typeof payload.runId === "string" ? payload.runId : null,
+        parentCallId: null, actorExtensionId: installation.id, kind: "event", ownerless: false,
+      } },
+    }));
+  }
+  return deliveries;
+}

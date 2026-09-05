@@ -26,6 +26,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
+mock.module("../db/queries/runs", () => ({ updateRun: async (run: { id: string; status: string }, event: { id: string }) => { expect(event.id).toBe(`run:${run.id}:${run.status}`); } }));
 
 // ── Mocked DB sinks (must precede SUT import) ──────────────────────────
 

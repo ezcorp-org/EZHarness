@@ -4,6 +4,8 @@ import type { AssistantMessage } from "../../types";
 import { logger } from "../../logger";
 import { getDb } from "../../db/connection";
 import { toolCalls, conversations } from "../../db/schema";
+import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { LifecycleError } from "../../extensions/v4/types";
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { appendSavedMessageEntry } from "../../db/session-sync";
 import {
@@ -127,7 +129,7 @@ export function subscribeBridge(
   // Serialize async DB operations from the sync subscribe callback.
   // Closure over `ctx.dbQueue` so the success/cancel paths can `await ctx.dbQueue`.
   const queueDb = (fn: () => Promise<void>) => {
-    ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => log.error("DB error", { error: String(err) }));
+    ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => { log.error("DB error", { error: String(err) }); if (err instanceof LifecycleError && err.code === "event_persist_failed") ctx.domainEventFailure = err; });
   };
 
   // Subscribe to AgentEvents and bridge to local EventBus
@@ -327,25 +329,15 @@ export function subscribeBridge(
           endToolDef?.cardLayout ?? endRegistered?.cardLayout,
           event.toolName,
         );
-        if (event.toolName !== "invoke_agent") {
-          if (event.isError) {
-            host.bus.emit("tool:error", {
-              conversationId, extensionId: "", toolName: event.toolName,
-              error: typeof event.result === 'string' ? event.result : JSON.stringify(event.result), duration: 0,
-              cardType: endCardType,
-              ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
-              invocationId: event.toolCallId,
-            });
-          } else {
-            host.bus.emit("tool:complete", {
-              conversationId, extensionId: "", toolName: event.toolName,
-              output: event.result, duration: 0, success: true,
-              cardType: endCardType,
-              ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
-              invocationId: event.toolCallId,
-            });
-          }
-        }
+        const toolEvent: DomainExtensionEvent | undefined = event.toolName === "invoke_agent" ? undefined : {
+          id: crypto.randomUUID(), type: event.isError ? "tool:error" : "tool:complete", conversationId,
+          payload: {
+            conversationId, extensionId: "", toolName: event.toolName, duration: 0,
+            ...(event.isError ? { error: typeof event.result === "string" ? event.result : JSON.stringify(event.result) } : { output: event.result, success: true }),
+            cardType: endCardType, ...(endCardLayout ? { cardLayout: endCardLayout } : {}), invocationId: event.toolCallId,
+          },
+        };
+        if (!host.persist && toolEvent) host.bus.emit(toolEvent.type, toolEvent.payload as never);
         // Persist built-in tool calls to DB so diff panel survives page refresh.
         // `providerToolCallId: event.toolCallId` (NOT `id` — see the doc on
         // `ToolCallRow`/`toolCalls.id` in schema.ts) is what lets streaming
@@ -365,7 +357,7 @@ export function subscribeBridge(
           // persistToolCall is the single insert site for tool_calls — keeps
           // the four analytics dimensions (user/agent/model/provider) in
           // lockstep with the extension-tool write path.
-          queueDb(() => persistToolCall({
+          queueDb(async () => { await persistToolCall({
             providerToolCallId: event.toolCallId,
             conversationId,
             messageId: null,
@@ -381,7 +373,7 @@ export function subscribeBridge(
             agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
             model: options.model ?? convRecord?.model ?? null,
             provider: options.provider ?? convRecord?.provider ?? null,
-          }));
+          }, toolEvent); if (toolEvent) emitPersistedDomainEvent(host.bus, toolEvent); });
         }
         break;
       }

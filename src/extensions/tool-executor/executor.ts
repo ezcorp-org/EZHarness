@@ -15,6 +15,7 @@ import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
+import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../domain-event-outbox";
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
@@ -500,6 +501,17 @@ export class ToolExecutor {
           content: [{ type: "text", text: message }],
           isError: true,
         };
+        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+          conversationId,
+          extensionId,
+          toolName,
+          error: message,
+          duration: Date.now() - promptStartedAt,
+          ...(registered.cardType && { cardType: registered.cardType }),
+          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+          ...(meta?.source && { source: meta.source }),
+          ...(meta?.invocationId && { invocationId: meta.invocationId }),
+        } };
         await this.recordToolCall(
           conversationId,
           messageId,
@@ -510,18 +522,9 @@ export class ToolExecutor {
           promptStartedAt,
           registered.cardType,
           registered.cardLayout,
+          toolEvent,
         );
-        this.bus?.emit("tool:error", {
-          conversationId,
-          extensionId,
-          toolName,
-          error: message,
-          duration: Date.now() - promptStartedAt,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        });
+        emitPersistedDomainEvent(this.bus, toolEvent);
       };
 
       // Emit tool:start FIRST so the card + tool_ref block exist before
@@ -726,19 +729,8 @@ export class ToolExecutor {
         const handlers = buildEntityToolHandlers(decl, store);
         const handler = handlers[registered.entityKind];
         const entityResult = await handler(resolvedInput);
-        await this.recordToolCall(
-          conversationId,
-          messageId,
-          extensionId,
-          toolName,
-          input,
-          entityResult,
-          startTime,
-          registered.cardType,
-          registered.cardLayout,
-        );
         const duration = Date.now() - startTime;
-        this.bus?.emit("tool:complete", {
+        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
           conversationId,
           extensionId,
           toolName,
@@ -749,7 +741,20 @@ export class ToolExecutor {
           ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
           ...(meta?.source && { source: meta.source }),
           ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        });
+        } };
+        await this.recordToolCall(
+          conversationId,
+          messageId,
+          extensionId,
+          toolName,
+          input,
+          entityResult,
+          startTime,
+          registered.cardType,
+          registered.cardLayout,
+          toolEvent,
+        );
+        emitPersistedDomainEvent(this.bus, toolEvent);
         return entityResult;
       }
 
@@ -887,20 +892,8 @@ export class ToolExecutor {
       }
 
       // Record to tool_calls table
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        result,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-      );
-
       const duration = Date.now() - startTime;
-      this.bus?.emit("tool:complete", {
+      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
         conversationId,
         extensionId,
         toolName,
@@ -911,7 +904,20 @@ export class ToolExecutor {
         ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
         ...(meta?.source && { source: meta.source }),
         ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
+      } };
+      await this.recordToolCall(
+        conversationId,
+        messageId,
+        extensionId,
+        toolName,
+        input,
+        result,
+        startTime,
+        registered.cardType,
+        registered.cardLayout,
+        toolEvent,
+      );
+      emitPersistedDomainEvent(this.bus, toolEvent);
 
       return result;
     } catch (error) {
@@ -922,6 +928,18 @@ export class ToolExecutor {
       };
 
       // Record error to tool_calls table
+      const duration = Date.now() - startTime;
+      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+        conversationId,
+        extensionId,
+        toolName,
+        error: errorMsg,
+        duration,
+        ...(registered.cardType && { cardType: registered.cardType }),
+        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+        ...(meta?.source && { source: meta.source }),
+        ...(meta?.invocationId && { invocationId: meta.invocationId }),
+      } };
       await this.recordToolCall(
         conversationId,
         messageId,
@@ -932,20 +950,9 @@ export class ToolExecutor {
         startTime,
         registered.cardType,
         registered.cardLayout,
+        toolEvent,
       );
-
-      const duration = Date.now() - startTime;
-      this.bus?.emit("tool:error", {
-        conversationId,
-        extensionId,
-        toolName,
-        error: errorMsg,
-        duration,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
+      emitPersistedDomainEvent(this.bus, toolEvent);
 
       return errorResult;
     }
@@ -1396,6 +1403,7 @@ export class ToolExecutor {
     startTime: number,
     cardType?: string,
     cardLayout?: string,
+    event?: DomainExtensionEvent,
   ): Promise<void> {
     // Route through the shared persist helper — single insert site for
     // tool_calls across the extension-tool path here and the built-in
@@ -1424,6 +1432,6 @@ export class ToolExecutor {
       agentConfigId: this.currentAgentConfigId ?? null,
       model: this.currentModel ?? null,
       provider: this.currentProvider ?? null,
-    });
+    }, event);
   }
 }

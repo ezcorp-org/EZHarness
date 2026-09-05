@@ -1,3 +1,4 @@
+import { emitTerminalRun } from "../domain-events";
 import { and, eq, isNull } from "drizzle-orm";
 import { ProviderUnavailableError } from "../../providers/router";
 import { friendlyProviderError } from "../../providers/provider-error";
@@ -69,6 +70,7 @@ export async function finalizeSuccess(
   host.bus.emit("run:status", { runId: run.id, status: "Saving response..." });
   // Wait for all queued per-turn DB operations to complete
   await ctx.dbQueue;
+  if (ctx.domainEventFailure) throw ctx.domainEventFailure;
 
   // Fallback: if no turns were saved (edge case), save allTurnsText as single
   // message. "No turn saved" is detected against ctx.turnParentMessageId (not
@@ -106,7 +108,7 @@ export async function finalizeSuccess(
     }
   }
 
-  host.bus.emit("run:complete", { run, conversationId });
+  await emitTerminalRun(host, run, "run:complete", { run, conversationId });
   host.bus.emit("obs:turn", {
     conversationId,
     llmDurationMs: Date.now() - ctx.turnStart,
@@ -163,7 +165,7 @@ export async function finalizeError(
         log.error("Failed to persist partial response", { error: String(persistErr) });
       }
     }
-    host.bus.emit("run:cancel", { run, conversationId });
+    await emitTerminalRun(host, run, "run:cancel", { run, conversationId });
     return;
   }
 
@@ -189,7 +191,7 @@ export async function finalizeError(
         host.persist,
       );
     }
-    host.bus.emit("run:error", { run, runId: run.id, error: errorPayload, conversationId });
+    await emitTerminalRun(host, run, "run:error", { run, runId: run.id, error: errorPayload, conversationId });
     return;
   }
 
@@ -219,7 +221,7 @@ export async function finalizeError(
       host.persist,
     );
   }
-  host.bus.emit("run:error", { run, runId: run.id, error: message, conversationId });
+  await emitTerminalRun(host, run, "run:error", { run, runId: run.id, error: message, conversationId });
 }
 
 /**
@@ -293,7 +295,7 @@ export async function finalizeSetupError(
     if (claimErrorPersistSlot(host, run.id)) {
       await persistErrorMessage(conversationId, `Error: ${message}`, options, run.id, host.persist);
     }
-    host.bus.emit("run:error", { run, runId: run.id, error: message, conversationId });
+    await emitTerminalRun(host, run, "run:error", { run, runId: run.id, error: message, conversationId });
   }
   // Abort the controller so any in-flight sub-agents (auto-spin-up) get cancelled
   const ctrl = host.controllers.get(run.id);

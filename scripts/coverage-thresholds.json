@@ -1,5 +1,7 @@
 {
   "src/extensions/ez-factory-release-agents.ts": 100,
+  "src/extensions/domain-event-outbox.ts": 100,
+  "src/runtime/domain-events.ts": 100,
   "packages/@ezcorp/sdk/src/test/filesystem.ts": 100,
   "src/extensions/project-access.ts": 100,
   "src/extensions/project-binding.ts": 100,

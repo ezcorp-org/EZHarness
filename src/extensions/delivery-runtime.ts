@@ -4,6 +4,8 @@ import type { ExtensionProcess } from "./subprocess";
 import { extensionLogger } from "../logger";
 import { LifecycleError } from "./v4/types";
 import type { ExtensionDelivery } from "./v4/deliveries";
+import { capabilityToolsDisabled } from "./capability-flags";
+import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 
 const log = extensionLogger("delivery", "runtime");
 let wireProcess: ((extensionId: string, process: ExtensionProcess) => void) | undefined;
@@ -57,6 +59,13 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
   const { getUserById } = await import("../db/queries/users");
   const user = await getUserById(input.provenance.onBehalfOf);
   if (user?.status !== "active") throw new LifecycleError("delivery_revoked", "Delivery principal is no longer active.");
+  if (input.method.startsWith("ezcorp/event/")) {
+    const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
+    const { getExtension } = await import("../db/queries/extensions");
+    const extension = await getExtension(delivery.installationId);
+    const wired = input.provenance.conversationId ? await getConversationExtensionIds(input.provenance.conversationId) : [];
+    if (!extension?.enabled || !wired.includes(delivery.installationId) || !extension.grantedPermissions.eventSubscriptions?.includes(input.method.slice("ezcorp/event/".length))) throw new LifecycleError("delivery_revoked", "Event subscription or conversation wiring was revoked.");
+  }
   const project = await resolveDeliveryProject(delivery.installationId, user.id, input.provenance.conversationId);
   if (project.projectId !== input.provenance.projectId || project.projectBindingId !== input.provenance.projectBindingId) throw new LifecycleError("delivery_revoked", "Delivery project approval changed.");
   const { ExtensionRegistry } = await import("./registry");
@@ -71,11 +80,15 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
 
 export async function drainExtensionDeliveries(): Promise<void> {
   if (!wireProcess) return;
+  if (capabilityToolsDisabled() || await loopsKillSwitchEngaged()) return;
   if (draining) return draining;
   draining = (async () => {
     const { getExtensionDeliveryQueue } = await import("./extension-lifecycle-service");
     const queue = await getExtensionDeliveryQueue();
-    for (let count = 0; count < 100; count++) if (!(await queue.dispatch(dispatch))) break;
+    for (let count = 0; count < 100; count++) {
+      if (capabilityToolsDisabled() || await loopsKillSwitchEngaged()) break;
+      if (!(await queue.dispatch(dispatch))) break;
+    }
   })();
   try { await draining; } finally { draining = undefined; }
 }

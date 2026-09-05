@@ -1,7 +1,9 @@
 import { eq, desc, and, isNull, sql, inArray } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { runs, runLogs } from "../schema";
 import type { AgentRun, AgentLog, AgentResult } from "../../types";
+import { publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { canonicalJson } from "@ezcorp/extension-contract";
 
 /**
  * Resolve the ROOT conversation owner for a chat run.
@@ -116,12 +118,21 @@ export async function getRunConversationId(id: string): Promise<string | undefin
   return rows[0]?.conversationId ?? undefined;
 }
 
-export async function updateRun(run: AgentRun): Promise<void> {
-  await getDb().update(runs).set({
-    status: run.status,
-    finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
-    result: run.result ?? null,
-  }).where(eq(runs.id, run.id));
+export async function updateRun(run: AgentRun, event?: DomainExtensionEvent): Promise<void> {
+  const values = { status: run.status, finishedAt: run.finishedAt ? new Date(run.finishedAt) : null, result: run.result ?? null };
+  if (!event) { await getDb().update(runs).set(values).where(eq(runs.id, run.id)); return; }
+  await getDb().transaction(async (transaction: DbTransaction) => {
+    const [current] = await transaction.select({ status: runs.status, conversationId: runs.conversationId, result: runs.result }).from(runs).where(eq(runs.id, run.id)).for("update");
+    if (!current) { if (event) throw new Error("Terminal event has no stored run"); return; }
+    const expectedType = run.status === "success" ? "run:complete" : run.status === "error" ? "run:error" : run.status === "cancelled" ? "run:cancel" : undefined;
+    if (event && (event.type !== expectedType || event.conversationId !== current.conversationId || event.id !== `run:${run.id}:${run.status}`)) throw new Error("Terminal event does not match its stored run");
+    if (event && current.status !== "running") {
+      if (current.status !== run.status || canonicalJson(current.result) !== canonicalJson(run.result ?? null)) throw new Error("Terminal run event conflicts with its committed state");
+      return;
+    }
+    await transaction.update(runs).set(values).where(eq(runs.id, run.id));
+    if (event && current.status === "running") await publishDomainEvent(transaction, event);
+  });
 }
 
 /**

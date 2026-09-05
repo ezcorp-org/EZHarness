@@ -42,11 +42,14 @@ export class ExtensionDeliveryQueue {
   constructor(private readonly database: ReleaseDatabase, private readonly now: () => number = Date.now) {}
 
   async enqueue(input: Pick<ExtensionDelivery, "installationId" | "releaseId" | "generation" | "principalId" | "scope" | "deduplicationId" | "kind" | "input" | "transportContext">): Promise<ExtensionDelivery> {
+    return this.database.transaction(transaction => ExtensionDeliveryQueue.enqueueInTransaction(transaction, input, this.now));
+  }
+
+  static async enqueueInTransaction(transaction: MigrationDb, input: Pick<ExtensionDelivery, "installationId" | "releaseId" | "generation" | "principalId" | "scope" | "deduplicationId" | "kind" | "input" | "transportContext">, now: () => number = Date.now): Promise<ExtensionDelivery> {
     assertJson(input.input);
     if (input.transportContext !== undefined) assertJson(input.transportContext);
     for (const value of [input.installationId, input.releaseId, input.principalId, input.scope, input.deduplicationId]) if (!value || value.length > 512) throw new LifecycleError("invalid_delivery", "Delivery identity fields are required and bounded.");
     if (!["event", "webhook", "schedule"].includes(input.kind)) throw new LifecycleError("invalid_delivery", "Unsupported delivery kind.");
-    return this.database.transaction(async (transaction) => {
       const installations = resultRows<{ payload: string }>(await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${input.installationId} FOR UPDATE`));
       const installation: InstallationRecord | undefined = installations[0] ? JSON.parse(installations[0].payload) : undefined;
       if (!installation?.enabled || installation.uninstalled || installation.generation !== input.generation || installation.activeReleaseId !== input.releaseId || installation.ownerId !== input.principalId || installation.scope !== input.scope) throw new LifecycleError("delivery_authority_changed", "Delivery does not match its active installation and recorded owner.");
@@ -57,10 +60,9 @@ export class ExtensionDeliveryQueue {
         if (canonicalJson(identity(previous)) !== canonicalJson(identity(input))) throw new LifecycleError("delivery_conflict", "Deduplication ID already identifies another delivery.");
         return previous;
       }
-      const delivery: ExtensionDelivery = { ...input, id: randomUUID(), state: "queued", attempts: 0, maxAttempts: 3, availableAt: this.now(), leaseUntil: 0, createdAt: this.now() };
+      const delivery: ExtensionDelivery = { ...input, id: randomUUID(), state: "queued", attempts: 0, maxAttempts: 3, availableAt: now(), leaseUntil: 0, createdAt: now() };
       await transaction.execute(sql`INSERT INTO extension_release_deliveries (id, installation_id, deduplication_id, generation, state, available_at, lease_until, payload) VALUES (${delivery.id}, ${delivery.installationId}, ${delivery.deduplicationId}, ${delivery.generation}, ${delivery.state}, ${delivery.availableAt}, 0, ${JSON.stringify(delivery)})`);
       return delivery;
-    });
   }
 
   async claim(leaseMs = 60_000): Promise<ExtensionDelivery | null> {

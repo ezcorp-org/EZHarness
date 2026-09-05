@@ -1,5 +1,7 @@
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
+import { publishDomainEvent, type DomainExtensionEvent } from "../../extensions/domain-event-outbox";
+import { LifecycleError } from "../../extensions/v4/types";
 import { toolCalls } from "../schema";
 import { redactForAudit, redactToolCallOutputContent } from "../../extensions/audit-redaction";
 import { persistableConversationId } from "../../runtime/workflow-scope-key";
@@ -223,13 +225,13 @@ export async function listToolCallExtensionIdsForMessage(
  * records the step, and the observability event for the same call carries
  * `data.workflowRunId`.
  */
-export async function persistToolCall(row: ToolCallRow): Promise<void> {
+export async function persistToolCall(row: ToolCallRow, event?: DomainExtensionEvent): Promise<void> {
   try {
-    await getDb().insert(toolCalls).values({
+    const insert = async (database: Pick<DbTransaction, "insert">) => database.insert(toolCalls).values({
       // `row.id`, when set, is a HOST-MINTED uuid (see the doc above) — the
       // DB default kicks in otherwise. Never a provider wire id; that goes
       // in `providerToolCallId`.
-      ...(row.id ? { id: row.id } : {}),
+      ...(row.id || event ? { id: row.id ?? event!.id } : {}),
       conversationId: persistableConversationId(row.conversationId),
       messageId: row.messageId,
       extensionId: row.extensionId,
@@ -248,6 +250,10 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
       provider: row.provider ?? null,
       providerToolCallId: row.providerToolCallId ?? null,
     });
+    if (event) {
+      if (event.conversationId !== row.conversationId) throw new LifecycleError("invalid_event", "Tool event does not match its stored conversation.");
+      await getDb().transaction(async (transaction: DbTransaction) => { await insert(transaction); await publishDomainEvent(transaction, event); });
+    } else await insert(getDb());
   } catch (err) {
     // Never-throw contract preserved: a DB persistence failure must not break
     // tool execution (the caller has already returned data to the LLM/user).
@@ -304,5 +310,6 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
         error: redactForAudit(String(err)).redacted,
       },
     });
+    if (event) throw new LifecycleError("event_persist_failed", "Tool result and its extension event were not committed.");
   }
 }

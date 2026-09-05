@@ -18,6 +18,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
+mock.module("../db/queries/runs", () => ({ updateRun: async (run: { id: string; status: string }, event: { id: string }) => { expect(event.id).toBe(`run:${run.id}:${run.status}`); } }));
 
 // ── Mocked DB sinks (must precede SUT import) ──────────────────────────
 
@@ -90,6 +91,14 @@ beforeEach(() => {
 });
 
 describe("finalizeSuccess — cancelled-run guard (Stop racing a clean completion)", () => {
+  test("a failed durable tool event cannot be reported as successful run completion", async () => {
+    const ctx = makeCtx("running");
+    ctx.domainEventFailure = new Error("durable event write failed");
+    const { host, events } = makeHost();
+    await expect(finalizeSuccess(ctx, host, CONV_ID, { parentMessageId: USER_MSG })).rejects.toThrow("durable event write failed");
+    expect(events).not.toContain("run:complete");
+    expect(createdMessages).toHaveLength(0);
+  });
   test("cancelled run: status/result/finishedAt untouched, no events, no fallback save", async () => {
     const ctx = makeCtx("cancelled");
     const { host, events } = makeHost();
