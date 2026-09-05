@@ -32,23 +32,23 @@ Each installation has a 10,000 pending delivery limit. Representation or capacit
 
 Large-payload proof: `/tmp/lifecycle-payload-sized.log`, 22 tests and 90 assertions pass, including actual SQL multi-MiB tool output with metadata-only/no subscribers, full stored terminal result plus unchanged UI object, and explicit full-payload overflow rollback. Existing SIGKILL tests remain green.
 
-## Remaining producer work
+## Reconciled producer guarantees
 
 Event subscriptions currently have no time-to-live policy: `mapGrantKeyToExpiryKind("eventSubscriptions")` returns `null`. Their current installed and conversation-scoped allowlists are both checked before admission and again before a worker receives the event. Project membership is rechecked before dispatch, including owned conversations. Other capability expiry never grants permission to receive event data.
 
-These paths retain their previous bus behavior, not a new no-loss guarantee. Do not mark the complete extension reliability plan done from this leaf.
+This matrix replaces the initial remaining-work inventory using recorded follow-up proof. It does not mark final integrated coverage or the complete extension reliability plan done.
 
-| Retained event kinds | Producers still outside a shared state/outbox transaction |
+| Retained event kinds | Current guarantee and proof |
 | --- | --- |
-| `run:complete`, `run:error`, `run:cancel` outside stream-chat finalization | `src/runtime/executor.ts`, `src/runtime/executor-watchdog.ts`, `src/db/queries/runs.ts` (`finalizeRunRow`, `terminalizeOrphanedRuns`), `web/src/routes/api/conversations/[id]/active-run/+server.ts` |
+| `run:complete`, `run:error`, `run:cancel` outside stream-chat finalization | Terminal source transactions cover executor, watchdog, row finalization, orphan recovery and active-run routes. `/tmp/terminal-final.log`:118 tests,380 assertions. |
 | `tool:complete` from preview detection | `src/runtime/preview/preview-detection-bridge.ts`; synthetic preview notification, not a persisted tool call |
-| `task:snapshot`, `task:assignment_update` | `src/extensions/task-events-handler.ts`, `src/runtime/start-assignment.ts`, `src/runtime/boot-reconcile-assignments.ts`, `web/src/lib/server/task-helpers.ts`; terminal assignment notifications are high-priority follow-up work |
+| `task:snapshot`, `task:assignment_update` | Shared transactional snapshot/assignment writer and bounded same-boot repair. `/tmp/lifecycle-task-writer-final.log`:52 tests,161 assertions; `/tmp/lifecycle-task-isolated-serialized.log`:1 real worker test,15 assertions. Recovery can take an hourly maintenance interval; no automatic child spawn replay. |
 | `ask-user:answer` | Completed by `src/runtime/ask-user-answer.ts`: durable accepted-answer receipt and queue transaction; pending question process resumption remains transient. See `tasks/extension-v4-event-receipts.md`. |
-| Extension-owned `<name>:<event>` | `web/src/routes/api/extensions/[name]/events/[event]/+server.ts`; keep existing namespace/provenance checks when moving its accepted event into a transaction |
-| `run:turn_saved` | `src/runtime/stream-chat/subscribe-bridge.ts`, extension event route above; combine message/tree changes and delivery insertion |
-| `goal:update` | `src/runtime/goal-host.ts` |
-| `tool:start`, `tool:permission_request`, `tool:permission_mode_change`, `obs:turn` | Existing transient runtime/permission bus producers; decide which need durable domain records, rather than inventing a successful state write |
-| `extensions:installed`, `conversation:created`, `briefing:delivered`, `conversation:tree-changed` | Existing lifecycle/conversation/briefing producers; user-only payloads without a conversation are not delivered by the current extension dispatcher |
-| `loops:approval_pending`, `loops:approval_resolved`, `loops:auto_disabled` | Existing loop approval/disable producers; bind the approved scope and state transaction before publication |
+| Extension-owned `<name>:<event>` | Generic conversation/Hub actions use owner receipts and production delivery. `/tmp/lifecycle-custom-isolated.log`:5 tests,37 assertions; namespace, payload conflicts and restart are covered. Specialized host file-organizer actions are not covered by these receipts. |
+| `run:turn_saved` | Message/session append and outbox share a transaction. `/tmp/v4-turn-source-sql.log`:4 tests,13 assertions including queue backpressure preserving the old leaf. Extension append uses the same publisher; this audit does not invent a new isolated append proof. |
+| `goal:update` | Durable goal transition CAS plus outbox. `/tmp/ez-goal-durable-green2.log`:5 tests,24 assertions. |
+| `tool:start`, `tool:permission_request`, `tool:permission_mode_change`, `obs:turn` | Transient runtime/permission observations remain explicitly best effort, not durable terminal state. |
+| `extensions:installed`, `conversation:created`, `briefing:delivered`, `conversation:tree-changed` | Conversationless install notices remain outside extension delivery. Briefing completion intents commit scoped creation/delivery events once: `/tmp/v4-briefing-intents-pipeline.log`,9 tests,35 assertions. Rewind route proof: `/tmp/v4-rewind-route-final.log`,9 passing tests. |
+| `loops:approval_pending`, `loops:approval_resolved`, `loops:auto_disabled` | Scoped notices commit receipt/audit/outbox; global notices remain ephemeral and do not prove human approval. `/tmp/ez-loop-final-tests.log`:32 tests,92 assertions. See `docs/extension-loop-event-admission-plan.md`. |
 
 External tool effects, and entity writes performed before their tool-call record, are not made atomic with that record by this change. The queue never automatically retries an uncertain worker effect. This is not an exactly-once external-effects claim.

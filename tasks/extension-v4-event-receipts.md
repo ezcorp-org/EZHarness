@@ -4,10 +4,14 @@
 - [x] Reject changed payload or scope on replay; keep distinct user actions distinct.
 - [x] Keep receipts for at least 30 days and do not remove receipts while referenced deliveries remain pending or uncertain.
 - [x] Commit accepted ask-user answers before bus delivery; state explicitly that pending question processes remain transient.
-- [ ] Send stable idempotency keys from shared browser event clients and enforce them at the server.
-- [ ] Move task snapshot and assignment state plus notifications into the same transaction.
-- [ ] Cover remaining terminal run producers and audit retained state events.
-- [ ] Prove SQL rollback, concurrent replay, restart recovery, cross-user isolation, and changed-payload rejection.
+- [x] Send stable idempotency keys from shared browser event clients and enforce them at the server.
+  EVIDENCE: Generic Hub/custom HTTP proof below; `/tmp/lifecycle-custom-isolated.log`:5 tests,37 assertions. Specialized host built-ins remain explicitly excluded.
+- [x] Move task snapshot and assignment state plus notifications into the same transaction.
+  EVIDENCE: Task state gates below;52 SQL/RPC/recovery tests and1 real concurrent-worker test pass.
+- [x] Cover remaining terminal run producers and audit retained state events.
+  EVIDENCE: `/tmp/terminal-final.log`:118 tests,380 assertions. The current durable/transient producer matrix is in `tasks/extension-v4-domain-outbox.md`; it does not classify every UI notice as durable.
+- [x] Prove SQL rollback, concurrent replay, restart recovery, cross-user isolation, and changed-payload rejection.
+  EVIDENCE:6 receipt SQL tests,41 assertions, plus actual PostgreSQL proof below and `/tmp/lifecycle-final-postgres.log`.
 
 ## Immediate Regression Work
 
@@ -21,7 +25,7 @@ Evidence: `/tmp/lifecycle-unit-persist-red.log` has 28 failing registry/executor
 
 All 14 unit suites pass individually. `/tmp/lifecycle-async-wire-green.log` proves 16 passing tests and 70 assertions across queue dispatch and the real rootless lessons worker. `/tmp/lifecycle-boot-isolated-final.log` adds the real lazy boot/restart case: 4 tests, 40 assertions. A runtime restart does not repeat an old delivery; each new event starts one owner-bound isolated worker. `/tmp/lifecycle-persist-types.log` is a completed TypeScript run with no errors in this leaf's changed files; global unrelated errors remain.
 
-The remaining receipt and producer gates are not complete. This file is not proof of full event durability.
+The receipt and producer follow-up proofs below supersede this initial fixture stage. This file is not proof of universal event durability or final integrated coverage.
 
 ## Receipt Contract
 
@@ -31,7 +35,7 @@ Keys are 1–128 printable ASCII characters. New user actions must use new keys,
 
 Admission has fixed limits of 10,000 retained receipts per owner and 100,000 globally. A shared database row lock makes the quota check atomic across processes; equal retries remain allowed at capacity. Missing quota-lock state fails closed. The existing host maintenance daemon runs bounded cleanup each tick and logs cleanup errors. If that daemon is disabled or unhealthy, cleanup stops and new actions eventually fail with capacity errors; retention is never shortened to make space. Restore maintenance rather than deleting live or uncertain history. Empty-recipient receipts retain only an answer digest, not the answer text; they do not recover an interrupted host question or turn.
 
-Receipt SQL tests: `/tmp/lifecycle-receipts-final.log`, 6 tests and 41 assertions pass. Migration and query line coverage are 5/5 and 40/40, respectively, with required 100% threshold keys. Queue recovery uses a new queue instance over committed SQL. Existing SIGKILL tests prove the shared database transaction boundary. These receipts are not yet connected to every producer listed above.
+Receipt SQL tests: `/tmp/lifecycle-receipts-final.log`, 6 tests and 41 assertions pass. Migration and query line coverage are 5/5 and 40/40, respectively, with required 100% threshold keys. Queue recovery uses a new queue instance over committed SQL. Existing SIGKILL tests prove the shared database transaction boundary. Later producer coverage and explicit exclusions are recorded below and in the domain outbox matrix.
 
 Actual PostgreSQL 16 proof: `/tmp/lifecycle-postgres-receipts.log`. `scripts/verify-extension-postgres.ts` now checks shared domain-state/receipt/queue rollback, committed recovery, hidden payload stripping, changed-payload conflict, cross-owner receipt isolation, zero-recipient replay, and retention, in addition to the existing lifecycle CAS, migration, JSON fidelity, and delivery fencing tests. The disposable rootless PostgreSQL container was removed after the passing run.
 
