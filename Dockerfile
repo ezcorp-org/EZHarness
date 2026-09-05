@@ -256,6 +256,7 @@ VOLUME /app/.ezcorp
 EXPOSE 3000
 
 ENV EZCORP_PORT=3000
+ENV BODY_SIZE_LIMIT=134217728
 ENV EZCORP_DB_PATH=/app/data/ezcorp
 # Pin the runtime mode. The test/determinism HTTP surface (/api/__test/**)
 # is fail-safe gated on `NODE_ENV !== "production"` (see

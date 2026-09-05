@@ -1,7 +1,7 @@
 import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { realpath, lstat } from "node:fs/promises";
 import { snapshotExtensionSource, snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
-import { canonicalJson, validatePublishedRelease, validateWorkspaceFiles, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { canonicalJson, encodeWorkspaceFile, isWorkspaceTextPath, workspaceFileBytes, workspaceText, validatePublishedRelease, validateWorkspaceFiles, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { getVersionById } from "../db/queries/marketplace-versions";
 import { getListingById } from "../db/queries/marketplace";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
@@ -99,13 +99,14 @@ export async function collectGitHubSource(input: Extract<ExtensionSourceInput, {
     if (typeof entry.sha !== "string" || !/^[a-f0-9]{40,64}$/.test(entry.sha) || typeof entry.size !== "number" || entry.size > 4 * 1024 * 1024 || Object.keys(files).length >= 4096) throw new LifecycleError("source_limit", "Invalid or oversized source blob");
     const blob = await request(`git/blobs/${entry.sha}`, 6 * 1024 * 1024) as { encoding?: unknown; content?: unknown };
     if (blob.encoding !== "base64" || typeof blob.content !== "string" || !/^[A-Za-z0-9+/=\r\n]*$/.test(blob.content)) throw new LifecycleError("invalid_source", "Source blob encoding is invalid");
-    const bytes = Buffer.from(blob.content, "base64");
+    const bytes = workspaceFileBytes({ encoding: "base64", data: blob.content.replace(/[\r\n]/g, ""), executable: entry.mode === "100755" });
     total += bytes.byteLength;
     if (bytes.byteLength > 4 * 1024 * 1024 || total > 64 * 1024 * 1024) throw new LifecycleError("source_limit", "Source size limit exceeded");
-    files[path] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    files[path] = encodeWorkspaceFile(bytes, !isWorkspaceTextPath(path) && entry.mode === "100755");
   }
   validateWorkspaceFiles(files);
   if (!files["extension.ts"]) throw new LifecycleError("migration_required", "Source needs a v4 extension.ts entrypoint before it can be built");
+  workspaceText(files["extension.ts"], "extension.ts");
   return files;
 }
 

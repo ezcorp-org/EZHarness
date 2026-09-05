@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { canonicalJson, validateInvocationContext, validateManifest } from "@ezcorp/extension-contract";
+import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
@@ -113,7 +113,7 @@ export class PodmanRunner implements Runner {
     await chmod(directory, 0o755);
     try {
       for (const [path, content] of Object.entries(files)) {
-        await this.writeStaged(directory, path, content);
+        await this.writeStaged(directory, path, workspaceFileBytes(content), typeof content !== "string" && content.executable);
       }
       return directory;
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
@@ -124,6 +124,7 @@ export class PodmanRunner implements Runner {
     validateFiles(input.files);
     relativePath(input.entrypoint);
     if (!(input.entrypoint in input.files)) throw new RunnerError("missing_entrypoint", "Entrypoint is absent");
+    workspaceText(input.files[input.entrypoint], input.entrypoint);
     if (filesDigest(input.files) !== input.sourceDigest) throw new RunnerError("source_digest_mismatch", "Frozen source digest does not match bytes");
     const limits = limitsWithin(input.limits, this.options.buildCeiling ?? buildLimits);
     await this.initialize();
@@ -234,11 +235,11 @@ export class PodmanRunner implements Runner {
     let staged: string | undefined;
     try {
       const artifacts = await this.collectArtifacts(input.artifactDigest);
-      const recipe = JSON.parse(artifacts[".runner/recipe.json"] ?? "{}");
+      const recipe = JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json"));
       if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerError("runtime_profile_changed", "Runtime image or isolation policy differs from the built release");
       staged = await this.stage(artifacts);
-      const dependencies = JSON.parse(artifacts[".runner/dependencies.json"] ?? "{}");
-      const executable = JSON.parse(artifacts[".runner/executables.json"] ?? "[]");
+      const dependencies = JSON.parse(workspaceText(artifacts[".runner/dependencies.json"] ?? "{}", ".runner/dependencies.json"));
+      const executable = JSON.parse(workspaceText(artifacts[".runner/executables.json"] ?? "[]", ".runner/executables.json"));
       if (!Array.isArray(executable) || executable.some(path => typeof path !== "string")) throw new RunnerError("artifact_corrupt", "Invalid executable catalog");
       for (const [path, content] of Object.entries(dependencies)) {
         if (!path.startsWith("node_modules/") || typeof content !== "string") throw new RunnerError("artifact_corrupt", "Invalid dependency closure");

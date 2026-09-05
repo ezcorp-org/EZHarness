@@ -41,27 +41,30 @@ the version 4 runtime API: new entrypoints use `defineExtension` and `serve` fro
 
 ## Exports map
 
-The package exposes four entry points:
+Main public entry points:
 
 | Specifier | Purpose |
 |---|---|
+| `@ezcorp/sdk/v4` | Validated definitions, `serve`, invocation context/cancellation, MCP adapters, and capability-bound network helpers. |
 | `@ezcorp/sdk` | Manifest types (`ExtensionManifestV2`, `ToolDefinition`, `SkillDefinition`, …) and the `defineExtension` helper. |
 | `@ezcorp/sdk/runtime` | Runtime helpers that speak the host protocol: fs (`atomicRead`, `atomicWrite`, `loadJSON`, `saveJSON`, `findProjectRoot`, `getExtensionDataDir`), lock (`withLock`, `createMutex`), rpc (`createToolDispatcher`, `toolResult`, `toolError`), channel (`getChannel`, `JsonRpcError`), plus Phase 2 wrappers `fetchPermitted`, `invoke`, `PanelBuilder`, `registerLifecycleHook`, and `Storage`. |
 | `@ezcorp/sdk/entities` | Declarative-entity toolkit: the `EntityDeclaration` type, slug helpers (`isValidSlug`, `assertValidSlug`), record validation (`validateRecord`, `assertRecord`), KV-backed storage (`readEntityRecord`, `writeEntityRecord`, `listEntityRecords`), and tool builders (`buildEntityToolDefinitions`, `buildEntityToolHandlers`). |
-| `@ezcorp/sdk/test` | Reserved for a test-harness barrel. Empty today; populated in a follow-up release — import from `@ezcorp/sdk/runtime` for now. |
+| `@ezcorp/sdk/test` | Filesystem test harness, runtime reset helpers, mock restoration, and isolated entrypoint registration assertions. Test helpers do not approve releases. |
 
 ## Persistent extension data
 
-Extensions store user-visible state under
-`<projectRoot>/.ezcorp/extension-data/<extension-name>/`. Use
-`getExtensionDataDir()` from `@ezcorp/sdk/runtime` to resolve that path
-portably. See [docs/extensions/data-storage.md](../../../docs/extensions/data-storage.md).
+Version 4 extensions use host-brokered virtual paths: `/data` for their own
+persistent data and `/project` for explicitly granted project files. Use
+`getExtensionDataDir()` and the SDK filesystem helpers; do not open host paths
+or write the immutable release directory. Loop artifacts live under
+`/data/loops/<loop-id>`. Each request is checked against the active invocation,
+release grants, and project binding. See [version 4 imports](../../../docs/extensions/v4-imports.md).
 
 ## Documentation
 
 - [Getting started](../../../docs/extensions/getting-started.md) — walkthrough from zero to a working extension.
 - [API reference](../../../docs/extensions/api-reference.md) — every exported symbol with type signatures.
-- [Manifest schema](../../../docs/extensions/manifest-schema.md) — the v2 manifest format and validation rules.
+- [Version 4 lifecycle plan](../../../docs/extension-system-v4-plan.md) — isolated builds, immutable releases, and approval rules.
 - [Data storage convention](../../../docs/extensions/data-storage.md) — where and how extensions persist state.
 
 ## License

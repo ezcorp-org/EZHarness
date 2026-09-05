@@ -22,8 +22,22 @@ project must have the exact repository as its Git origin and a host-stored
 GitHub credential. Each source request checks the active administrator,
 project membership, origin, and current credential again. Use a read-only
 repository-scoped credential. No global Git identity or child-supplied token is used.
-Local source and uploaded skills remain UTF-8 text snapshots; binary assets are
-refused explicitly until the contract has a typed binary representation.
+Source snapshots preserve UTF-8 text as strings. Compiled source and configuration
+files are text-only; collectors remove their executable bit. Shell scripts and
+other executable assets retain that bit. Binary and executable assets use
+`{ encoding: "base64", data: "...", executable: false }`, with canonical base64 and
+an explicit executable bit. Source maps are limited to 2,000 files and 20 MiB of
+decoded content. Paths cannot collide with directories. JavaScript, TypeScript,
+JSON, YAML, and TOML source/control files must remain text. The runner stages
+assets read-only (0444), or read/execute only (0555) when declared executable.
+No asset executes on the host. Content and executable mode are bound to the
+source, artifact, and published release digests.
+
+The authoring editor can upload, download, and delete binary assets. Binary
+content cannot be edited as text. Set a nested destination in the file path
+field before uploading. Edits create a new revision and require a new build and
+approval. The production server admits at most 128 MiB of serialized request
+data; workspace validation still enforces the smaller decoded source limit.
 
 Uploaded skills use the same lifecycle through the import wizard. See
 `src/runtime/import/README.md` for script limits and interpreter requirements.

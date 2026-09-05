@@ -1,6 +1,7 @@
 import { constants, type Dirent } from "node:fs";
 import { lstat, open, opendir, readdir, realpath } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
+import { encodeWorkspaceFile, isWorkspaceTextPath, validateWorkspaceFiles, workspaceText, type WorkspaceFiles } from "@ezcorp/extension-contract";
 
 export interface FirstPartyExtensionSource {
   name: string;
@@ -10,7 +11,7 @@ export interface FirstPartyExtensionSource {
 
 export interface SourceSnapshot {
   source: FirstPartyExtensionSource;
-  files: Record<string, string>;
+  files: WorkspaceFiles;
   bytes: number;
 }
 
@@ -51,9 +52,8 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
   const root = await realpath(projectRoot);
   const sourceRoot = resolve(root, source.directory);
   if (!sourceRoot.startsWith(root + sep)) throw new Error("Extension source escaped project root");
-  const files: Record<string, string> = Object.create(null);
+  const files: WorkspaceFiles = Object.create(null);
   let bytes = 0;
-  const decoder = new TextDecoder("utf-8", { fatal: true });
   let directories = 0;
   let entryCount = 0;
 
@@ -94,8 +94,7 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
         const contents = Buffer.concat(chunks);
         bytes += contents.byteLength;
         if (bytes > MAX_SOURCE_BYTES || Object.keys(files).length >= MAX_FILES) throw new Error("Extension source limit exceeded");
-        try { files[filePath] = decoder.decode(contents); }
-        catch { throw new Error(`Source file must be UTF-8 text; binary assets are not supported: ${filePath}`); }
+        files[filePath] = encodeWorkspaceFile(contents, !isWorkspaceTextPath(filePath) && (stat.mode & 0o111) !== 0);
       } finally {
         await handle.close();
       }
@@ -112,6 +111,8 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
     await collect(sourceDirectory);
   } finally { await sourceDirectory.close(); }
   if (!files[source.entrypoint]) throw new Error(`Missing v4 entrypoint: ${source.directory}/${source.entrypoint}`);
+  workspaceText(files[source.entrypoint], source.entrypoint);
+  validateWorkspaceFiles(files);
   return { source, files, bytes };
 }
 

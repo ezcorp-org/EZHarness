@@ -1,6 +1,7 @@
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { buildLimits, filesDigest } from "@ezcorp/extension-runner";
+import { workspaceFileBytes } from "@ezcorp/extension-contract";
 export { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
 import { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
 import { getUserById } from "../db/queries/users";
@@ -57,7 +58,7 @@ export async function initCliExtension(name: string): Promise<string> {
   for (const [path, contents] of Object.entries(files)) {
     const destination = resolve(directory, path);
     await mkdir(dirname(destination), { recursive: true });
-    await writeFile(destination, contents, { flag: "wx", mode: 0o600 });
+    await writeFile(destination, workspaceFileBytes(contents), { flag: "wx", mode: typeof contents !== "string" && contents.executable ? 0o700 : 0o600 });
   }
   return directory;
 }

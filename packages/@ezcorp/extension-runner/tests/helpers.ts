@@ -6,7 +6,7 @@ export async function provision(): Promise<{ sdkFiles: WorkspaceFiles; toolchain
 }
 
 export const manifest = { schemaVersion: 4, name: "runner-test", version: "1.0.0", author: { name: "runner-tests" }, description: "Runner isolation test", permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
-export function source(handler = "async (input) => input"): WorkspaceFiles {
+export function source(handler = "async (input) => input"): Record<string, string> {
   return {
     "extension.ts": `import {defineExtension,serve} from '@ezcorp/sdk/v4'; await serve(defineExtension({manifest:${JSON.stringify(manifest)},tools:{echo:${handler}}}));`,
     "feature.test.ts": "import {test,expect} from 'bun:test';test('feature',()=>expect(1+1).toBe(2));",

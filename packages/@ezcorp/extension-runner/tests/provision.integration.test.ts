@@ -6,10 +6,11 @@ import { provisionToolchain } from "../src/provision";
 import { RunnerClient } from "../src/client";
 import { buildLimits, filesDigest } from "../src";
 import { source } from "./helpers";
+import { workspaceText } from "@ezcorp/extension-contract";
 
 test("runner provision preserves type-only exports and their declaration closure", async () => {
   const { sdkFiles } = await provisionToolchain();
-  const metadata = JSON.parse(sdkFiles["node_modules/@ezcorp/extension-contract/package.json"]!);
+  const metadata = JSON.parse(workspaceText(sdkFiles["node_modules/@ezcorp/extension-contract/package.json"], "package.json"));
   for (const name of ["types", "legacy"]) {
     expect(metadata.exports[`./${name}`]).toEqual({ types: `./src/${name}.d.ts` });
     expect(sdkFiles[`node_modules/@ezcorp/extension-contract/src/${name}.d.ts`]).toBeDefined();

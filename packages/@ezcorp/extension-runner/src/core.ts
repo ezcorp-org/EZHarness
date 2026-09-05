@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Diagnostic, ResourceLimits, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { canonicalJson } from "@ezcorp/extension-contract";
+import { canonicalJson, workspaceFileByteLength, workspaceText } from "@ezcorp/extension-contract";
 
 export class RunnerError extends Error {
   constructor(public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false) {
@@ -35,8 +35,10 @@ export function validateFiles(files: WorkspaceFiles, maximumBytes = 20 * 1024 **
   let bytes = 0;
   for (const [path, content] of entries) {
     relativePath(path);
-    if (typeof content !== "string") throw new RunnerError("invalid_files", "File content must be text");
-    bytes += Buffer.byteLength(content);
+    bytes += workspaceFileByteLength(content);
+    if (/\.(?:[cm]?[jt]sx?|json|ya?ml|toml)$/i.test(path)) workspaceText(content, path);
+    const parts = path.split("/");
+    for (let count = 1; count < parts.length; count++) if (Object.hasOwn(files, parts.slice(0, count).join("/"))) throw new RunnerError("invalid_path", "File conflicts with directory");
     if (bytes > maximumBytes) throw new RunnerError("source_limit", "Source bytes exceed policy");
   }
 }

@@ -29,6 +29,16 @@ function fixture() {
 }
 
 describe("extension control", () => {
+  test("workspace control accepts bounded binary assets above the invocation frame limit", async () => {
+    const { control, lifecycle } = fixture();
+    const file = { encoding: "base64", data: "AAAA".repeat(400_000), executable: false };
+    await control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file } });
+    expect(lifecycle.editWorkspace).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file }, deletes: undefined });
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "asset.bin": { ...file, data: "AB==" } } })).rejects.toThrow("canonical");
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "extension.ts": file } })).rejects.toThrow("must be text");
+    expect(lifecycle.createWorkspace).not.toHaveBeenCalled();
+  });
+
   test("describes one SDK contract with nested tested source and no approval tool", async () => {
     const { control } = fixture();
     expect(await control.execute(actor, "extensions_describe", {})).toMatchObject({ schemaVersion: 4, sdk: "@ezcorp/sdk/v4" });

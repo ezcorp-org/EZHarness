@@ -15,10 +15,41 @@ const PAYLOAD_LIMITS: Record<string, number> = {
 const DEFAULT_MAX = 1024 * 1024; // 1MB
 
 export function getMaxPayload(pathname: string): number {
+  if (pathname === "/api/extensions/control") return 128 * 1024 * 1024;
   for (const [prefix, limit] of Object.entries(PAYLOAD_LIMITS)) {
     if (pathname.startsWith(prefix)) return limit;
   }
   return DEFAULT_MAX;
+}
+
+export async function readBoundedBody(request: Request, maxBytes: number): Promise<Uint8Array> {
+  const advertised = request.headers.get("content-length");
+  if (advertised && (!/^\d+$/.test(advertised) || Number(advertised) > maxBytes)) throw payloadTooLarge(maxBytes);
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      length += next.value.byteLength;
+      if (length > maxBytes) { await reader.cancel(); throw payloadTooLarge(maxBytes); }
+      chunks.push(next.value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return bytes;
+}
+
+export async function admitRequestPayload(request: Request, pathname: string): Promise<Request> {
+  if (!request.body) return request;
+  const bytes = await readBoundedBody(request, getMaxPayload(pathname));
+  const headers = new Headers(request.headers);
+  headers.set("content-length", String(bytes.length));
+  return new Request(request, { headers, body: new Uint8Array(bytes).buffer });
 }
 
 export function payloadTooLarge(maxBytes?: number): Response {

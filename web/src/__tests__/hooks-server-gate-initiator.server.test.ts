@@ -146,6 +146,33 @@ describe("hooks.server.ts — ambient gate initiator", () => {
     vi.mocked(getUserCount).mockResolvedValue(1);
   });
 
+  test("public and authenticated handlers cannot read chunked or undersized-header bodies over their route cap", async () => {
+    for (const pathname of ["/api/auth/setup", "/api/settings/developer"]) {
+      for (const length of [undefined, "1"]) {
+        const event = makeEvent({ cookie: true });
+        event.url = new URL(`http://localhost${pathname}`);
+        event.request = new Request(event.url, { method: "POST", headers: { cookie: "ezcorp_session=valid-jwt-token", ...(length ? { "content-length": length } : {}) }, body: new Uint8Array(1024 * 1024 + 1) });
+        const resolve = vi.fn(async () => new Response("must not run"));
+        expect((await handle({ event, resolve })).status).toBe(413);
+        expect(resolve).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  test("unauthenticated and unscoped control requests are denied before body allocation", async () => {
+    for (const authenticated of [false, true]) {
+      bearerStamp = authenticated ? { user: { id: "u-1", role: "member" }, apiKeyScopes: ["read"], authMethod: "api-key", apiKeyId: "restricted" } : null;
+      const event = makeEvent({ bearer: authenticated });
+      event.url = new URL("http://localhost/api/extensions/control");
+      event.request = new Request(event.url, { method: "POST", headers: authenticated ? { authorization: "Bearer ezk_x" } : {}, body: "{}" });
+      const read = vi.spyOn(event.request.body!, "getReader");
+      const resolve = vi.fn(async () => new Response("must not run"));
+      expect((await handle({ event, resolve })).status).toBe(authenticated ? 403 : 401);
+      expect(read).not.toHaveBeenCalled();
+      expect(resolve).not.toHaveBeenCalled();
+    }
+  });
+
   test("a cookie session stamps session:<userId> onto gates its request raises", async () => {
     const initiator = await initiatorSeenByAGateRaisedDuring(
       makeEvent({ cookie: true }),

@@ -5,6 +5,7 @@
   "files": ["dist", "src", "README.md"],
   "exports": {
     ".": { "types": "./dist/index.d.ts", "bun": "./src/index.ts", "import": "./dist/index.js" },
+    "./files": { "types": "./dist/files.d.ts", "bun": "./src/files.ts", "import": "./dist/files.js" },
     "./legacy": { "types": "./src/legacy.d.ts" },
     "./types": { "types": "./src/types.d.ts" },
     "./entities": { "types": "./dist/entities.d.ts", "bun": "./src/entities.ts", "import": "./dist/entities.js" }

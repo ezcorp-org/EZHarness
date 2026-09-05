@@ -1,3 +1,4 @@
+import { workspaceText } from "@ezcorp/extension-contract";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -101,7 +102,7 @@ test("locked dependency is bundled offline and retained in immutable release", a
   const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(result.diagnostics).toEqual([]);
   const artifacts = await runner.collectArtifacts(result.artifactDigest!);
-  expect(JSON.parse(artifacts[".runner/dependencies.json"]!)["node_modules/is-number/index.js"]).toBeDefined();
+  expect(JSON.parse(workspaceText(artifacts[".runner/dependencies.json"], ".runner/dependencies.json"))["node_modules/is-number/index.js"]).toBeDefined();
 }, 60_000);
 
 test("kernel PID, temporary storage, memory and descendant cancellation limits hold", async () => {

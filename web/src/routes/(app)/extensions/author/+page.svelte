@@ -4,14 +4,16 @@
   import type { PageData } from "./$types";
   import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "$server/extensions/v4/types";
   import type { ExtensionProjectBinding } from "$server/extensions/project-binding";
+  import { encodeWorkspaceFile, validateWorkspaceFiles, workspaceFileByteLength, workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract/files";
 
   let { data }: { data: PageData } = $props();
   let installationState = $state<InstallationState | null>(untrack(() => data.state));
   let workspace = $state<WorkspaceRecord | null>(untrack(() => data.workspace));
-  let files = $state<Record<string, string>>(untrack(() => ({ ...data.files })));
+  let files = $state<WorkspaceFiles>(untrack(() => ({ ...data.files })));
   let saved = $state(untrack(() => JSON.stringify(data.files)));
   let selected = $state(untrack(() => Object.keys(data.files).sort()[0] ?? ""));
   let newPath = $state("");
+  let uploadExecutable = $state(false);
   let name = $state("my-extension");
   let busy = $state("");
   let failure = $state("");
@@ -22,6 +24,7 @@
   let writeScope = $state(untrack(() => data.projectBinding?.writePaths.join(", ") ?? ""));
   let reviewedProject = $state(false);
   const fileNames = $derived(Object.keys(files).sort());
+  const selectedFile = $derived(files[selected]);
   const dirty = $derived(JSON.stringify(files) !== saved);
   const operations = $derived(Object.values(installationState?.operations ?? {}).sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
   const releases = $derived(Object.values(installationState?.releases ?? {}).sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
@@ -78,7 +81,7 @@
   async function save(): Promise<void> {
     if (!workspace) return;
     const snapshot = { ...files };
-    const previous = JSON.parse(saved) as Record<string, string>;
+    const previous = JSON.parse(saved) as WorkspaceFiles;
     workspace = await control<WorkspaceRecord>("extensions_workspace", { action: "edit", workspaceId: workspace.id, expectedRevision: workspace.revision, writes: snapshot, deletes: Object.keys(previous).filter((path) => !Object.hasOwn(snapshot, path)) });
     saved = JSON.stringify(snapshot);
     notice = `Saved revision ${workspace.revision}.`;
@@ -120,6 +123,35 @@
     });
   }
 
+  async function uploadFile(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    await run("Uploading", async () => {
+      const path = newPath.trim() || file.name;
+      if (Object.hasOwn(files, path)) throw new Error("A file already exists at that path. Remove it before uploading a replacement.");
+      if (file.size > 20 * 1024 * 1024) throw new Error("Asset exceeds the 20 MiB workspace limit.");
+      const value = encodeWorkspaceFile(new Uint8Array(await file.arrayBuffer()), uploadExecutable);
+      const next = { ...files, [path]: value };
+      validateWorkspaceFiles(next);
+      files = next;
+      selected = path;
+      newPath = "";
+      notice = "File added locally. Save a revision to include it in a build.";
+    });
+    input.value = "";
+  }
+
+  function downloadFile(): void {
+    if (selectedFile === undefined) return;
+    const url = URL.createObjectURL(new Blob([new Uint8Array(workspaceFileBytes(selectedFile)).buffer], { type: "application/octet-stream" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = selected.split("/").at(-1) ?? "asset";
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   function addFile(): void {
     const path = newPath.trim();
     if (!path || Object.hasOwn(files, path)) { failure = "Enter a new file path."; return; }
@@ -157,8 +189,9 @@
         <div class="editor-grid"><aside class="file-tree" aria-label="Workspace files">
           {#each fileNames as path (path)}<button class:active={selected === path} onclick={() => selected = path} title={path}>{path}</button>{/each}
           <label for="new-path">Add a file</label><input id="new-path" bind:value={newPath} placeholder="src/helper.ts" disabled={!!busy} /><button onclick={addFile} disabled={!!busy}>Add file</button>
+          <label for="upload-asset">Upload a file</label><input id="upload-asset" type="file" onchange={uploadFile} disabled={!!busy} /><label><input type="checkbox" bind:checked={uploadExecutable} disabled={!!busy} /> Executable asset (runner only)</label>
         </aside><div class="code-pane">
-          {#if selected}<label class="file-heading" for="source-code">{selected}</label><textarea id="source-code" bind:value={files[selected]} spellcheck="false" disabled={!!busy} aria-label={`Source: ${selected}`}></textarea>{:else}<p class="muted">Add a file to begin.</p>{/if}
+          {#if selected && typeof selectedFile === "string"}<label class="file-heading" for="source-code">{selected}</label><textarea id="source-code" value={selectedFile} oninput={(event) => files[selected] = event.currentTarget.value} spellcheck="false" disabled={!!busy} aria-label={`Source: ${selected}`}></textarea>{:else if selectedFile && typeof selectedFile !== "string"}<h3 class="file-heading">{selected}</h3><p class="muted" data-testid="binary-asset">Binary asset · {workspaceFileByteLength(selectedFile)} bytes · {selectedFile.executable ? "Executable in runner" : "Read-only"}. Binary content is not editable as text.</p><button onclick={downloadFile} disabled={!!busy}>Download asset</button>{:else}<p class="muted">Add a file to begin.</p>{/if}
         </div></div>
         <div class="actions"><button onclick={() => run("Saving", save)} disabled={!!busy || !dirty}>Save revision</button><button class="primary" onclick={build} disabled={!!busy}>{busy === "Building" ? "Building…" : "Save and build"}</button><button class="quiet" onclick={removeFile} disabled={!!busy || !selected}>Remove selected file</button></div>
       </section>
@@ -200,5 +233,6 @@
   .editor-panel{padding:0;overflow:hidden}.editor-panel>.section-heading,.editor-panel>.actions{padding:1rem 1.25rem}.editor-grid{display:grid;grid-template-columns:240px minmax(0,1fr);border-block:1px solid var(--color-border,#444);min-height:440px}.file-tree{display:flex;flex-direction:column;gap:.4rem;padding:1rem;border-right:1px solid var(--color-border,#444);min-width:0}.file-tree button{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono,monospace);border-color:transparent}.file-tree button.active{border-color:var(--color-accent,#8498ff);background:var(--color-surface-tertiary,#333)}.file-tree label{margin-top:1rem}.code-pane{display:flex;flex-direction:column;min-width:0}.file-heading{padding:.75rem 1rem;font-family:var(--font-mono,monospace);font-size:.8rem;border-bottom:1px solid var(--color-border,#444);overflow-wrap:anywhere}textarea{flex:1;min-height:400px;width:100%;resize:vertical;border:0;padding:1rem;line-height:1.6;font-family:var(--font-mono,monospace);font-size:.8rem;background:var(--color-surface,transparent);color:inherit;tab-size:2}
   .actions{justify-content:flex-start}.message{padding:1rem;border:1px solid var(--color-border,#555);border-radius:8px;font-size:.85rem}.failure{border-color:#bc5757;color:var(--color-error,#ef9b9b)}.operation,.release,.approval{padding:1rem 0;border-top:1px solid var(--color-border,#444);margin-top:1rem}.approval{border:1px solid var(--color-accent,#8498ff);border-radius:8px;padding:1rem}.diagnostic{font-size:.85rem;white-space:pre-wrap;overflow-wrap:anywhere}code,pre{font-family:var(--font-mono,monospace);font-size:.75rem;overflow-wrap:anywhere}pre{white-space:pre-wrap;max-height:360px;overflow:auto;padding:1rem;background:var(--color-surface,transparent);border-radius:6px}dl{display:grid;grid-template-columns:70px minmax(0,1fr);gap:.5rem;font-size:.8rem}dt{color:var(--color-text-muted)}dd{margin:0;overflow-wrap:anywhere}dd code{display:block}details{margin:1rem 0}summary{cursor:pointer;font-size:.85rem}.review-check{display:flex;gap:.65rem;align-items:center;margin:1rem 0}.installation-link{display:flex;justify-content:space-between;gap:1rem;padding:1rem 0;overflow-wrap:anywhere}
   @media(max-width:700px){.workspace-shell{padding:1rem}.editor-grid{grid-template-columns:1fr}.file-tree{border-right:0;border-bottom:1px solid var(--color-border,#444);max-height:240px;overflow:auto}h1{font-size:1.55rem}.state-badge{font-size:.65rem}}
+  .file-tree>*{flex-shrink:0}.code-pane>p,.code-pane>button{margin:1rem}.code-pane>button{align-self:flex-start;margin-top:0}
   .project-access{display:grid;gap:.75rem}.project-access select{font:inherit;width:100%;padding:.55rem;border:1px solid var(--color-border);border-radius:6px;background:var(--color-surface);color:var(--color-text)}
 </style>

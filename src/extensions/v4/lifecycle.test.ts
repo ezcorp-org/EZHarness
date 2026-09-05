@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { workspaceText } from "@ezcorp/extension-contract";
 import { up } from "../../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { canonicalJson, digestObject, FileBlobStore, getFiles, putFiles } from "./blobs";
@@ -67,6 +68,22 @@ async function releaseFixture(setup = harness()) {
   expect(result.state).toBe("verified");
   return { ...setup, installation, workspace, operation: result, releaseId: result.releaseId! };
 }
+
+test("binary assets preserve content and mode through immutable release forks", async () => {
+  const setup = harness();
+  const binary = { encoding: "base64" as const, data: "AP8=", executable: true };
+  const files = { "extension.ts": "export default 1", "bin/asset": binary };
+  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files });
+  const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "binary" });
+  const release = await setup.lifecycle.runBuild(actor, installation.id, operation.id);
+  expect(release.state).toBe("verified");
+  const fork = await setup.lifecycle.createWorkspace(actor, { installationId: installation.id, releaseId: release.releaseId! });
+  expect((await setup.lifecycle.readWorkspace(actor, installation.id, fork.workspace.id)).files).toEqual(files);
+  await setup.lifecycle.editWorkspace(actor, { installationId: installation.id, workspaceId: fork.workspace.id, expectedRevision: 1, writes: { "bin/asset": { ...binary, executable: false } } });
+  const edited = await setup.lifecycle.readWorkspace(actor, installation.id, fork.workspace.id);
+  expect(edited.workspace.sourceDigest).not.toBe(workspace.sourceDigest);
+  expect((await setup.lifecycle.readWorkspace(actor, installation.id, workspace.id)).files["bin/asset"]).toEqual(binary);
+});
 
 test("dependency resolution persists an exact revision and rejects concurrent edits", async () => {
   const setup = harness({ resolveDependencies: async files => ({ ...files, "package-lock.json": "locked", "extension.ts": "must not replace source" }) });
@@ -407,7 +424,7 @@ describe("host immutable blob store", () => {
     const files = { "extension.js": "x".repeat(21 * 1024 * 1024) };
     await expect(putFiles(blobs, files)).rejects.toThrow();
     const digest = await putFiles(blobs, files, "artifact");
-    expect((await getFiles(blobs, digest, "artifact"))["extension.js"]?.length).toBe(files["extension.js"].length);
+    expect(workspaceText((await getFiles(blobs, digest, "artifact"))["extension.js"], "extension.js").length).toBe(files["extension.js"].length);
     await expect(getFiles(blobs, digest)).rejects.toThrow();
   });
   test("concurrent identical writes are content addressed and tampering fails", async () => {

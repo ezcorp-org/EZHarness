@@ -1,3 +1,4 @@
+import { workspaceText } from "@ezcorp/extension-contract";
 import { expect, test } from "bun:test";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { extractPackage, fetchLockedDependencies, resolveDependencies } from "../src/dependencies";
@@ -30,7 +31,7 @@ test("locked npm closure is resolved before build and verified by SHA-512", asyn
   const frozen = await resolveDependencies(files);
   const closure = await fetchLockedDependencies(frozen);
   expect(closure.binary["node_modules/is-number/index.js"]).toBeDefined();
-  const lock = JSON.parse(frozen["package-lock.json"]!);
+  const lock = JSON.parse(workspaceText(frozen["package-lock.json"], "package-lock.json"));
   lock.packages["node_modules/is-number"].integrity = `sha512-${"A".repeat(86)}==`;
   await expect(fetchLockedDependencies({ ...frozen, "package-lock.json": JSON.stringify(lock) })).rejects.toThrow("integrity mismatch");
   lock.packages["node_modules/is-number"].resolved = "http://169.254.169.254/package.tgz";
@@ -41,12 +42,12 @@ test("locked npm closure is resolved before build and verified by SHA-512", asyn
 
 test("resolver locks transitive ranges and reuses matching ancestor packages", async () => {
   const nested = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "is-odd": "3.0.1" } }) });
-  const nestedLock = JSON.parse(nested["package-lock.json"]!);
+  const nestedLock = JSON.parse(workspaceText(nested["package-lock.json"], "package-lock.json"));
   expect(nestedLock.packages["node_modules/is-odd/node_modules/is-number"].version).toBe("6.0.0");
   const shared = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "is-number": "6.0.0", "is-odd": "3.0.1" } }) });
-  expect(JSON.parse(shared["package-lock.json"]!).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
+  expect(JSON.parse(workspaceText(shared["package-lock.json"], "package-lock.json")).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
   const reversed = await resolveDependencies({ "package.json": JSON.stringify({ dependencies: { "is-odd": "3.0.1", "is-number": "6.0.0" } }) });
-  expect(JSON.parse(reversed["package-lock.json"]!).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
+  expect(JSON.parse(workspaceText(reversed["package-lock.json"], "package-lock.json")).packages["node_modules/is-odd/node_modules/is-number"]).toBeUndefined();
 }, 60_000);
 
 test("locked command packages preserve only declared executable paths", async () => {

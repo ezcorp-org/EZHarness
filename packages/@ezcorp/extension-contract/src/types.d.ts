@@ -1,7 +1,9 @@
 import type { ExtensionManifestV2, ToolDefinition } from "./legacy";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-export type WorkspaceFiles = Record<string, string>;
+export interface EncodedWorkspaceFile { encoding: "base64"; data: string; executable: boolean }
+export type WorkspaceFile = string | EncodedWorkspaceFile;
+export type WorkspaceFiles = Record<string, WorkspaceFile>;
 export type ValueSchema = Record<string, unknown>;
 export interface HostApiPermission {
   routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[];

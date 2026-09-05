@@ -30,6 +30,22 @@ function fixture(entry: Record<string, unknown> = {}) {
   return { calls, fetcher };
 }
 
+test("Git source import preserves binary bytes and executable mode", async () => {
+  const contents = [Buffer.from("export const extension = 4;"), Buffer.from([0, 255, 137, 80, 78, 71]), Buffer.from("#!/bin/sh\nprintf asset")];
+  const entries = ["extension.ts", "assets/pixel.png", "bin/helper"].map((path, index) => ({ path, mode: index === 2 ? "100755" : "100644", type: "blob", sha: String(index + 1).repeat(40), size: contents[index]!.length }));
+  const fetcher = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/commits/")) return Response.json({ commit: { tree: { sha: "a".repeat(40) } } });
+    if (url.includes("/git/trees/")) return Response.json({ tree: entries });
+    const index = entries.findIndex(entry => url.endsWith(entry.sha));
+    return Response.json({ encoding: "base64", content: contents[index]!.toString("base64") + "\n" });
+  }) as typeof fetch;
+  const files = await collectGitHubSource({ kind: "github", repository: "example/assets" }, { fetch: fetcher, resolveHost: async () => ["93.184.216.34"] });
+  expect(files["extension.ts"]).toBe(contents[0]!.toString());
+  expect(files["assets/pixel.png"]).toEqual({ encoding: "base64", data: contents[1]!.toString("base64"), executable: false });
+  expect(files["bin/helper"]).toEqual({ encoding: "base64", data: contents[2]!.toString("base64"), executable: true });
+});
+
 test("fetches a pinned Git tree without checkout, redirects, or executable config", async () => {
   const { calls, fetcher } = fixture();
   const files = await collectGitHubSource({ kind: "github", repository: "example/extension", ref: "feature/new" }, { fetch: fetcher, resolveHost: async () => ['93.184.216.34'] });

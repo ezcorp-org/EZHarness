@@ -8,8 +8,9 @@ import { logger } from "$server/logger";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 import { toolPolicyRouteDenial } from "$lib/server/security/route-allowlist";
-import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
+import { getMaxPayload, payloadTooLarge, admitRequestPayload } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
+import { requireScope } from "$lib/server/security/api-keys";
 import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
 import {
   startBackgroundTimers,
@@ -414,6 +415,15 @@ function stampSessionPrincipal(locals: App.Locals, payload: SessionPayload): voi
 const handleApp: Handle = async ({ event, resolve }) => {
   const { request } = event;
   const url = new URL(request.url);
+  const resolveBounded: typeof resolve = async (boundedEvent, options) => {
+    if (url.pathname === "/api/extensions/control") {
+      const denied = requireScope(boundedEvent.locals, "extensions");
+      if (denied) return denied;
+    }
+    try { boundedEvent.request = await admitRequestPayload(boundedEvent.request, url.pathname); }
+    catch (error) { if (error instanceof Response) return error; throw error; }
+    return resolve(boundedEvent, options);
+  };
 
   // ── Secure preview origin dispatch (D4 wildcard subdomain) ─────────
   // MUST run before payload/rate/auth: a `<id>.preview.<host>` request is
@@ -532,7 +542,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
         request.headers.has("x-real-ip") ||
         request.headers.has("forwarded");
       if (isLoopbackTestBypass(url.pathname, loopbackAddr, proxied)) {
-        return resolve(event);
+        return resolveBounded(event);
       }
     }
 
@@ -645,7 +655,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
           // would serve every protected route unauthenticated for the
           // duration of the outage. Fail closed with 503 instead.
           if (process.env.PI_SKIP_INIT) {
-            return resolve(event);
+            return resolveBounded(event);
           }
           return new Response(JSON.stringify({ error: "Service unavailable" }), {
             status: 503,
@@ -676,7 +686,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
       // We cannot judge the cookie either way, so serve the request rather
       // than bounce a legitimate user on an infrastructure blip.
       if (verdict.reason === "no-secret") {
-        return resolve(event);
+        return resolveBounded(event);
       }
 
       if (verdict.reason === "invalid-jwt") {
@@ -875,10 +885,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // there are three today (chat send, agent-chat, message retry) and a
   // fourth would silently ship unattributed. This is the narrowest point
   // that is downstream of ALL auth (cookie, bearer, internal) and upstream
-  // of every handler. The three early `return resolve(event)` paths above
+  // of every handler. The three early `return resolveBounded(event)` paths above
   // are pre-auth bail-outs with no principal to record.
   const response = await runWithGateInitiator(principalId(event.locals), () =>
-    resolve(event, {
+    resolveBounded(event, {
       // Dev-indicator transform (undefined in production) — stamps
       // `data-dev-indicator` + git branch/commit attrs on `<html>`, the "DEV "
       // title prefix and dev favicons. Built once per request (not per streamed

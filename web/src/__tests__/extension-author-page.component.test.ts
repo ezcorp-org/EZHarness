@@ -8,6 +8,49 @@ import { goto } from "$app/navigation";
 
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 
+test("binary assets remain non-editable and preserve bytes/mode across download, save and delete", async () => {
+  const data = pageData();
+  const asset = { encoding: "base64" as const, data: "AP9QTkc=", executable: true };
+  data.files = { "asset.bin": asset, "extension.ts": "source" };
+  const createUrl = vi.fn(() => "blob:asset");
+  const revokeUrl = vi.fn();
+  vi.stubGlobal("URL", class extends URL { static createObjectURL = createUrl; static revokeObjectURL = revokeUrl; });
+  const clicked = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+  const fetcher = vi.fn(async (_url: string, _init: RequestInit) => Response.json({ ...workspace, revision: 2 }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  expect(view.getByTestId("binary-asset")).toHaveTextContent("5 bytes");
+  expect(view.getByTestId("binary-asset")).toHaveTextContent("Executable in runner");
+  expect(view.queryByRole("textbox", { name: "Source: asset.bin" })).not.toBeInTheDocument();
+  await fireEvent.click(view.getByRole("button", { name: "Download asset" }));
+  expect(clicked).toHaveBeenCalledOnce();
+  expect(createUrl).toHaveBeenCalledOnce();
+  await waitFor(() => expect(revokeUrl).toHaveBeenCalledWith("blob:asset"));
+  await fireEvent.click(view.getByRole("button", { name: "extension.ts" }));
+  await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "edited" } });
+  await fireEvent.click(view.getByRole("button", { name: "Save revision" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledOnce());
+  expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)).input.writes["asset.bin"]).toEqual(asset);
+  await fireEvent.click(view.getByRole("button", { name: "asset.bin" }));
+  await fireEvent.click(view.getByRole("button", { name: "Remove selected file" }));
+  await fireEvent.click(view.getByRole("button", { name: "Save revision" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body)).input.deletes).toContain("asset.bin");
+});
+
+test("asset upload refuses collisions and stores binary bytes without a text editor", async () => {
+  const view = render(AuthorPage, { data: pageData() });
+  const bytes = new Uint8Array([0, 255, 1]);
+  const file = { name: "image.png", size: bytes.length, arrayBuffer: async () => bytes.buffer };
+  await fireEvent.change(view.getByLabelText("Upload a file"), { target: { files: [file] } });
+  await waitFor(() => expect(view.getByTestId("binary-asset")).toHaveTextContent("3 bytes"));
+  expect(view.queryByRole("textbox", { name: "Source: image.png" })).not.toBeInTheDocument();
+  await fireEvent.change(view.getByLabelText("Upload a file"), { target: { files: [file] } });
+  await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("already exists"));
+  await fireEvent.change(view.getByLabelText("Upload a file"), { target: { files: [{ ...file, name: "huge.bin", size: 21 * 1024 * 1024 }] } });
+  await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("20 MiB"));
+});
+
 const installation = { id: "installation", ownerId: "owner", scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled" as const, grants: [], acknowledgedGeneration: 0 };
 const workspace = { id: "workspace", installationId: installation.id, revision: 1, sourceDigest: "source", createdAt: "2026-09-04" };
 
@@ -103,7 +146,7 @@ test("approval requires explicit review and sends only the exact approval ID", a
   const approve = view.getByRole("button", { name: "Approve exact release" });
   expect(approve).toBeDisabled();
   expect(view.getByText("exact-release-digest")).toBeVisible();
-  await fireEvent.click(view.getByRole("checkbox"));
+  await fireEvent.click(view.getByRole("checkbox", { name: "I reviewed this release and its permissions." }));
   await fireEvent.click(approve);
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   expect(fetcher.mock.calls[0]![0]).toBe("/api/extensions/releases/installation/approve");
@@ -112,7 +155,7 @@ test("approval requires explicit review and sends only the exact approval ID", a
 
 test("non-session visitors cannot approve", () => {
   const view = render(AuthorPage, { data: pageData(true, false) });
-  expect(view.getByRole("checkbox")).toBeDisabled();
+  expect(view.getByRole("checkbox", { name: "I reviewed this release and its permissions." })).toBeDisabled();
   expect(view.getByRole("button", { name: "Approve exact release" })).toBeDisabled();
   expect(view.getByRole("button", { name: "Reject" })).toBeDisabled();
 });

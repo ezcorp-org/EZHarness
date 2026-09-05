@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
+import { workspaceText } from "@ezcorp/extension-contract";
 import { relativePath, RunnerError } from "./core";
 
 interface LockedPackage { version: string; resolved: string; integrity: string; dependencies?: Record<string, string> }
@@ -33,7 +34,7 @@ async function registryBytes(url: string, maximumBytes: number, signal?: AbortSi
 
 function declaredDependencies(files: WorkspaceFiles): Record<string, string> {
   if (!files["package.json"]) return {};
-  const manifest = JSON.parse(files["package.json"]);
+  const manifest = JSON.parse(workspaceText(files["package.json"], "package.json"));
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
   for (const [name, version] of Object.entries(dependencies)) {
     if (!packageName.test(name) || name === "@ezcorp/sdk" || name === "@ezcorp/extension-contract" || typeof version !== "string" || !exactVersion.test(version)) throw new RunnerError("dependency_unpinned", "Dependencies require exact versions; SDK is runner-provisioned", "dependencies");
@@ -118,7 +119,7 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
   const declared = declaredDependencies(files);
   if (Object.keys(declared).length === 0) return { text: {}, binary: {}, executable: [] };
   if (!files["package-lock.json"]) throw new RunnerError("lockfile_required", "Resolve dependencies into a workspace revision before building", "dependencies");
-  const lock: PackageLock = JSON.parse(files["package-lock.json"]);
+  const lock: PackageLock = JSON.parse(workspaceText(files["package-lock.json"], "package-lock.json"));
   if (lock.lockfileVersion !== 3 || !lock.packages || typeof lock.packages !== "object" || Object.keys(lock.packages).length > 201) throw new RunnerError("lockfile_invalid", "Expected bounded npm lockfile version 3", "dependencies");
   const roots = lock.packages[""]?.dependencies ?? {};
   if (JSON.stringify(Object.entries(roots).sort()) !== JSON.stringify(Object.entries(declared).sort())) throw new RunnerError("lockfile_stale", "Package dependencies differ from the frozen lockfile", "dependencies");

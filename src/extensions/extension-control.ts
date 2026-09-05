@@ -1,12 +1,12 @@
 import type { ExtensionManifestV4, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { canonicalJson, compileValueSchema } from "@ezcorp/extension-contract";
+import { canonicalJson, compileValueSchema, validateWorkspaceFiles, WORKSPACE_FILE_SCHEMA } from "@ezcorp/extension-contract";
 import type { ExtensionLifecycle } from "./v4";
 import type { LifecycleActor, InstallationState } from "./v4/types";
 import { extensionLogger } from "../logger";
 
 const log = extensionLogger("author", "control");
 const identifier = { type: "string", minLength: 1, maxLength: 128 };
-const filesSchema = { type: "object", additionalProperties: { type: "string" } };
+const filesSchema = { type: "object", additionalProperties: WORKSPACE_FILE_SCHEMA };
 const commonProperties = { installationId: identifier };
 
 export const extensionControlTools = [
@@ -19,7 +19,7 @@ export const extensionControlTools = [
 
 export type ExtensionControlTool = (typeof extensionControlTools)[number]["name"];
 
-const inputValidators = new Map(extensionControlTools.map((tool) => [tool.name, compileValueSchema({ type: "object", properties: tool.properties, required: tool.required, additionalProperties: false })]));
+const inputValidators = new Map(extensionControlTools.map((tool) => [tool.name, compileValueSchema({ type: "object", properties: tool.properties, required: tool.required, additionalProperties: false }, tool.name === "extensions_workspace" ? 128 * 1024 * 1024 : undefined)]));
 
 export class ExtensionControlError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -42,8 +42,7 @@ function expectedRevision(input: Record<string, unknown>): number {
 
 function sourceFiles(value: unknown): WorkspaceFiles | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.values(value).some((entry) => typeof entry !== "string")) throw new ExtensionControlError("invalid_input", "writes must be a map of file paths to text.");
-  return value as WorkspaceFiles;
+  return validateWorkspaceFiles(value);
 }
 
 export function requestedReleaseGrants(manifest: ExtensionManifestV4): string[] {

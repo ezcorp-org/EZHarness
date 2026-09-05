@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { listFirstPartyExtensionSources, snapshotFirstPartyExtension, snapshotExtensionSource } from "./migrate-extension-v4";
@@ -29,16 +29,27 @@ test("collects every first-party and reference source without executing config",
   expect(await listFirstPartyExtensionSources(root)).toHaveLength(1);
 });
 
-test("rejects links, invalid text, and oversized files", async () => {
+test("rejects links and oversized files but preserves binary assets", async () => {
   const { root, extension } = await fixture();
   await symlink("/etc/passwd", join(extension, "link"));
   await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("links");
   await rm(join(extension, "link"));
   await writeFile(join(extension, "binary"), new Uint8Array([255, 254]));
-  await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow();
+  expect((await snapshotFirstPartyExtension(root, "candidate")).files.binary).toEqual({ encoding: "base64", data: "//4=", executable: false });
   await rm(join(extension, "binary"));
   await writeFile(join(extension, "large"), "a".repeat(4 * 1024 * 1024 + 1));
   await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("limit");
+});
+
+test("normalizes compiled text source modes but preserves executable shell assets", async () => {
+  const { root, extension } = await fixture();
+  await writeFile(join(extension, "src/cli.ts"), "#!/usr/bin/env bun\nexport const value = 1;");
+  await writeFile(join(extension, "helper.sh"), "#!/bin/sh\nprintf isolated");
+  await chmod(join(extension, "src/cli.ts"), 0o755);
+  await chmod(join(extension, "helper.sh"), 0o755);
+  const result = await snapshotFirstPartyExtension(root, "candidate");
+  expect(result.files["src/cli.ts"]).toBe("#!/usr/bin/env bun\nexport const value = 1;");
+  expect(result.files["helper.sh"]).toEqual({ encoding: "base64", data: Buffer.from("#!/bin/sh\nprintf isolated").toString("base64"), executable: true });
 });
 
 test("rejects caller paths and ambiguous extension names", async () => {

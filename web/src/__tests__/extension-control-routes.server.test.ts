@@ -29,6 +29,13 @@ test("unknown tools and malformed input cannot reach lifecycle", async () => {
   expect(mocks.execute).not.toHaveBeenCalled();
 });
 
+test("oversized streamed control requests are refused before lifecycle dispatch", async () => {
+  const oversized = event({ tool: "extensions_workspace", input: {} });
+  oversized.request = new Request("http://localhost/api/extensions/control", { method: "POST", body: "{}", headers: { "content-length": String(128 * 1024 * 1024 + 1) } });
+  expect((await control(oversized)).status).toBe(413);
+  expect(mocks.execute).not.toHaveBeenCalled();
+});
+
 test("approval rejects API keys, internal credentials and unstamped authentication", async () => {
   for (const authMethod of ["api-key", "internal", ""]) expect((await approve(event({ approvalId: "approval", decision: true }, authMethod, ["admin", "extensions"]))).status).toBe(403);
   expect(mocks.approve).not.toHaveBeenCalled();
@@ -41,6 +48,8 @@ test("human sessions approve the exact named release approval", async () => {
 });
 
 test("lifecycle conflicts and denial codes remain machine-readable", async () => {
+  expect(extensionControlError({ code: "INVALID_FILES", message: "Invalid binary file." }).status).toBe(400);
+  expect(extensionControlError({ code: "DATA_LIMIT", message: "Too large." }).status).toBe(400);
   mocks.execute.mockRejectedValue({ code: "revision_conflict", message: "Read the current revision." });
   const response = await control(event({ tool: "extensions_build", input: {} }));
   expect(response.status).toBe(409);
