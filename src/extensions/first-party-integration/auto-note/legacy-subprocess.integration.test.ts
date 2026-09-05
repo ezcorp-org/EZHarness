@@ -50,7 +50,7 @@ describe("E2E: real subprocess + JSON-RPC", () => {
   const E2E_DIR = join(TMP_DIR, "e2e-vault-" + Date.now());
 
   beforeEach(() => {
-    try { rmSync(E2E_DIR, { recursive: true }); } catch {}
+    rmSync(E2E_DIR, { recursive: true, force: true });
     mkdirSync(join(E2E_DIR, ".git"), { recursive: true }); // so findProjectRoot anchors here
   });
 

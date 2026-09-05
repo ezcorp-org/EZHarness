@@ -14,7 +14,7 @@ test("legacy installers cannot bypass lifecycle builds or grant approval", async
 
 for (const [name, invoke] of [
   ["update", () => updateExtension("fixture")],
-  ["uninstall", () => uninstallExtension({ id: "fixture", name: "fixture", installPath: "/etc", isBundled: false }, { purgeData: true })],
+  ["uninstall", () => uninstallExtension({ id: "fixture", name: "fixture", installPath: "/etc" }, { purgeData: true })],
   ["remove", () => removeExtension("../escape", { purgeData: true })],
   ["remote update check", () => checkForUpdates({ source: "git:https://attacker.invalid/repo", version: "1.0.0" })],
   ["dependency installer", () => installWithDependencies("https://attacker.invalid/repo", { grantedAt: {} }, { enabled: true, onConfirm: async () => { throw new Error("must not invoke approval callback"); } })],

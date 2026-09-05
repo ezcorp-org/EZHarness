@@ -91,7 +91,7 @@ test("prepared skill sources cannot inject paths or overwrite host provenance", 
 test("GitHub import pins collection and uses only an explicit scoped source credential", async () => {
   const seen: Array<{ url: string; authorization: string | null }> = [];
   configureGitHubSourceCredentials(async (identity, repository) => { expect(identity).toEqual(actor); expect(repository).toBe("owner/repo"); return "fixture-scoped-token"; });
-  globalThis.fetch = (async (input, init) => {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     seen.push({ url, authorization: new Headers(init?.headers).get("authorization") });
     return Response.json(url.includes("/commits/") ? { commit: { tree: { sha: "a".repeat(40) } } } : url.includes("/git/trees/") ? { truncated: false, tree: [{ path: "extension.ts", mode: "100644", type: "blob", sha: "b".repeat(40), size: 7 }] } : { encoding: "base64", content: Buffer.from("fixture").toString("base64") });
