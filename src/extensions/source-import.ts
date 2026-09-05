@@ -1,7 +1,9 @@
 import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { realpath, lstat } from "node:fs/promises";
 import { snapshotExtensionSource, snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
-import { validateWorkspaceFiles, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { canonicalJson, validatePublishedRelease, validateWorkspaceFiles, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { getVersionById } from "../db/queries/marketplace-versions";
+import { getListingById } from "../db/queries/marketplace";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
 import { getUserById } from "../db/queries/users";
 import { listProjects } from "../db/queries/projects";
@@ -10,6 +12,7 @@ import { getProjectRoot } from "./project-root";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
 
 export type ExtensionSourceInput =
+  | { kind: "marketplace"; versionId: string }
   | { kind: "bundled"; name: string }
   | { kind: "local"; path: string }
   | { kind: "github"; repository: string; ref?: string; directory?: string };
@@ -19,6 +22,16 @@ type GitHubSourceCredentialResolver = (actor: LifecycleActor, repository: string
 let sourceCredentialResolver: GitHubSourceCredentialResolver = async () => null;
 
 export function configureGitHubSourceCredentials(resolver: GitHubSourceCredentialResolver): void { sourceCredentialResolver = resolver; }
+
+export async function collectMarketplaceSource(versionId: string): Promise<WorkspaceFiles> {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(versionId)) throw new LifecycleError("invalid_source", "Invalid marketplace version identifier");
+  const version = await getVersionById(versionId);
+  if (!version?.release) throw new LifecycleError("migration_required", "Marketplace version has no verified v4 source release");
+  if (!await getListingById(version.listingId)) throw new LifecycleError("source_unavailable", "Marketplace listing is no longer available");
+  const release = await validatePublishedRelease(version.release);
+  if (canonicalJson(version.manifest) !== canonicalJson(release.build.manifest) || version.version !== release.build.manifest?.version) throw new LifecycleError("source_mismatch", "Marketplace metadata does not match the immutable release");
+  return structuredClone(release.sourceFiles);
+}
 
 async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
   if (!response.ok || !response.body) throw new LifecycleError("source_fetch_failed", `Source server returned ${response.status}`);
@@ -82,7 +95,8 @@ export async function importExtensionSource(actor: LifecycleActor, input: Extens
   if (user?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
   if (user.role !== "admin" || actor.kind !== "human") throw new LifecycleError("forbidden", "A human administrator must import source");
   let files: WorkspaceFiles;
-  if (input.kind === "github") files = await collectGitHubSource(input, { token: await sourceCredentialResolver(actor, input.repository) ?? undefined });
+  if (input.kind === "marketplace") files = await collectMarketplaceSource(input.versionId);
+  else if (input.kind === "github") files = await collectGitHubSource(input, { token: await sourceCredentialResolver(actor, input.repository) ?? undefined });
   else {
     if (input.kind === "bundled") files = (await snapshotFirstPartyExtension(getProjectRoot(), input.name)).files;
     else {

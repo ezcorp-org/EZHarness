@@ -20,6 +20,12 @@ test("stages source with host-derived principal and no automatic approval", asyn
   expect(mocks.importSource).toHaveBeenCalledWith({ principalId: "admin", scope: "global", kind: "human" }, { kind: "github", repository: "owner/repo" });
   expect((await response.json()).operation.id).toBe("build");
 });
+test("marketplace source references stage a rebuild instead of activating a published artifact", async () => {
+  const response = await POST(event({ kind: "marketplace", versionId: "version-1" }));
+  expect(response.status).toBe(200);
+  expect(mocks.importSource).toHaveBeenCalledWith({ principalId: "admin", scope: "global", kind: "human" }, { kind: "marketplace", versionId: "version-1" });
+  expect((await response.json()).operation.id).toBe("build");
+});
 test("rejects malformed and oversized import requests", async () => {
   expect((await POST(event({ kind: "github", repository: 5 }))).status).toBe(400);
   expect((await POST(event({ kind: "local", path: "a".repeat(20_000) }))).status).toBe(413);

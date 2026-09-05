@@ -1,5 +1,7 @@
 # Extension v4 contracts
 
+Marketplace versions store a separate `PublishedExtensionRelease`. It binds the verified runner build, original source, per-file checksums, and release digest. `sealPublishedRelease` verifies the runner artifact before removing runner-only files; `validatePublishedRelease` checks the stored source and catalog before import. Metadata queries do not return the source payload. Import stages the source for a fresh isolated build and human approval; publishing never grants runtime authority.
+
 This package owns data types and runtime validation. It does not import the host, database, or SDK. Legacy SDK types re-export these shared declarations.
 
 `validateWire(kind, value)` checks the full data shape and rejects unknown fields. Use `validateManifest`, `validateWorkspaceFiles`, `validateResourceLimits`, and `validateInvocationContext` for their additional semantic checks. Validation does not grant permission or establish trust in build evidence. The host must compute and compare release digests itself.

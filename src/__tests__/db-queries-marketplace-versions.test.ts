@@ -6,6 +6,7 @@ mockDbConnection();
 const {
   createVersion,
   getVersion,
+  getVersionById,
   getLatestVersion,
   listVersions,
 } = await import("../db/queries/marketplace-versions");
@@ -37,6 +38,39 @@ async function seedListing() {
 describe("marketplace-versions queries", () => {
   beforeEach(async () => await setupTestDb());
   afterAll(async () => await closeTestDb());
+
+  test("immutable release source is persisted but excluded from public metadata queries", async () => {
+    const { up } = await import("../db/migrations/add-marketplace-releases");
+    const { getDb } = await import("../db/connection");
+    await up(getDb());
+    await up(getDb());
+    const { canonicalJson, sealPublishedRelease, sha256, validateManifest } = await import("@ezcorp/extension-contract");
+    const listing = await seedListing();
+    const manifest = validateManifest({ schemaVersion: 4, name: "published", version: "1.0.0", description: "Published", author: { name: "Test" }, permissions: {} });
+    const sourceFiles = { "extension.ts": "source" };
+    const artifacts = { ...sourceFiles, ".runner/extension.js": "compiled" };
+    const release = await sealPublishedRelease({ operationId: "build", state: "succeeded", sourceDigest: await sha256(canonicalJson(sourceFiles)), artifactDigest: await sha256(canonicalJson(artifacts)), imageDigest: "image", manifest, diagnostics: [], evidence: { protocolVersion: 4, validatorVersion: "v4", tests: [{ name: "fixture", passed: true }], discoveryDigest: await sha256(canonicalJson(manifest)) } }, artifacts);
+    const version = await createVersion(listing.id, "1.0.0", manifest, undefined, release);
+    await expect(createVersion(listing.id, "2.0.0", manifest, undefined, release)).rejects.toThrow("metadata does not match");
+    expect((await getVersionById(version.id))?.release).toEqual(release);
+    const { collectMarketplaceSource } = await import("../extensions/source-import");
+    const imported = await collectMarketplaceSource(version.id);
+    expect(imported).toEqual(sourceFiles);
+    imported["extension.ts"] = "local workspace mutation";
+    expect(await collectMarketplaceSource(version.id)).toEqual(sourceFiles);
+    await expect(collectMarketplaceSource("../invalid")).rejects.toThrow("Invalid marketplace");
+    await expect(collectMarketplaceSource("missing")).rejects.toThrow("no verified");
+    for (const metadata of [version, await getVersion(listing.id, "1.0.0"), await getLatestVersion(listing.id), ...(await listVersions(listing.id))]) expect(metadata).not.toHaveProperty("release");
+    expect(await getVersionById("missing")).toBeUndefined();
+    const { marketplaceVersions, marketplaceListings } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+    await getDb().update(marketplaceVersions).set({ manifest: { ...manifest, description: "tampered" } }).where(eq(marketplaceVersions.id, version.id));
+    await expect(collectMarketplaceSource(version.id)).rejects.toThrow("metadata does not match");
+    await getDb().update(marketplaceVersions).set({ manifest, release: { ...release, releaseDigest: "tampered" } }).where(eq(marketplaceVersions.id, version.id));
+    await expect(collectMarketplaceSource(version.id)).rejects.toThrow("release digest mismatch");
+    await getDb().update(marketplaceListings).set({ status: "removed" }).where(eq(marketplaceListings.id, listing.id));
+    await expect(collectMarketplaceSource(version.id)).rejects.toThrow("no longer available");
+  });
 
   test("createVersion inserts row and bumps listing latestVersion", async () => {
     const listing = await seedListing();

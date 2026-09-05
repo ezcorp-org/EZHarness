@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { up as upMarketplaceReleases } from "./migrations/add-marketplace-releases";
 import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
@@ -2992,6 +2993,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // card presents the provider wire id instead of the row's own PK — both
   // filter on this column then `ORDER BY created_at DESC LIMIT 1`.
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_provider_call ON tool_calls(provider_tool_call_id, created_at)`);
+  await upMarketplaceReleases(db);
   const { up: addExtensionReleases } = await import("./migrations/add-extension-releases");
   await addExtensionReleases(db);
   const { extensionControlTools } = await import("../extensions/extension-control");

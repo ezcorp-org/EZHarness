@@ -1,9 +1,32 @@
 import { describe, expect, test } from "bun:test";
-import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, validateInvocationContext, validateManifest, validateResourceLimits, validateWire, validateWorkspaceFiles, validateWorkspacePath } from "./index";
+import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, sealPublishedRelease, validatePublishedRelease, validateInvocationContext, validateManifest, validateResourceLimits, validateWire, validateWorkspaceFiles, validateWorkspacePath } from "./index";
 
 const manifest = { schemaVersion: 4, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 
 describe("data contracts", () => {
+  test("published releases bind source, catalog, checksums and runner artifacts", async () => {
+    const sourceFiles = { "extension.ts": "source" };
+    const artifacts = { ...sourceFiles, ".runner/extension.js": "compiled" };
+    const build = { operationId: "build", state: "succeeded" as const, sourceDigest: await sha256(canonicalJson(sourceFiles)), artifactDigest: await sha256(canonicalJson(artifacts)), imageDigest: "image", manifest: validateManifest(manifest), diagnostics: [], evidence: { protocolVersion: 4 as const, validatorVersion: "v4", tests: [{ name: "fixture", passed: true }], discoveryDigest: await sha256(canonicalJson(manifest)) } };
+    const release = await sealPublishedRelease(build, artifacts);
+    expect(await validatePublishedRelease(release)).toEqual(release);
+    expect(release.sourceFiles).toEqual(sourceFiles);
+    expect(release.packageChecksums["extension.ts"]).toBe(await sha256("source"));
+    await expect(sealPublishedRelease(build, { ...artifacts, "extension.ts": "tampered" })).rejects.toThrow("artifact digest");
+    for (const change of [
+      (value: typeof release) => { value.build.state = "failed"; },
+      (value: typeof release) => { value.build.evidence.tests = []; },
+      (value: typeof release) => { value.build.evidence.tests[0]!.passed = false; },
+      (value: typeof release) => { value.sourceFiles[".runner/private"] = "forged"; },
+      (value: typeof release) => { value.sourceFiles["extension.ts"] = "tampered"; },
+      (value: typeof release) => { value.packageChecksums["extension.ts"] = "tampered"; },
+      (value: typeof release) => { value.releaseDigest = "tampered"; },
+    ]) {
+      const changed = structuredClone(release);
+      change(changed);
+      await expect(validatePublishedRelease(changed)).rejects.toThrow();
+    }
+  });
   test("validates every contribution shape with unknown fields denied", () => {
     expect(validateManifest(manifest).name).toBe("echo");
     for (const addition of [{ unknown: true }, { schemaVersion: 3 }, { permissions: { network: true } }, { pages: [{ id: "page", title: 7 }] }, { tools: [{ ...manifest.tools[0], outputSchema: undefined }] }]) expect(() => validateManifest({ ...manifest, ...addition })).toThrow();

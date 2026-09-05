@@ -29,9 +29,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (!body || typeof body !== "object" || Array.isArray(body)) return json({ code: "invalid_input" }, { status: 400 });
     const source = body as Record<string, unknown>;
     const valid = source.kind === "bundled" ? typeof source.name === "string"
+      : source.kind === "marketplace" ? typeof source.versionId === "string"
       : source.kind === "local" ? typeof source.path === "string"
       : source.kind === "github" && typeof source.repository === "string" && (source.ref === undefined || typeof source.ref === "string") && (source.directory === undefined || typeof source.directory === "string");
-    if (!valid) return json({ code: "invalid_input", message: "Provide a bundled, local, or GitHub source" }, { status: 400 });
+    if (!valid) return json({ code: "invalid_input", message: "Provide a bundled, marketplace, local, or GitHub source" }, { status: 400 });
     return json(await importExtensionSource({ principalId: user.id, scope: "global", kind: "human" }, source as ExtensionSourceInput));
   } catch (error) { return extensionControlError(error); }
 };

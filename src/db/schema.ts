@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
 import type {
   AgentResult,
   WorkflowCursor,
@@ -1866,6 +1867,7 @@ export const marketplaceVersions = pgTable("marketplace_versions", {
   listingId: text("listing_id").notNull().references(() => marketplaceListings.id, { onDelete: "cascade" }),
   version: text("version").notNull(),
   manifest: jsonb("manifest").notNull().$type<ExtensionManifestV2>(),
+  release: jsonb("release").$type<PublishedExtensionRelease>(),
   changelog: text("changelog"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [

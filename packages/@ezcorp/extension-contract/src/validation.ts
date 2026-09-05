@@ -70,7 +70,7 @@ export function parseJson(text: string, maxBytes = MAX_FRAME_BYTES): JsonValue {
 }
 
 export function validateWire<Key extends keyof WireData>(kind: Key, value: unknown): WireData[Key] {
-  assertJson(value, kind === "buildRequest" ? 128 * 1024 * 1024 : MAX_FRAME_BYTES);
+  assertJson(value, kind === "buildRequest" || kind === "publishedRelease" ? 128 * 1024 * 1024 : MAX_FRAME_BYTES);
   const validator = ajv.getSchema(`wire#/definitions/WireData/properties/${kind}`);
   if (!validator?.(value)) {
     const issue = validator?.errors?.[0];
@@ -251,6 +251,32 @@ export async function sha256(value: string | Uint8Array): Promise<string> {
   const bytes = typeof value === "string" ? encoder.encode(value) : new Uint8Array(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function validatePublishedRelease(value: unknown): Promise<WireData["publishedRelease"]> {
+  const release = validateWire("publishedRelease", value);
+  const build = release.build;
+  if (build.state !== "succeeded" || !build.artifactDigest || !build.manifest || !build.evidence.tests.length || build.evidence.tests.some(test => !test.passed)) throw new ContractError("UNVERIFIED_RELEASE", "Publishing requires a successful tested build");
+  validateManifest(build.manifest);
+  validateWorkspaceFiles(release.sourceFiles);
+  if (!Object.hasOwn(release.sourceFiles, (build.manifest.entrypoint ?? "extension.ts").replace(/^\.\//, ""))) throw new ContractError("UNVERIFIED_RELEASE", "Published source is missing its verified entrypoint");
+  if (Object.keys(release.sourceFiles).some(path => path === ".runner" || path.startsWith(".runner/"))) throw new ContractError("INVALID_PATH", "Published source cannot include runner metadata");
+  if (await sha256(canonicalJson(release.sourceFiles)) !== build.sourceDigest || await sha256(canonicalJson(build.manifest)) !== build.evidence.discoveryDigest) throw new ContractError("DIGEST_MISMATCH", "Published source or catalog digest mismatch");
+  const checksums = Object.fromEntries(await Promise.all(Object.entries(release.sourceFiles).map(async ([path, contents]) => [path, await sha256(contents)])));
+  if (canonicalJson(checksums) !== canonicalJson(release.packageChecksums)) throw new ContractError("DIGEST_MISMATCH", "Published file checksum mismatch");
+  const { releaseDigest, ...payload } = release;
+  if (await sha256(canonicalJson(payload)) !== releaseDigest) throw new ContractError("DIGEST_MISMATCH", "Published release digest mismatch");
+  return release;
+}
+
+export async function sealPublishedRelease(build: WireData["buildResult"], artifacts: WorkspaceFiles): Promise<WireData["publishedRelease"]> {
+  validateWire("buildResult", build);
+  if (await sha256(canonicalJson(artifacts)) !== build.artifactDigest) throw new ContractError("DIGEST_MISMATCH", "Runner artifact digest mismatch");
+  const sourceFiles = Object.fromEntries(Object.entries(artifacts).filter(([path]) => !path.startsWith(".runner/")));
+  validateWorkspaceFiles(sourceFiles);
+  const packageChecksums = Object.fromEntries(await Promise.all(Object.entries(sourceFiles).map(async ([path, contents]) => [path, await sha256(contents)])));
+  const payload = { schemaVersion: 4 as const, build, sourceFiles, packageChecksums };
+  return validatePublishedRelease({ ...payload, releaseDigest: await sha256(canonicalJson(payload)) });
 }
 
 export const valueSchemaValidator = {

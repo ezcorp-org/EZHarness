@@ -1852,6 +1852,38 @@
       ],
       "type": "object"
     },
+    "PublishedExtensionRelease": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "$ref": "#/definitions/BuildResult"
+        },
+        "packageChecksums": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "releaseDigest": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": 4,
+          "type": "number"
+        },
+        "sourceFiles": {
+          "$ref": "#/definitions/WorkspaceFiles"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "build",
+        "sourceFiles",
+        "packageChecksums",
+        "releaseDigest"
+      ],
+      "type": "object"
+    },
     "ReleaseRecord": {
       "additionalProperties": false,
       "properties": {
@@ -2336,6 +2368,9 @@
         "operation": {
           "$ref": "#/definitions/OperationRecord"
         },
+        "publishedRelease": {
+          "$ref": "#/definitions/PublishedExtensionRelease"
+        },
         "release": {
           "$ref": "#/definitions/ReleaseRecord"
         },
@@ -2347,6 +2382,7 @@
         }
       },
       "required": [
+        "publishedRelease",
         "manifest",
         "buildRequest",
         "startRequest",

@@ -55,6 +55,13 @@ export interface CandidateVerificationReport {
   smoke: "passed" | "not_declared";
   capabilities: Array<{ capability: string; state: "tested" | "denied" | "unexercised"; calls: number }>;
 }
+export interface PublishedExtensionRelease {
+  schemaVersion: 4;
+  build: BuildResult;
+  sourceFiles: WorkspaceFiles;
+  packageChecksums: Record<string, string>;
+  releaseDigest: string;
+}
 export interface ReleaseRecord {
   verification?: CandidateVerificationReport;
   id: string;
@@ -167,6 +174,7 @@ export interface Runner {
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;
 }
 export interface WireData {
+  publishedRelease: PublishedExtensionRelease;
   manifest: ExtensionManifestV4;
   buildRequest: BuildRequest;
   startRequest: StartRequest;
