@@ -168,7 +168,7 @@ beforeEach(async () => {
 describe("reconcileInterruptedAssignments", () => {
   test("recovery propagates database faults and skips stale snapshots without overwriting them", async () => {
     const lookupFailure = spyOn(taskHost, "getTaskTrackingExtensionId").mockRejectedValueOnce(new Error("Database unavailable"));
-    try { await expect(reconcileInterruptedAssignments()).rejects.toThrow("Database unavailable"); }
+    try { await expect(reconcileInterruptedAssignments(undefined)).rejects.toThrow("Database unavailable"); }
     finally { lookupFailure.mockRestore(); }
     await seedExtension();
     await seedConversation("conv-race");
