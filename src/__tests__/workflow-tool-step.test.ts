@@ -28,6 +28,7 @@ interface RecordedCall {
   input: Record<string, unknown>;
   conversationId: string;
   messageId: string | null;
+  signal?: AbortSignal;
 }
 
 /** Test double for `ToolExecutor` — records every dispatch and returns
@@ -41,8 +42,8 @@ function makeRunner(
     setCurrentUserId(userId: string) {
       users.push(userId);
     },
-    async executeToolCall(toolName, input, conversationId, messageId) {
-      const call = { toolName, input, conversationId, messageId };
+    async executeToolCall(toolName, input, conversationId, messageId, options) {
+      const call = { toolName, input, conversationId, messageId, ...(options?.signal ? { signal: options.signal } : {}) };
       calls.push(call);
       return handler(call);
     },
@@ -68,6 +69,25 @@ function setup(
 }
 
 describe("workflow kind:'tool' — dispatch", () => {
+  test("workflow abort reaches its in-flight tool and prevents later tool effects", async () => {
+    const controller = new AbortController();
+    let started!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    const { workflow, calls } = setup(call => {
+      expect(call.signal).toBe(controller.signal);
+      started();
+      return new Promise<ToolCallResult>((_resolve, reject) => call.signal!.addEventListener("abort", () => reject(call.signal!.reason), { once: true }));
+    });
+    const definition: WorkflowDefinition = { name: "cancel-tools", description: "", steps: [{ name: "first", kind: "tool", tool: "demo__wait" }, { name: "later", kind: "tool", tool: "demo__later" }] };
+    const pending = workflow.runWorkflow(definition, {}, undefined, "owner", controller.signal);
+    await entered;
+    controller.abort(new Error("Run stopped"));
+    expect((await pending).status).toBe("cancelled");
+    expect(calls).toHaveLength(1);
+    expect((await workflow.runWorkflow(definition, {}, undefined, "owner", controller.signal)).status).toBe("cancelled");
+    expect(calls).toHaveLength(1);
+  });
+
   test("runs the named tool and exposes its text as the step result", async () => {
     const { workflow, calls } = setup(() => ok("hello from the tool"));
     const def: WorkflowDefinition = {

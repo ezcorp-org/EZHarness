@@ -1267,6 +1267,7 @@ export class WorkflowExecutor {
       scopeKey,
       scope: approvalScope,
       getRunner: getToolRunner,
+      signal,
     };
 
     const inFlightRunIds = new Set<string>();
@@ -2533,6 +2534,7 @@ function nestedOutcome(
 
 /** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
 interface ToolStepContext {
+  signal?: AbortSignal;
   /** The synthetic `conversationId` every tool call of this run uses —
    *  see {@link workflowScopeKey}. */
   scopeKey: string;
@@ -2587,7 +2589,7 @@ async function runToolStep(
     result = await toolCtx.scope.run(() =>
       toolCtx
         .getRunner()
-        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null),
+        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal }),
     );
   } catch (err) {
     // A deliberate park is not a dispatch failure and must reach the

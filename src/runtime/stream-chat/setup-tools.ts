@@ -1405,7 +1405,7 @@ export async function setupTools(
               extensionIds: convExtIds,
               registry,
               executeToolCall: (toolName, input) =>
-                toolExec.executeToolCall(toolName, input, conversationId, null),
+                toolExec.executeToolCall(toolName, input, conversationId, null, { signal: host.controllers.get(run.id)?.signal }),
               getAttachmentSizes: async () => {
                 // This turn's attachments all hang off the user message
                 // (options.parentMessageId) — one query resolves every

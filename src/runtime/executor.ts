@@ -532,7 +532,7 @@ export class AgentExecutor {
           });
           const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
           if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
-          ctx.tools = toolExec.createToolsContext(run.id, run.id);
+          ctx.tools = toolExec.createToolsContext(run.id, run.id, { signal: controller.signal });
         }
       } catch {
         // Extension loading failure is non-fatal for code-based agents

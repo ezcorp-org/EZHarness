@@ -45,6 +45,7 @@ export interface WorkflowToolRunner {
     input: Record<string, unknown>,
     conversationId: string,
     messageId: string | null,
+    options?: { signal?: AbortSignal },
   ): Promise<ToolCallResult>;
 }
 
