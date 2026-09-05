@@ -23,6 +23,7 @@
 // See docs/extensions/loops.md#the-check-stage for the full reference.
 
 import { getToolContext } from "@ezcorp/sdk/runtime";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import {
   defineLoop,
   getChannel,
@@ -86,6 +87,7 @@ export function parseGitHead(stdout: string, exitCode: number): GitHead | null {
  * line must not make git fatal.
  */
 export async function readGitHead(repoPath: string): Promise<GitHead | null> {
+  if (getInvocationContext()) return getChannel().request<GitHead | null>("ezcorp/project.gitHead", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", "-1", "--format=%H%x00%s"],
     {

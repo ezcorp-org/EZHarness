@@ -68,6 +68,8 @@ function installFsStub(): void {
 
 beforeAll(() => {
   process.env.EZCORP_FS_ALLOWED = "1";
+  mkdirSync(join(TMP_DIR, ".git"), { recursive: true });
+  mkdirSync(join(TMP_DIR, "web", "src", "lib", "components"), { recursive: true });
 });
 
 afterAll(() => {
@@ -105,22 +107,22 @@ async function callAndParse(name: string, args: Record<string, unknown> = {}): P
 
 describe("resolveProjectRoot", () => {
   test("finds git root from project root", () => {
-    const root = resolveProjectRoot(process.cwd());
-    expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
+    const root = resolveProjectRoot(TMP_DIR);
+    expect(root).toBe(TMP_DIR);
   });
 
   test("finds git root from a subdirectory", () => {
-    const subdir = join(process.cwd(), "web", "src");
+    const subdir = join(TMP_DIR, "web", "src");
     const root = resolveProjectRoot(subdir);
     // Should walk up to the same project root, not stay in web/src
     expect(root).not.toBe(subdir);
-    expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
+    expect(root).toBe(TMP_DIR);
   });
 
   test("finds git root from deeply nested subdirectory", () => {
-    const deep = join(process.cwd(), "web", "src", "lib", "components");
+    const deep = join(TMP_DIR, "web", "src", "lib", "components");
     const root = resolveProjectRoot(deep);
-    expect(root).toBe(resolveProjectRoot(process.cwd()));
+    expect(root).toBe(TMP_DIR);
   });
 
   test("falls back to given dir when no .git found", () => {

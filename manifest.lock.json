@@ -60,9 +60,9 @@
     "docs-updater": {
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 116877,
-      "sourceDigest": "0ead5f81eb21e8089d21bdb12475f0397174fa373b6a0e61de53cfa206e73d83"
+      "files": 9,
+      "bytes": 119144,
+      "sourceDigest": "688607398249707dc34ac96bb1840f60b3b1c156fa507b4e54934e0c08ca064e"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -200,9 +200,9 @@
     "repo-activity-notify": {
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 29805,
-      "sourceDigest": "54adf2ca6afbaedde8e2a44a717bf9171ca56b1be0bada374702e27a5eafe3db"
+      "files": 7,
+      "bytes": 29944,
+      "sourceDigest": "3171e6b5767a3d3343e042cf64fdf5137354cadaad58ac778829d0edca5b849f"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
@@ -236,15 +236,15 @@
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
       "files": 30,
-      "bytes": 291956,
-      "sourceDigest": "88f64248e4bf113f1f854397c914614ca915cdecc4b66fa0dff82a76638118f3"
+      "bytes": 291950,
+      "sourceDigest": "98bd268c8df1d87c2f4edc5c08911979c00281b6f6fc41717f038fd0cc9e415f"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 237708,
-      "sourceDigest": "f7c73037f3ac8bd4b1938f5150e6925dcffff39a451c4a3537560db5e7384597"
+      "bytes": 237801,
+      "sourceDigest": "7e1f46cd2ad035c8b2d12a17393471f98d4876dfdeeb711c1e4d313593f3457b"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -257,8 +257,8 @@
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 79120,
-      "sourceDigest": "03b7487147b67e2787d8e7f85acdd8cb17cdf68e10a7c34a734ded8238baa2d8"
+      "bytes": 79149,
+      "sourceDigest": "3da635b9cf3477ccac4ec351cf078f5e785e50573aea332bca8c865570444c7b"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",

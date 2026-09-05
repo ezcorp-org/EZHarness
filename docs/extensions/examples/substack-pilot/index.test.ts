@@ -115,7 +115,7 @@ describe("substack-pilot — manifest shape", () => {
   });
 
   test("settings expose presence-validated SUBSTACK_* fields", () => {
-    const s = manifest.settings ?? {};
+    const s = manifest.settings;
     const url = s.substack_publication_url as { type: string; pattern?: string };
     const tok = s.substack_session_token as { type: string; pattern?: string };
     const uid = s.substack_user_id as { type: string; pattern?: string };

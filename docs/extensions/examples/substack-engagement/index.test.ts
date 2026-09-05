@@ -113,7 +113,7 @@ describe("substack-engagement — manifest shape", () => {
   });
 
   test("SUBSTACK_* settings are presence-validated (non-empty pattern)", () => {
-    const s = manifest.settings ?? {};
+    const s = manifest.settings;
     const tok = s.substack_session_token as { type: string; pattern?: string };
     const uid = s.substack_user_id as { type: string; pattern?: string };
     const url = s.substack_publication_url as { type: string; pattern?: string };

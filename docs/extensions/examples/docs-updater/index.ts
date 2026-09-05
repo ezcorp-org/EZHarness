@@ -44,6 +44,7 @@
 
 import { normalize } from "node:path";
 import { getToolContext } from "@ezcorp/sdk/runtime";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import {
   approveRun,
   declineRun,
@@ -148,6 +149,7 @@ const HERMETIC_GIT_ENV = {
  * a clean skip.
  */
 export async function readGitHead(repoPath: string): Promise<GitHead | null> {
+  if (getInvocationContext()) return getChannel().request<GitHead | null>("ezcorp/project.gitHead", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", "-1", "--format=%H%x00%s"],
     { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...HERMETIC_GIT_ENV } },
@@ -169,6 +171,7 @@ export async function readCommitSubjects(
   repoPath: string,
   sinceHash: string | undefined,
 ): Promise<string[]> {
+  if (getInvocationContext()) return getChannel().request<string[]>("ezcorp/project.commitSubjects", { sinceHash });
   const range = sinceHash ? [`${sinceHash}..HEAD`] : ["-1"];
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", ...range, "--format=%s"],
@@ -213,6 +216,7 @@ export function parseOriginUrl(url: string): OwnerRepo | null {
  * skip-not-fail posture.
  */
 export async function readOriginUrl(repoPath: string): Promise<string | null> {
+  if (getInvocationContext()) return getChannel().request<string | null>("ezcorp/project.origin", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "remote", "get-url", "origin"],
     { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...HERMETIC_GIT_ENV } },
