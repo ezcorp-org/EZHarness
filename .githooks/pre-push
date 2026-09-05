@@ -17,6 +17,13 @@ fi
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$ROOT" || exit 0
 . "$ROOT/scripts/lib/hook-lib.sh"
+# No-op fallback defined BEFORE the guarded source: a repo tree without
+# scripts/lib/bun-version-check.sh (minimal fixture, stale worktree) must
+# never turn "the checker is missing" into a blocked push. See that file's
+# REGRESSION note and src/__tests__/git-hooks.test.ts.
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$ROOT/scripts/lib/bun-version-check.sh" ] && . "$ROOT/scripts/lib/bun-version-check.sh"
 
 # Full biome lint with the shared vacuous-pass guard. `bun run lint` passes
 # explicit paths, so the old worktree zero-file case can no longer happen;
@@ -33,6 +40,10 @@ lint_prepush() {
 }
 
 FAILED=0
+# Shared with pre-commit and the test wrappers (scripts/lib/bun-version-check.sh):
+# warns (non-blocking) on a patch-level gap, fails on minor/major. Cheap, so
+# it runs before the expensive typecheck/svelte-check steps below.
+hook_step "Bun version" check_bun_version_skew || FAILED=1
 hook_step "Lint (biome, full)" lint_prepush || FAILED=1
 hook_step "Typecheck" bun run typecheck || FAILED=1
 hook_step "Svelte check" svelte_check || FAILED=1

@@ -27,6 +27,28 @@ fail() {
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$ROOT" || exit 0
 
+# ── Bun version skew ─────────────────────────────────────────────────────────
+# Shared with pre-push and the test wrappers (scripts/lib/bun-version-check.sh)
+# so the check can't drift into a fourth implementation. A developer is
+# already looking at this terminal, so this is where a version gap gets
+# caught instead of surfacing as a mystery test failure later. Warns
+# (non-blocking) on a patch-level gap, fails on minor/major — see that file's
+# header for the reasoning.
+#
+# Define a no-op FIRST, then override it by sourcing the real helper only if
+# it exists: a repo tree that reuses this hook file without the rest of
+# scripts/ (a minimal fixture, or a stale worktree predating this check) must
+# never turn "the checker itself is missing" into a blocked commit — see
+# scripts/lib/bun-version-check.sh's REGRESSION note and
+# src/__tests__/git-hooks.test.ts.
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$ROOT/scripts/lib/bun-version-check.sh" ] && . "$ROOT/scripts/lib/bun-version-check.sh"
+if ! check_bun_version_skew; then
+  fail "bun version skew (see message above)" \
+    "bun upgrade --to \$(cat .bun-version)"
+fi
+
 # ── Staged files (Added/Copied/Modified/Renamed; skip Deleted) ──────────────
 # NOTE (partial-staging caveat): we lint the on-disk worktree content of these
 # paths, not the staged index blob. If you `git add -p` a subset of a file, the

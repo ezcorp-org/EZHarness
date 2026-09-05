@@ -21,6 +21,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
+# A wrong bun corrupts results here too — see lib/bun-version-check.sh. No-op
+# fallback defined FIRST, then overridden by sourcing the real helper only if
+# it exists — see that file's REGRESSION note.
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$SCRIPT_DIR/lib/bun-version-check.sh" ] && source "$SCRIPT_DIR/lib/bun-version-check.sh"
+check_bun_version_skew
 
 cd "$REPO_ROOT"
 
