@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createMcpExtension } from "./mcp";
 import { normalizeMcpCatalog, valueSchemaValidator } from "@ezcorp/extension-contract";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +25,7 @@ test("MCP catalogs reject unsafe schemas, duplicates and invalid data", () => {
 
 test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("MCP executable discovers and invokes in a networkless rootless container", async () => {
   const directory = await mkdtemp(join(tmpdir(), "sdk-mcp-isolated-"));
+  await chmod(directory, 0o755);
   let child: ReturnType<typeof Bun.spawn> | undefined;
   try {
     const info = Bun.spawn(["podman", "info", "--format", "{{.Host.Security.Rootless}}"], { stdout: "pipe", stderr: "pipe" });
@@ -34,8 +35,9 @@ test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("MCP executable discove
       const build = Bun.spawn([process.execPath, "build", new URL(`./__tests__/${source}`, import.meta.url).pathname, "--target=bun", `--outfile=${join(directory, target!)}`], { stdout: "ignore", stderr: "pipe" });
       const diagnostics = await new Response(build.stderr).text();
       expect(await build.exited, diagnostics).toBe(0);
+      await chmod(join(directory, target!), 0o644);
     }
-    child = Bun.spawn(["podman", "run", "--rm", "-i", "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", "--cpus=1", "--tmpfs=/tmp:rw,noexec,nosuid,size=16m", "-v", `${directory}:/workspace:ro`, "--workdir=/workspace", "docker.io/oven/bun:1.3.14", "bun", "/workspace/extension.js"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    child = Bun.spawn(["podman", "run", "--rm", "--pull=never", "-i", "--network=none", "--read-only", "--user=65534:65534", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=64", "--memory=512m", "--cpus=1", "--tmpfs=/tmp:rw,noexec,nosuid,size=16m", "-v", `${directory}:/workspace:ro`, "--workdir=/workspace", "--entrypoint=/usr/local/bin/bun", "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834", "/workspace/extension.js"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
     let buffered = "";
     async function frame(): Promise<Record<string, any>> {
