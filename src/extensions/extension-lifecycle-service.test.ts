@@ -85,7 +85,7 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
 describe("candidate verification", () => {
   test("storage migration binds identity, denies effects, validates output and closes its worker", async () => {
     const candidate = structuredClone(release);
-    candidate.manifest.methods = [{ name: "migrate", description: "Migrate", inputSchema: { type: "object" }, outputSchema: { type: "object", required: ["values"] } }];
+    candidate.manifest.methods = [{ name: "migrate", inputSchema: { type: "object" }, outputSchema: { type: "object", required: ["values"] } }];
     const input = { release: candidate, method: "migrate", principalId: "owner", scope: "private", fromVersion: "1", toVersion: "2", values: { note: "retained" } };
     const calls: unknown[] = [];
     const fixture = candidateRunner(async (method, payload) => { calls.push({ method, payload }); return { values: input.values }; });
