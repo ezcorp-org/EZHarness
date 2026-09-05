@@ -20,7 +20,9 @@ for (const entry of resolveBundledExtensions({})) test(`${entry.name}: startup s
   expect(stage).toHaveBeenCalledTimes(1);
   const selected = stage.mock.calls[0]![0].filter((candidate) => candidate.name === entry.name);
   expect(selected).toHaveLength(1);
-  expect(selected[0]?.path).toBe(sources.find((source) => source.name === entry.name)?.directory);
+  const source = sources.find((source) => source.name === entry.name);
+  expect(source).toBeDefined();
+  expect(selected[0]?.path).toBe(source!.directory);
 });
 
 test("the ai-kit operator opt-out prevents source staging without changing other entries", async () => {

@@ -156,7 +156,7 @@ describe("E2E: real subprocess + JSON-RPC", () => {
       const notifs = ext.readNotifications();
       const stateNotif = notifs.find((n) => n.method === "ezcorp/state");
       expect(stateNotif).toBeDefined();
-      expect(stateNotif.params.title).toBe("Auto Note");
+      expect(stateNotif!.params.title).toBe("Auto Note");
     } finally { await ext.close(); }
   });
 

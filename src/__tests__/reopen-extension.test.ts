@@ -44,7 +44,7 @@ afterAll(async () => {
 
 async function seed(name: string, overrides: { owner?: string; modifiable?: boolean; bundled?: boolean; active?: boolean; lifecycleOwner?: string; uninstalled?: boolean } = {}) {
   const { createExtension } = await import("../db/queries/extensions");
-  const manifest = { schemaVersion: 4 as const, name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts" };
+  const manifest = { schemaVersion: 4 as const, name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts", permissions: {} };
   const extension = await createExtension({ name, version: "1.0.0", description: "Fixture", manifest, source: "v4:fixture", installPath: null, enabled: true, grantedPermissions: { grantedAt: {} }, checksumVerified: true, consecutiveFailures: 0, creatorUserId: overrides.owner ?? OWNER, modifiable: overrides.modifiable ?? true, isBundled: overrides.bundled ?? false } as never);
   const sourceDigest = await putFiles(blobs, files);
   const releaseId = `release-${extension.id}`;

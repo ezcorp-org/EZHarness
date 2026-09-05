@@ -302,14 +302,14 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
   if (!originalFetch) {
     originalFetch = globalThis.fetch;
     fixtureFetch = Object.assign(async (input: string | URL | Request, init?: RequestInit) => {
-      const request = new Request(input instanceof URL ? input.href : input, init);
+      const request = typeof input === "string" || input instanceof URL ? new Request(String(input), init) : new Request(input, init);
       request.signal.throwIfAborted();
       const route = fixtureRoutes.get(new URL(request.url).origin);
       if (!route) return originalFetch!(input, init);
       const response = await route(request);
       if (response.status >= 300 && response.status < 400 && response.headers.has("location")) {
         if (request.redirect === "error") throw new TypeError("Redirect refused");
-        if (request.redirect === "follow") return route(new Request(new URL(response.headers.get("location")!, request.url), request));
+        if (request.redirect === "follow") return route(new Request(new URL(response.headers.get("location")!, request.url).href, request));
       }
       return response;
     }, { preconnect: originalFetch.preconnect }) as typeof fetch;
