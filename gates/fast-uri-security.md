@@ -25,3 +25,10 @@ Primary advisories all identify 3.1.6 as the fixed v3 release:
 
 The trusted SDK bundle includes this dependency. Earlier all-50 evidence predates
 the dependency update; it must not be presented as a full run with this parser.
+
+- [x] Re-run all 50 sealed candidates without interruption with the patched parser.
+  At `3ee4f8cf`, `EXTENSION_VERIFY_ALL=1 bun scripts/verify-first-party-lifecycle-v4.ts`
+  exits zero: 50 passed, zero failed, zero untested. Evidence:
+  `/tmp/ez-all50-fast-uri-patched.jsonl`; stderr is empty. This verifies candidate
+  builds, declared tests, catalogs and declared smoke checks, not every external
+  capability. Backend-test and web/E2E typechecking also passes.
