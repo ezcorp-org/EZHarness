@@ -10,6 +10,10 @@ import { findLiveServiceAccount } from "../db/queries/service-accounts";
 import type { MigrationDb } from "../db/migrations/types";
 import { sql } from "drizzle-orm";
 import { releaseRows } from "../db/queries/extension-releases";
+import { getWorkflowRunRow } from "../db/queries/workflow-runs";
+import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
+import { workflowExecutionHash } from "./workflow-definition-hash";
+import { MAX_WORKFLOW_NESTING_DEPTH } from "./workflow-closure";
 
 async function canExecuteInProject(principalId: string, projectId: string | null | undefined, database?: MigrationDb): Promise<boolean> {
   if (!projectId) return true;
@@ -35,19 +39,41 @@ export interface WorkflowExecutionAuthority {
   delegationId?: string | null;
   runAsKind?: string | null;
   runAs?: string | null;
+  parentRunId?: string | null;
+}
+
+async function canExecuteRelease(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
+  if (entry.source !== "extension") return true;
+  const humanAllowed = async () => await workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database) && await canExecuteInProject(authority.userId!, authority.projectId, database) && await workflowReleaseIsCurrent(entry, undefined, database);
+  if (!authority.delegationId && !authority.runAsKind && !authority.runAs) return humanAllowed();
+  if (!entry.extensionRelease || !authority.delegationId || !authority.runAs || (authority.runAsKind !== "service" && authority.runAsKind !== "user")) return false;
+  if (authority.runAsKind === "service" ? Boolean(authority.userId) : authority.userId !== authority.runAs) return false;
+  const readDelegation = async () => database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowDelegation>>>, "id" | "enabled" | "revokedAt" | "ownerKind" | "ownerUserId" | "ownerServiceAccountId" | "workflowName" | "projectId" | "extensionId" | "extensionReleaseBinding" | "consentedByUserId">>(await database.execute(sql`SELECT id, enabled, revoked_at AS "revokedAt", owner_kind AS "ownerKind", owner_user_id AS "ownerUserId", owner_service_account_id AS "ownerServiceAccountId", workflow_name AS "workflowName", project_id AS "projectId", extension_id AS "extensionId", extension_release_binding AS "extensionReleaseBinding", consented_by_user_id AS "consentedByUserId" FROM workflow_delegations WHERE id=${authority.delegationId} FOR SHARE`))[0] : await getWorkflowDelegation(authority.delegationId!);
+  const delegation = await readDelegation();
+  const matches = (row: Awaited<ReturnType<typeof readDelegation>>) => row?.enabled && !row.revokedAt && row.ownerKind === authority.runAsKind && (row.ownerKind === "service" ? row.ownerServiceAccountId : row.ownerUserId) === authority.runAs && row.projectId === (authority.projectId ?? null) && row.extensionId === entry.extensionRelease!.installationId && workflowDelegationReleaseAllows(entry, row.extensionReleaseBinding);
+  if (!delegation || !matches(delegation)) return false;
+  if (authority.runAsKind === "service") {
+    if (!await workflowReleaseCanConsentService(entry, authority.runAs, delegation.consentedByUserId, authority.projectId, database)) return false;
+  } else if (delegation.consentedByUserId !== authority.userId || !await humanAllowed()) return false;
+  const current = await readDelegation();
+  return Boolean(current && matches(current) && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.workflowName === delegation.workflowName && await workflowReleaseIsCurrent(entry, undefined, database));
 }
 
 export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
-  if (entry.source !== "extension") return true;
-  if (authority.runAsKind !== "service") return await workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database) && await canExecuteInProject(authority.userId!, authority.projectId, database) && await workflowReleaseIsCurrent(entry, undefined, database);
-  if (!entry.extensionRelease || authority.userId || !authority.delegationId || !authority.runAs) return false;
-  const readDelegation = async () => database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowDelegation>>>, "id" | "enabled" | "revokedAt" | "ownerKind" | "ownerServiceAccountId" | "workflowName" | "projectId" | "extensionId" | "extensionReleaseBinding" | "consentedByUserId">>(await database.execute(sql`SELECT id, enabled, revoked_at AS "revokedAt", owner_kind AS "ownerKind", owner_service_account_id AS "ownerServiceAccountId", workflow_name AS "workflowName", project_id AS "projectId", extension_id AS "extensionId", extension_release_binding AS "extensionReleaseBinding", consented_by_user_id AS "consentedByUserId" FROM workflow_delegations WHERE id=${authority.delegationId} FOR SHARE`))[0] : await getWorkflowDelegation(authority.delegationId!);
-  const delegation = await readDelegation();
-  const matches = (row: Awaited<ReturnType<typeof readDelegation>>) => row?.enabled && !row.revokedAt && row.ownerKind === "service" && row.ownerServiceAccountId === authority.runAs && row.projectId === (authority.projectId ?? null) && row.extensionId === entry.extensionRelease!.installationId && workflowDelegationReleaseAllows(entry, row.extensionReleaseBinding);
-  if (!delegation || !matches(delegation)) return false;
-  if (!await workflowReleaseCanConsentService(entry, authority.runAs, delegation.consentedByUserId, authority.projectId, database)) return false;
-  const current = await readDelegation();
-  return Boolean(current && matches(current) && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.workflowName === delegation.workflowName && await workflowReleaseIsCurrent(entry, undefined, database));
+  let parentRunId = authority.parentRunId;
+  const visited = new Set<string>();
+  while (parentRunId) {
+    if (visited.size >= MAX_WORKFLOW_NESTING_DEPTH || visited.has(parentRunId)) return false;
+    visited.add(parentRunId);
+    const parent = database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowRunRow>>>, "workflowName" | "status" | "definitionHash" | "parentRunId" | "userId" | "projectId" | "delegationId" | "runAsKind" | "runAs">>(await database.execute(sql`SELECT workflow_name AS "workflowName", status, definition_hash AS "definitionHash", parent_run_id AS "parentRunId", user_id AS "userId", project_id AS "projectId", delegation_id AS "delegationId", run_as_kind AS "runAsKind", run_as AS "runAs" FROM workflow_runs WHERE id=${parentRunId} FOR SHARE`))[0] : await getWorkflowRunRow(parentRunId);
+    if (!parent || (parent.status !== "running" && parent.status !== "suspended")) return false;
+    for (const key of ["userId", "projectId", "delegationId", "runAsKind", "runAs"] as const) if ((parent[key] ?? null) !== (authority[key] ?? null)) return false;
+    const runtime = getWorkflowRuntime();
+    const parentEntry = runtime && workflowResumeEntry(runtime, parent.workflowName);
+    if (!parentEntry || workflowExecutionHash(parentEntry.definition, parentEntry.extensionRelease) !== parent.definitionHash || !await canExecuteRelease(parentEntry, parent, database)) return false;
+    parentRunId = parent.parentRunId;
+  }
+  return canExecuteRelease(entry, authority, database);
 }
 
 async function readReleaseArtifacts(installationId: string, releaseId: string) {

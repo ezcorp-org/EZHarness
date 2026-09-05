@@ -1,29 +1,17 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
-import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { workflowReleaseFixture } from "./helpers/workflow-release";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
-const { users, projects, projectMembers, extensions, serviceAccounts, workflowDelegations } = await import("../db/schema");
+const { users, projects, projectMembers, serviceAccounts, workflowDelegations, workflowRuns } = await import("../db/schema");
 const { workflowReleaseCanExecute, workflowDelegationReleaseBinding } = await import("../runtime/workflow-release-assets");
-const { up } = await import("../db/migrations/add-workflow-delegation-release");
+const { workflowServiceReleaseFixture: fixture } = await import("./helpers/workflow-service-release");
 const { workflowDelegationReleaseAllows } = await import("../runtime/workflow-scope");
 const { makeNestedWorkflowResolver } = await import("../runtime/nested-workflow-resolver");
+const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
+const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
-
-async function fixture() {
-  const db = getTestDb();
-  await up(db);
-  await up(db);
-  await db.insert(users).values([{ id: "owner", email: "owner@test.invalid", name: "Owner", passwordHash: "hash" }, { id: "admin", email: "admin@test.invalid", name: "Admin", passwordHash: "hash", role: "admin" }]);
-  const release = workflowReleaseFixture({ name: "sealed:task", description: "Sealed task", steps: [] }, "owner", "installation");
-  await db.insert(extensions).values({ id: "installation", name: "sealed", version: "1.0.0", description: "Sealed", source: "test", enabled: true, manifest: release.snapshot.release.manifest });
-  await db.insert(serviceAccounts).values({ id: "service", name: "Service", createdByUserId: "admin", scopes: [], maxTokensPerDay: 1000 });
-  await db.insert(workflowDelegations).values({ id: "delegation", extensionId: "installation", jobRef: "job", ownerKind: "service", ownerServiceAccountId: "service", workflowName: "sealed:task", triggerKind: "cron", consentHash: "hash", definitionHash: "graph", consentedByUserId: "owner", maxTokensPerRun: 100, maxRunsPerDay: 10, extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry) });
-  const authority = { userId: null, runAsKind: "service", runAs: "service", delegationId: "delegation", projectId: null };
-  return { db, release, authority };
-}
 
 test("service runs use exact persisted human consent without human impersonation", async () => {
   const { release, authority } = await fixture();
@@ -113,4 +101,68 @@ test("a project service requires current consenting owner membership even for a 
   expect(await workflowReleaseCanExecute(release.entry, { userId: "owner", projectId: "project" })).toBe(false);
   await db.insert(projectMembers).values({ userId: "owner", projectId: "project", role: "member" });
   expect(await workflowReleaseCanExecute(release.entry, { userId: "owner", projectId: "project" })).toBe(true);
+});
+
+test("human delegations require a live exact release consent and cannot widen its closure", async () => {
+  const { db, release } = await fixture();
+  await db.update(workflowDelegations).set({ ownerKind: "user", ownerUserId: "owner", ownerServiceAccountId: null }).where(eq(workflowDelegations.id, "delegation"));
+  const authority = { userId: "owner", runAsKind: "user", runAs: "owner", delegationId: "delegation" };
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(true);
+  const child = { ...release.entry, definition: { ...release.entry.definition, name: "sealed:unconsented" } };
+  expect(await workflowReleaseCanExecute(child, authority)).toBe(false);
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: null }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(false);
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry) }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(true);
+  await db.update(workflowDelegations).set({ revokedAt: new Date() }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(false);
+});
+
+async function nestedFixture() {
+  const setup = await fixture();
+  const { db, release, authority } = setup;
+  const child = { ...release.entry, definition: { ...release.entry.definition, name: "sealed:child", steps: [{ name: "result", kind: "transform" as const, output: { finished: "yes" } }] } };
+  release.entry.definition.steps = [{ name: "child", kind: "workflow", workflow: child.definition.name, input: {} }];
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry, [release.entry.definition.name, child.definition.name]) }).where(eq(workflowDelegations.id, "delegation"));
+  const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const bus = new EventBus<import("../types").AgentEvents>();
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true });
+  const register = () => registerWorkflowRuntime({ getCachedWorkflows: () => [release.entry, child], getWorkflows: () => [release.entry.definition, child.definition], workflowExecutor: executor });
+  register();
+  await db.insert(workflowRuns).values({ id: "parent", workflowName: release.entry.definition.name, status: "suspended", startedAt: new Date(), input: {}, definitionHash: workflowExecutionHash(release.entry.definition, release.entry.extensionRelease), userId: null, delegationId: authority.delegationId, runAsKind: "service", runAs: authority.runAs });
+  return { ...setup, child, executor, register, childAuthority: { ...authority, parentRunId: "parent" } };
+}
+
+test("persisted child resumes after registry restart only while its exact parent authority remains valid", async () => {
+  const { db, child, executor, register, childAuthority, release } = await nestedFixture();
+  const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const { resumeArgsFromRow } = await import("../runtime/workflow-executor");
+  await db.insert(workflowRuns).values({ id: "child", workflowName: child.definition.name, status: "suspended", startedAt: new Date(), input: {}, definitionHash: workflowExecutionHash(child.definition, child.extensionRelease), parentRunId: "parent", userId: null, delegationId: childAuthority.delegationId, runAsKind: "service", runAs: childAuthority.runAs });
+  _resetWorkflowRuntimeForTests();
+  expect(await workflowReleaseCanExecute(child, childAuthority)).toBe(false);
+  register();
+  const row = await getWorkflowRunRow("child");
+  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child });
+  expect(resumed.result?.error).toBeUndefined();
+  expect(resumed.status).toBe("success");
+  expect((await getWorkflowRunRow("child"))?.userId).toBeNull();
+  release.snapshot.installation.enabled = false;
+  expect(await workflowReleaseCanExecute(child, childAuthority)).toBe(false);
+  _resetWorkflowRuntimeForTests();
+});
+
+test("persisted ancestry rejects scope, principal, hash, missing, cyclic and terminal parents", async () => {
+  const { db, child, childAuthority, release } = await nestedFixture();
+  expect(await db.transaction(transaction => workflowReleaseCanExecute(child, childAuthority, transaction))).toBe(true);
+  expect(await workflowReleaseCanExecute(child, { ...childAuthority, parentRunId: "missing" })).toBe(false);
+  const patches = [{ status: "cancelled" }, { definitionHash: "changed" }, { parentRunId: "parent" }, { userId: "owner" }, { runAs: "different" }, { delegationId: null }];
+  for (const patch of patches) {
+    await db.update(workflowRuns).set(patch).where(eq(workflowRuns.id, "parent"));
+    expect(await workflowReleaseCanExecute(child, childAuthority)).toBe(false);
+    await db.update(workflowRuns).set({ status: "suspended", definitionHash: workflowExecutionHash(release.entry.definition, release.entry.extensionRelease), parentRunId: null, userId: null, runAs: childAuthority.runAs, delegationId: childAuthority.delegationId }).where(eq(workflowRuns.id, "parent"));
+  }
+  _resetWorkflowRuntimeForTests();
 });

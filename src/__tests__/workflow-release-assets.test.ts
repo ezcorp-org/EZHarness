@@ -194,7 +194,7 @@ test("direct execution rechecks release authority after durable reads and never 
   try {
     await expect(executor.runWorkflow(structuredClone(entry!.definition), {}, undefined, "owner")).rejects.toThrow("release authority");
     const failedInsertId = crypto.randomUUID();
-    expect((await executor.runWorkflow(entry!.definition, {}, undefined, "owner", undefined, { runId: failedInsertId, delegationId: "missing-delegation" })).result?.error).toMatchObject({ code: "run-persistence-failed" });
+    expect((await executor.runWorkflow(entry!.definition, { unserializable: 1n }, undefined, "owner", undefined, { runId: failedInsertId })).result?.error).toMatchObject({ code: "run-persistence-failed" });
     expect(errors).toEqual([failedInsertId]);
     expect(await getWorkflowRunRow(failedInsertId)).toBeUndefined();
     expect(activeRuns.size).toBe(0);

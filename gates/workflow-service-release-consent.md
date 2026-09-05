@@ -11,7 +11,7 @@
 
 ## Compatibility
 
-Existing service consent without a release binding cannot authorize a private extension workflow. A human must consent again. A replacement release needs new service consent even when its workflow graph is unchanged. Human execution identity is not assigned to the service.
+Existing human or service delegation consent without a release binding cannot authorize a private extension workflow. A human must consent again. A replacement release needs new delegation consent even when its workflow graph is unchanged. Plain database and YAML workflow consent rules do not change. Human execution identity is not assigned to the service.
 
 ## Review
 

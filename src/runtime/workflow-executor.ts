@@ -2153,7 +2153,7 @@ export class WorkflowExecutor {
       // The parent's signal, so a cancel cascades into the child rather
       // than leaving an orphan run the sweep has to clean up later.
       opts.flow.signal,
-      { parentRunId: opts.parentRunId, idempotencyKey, depth, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: "service" as const, runAs: opts.flow.releasePrincipal.runAs } : {}) },
+      { parentRunId: opts.parentRunId, idempotencyKey, depth, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
     );
     return nestedOutcome(step, name, child.status, child.result ?? null);
   }

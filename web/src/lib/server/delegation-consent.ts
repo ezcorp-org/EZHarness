@@ -96,7 +96,7 @@ export async function buildDelegationConsent(
   if (request.ownerKind === "service" && !await workflowReleaseCanConsentService(request.entry, request.ownerId, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (!record.pin.ok) return errorJson(409, record.pin.message);
   return {
-    extensionReleaseBinding: request.ownerKind === "service" ? workflowDelegationReleaseBinding(request.entry, sameReleaseNames.filter(name => includedNames.has(name))) : null,
+    extensionReleaseBinding: workflowDelegationReleaseBinding(request.entry, sameReleaseNames.filter(name => includedNames.has(name))),
     definitionVersionId: record.pin.definitionVersionId,
     consentHash: record.consentHash,
     definitionHash: record.definitionHash,
