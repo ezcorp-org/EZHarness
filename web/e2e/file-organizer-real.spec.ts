@@ -51,6 +51,7 @@
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { execFileSync } from "node:child_process";
+import { importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
 
@@ -71,13 +72,13 @@ const CONFIG_PATH = "/app/.ezcorp/extension-data/file-organizer/config.json";
 // `EZCORP_PROJECT_ROOT ?? process.cwd()` (= /app/web in dev), and
 // /app/projects was outside it. Under the current bind Browse works, so
 // typing the path is a choice for determinism, not a workaround.
-const WATCH_DIR = "/app/web/.ezcorp/projects/fo-test-watched";
+const WATCH_DIR = "/app/data/file-organizer-test/fo-test-watched";
 // A SECOND reachable dir used by the config-mutation round-trip so we can
 // add → mutate → remove it without disturbing WATCH_DIR. It must be a
 // SIBLING (not an ancestor/descendant) of WATCH_DIR — `addFolder` drops a
 // watched descendant when you add its ancestor, which would corrupt the
 // WATCH_DIR entry mid-suite. `beforeAll` mkdir -p's both in the container.
-const MUTATE_DIR = "/app/web/.ezcorp/projects/fo-verify-new";
+const MUTATE_DIR = "/app/data/file-organizer-test/fo-verify-new";
 
 const FOLDERS_PAGE = "ext:file-organizer:overview";
 
@@ -103,6 +104,7 @@ async function postEvent(
 ): Promise<APIResponse> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await request.post(evtUrl(suffix), {
+			headers: { "Idempotency-Key": crypto.randomUUID() },
       data: { source: "hub", pageId, payload },
     });
     if (res.status() !== 429) return res;
@@ -112,7 +114,10 @@ async function postEvent(
     await new Promise((r) => setTimeout(r, Math.min(retryAfter + 1, 65) * 1000));
   }
   // Final attempt — return whatever we get so the assertion surfaces it.
-  return request.post(evtUrl(suffix), { data: { source: "hub", pageId, payload } });
+  return request.post(evtUrl(suffix), {
+		headers: { "Idempotency-Key": crypto.randomUUID() },
+		data: { source: "hub", pageId, payload },
+	});
 }
 
 /** Read the WRITER's config.json out of the container (the persistence
@@ -185,7 +190,46 @@ test.describe(
     // timeout would otherwise abort.
     test.describe.configure({ mode: "serial", timeout: 90_000 });
     let configSnapshot: string | null = null;
-    test.beforeAll(() => {
+    test.beforeAll(async ({ browser, request, baseURL }) => {
+			test.setTimeout(300_000);
+			const onboarding = await request.post("/api/onboarding/complete");
+			expect(onboarding.status(), await onboarding.text()).toBe(204);
+			execFileSync("docker", ["exec", CONTAINER, "mkdir", "-p", WATCH_DIR, MUTATE_DIR, `${WATCH_DIR}/sub-verify`]);
+			const projectResponse = await request.post("/api/projects", {
+				data: { name: "File Organizer production fixture", path: "/app/data/file-organizer-test" },
+			});
+			expect(projectResponse.status(), await projectResponse.text()).toBe(201);
+			const project = (await projectResponse.json()) as { id: string };
+			const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+			try {
+				const { state } = await importAndActivateBundledExtension({
+					page: await context.newPage(),
+					request,
+					baseURL: baseURL!,
+					name: "file-organizer",
+				});
+				const binding = await request.post(
+					`/api/extensions/releases/${state.installation.id}/project`,
+					{
+						data: {
+							projectId: project.id,
+							releaseId: state.installation.activeReleaseId,
+							generation: state.installation.generation,
+						},
+					},
+				);
+				expect(binding.status(), await binding.text()).toBe(200);
+			} finally {
+				await context.close();
+			}
+			execFileSync("docker", ["restart", CONTAINER]);
+			await expect.poll(async () => {
+				try {
+					return (await fetch(`${baseURL}/api/health`)).status;
+				} catch {
+					return 0;
+				}
+			}, { timeout: 90_000, intervals: [500] }).toBe(200);
       configSnapshot = snapshotWriterConfig();
       // Ensure the scratch dirs the spec adds/probes exist in the container
       // (idempotent — harmless test scratch under the projects bind). Makes
@@ -350,24 +394,42 @@ test.describe(
 
     // ── Proposal lifecycle (conditional — needs a daemon-produced proposal) ──
 
-    test("proposal lifecycle: accept a REAL pending proposal moves the file on disk (skips when no proposals)", async ({ request }) => {
-      // Read the WRITER's proposals.json. The daemon owns proposal
-      // production on its own clamped schedule; if it hasn't produced a
-      // pending proposal we honestly skip rather than fabricate one (the
-      // mock suite covers the accept WIRING; this asserts the REAL move).
+    test("proposal lifecycle: daemon proposes and accepts a REAL move on disk", async ({ request }) => {
+			test.setTimeout(180_000);
+			const folder = readWriterConfig().folders.find((item) => item.path === WATCH_DIR);
+			expect(folder, "watched fixture folder must exist before daemon proposal proof").toBeTruthy();
+			const preset = await postEvent(request, "toggle-preset", {
+				folderId: folder!.id,
+				preset: "junk-sweep",
+			});
+			expect(((await preset.json()) as { ok: boolean }).ok).toBe(true);
+			const backlog = await postEvent(request, "set-backlog-policy", {
+				folderId: folder!.id,
+				backlogPolicy: "include-existing",
+			});
+			expect(((await backlog.json()) as { ok: boolean }).ok).toBe(true);
+			const source = `${WATCH_DIR}/daemon-proof.tmp`;
+			execFileSync("docker", ["exec", CONTAINER, "sh", "-c", `touch '${source}' && touch -d '20 minutes ago' '${source}'`]);
       let proposalsRaw = "";
-      try {
-        proposalsRaw = execFileSync(
-          "docker",
-          ["exec", CONTAINER, "cat", "/app/.ezcorp/extension-data/file-organizer/proposals.json"],
-          { encoding: "utf8" },
-        );
-      } catch {
-        proposalsRaw = "";
-      }
-      const parsed = (() => {
+			let parsed: { proposals?: Array<{ id: string; kind: string; status: string; src?: string; dst?: string }> } = {};
+			await expect.poll(() => {
+				try {
+					proposalsRaw = execFileSync(
+						"docker",
+						["exec", CONTAINER, "cat", "/app/.ezcorp/extension-data/file-organizer/proposals.json"],
+						{ encoding: "utf8" },
+					);
+					parsed = JSON.parse(proposalsRaw);
+					return (parsed.proposals ?? []).some((proposal) =>
+						proposal.status === "pending" && proposal.kind !== "unclassified" && proposal.src === source,
+					);
+				} catch {
+					return false;
+				}
+			}, { timeout: 150_000, intervals: [2_000] }).toBe(true);
+      parsed = (() => {
         try {
-          return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; kind: string; status: string; dst?: string }> };
+					return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; kind: string; status: string; src?: string; dst?: string }> };
         } catch {
           return { proposals: [] as Array<{ id: string; kind: string; status: string; dst?: string }> };
         }
@@ -375,8 +437,8 @@ test.describe(
       // Only DIRECTLY-APPLYABLE kinds: an `unclassified` proposal is pending
       // but accept refuses it by design ("pick a destination or teach a
       // rule"), which would fail the not-pending re-read below.
-      const pending = (parsed.proposals ?? []).find((p) => p.status === "pending" && p.kind !== "unclassified");
-      test.skip(!pending, "no daemon-produced applyable pending proposal on disk — nothing real to accept");
+			const pending = (parsed.proposals ?? []).find((p) => p.status === "pending" && p.kind !== "unclassified" && p.src === source);
+			expect(pending, "daemon must produce an applyable proposal for the owned old .tmp input").toBeTruthy();
 
       const res = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
       expect(res.status()).toBe(200);

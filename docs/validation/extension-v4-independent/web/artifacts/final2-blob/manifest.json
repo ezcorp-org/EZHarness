@@ -1,0 +1,342 @@
+{
+  "pr": 246,
+  "headSha": "4b41933d2e883f59941d23b873139cb9be7877fa",
+  "runId": 0,
+  "shots": [
+    {
+      "spec": "auth-autocomplete.spec.ts",
+      "label": "reset-password-autocomplete",
+      "file": "extracted/auth-autocomplete.spec.ts__reset-password-autocomplete.png"
+    },
+    {
+      "spec": "extension-disable-hides-hub-page.spec.ts",
+      "label": "uninstall-dialog-data-choice",
+      "file": "extracted/extension-disable-hides-hub-page.spec.ts__uninstall-dialog-data-choice.png"
+    },
+    {
+      "spec": "auth-autocomplete.spec.ts",
+      "label": "mcp-headers-autocomplete",
+      "file": "extracted/auth-autocomplete.spec.ts__mcp-headers-autocomplete.png"
+    },
+    {
+      "spec": "auth-autocomplete.spec.ts",
+      "label": "account-password-autocomplete",
+      "file": "extracted/auth-autocomplete.spec.ts__account-password-autocomplete.png"
+    },
+    {
+      "spec": "extension-disable-hides-hub-page.spec.ts",
+      "label": "extension-card-hub-tab-hidden",
+      "file": "extracted/extension-disable-hides-hub-page.spec.ts__extension-card-hub-tab-hidden.png"
+    },
+    {
+      "spec": "extension-secret-settings.spec.ts",
+      "label": "secret-setting-not-set",
+      "file": "extracted/extension-secret-settings.spec.ts__secret-setting-not-set.png"
+    },
+    {
+      "spec": "extensions-audit-retention-note.spec.ts",
+      "label": "audit-trail-folding-and-retention-note",
+      "file": "extracted/extensions-audit-retention-note.spec.ts__audit-trail-folding-and-retention-note.png"
+    },
+    {
+      "spec": "extension-disable-hides-hub-page.spec.ts",
+      "label": "extension-detail-uninstall",
+      "file": "extracted/extension-disable-hides-hub-page.spec.ts__extension-detail-uninstall.png"
+    },
+    {
+      "spec": "extension-disable-hides-hub-page.spec.ts",
+      "label": "hub-tab-bar-after-disable",
+      "file": "extracted/extension-disable-hides-hub-page.spec.ts__hub-tab-bar-after-disable.png"
+    },
+    {
+      "spec": "extension-deep-links.spec.ts",
+      "label": "extension-detail-via-post-install-deep-link",
+      "file": "extracted/extension-deep-links.spec.ts__extension-detail-via-post-install-deep-link.png"
+    },
+    {
+      "spec": "extension-install-granted-caps.spec.ts",
+      "label": "install-granted-capabilities-v4",
+      "file": "extracted/extension-install-granted-caps.spec.ts__install-granted-capabilities-v4.png"
+    },
+    {
+      "spec": "extension-author-failure-cards.spec.ts",
+      "label": "extension-author-failure-card",
+      "file": "extracted/extension-author-failure-cards.spec.ts__extension-author-failure-card.png"
+    },
+    {
+      "spec": "extension-secret-settings.spec.ts",
+      "label": "secret-setting-set",
+      "file": "extracted/extension-secret-settings.spec.ts__secret-setting-set.png"
+    },
+    {
+      "spec": "extension-disable-hides-hub-page.spec.ts",
+      "label": "hub-tab-hidden-after-disable",
+      "file": "extracted/extension-disable-hides-hub-page.spec.ts__hub-tab-hidden-after-disable.png"
+    },
+    {
+      "spec": "canvas-dock-open-close.spec.ts",
+      "label": "extension-iframe-live-dock-light",
+      "file": "extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-light.png"
+    },
+    {
+      "spec": "extensions-bundled-drift-reapproval.spec.ts",
+      "label": "bundled-release-permissions-v4",
+      "file": "extracted/extensions-bundled-drift-reapproval.spec.ts__bundled-release-permissions-v4.png"
+    },
+    {
+      "spec": "canvas-dock-open-close.spec.ts",
+      "label": "extension-iframe-live-dock-dark",
+      "file": "extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-dark.png"
+    },
+    {
+      "spec": "extensions-detail-consent-legibility.spec.ts",
+      "label": "mcp-long-host-wraps-inside-card",
+      "file": "extracted/extensions-detail-consent-legibility.spec.ts__mcp-long-host-wraps-inside-card.png"
+    },
+    {
+      "spec": "canvas-dock-open-close.spec.ts",
+      "label": "extension-iframe-live-dock-mobile-dark",
+      "file": "extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-mobile-dark.png"
+    },
+    {
+      "spec": "extensions-detail-consent-legibility.spec.ts",
+      "label": "mcp-no-false-modification-notice",
+      "file": "extracted/extensions-detail-consent-legibility.spec.ts__mcp-no-false-modification-notice.png"
+    },
+    {
+      "spec": "extensions-mcp-tab.spec.ts",
+      "label": "mcp-card-max-length-name",
+      "file": "extracted/extensions-mcp-tab.spec.ts__mcp-card-max-length-name.png"
+    },
+    {
+      "spec": "extensions-detail-consent-legibility.spec.ts",
+      "label": "mcp-audit-rows-read-as-sentences",
+      "file": "extracted/extensions-detail-consent-legibility.spec.ts__mcp-audit-rows-read-as-sentences.png"
+    },
+    {
+      "spec": "extensions-mcp-permissions.spec.ts",
+      "label": "mcp-network-permission-granted",
+      "file": "extracted/extensions-mcp-permissions.spec.ts__mcp-network-permission-granted.png"
+    },
+    {
+      "spec": "extensions-sort.spec.ts",
+      "label": "extensions-sort",
+      "file": "extracted/extensions-sort.spec.ts__extensions-sort.png"
+    },
+    {
+      "spec": "extensions-sort.spec.ts",
+      "label": "extensions-sort-recent",
+      "file": "extracted/extensions-sort.spec.ts__extensions-sort-recent.png"
+    },
+    {
+      "spec": "extensions-workflows-grant.spec.ts",
+      "label": "extensions-workflows-grant-v4",
+      "file": "extracted/extensions-workflows-grant.spec.ts__extensions-workflows-grant-v4.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "github-projects-two-boards",
+      "file": "extracted/github-projects-connect.spec.ts__github-projects-two-boards.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-save-error-surfaced",
+      "file": "extracted/github-projects-connect.spec.ts__gh-save-error-surfaced.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-default-model",
+      "file": "extracted/github-projects-connect.spec.ts__gh-default-model.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-replace-token-mapping-survives",
+      "file": "extracted/github-projects-connect.spec.ts__gh-replace-token-mapping-survives.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "github-projects-connect",
+      "file": "extracted/github-projects-connect.spec.ts__github-projects-connect.png"
+    },
+    {
+      "spec": "github-projects-hub.spec.ts",
+      "label": "github-projects-connect",
+      "file": "extracted/github-projects-hub.spec.ts__github-projects-connect.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-autospawn-warning",
+      "file": "extracted/github-projects-connect.spec.ts__gh-autospawn-warning.png"
+    },
+    {
+      "spec": "github-projects-hub.spec.ts",
+      "label": "github-projects-rerun-pending",
+      "file": "extracted/github-projects-hub.spec.ts__github-projects-rerun-pending.png"
+    },
+    {
+      "spec": "graded-card-scanner.spec.ts",
+      "label": "graded-card-scanner-list",
+      "file": "extracted/graded-card-scanner.spec.ts__graded-card-scanner-list.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-comment-scope-warning",
+      "file": "extracted/github-projects-connect.spec.ts__gh-comment-scope-warning.png"
+    },
+    {
+      "spec": "graded-card-scanner.spec.ts",
+      "label": "graded-card-scanner-detail",
+      "file": "extracted/graded-card-scanner.spec.ts__graded-card-scanner-detail.png"
+    },
+    {
+      "spec": "hub-side-nav.spec.ts",
+      "label": "hub-sidebar-dropdown",
+      "file": "extracted/hub-side-nav.spec.ts__hub-sidebar-dropdown.png"
+    },
+    {
+      "spec": "import-wizard.spec.ts",
+      "label": "import-wizard-review-before-build",
+      "file": "extracted/import-wizard.spec.ts__import-wizard-review-before-build.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "gh-done-status-select",
+      "file": "extracted/github-projects-connect.spec.ts__gh-done-status-select.png"
+    },
+    {
+      "spec": "hub-side-nav.spec.ts",
+      "label": "hub-tab-bar-abc",
+      "file": "extracted/hub-side-nav.spec.ts__hub-tab-bar-abc.png"
+    },
+    {
+      "spec": "import-wizard.spec.ts",
+      "label": "import-wizard-staged-review-link",
+      "file": "extracted/import-wizard.spec.ts__import-wizard-staged-review-link.png"
+    },
+    {
+      "spec": "github-projects-connect.spec.ts",
+      "label": "github-projects-default-permission-mode",
+      "file": "extracted/github-projects-connect.spec.ts__github-projects-default-permission-mode.png"
+    },
+    {
+      "spec": "hub.spec.ts",
+      "label": "hub-action-failure-preserves-page",
+      "file": "extracted/hub.spec.ts__hub-action-failure-preserves-page.png"
+    },
+    {
+      "spec": "project-hub.spec.ts",
+      "label": "extension-hub-cards",
+      "file": "extracted/project-hub.spec.ts__extension-hub-cards.png"
+    },
+    {
+      "spec": "project-hub.spec.ts",
+      "label": "project-hub-page",
+      "file": "extracted/project-hub.spec.ts__project-hub-page.png"
+    },
+    {
+      "spec": "project-hub.spec.ts",
+      "label": "project-hub-per-project",
+      "file": "extracted/project-hub.spec.ts__project-hub-per-project.png"
+    },
+    {
+      "spec": "github-projects-hub.spec.ts",
+      "label": "github-projects-hub",
+      "file": "extracted/github-projects-hub.spec.ts__github-projects-hub.png"
+    },
+    {
+      "spec": "project-context-non-project-routes.spec.ts",
+      "label": "extension-detail-keeps-project",
+      "file": "extracted/project-context-non-project-routes.spec.ts__extension-detail-keeps-project.png"
+    },
+    {
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-desktop",
+      "file": "extracted/extension-author-flow.spec.ts__extension-release-desktop.png"
+    },
+    {
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-mobile",
+      "file": "extracted/extension-author-flow.spec.ts__extension-release-mobile.png"
+    },
+    {
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extensions-approved-installation-list",
+      "file": "extracted/extension-author-flow.spec.ts__extensions-approved-installation-list.png"
+    },
+    {
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-detail-release-permissions",
+      "file": "extracted/extension-author-flow.spec.ts__extension-detail-release-permissions.png"
+    },
+    {
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-uninstall-retains-data",
+      "file": "extracted/extension-author-flow.spec.ts__extension-uninstall-retains-data.png"
+    },
+    {
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-desktop",
+      "file": "extracted/extension-binary-assets.spec.ts__extension-binary-assets-desktop.png"
+    },
+    {
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-mobile",
+      "file": "extracted/extension-binary-assets.spec.ts__extension-binary-assets-mobile.png"
+    },
+    {
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-desktop",
+      "file": "extracted/extension-project-authority.spec.ts__extension-project-review-desktop.png"
+    },
+    {
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-mobile",
+      "file": "extracted/extension-project-authority.spec.ts__extension-project-review-mobile.png"
+    },
+    {
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-repeated-output",
+      "file": "extracted/extension-release-gate.spec.ts__extension-real-repeated-output.png"
+    },
+    {
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-upgraded-output",
+      "file": "extracted/extension-release-gate.spec.ts__extension-real-upgraded-output.png"
+    },
+    {
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-form",
+      "file": "extracted/extension-source-import.spec.ts__extension-source-import-form.png"
+    },
+    {
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-mobile",
+      "file": "extracted/extension-source-import.spec.ts__extension-source-import-mobile.png"
+    },
+    {
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-review",
+      "file": "extracted/extension-source-import.spec.ts__extension-source-import-review.png"
+    },
+    {
+      "spec": "workflow-service-release-flow.spec.ts",
+      "label": "service-workflow-exact-release-review",
+      "file": "extracted/workflow-service-release-flow.spec.ts__service-workflow-exact-release-review.png"
+    },
+    {
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-trusted-camera",
+      "file": "extracted/extension-browser-scanner.spec.ts__extension-scanner-trusted-camera.png"
+    },
+    {
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-protected-mobile",
+      "file": "extracted/extension-browser-scanner.spec.ts__extension-scanner-protected-mobile.png"
+    },
+    {
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-mobile-final",
+      "file": "extracted/extension-browser-scanner.spec.ts__extension-scanner-mobile-final.png"
+    }
+  ]
+}
