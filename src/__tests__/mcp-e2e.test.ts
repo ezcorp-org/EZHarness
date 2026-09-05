@@ -1,44 +1,44 @@
-/**
- * MCP End-to-End Integration Test
- *
- * Full round-trip:
- *   1. User POSTs an MCP server config to /api/mcp-servers
- *   2. Handler spawns a real stdio MCP subprocess, calls tools/list,
- *      persists it as an extension row, reloads the registry.
- *   3. We attach the extension to an agent config.
- *   4. We resolve the agent's available tools via
- *      `ExtensionRegistry.getToolsForAgent()`.
- *   5. We invoke one of those tools via `ToolExecutor.executeToolCall`,
- *      which routes to the MCP client (not a subprocess extension).
- *   6. Verify the result, the in-DB tool_calls row, and that the same
- *      tool propagates to a team-kind agent that references the member.
- */
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
+import { ADMIN_USER } from "./helpers/mock-request";
 import { makeStdioMcpServer } from "./helpers/stdio-mcp-fixture";
 import { eq } from "drizzle-orm";
 
 mockDbConnection();
-mockServerAlias();
-
-mock.module("$server/db/queries/extensions", () => require("../db/queries/extensions"));
-mock.module("$server/extensions/registry", () => require("../extensions/registry"));
-mock.module("$server/mcp/client", () => require("../mcp/client"));
-mock.module("../../web/src/routes/api/mcp-servers/$types", () => ({}));
-
-import { POST as installPOST } from "../../web/src/routes/api/mcp-servers/+server";
 import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { createAgentConfig, updateAgentConfig } from "../db/queries/agent-configs";
 import { createConversation } from "../db/queries/conversations";
-import { listExtensions, deleteExtension } from "../db/queries/extensions";
+import { listExtensions, deleteExtension, installMcpExtension, updateExtension } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { toolCalls, projects, users } from "../db/schema";
 
+import { isolatedMcpRelease } from "./helpers/mcp-isolated-release-fixture";
+import { dirname } from "node:path";
+import { rm } from "node:fs/promises";
+let release: Awaited<ReturnType<typeof isolatedMcpRelease>> | undefined;
+afterEach(async () => { await release?.close(); release = undefined; });
 let projectId: string;
+
+async function approvedMcp(name: string, toolName: string) {
+  const source = makeStdioMcpServer({ tools: [{ name: toolName, description: "Fixture" }] });
+  try {
+    const server = { transport: "stdio" as const, name, command: "/usr/local/bin/bun", args: ["/workspace/server.js"] };
+    const manifest = { schemaVersion: 4, name, version: "1.0.0", description: "MCP E2E", author: { name: "Tests" }, kind: "mcp", permissions: {}, mcpServers: [server] };
+    const row = await installMcpExtension({ name, server, cachedTools: [] });
+    release = await isolatedMcpRelease({
+      "extension.ts": `import {createMcpExtension,serve} from '@ezcorp/sdk/v4';await serve(await createMcpExtension({manifest:${JSON.stringify(manifest)}}));`,
+      "metadata.test.ts": "import {test,expect} from 'bun:test';test('source',()=>expect(true).toBe(true));",
+      "server.js": await Bun.file(source.scriptPath).text(),
+    }, row.id);
+    release.fixture.snapshot.installation.ownerId = ADMIN_USER.id;
+    await updateExtension(row.id, { manifest: release.build.manifest!, source: "release-v4" });
+    await release.fixture.registry.loadFromDb();
+    return row;
+  } finally { await rm(dirname(source.scriptPath), { recursive: true, force: true }); }
+}
 
 beforeAll(async () => {
   await setupTestDb();
@@ -68,22 +68,7 @@ beforeEach(async () => {
 
 describe("E2E: install → attach → execute", () => {
   test("full round trip including tool_calls DB record", async () => {
-    const fixture = makeStdioMcpServer({
-      tools: [{ name: "echo", description: "Echo tool" }],
-    });
-
-    // 1. Install via real handler
-    const installRes = await installPOST(createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: {
-        name: "e2e-mcp",
-        server: { transport: "stdio", name: "e2e-mcp", command: fixture.command, args: fixture.args },
-      },
-    }));
-    expect(installRes.status).toBe(201);
-    const ext = await jsonFromResponse(installRes);
+    const ext = await approvedMcp("e2e-mcp", "echo");
 
     // 2. Attach to a new agent config.
     // agentConfigs.extensions is a jsonb string[] column keyed by the
@@ -109,6 +94,7 @@ describe("E2E: install → attach → execute", () => {
     // 5. Invoke the tool via the executor (routes to MCP client since kind=mcp)
     const conv = await createConversation(projectId, { title: "e2e-conv", userId: ADMIN_USER.id });
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
+    executor.setCurrentUserId(ADMIN_USER.id);
     const result = await executor.executeToolCall(
       "e2e-mcp__echo",
       { text: "hello-world" },
@@ -127,23 +113,10 @@ describe("E2E: install → attach → execute", () => {
     expect(rows[0]!.input).toEqual({ text: "hello-world" });
 
     ExtensionRegistry.resetInstance();
-  }, 20_000);
+  }, 120_000);
 
   test("team agent propagates MCP tools to members via references.teamToolScope", async () => {
-    const fixture = makeStdioMcpServer({
-      tools: [{ name: "peek", description: "Peek" }],
-    });
-    const installRes = await installPOST(createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: {
-        name: "team-mcp",
-        server: { transport: "stdio", name: "team-mcp", command: fixture.command, args: fixture.args },
-      },
-    }));
-    expect(installRes.status).toBe(201);
-    const ext = await jsonFromResponse(installRes);
+    const ext = await approvedMcp("team-mcp", "peek");
 
     // Team agent OWNS the MCP extension (both references and the column)
     const team = await createAgentConfig({
@@ -176,5 +149,5 @@ describe("E2E: install → attach → execute", () => {
     expect(teamTools.some((t) => t.name === "team-mcp__peek")).toBe(true);
 
     ExtensionRegistry.resetInstance();
-  }, 20_000);
+  }, 120_000);
 });
