@@ -26,3 +26,17 @@ Contents:
 - `ez-runtime-sdk-lint.log`: initial scoped lint receipt. It records one warning that was removed. The later direct scoped check reported no diagnostics before commit.
 
 The bundle contains test output only. It contains no credential values or live-service payloads.
+
+## Final lifecycle and PostgreSQL receipts
+
+- `all-first-party-lifecycle-freeze2.jsonl.gz` — authoritative frozen-tree JSONL for 50 extension records, summary, and command exit. It reports 50 passed, 0 failed, 0 untested; 4 smoke passed, 46 smoke not declared; and 1/117 capability rows tested. SHA-256 `fbfa262f97509e54441f2a77492398e724d713946f97aabfca89446522a0837b`.
+- `all-first-party-lifecycle.jsonl.gz` — retained freeze-one checkpoint before the final capability narrowing. SHA-256 `462fa4718e1b076267942200d4b0c905874da5acb7c5878caf36c0dcd2f00221`.
+- `capability-test-sources.txt` — 91 distinct exact test sources mapped by the capability inventory. SHA-256 `ffc85335b5783aab4e1931d6e20f336cc45964bdbab29313d62a84f4f6c0fc44`.
+- `postgres-final.log.gz` — authoritative clean non-login-shell run. SHA-256 `8a39a144e1c4f9334d7e6635d5aef35c7d5a578fac18ab46d6edb712dd9d9db5`.
+- `postgres-wrapper-exit127.log.gz` — retained invalid wrapper receipt. Both child programs passed, but `/etc/bash_logout` failed under `set -u`, so the wrapper correctly remains exit 127. SHA-256 `22647adcdf629fad5592531347619f12352ad2f2ec401e8939203a21092980b0`.
+
+The authoritative PostgreSQL rerun used Bun 1.3.14, rootless Podman, the pinned image `docker.io/library/postgres@sha256:485935f94cc7165afa896978809c37b592dc07f0a37d2c8f645f12412d0212c8`, `--pull=never`, `--log-driver=k8s-file`, a 256 MB memory limit, and a random loopback-only port. An exact-name trap removed the disposable container. The verifier exited 0 and proved release, publication, owner user, project membership, service account, workflow delegation, and running workflow revocation. Runtime-lock tests passed 2/2 with 4 assertions. The combined command exited 0.
+
+Additional compressed receipts are indexed in `SHA256SUMS`: repository-activity fault red/final green, deterministic policy gap checks, Claude Design unit/browser/vendor checks, direct keyless-provider checks (including unauthenticated GitHub HTTP 200), the installed-live harness limitation, and changed-extension lifecycle red/green records. The `changed-lifecycle-red` receipt preserves the rejected `.js` text-import attempt and the subsequent body-boundary test failure; `changed-lifecycle-green` is the final successful two-extension proof.
+
+Controlled-fault artifacts preserve the deterministic event grant-filter mutation and the todo root-denial failure. `repo-activity-red.log.gz` is an initial expectation mismatch, not a protection-removal fault; `repo-activity-green.log.gz` is the useful denied/error and recovery integration result. The Claude browser receipt applies network/style CSP through a meta policy and does not prove iframe sandbox opacity.
