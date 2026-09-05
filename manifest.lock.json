@@ -61,8 +61,8 @@
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 106917,
-      "sourceDigest": "bd51979558c0facc15a6034d9677097bc51c4669fe0d3da575468fda5cb6ac2a"
+      "bytes": 106933,
+      "sourceDigest": "f2fe644ca0da84aa5f81dcd3272e7e7fb45287178a8102f552af6ffb8cf52825"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -201,8 +201,8 @@
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 29944,
-      "sourceDigest": "3171e6b5767a3d3343e042cf64fdf5137354cadaad58ac778829d0edca5b849f"
+      "bytes": 29960,
+      "sourceDigest": "20be5247c4d3669340c15d3bfa10f637351f78a045d76b687087158c16b3f13d"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
@@ -257,8 +257,8 @@
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 79149,
-      "sourceDigest": "3da635b9cf3477ccac4ec351cf078f5e785e50573aea332bca8c865570444c7b"
+      "bytes": 79087,
+      "sourceDigest": "86ffdf8641553378009dbed0e7aa7024858ffb5e1b3979c9526faefa47509e9c"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",

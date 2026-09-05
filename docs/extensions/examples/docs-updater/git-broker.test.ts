@@ -9,7 +9,7 @@ test("v4 git inspection sends only closed operations and a commit hash", async (
     manifest: { schemaVersion: 4, name: "git-broker-test", version: "1.0.0", description: "Git broker test", author: { name: "Test" }, permissions: { shell: true }, tools: [{ name: "inspect", description: "Inspect git", inputSchema: { type: "object" } }] },
     register: async () => {
       const { readGitHead, readCommitSubjects, readOriginUrl } = await import("./index");
-      createToolDispatcher({ inspect: async () => ({ content: [{ type: "text", text: JSON.stringify([await readGitHead("/untrusted"), await readCommitSubjects("/untrusted", sinceHash), await readOriginUrl("/untrusted")]) }] }) });
+      createToolDispatcher({ inspect: async () => ({ isError: false, content: [{ type: "text", text: JSON.stringify([await readGitHead("/untrusted"), await readCommitSubjects("/untrusted", sinceHash), await readOriginUrl("/untrusted")]) }] }) });
     },
   });
   const head = { hash: "b".repeat(40), subject: "Current" };

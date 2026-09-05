@@ -8,7 +8,7 @@ test("v4 git reads use the host-selected project, never a caller host path", asy
     manifest: { schemaVersion: 4, name: "git-broker-test", version: "1.0.0", description: "Git broker test", author: { name: "Test" }, permissions: { shell: true }, tools: [{ name: "read", description: "Read git head", inputSchema: { type: "object" } }] },
     register: async () => {
       const { readGitHead } = await import("./index");
-      createToolDispatcher({ read: async () => ({ content: [{ type: "text", text: JSON.stringify(await readGitHead("/untrusted/caller/path")) }] }) });
+      createToolDispatcher({ read: async () => ({ isError: false, content: [{ type: "text", text: JSON.stringify(await readGitHead("/untrusted/caller/path")) }] }) });
     },
   });
   const head = { hash: "a".repeat(40), subject: "Approved project" };

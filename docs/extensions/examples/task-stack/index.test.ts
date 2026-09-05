@@ -212,14 +212,14 @@ describe("resolveProjectRoot env-var path", () => {
     // so any empty value is a malformed-test-env case. The implementation
     // uses `fromEnv.length > 0` to gate the fast path.
     process.env.EZCORP_PROJECT_ROOT = "";
+    const fixture = mkdtempSync(join(tmpdir(), "task-stack-empty-env-"));
     try {
-      // Falls through to the lazy require-fs walk; from cwd it should
-      // find this repo's `.git` ancestor (cwd itself is a worktree).
-      const root = resolveProjectRoot(process.cwd());
-      expect(root).not.toBe(""); // didn't return the empty env value
-      // Repo root must contain a .git entry (worktree's `.git` is a file).
+      writeFileSync(join(fixture, ".git"), "gitdir: /fixture\n");
+      const root = resolveProjectRoot(fixture);
+      expect(root).toBe(fixture);
       expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
     } finally {
+      rmSync(fixture, { recursive: true, force: true });
       if (ORIG === undefined) delete process.env.EZCORP_PROJECT_ROOT;
       else process.env.EZCORP_PROJECT_ROOT = ORIG;
     }
