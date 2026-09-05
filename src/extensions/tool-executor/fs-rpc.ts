@@ -16,7 +16,8 @@ import {
   type FsHandlerContext,
   type FsRpcResponse,
 } from "../fs-handler";
-import { resolveReverseRpcMeta } from "./provenance";
+import { resolveReverseRpcMeta, resolveCallToken } from "./provenance";
+import { isServiceInvocation } from "../service-invocation";
 import { handleVirtualFilesystemRpc, type VirtualFilesystemPorts, type VirtualFsOperation } from "../virtual-filesystem";
 
 /** The `ToolExecutor` state an fs.* handler reads: the PDP + the registry. */
@@ -182,6 +183,10 @@ export function buildFsHandlerCtx(
 ):
   | { ok: true; ctx: FsHandlerContext }
   | { ok: false; errorResponse: JsonRpcResponse } {
+  const token = resolveCallToken(extensionId, req);
+  if (token.ok && isServiceInvocation(token.prov.serviceInvocation)) {
+    return { ok: true, ctx: { extensionId, conversationId: "unknown", userId: "unknown", engine: deps.engine, registry: deps.registry, serviceInvocation: token.prov.serviceInvocation } };
+  }
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return { ok: false, errorResponse: resolved.errorResponse };
   return {

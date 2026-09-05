@@ -373,7 +373,12 @@ export class ToolExecutor {
     // server-side from the conversation — identical semantics to the
     // advisory `ctx.rbac.check` via the shared `resolveExtensionScopeGrant`.
     const requiredScope = tool?.rbacScope;
-    if (requiredScope) {
+    let serviceTargetBinding: string | undefined;
+    if (serviceInvocation) {
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      serviceTargetBinding = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope });
+      if (_opts?.expectedReleaseBinding !== undefined && _opts.expectedReleaseBinding !== serviceTargetBinding) throw new Error("Service target does not match the expected release");
+    } else if (requiredScope) {
       const scopeGranted = await this.resolveExtensionScopeGrant(
         manifest?.name ?? extensionId,
         requiredScope,
@@ -388,6 +393,12 @@ export class ToolExecutor {
         );
       }
     }
+    const invocationGuard: InvocationGuard | undefined = serviceInvocation ? async database => {
+      await _opts?.invocationGuard?.(database);
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      const current = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope, database });
+      if (current !== serviceTargetBinding) throw new Error("Service target release changed during invocation");
+    } : _opts?.invocationGuard;
 
     // Mandatory in-chat approval for agent-driven extension install.
     // The bundled `extension-author.install_draft` tool installs
@@ -469,6 +480,7 @@ export class ToolExecutor {
           // PDP serializes it as JSON null in the audit row instead
           // of the literal string "unknown".
           userId: this.currentUserId ?? null,
+          serviceInvocation,
           conversationId: conversationId ?? null,
           toolName: originalName,
           callerExtensionId: _opts?.callerExtensionId,
@@ -688,7 +700,7 @@ export class ToolExecutor {
     const runtimeCtxForCall: import("../runtime-tool-context").RuntimeToolContext = {
       ...(_opts?.capContext !== undefined ? { currentCapContext: _opts.capContext } : {}),
       signal: _opts?.signal,
-      invocationGuard: _opts?.invocationGuard,
+      invocationGuard,
       currentAuditId: decision.auditId,
       ...(serviceInvocation ? { serviceInvocation } : {}),
     };
@@ -752,9 +764,9 @@ export class ToolExecutor {
           return result;
         };
         const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
-          await verifyInvocationLocks(transaction, _opts?.invocationGuard);
+          await verifyInvocationLocks(transaction, invocationGuard);
           const result = await executeEntity(transaction);
-          await verifyInvocationLocks(transaction, _opts?.invocationGuard);
+          await verifyInvocationLocks(transaction, invocationGuard);
           return result;
         });
         const duration = Date.now() - startTime;
@@ -881,10 +893,10 @@ export class ToolExecutor {
           actorExtensionId: extensionId,
           kind: "tool",
           ownerless: !this.currentUserId && !serviceInvocation,
-          ...(serviceInvocation ? { serviceInvocation, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
+          ...(serviceInvocation ? { serviceInvocation, invocationGuard, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
         });
         meta.ezCallId = ezCallId;
-        if (_opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = _opts.expectedReleaseBinding;
+        if (serviceTargetBinding !== undefined || _opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = serviceTargetBinding ?? _opts?.expectedReleaseBinding;
         // Only pass the fourth `options` arg when there's something to set —
         // keeps the 3-arg call shape for the common case (tests assert with
         // strict `toHaveBeenCalledWith` arity). The token is released the
@@ -912,10 +924,10 @@ export class ToolExecutor {
             this.registry.isBundled?.(extensionId) === true);
         try {
           _opts?.signal?.throwIfAborted();
-          if (_opts?.invocationGuard) await _opts.invocationGuard();
+          if (invocationGuard) await invocationGuard();
           _opts?.signal?.throwIfAborted();
-          const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(_opts?.invocationGuard ? { invocationGuard: _opts.invocationGuard } : {}) };
-          const controlled = _opts?.signal || _opts?.invocationGuard;
+          const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
+          const controlled = _opts?.signal || invocationGuard;
           const callOptions = controlled ? { skipTimeout: skipCallTimeout, ...controlOptions } : skipCallTimeout ? { skipTimeout: true } : undefined;
           result = isMcp
             ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(controlled ? [controlOptions] : []))

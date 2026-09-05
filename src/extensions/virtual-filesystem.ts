@@ -5,17 +5,30 @@ import type { FsHandlerContext } from "./fs-handler";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { extensionDataDir, isRemovableDataDir } from "./extension-data-dir";
 import { isReservedSensitivePath } from "./permissions";
+import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
+import { assertServiceCapabilities } from "./service-capabilities";
 
 export type VirtualFsOperation = "read" | "write" | "list" | "stat" | "exists" | "mkdir" | "unlink";
 export interface VirtualFilesystemRoots { project?: string; data: string }
 export interface VirtualFilesystemPorts {
-  roots(context: { extensionId: string; extensionName: string; userId: string; conversationId: string | null }): Promise<VirtualFilesystemRoots>;
+  roots(context: { extensionId: string; extensionName: string; userId: string; conversationId: string | null; serviceInvocation?: ServiceInvocation }): Promise<VirtualFilesystemRoots>;
 }
 export const VIRTUAL_FILE_LIMIT = 512 * 1024;
 
 export const productionFilesystemPorts: VirtualFilesystemPorts = {
   async roots(context) {
     if (!isRemovableDataDir(context.extensionName)) throw new Error("Invalid extension data namespace");
+    if (context.serviceInvocation) {
+      if (!isServiceInvocation(context.serviceInvocation)) throw new Error("Invalid service filesystem authority");
+      await assertServiceCapabilities(context.serviceInvocation, context.extensionId, []);
+      const data = extensionDataDir(context.extensionName);
+      if (!context.serviceInvocation.projectId) return { data };
+      const { getProject } = await import("../db/queries/projects");
+      const project = await getProject(context.serviceInvocation.projectId);
+      await context.serviceInvocation.assertActive();
+      if (!project?.path) throw new Error("Service project root unavailable");
+      return { data, project: project.path };
+    }
     const { getUserById } = await import("../db/queries/users");
     const user = await getUserById(context.userId);
     if (user?.status !== "active") throw new Error("Active user required");
@@ -92,21 +105,24 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
     }
     const namedTool = typeof params?._toolName === "string" ? manifest.tools?.find((tool) => tool.name === params._toolName) : undefined;
     if (namedTool?.capabilities?.filesystem && !namedTool.capabilities.filesystem.mode.includes(writing ? "write" : "read")) return fail(-32001, "The current tool does not permit this filesystem operation.");
-    const roots = await ports.roots({ extensionId: context.extensionId, extensionName: manifest.name, userId: context.userId, conversationId: context.conversationId === "unknown" ? null : context.conversationId });
+    const roots = await ports.roots({ extensionId: context.extensionId, extensionName: manifest.name, userId: context.userId, conversationId: context.conversationId === "unknown" ? null : context.conversationId, ...(context.serviceInvocation ? { serviceInvocation: context.serviceInvocation } : {}) });
     const root = roots[path.root];
     if (!root || !root.startsWith("/")) return fail(-32001, "The requested virtual root is unavailable in this invocation.");
     const actual = resolve(root, ...path.parts);
     if (await isReservedSensitivePath(actual)) return fail(-32001, "The path is reserved by the host.");
-    const decision = await context.engine.authorize({ extensionId: context.extensionId, userId: context.userId, conversationId: context.conversationId }, [{ kind: writing ? "fs.write" : operation === "list" ? "fs.list" : operation === "stat" ? "fs.stat" : "fs.read", value: path.virtual }]);
+    const needed = [{ kind: writing ? "fs.write" : operation === "list" ? "fs.list" : operation === "stat" ? "fs.stat" : "fs.read", value: path.virtual }] as const;
+    const decision = await context.engine.authorize({ extensionId: context.extensionId, userId: context.serviceInvocation ? null : context.userId, conversationId: context.serviceInvocation ? null : context.conversationId, serviceInvocation: context.serviceInvocation }, needed);
     if (decision.decision !== "allow") return fail(-32001, "Filesystem access requires an approved capability.");
     authorizedPath = path.virtual;
     if (writing && path.parts.length === 0 && operation !== "mkdir") return fail(-32001, "A virtual root cannot be replaced or removed.");
     const recursive = operation === "mkdir" && params?.recursive === true;
     const parentParts = path.parts.slice(0, -1);
+    if (context.serviceInvocation) await assertServiceCapabilities(context.serviceInvocation, context.extensionId, needed);
     parent = await directory(root, parentParts, recursive, path.root === "data");
     const leaf = path.parts.at(-1);
     const target = leaf ? `/proc/self/fd/${parent.fd}/${leaf}` : `/proc/self/fd/${parent.fd}`;
     let result: Record<string, unknown> = { resolvedPath: path.virtual };
+    if (context.serviceInvocation) await assertServiceCapabilities(context.serviceInvocation, context.extensionId, needed);
     if (operation === "mkdir") {
       if (leaf) { const created = await childDirectory(parent, leaf, true); await created.close(); }
       result.created = true;
@@ -117,6 +133,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
       const flags = operation === "write" ? constants.O_WRONLY | constants.O_CREAT : constants.O_RDONLY;
       file = leaf ? await open(target, flags | constants.O_NOFOLLOW | constants.O_NONBLOCK, 0o600) : parent;
       const stat = await file.stat();
+      if (context.serviceInvocation) await assertServiceCapabilities(context.serviceInvocation, context.extensionId, needed);
       if (!stat.isFile() && !stat.isDirectory()) return fail(-32001, "Only regular files and directories are supported.");
       if (operation === "read") {
         if (!stat.isFile() || stat.size > VIRTUAL_FILE_LIMIT) return fail(-32000, "Read exceeds the bounded file transfer limit.");
@@ -131,6 +148,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
         result = { ...result, encoding: params?.encoding === "binary" ? "binary" : "utf-8", body: bytes.subarray(0, offset).toString("base64"), bytes: offset };
       } else if (operation === "write") {
         if (!stat.isFile() || !writeBytes) return fail(-32602, "Write requires a regular file.");
+        if (context.serviceInvocation) await assertServiceCapabilities(context.serviceInvocation, context.extensionId, needed);
         await file.truncate(0);
         await file.writeFile(writeBytes);
         result.bytes = writeBytes.byteLength;

@@ -20,7 +20,9 @@ import { createRateLimiter } from "./rate-limit";
 import { rpcError, rpcResult } from "./json-rpc";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
-import { verifyInvocationLocks } from "./runtime-locks";
+import { verifyInvocationLocks, type InvocationGuard } from "./runtime-locks";
+import { getRuntimeToolContext } from "./runtime-tool-context";
+import { assertServiceCapabilities } from "./service-capabilities";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -105,7 +107,7 @@ export interface StorageContext {
 }
 
 export interface StorageRepository {
-  transaction<Result>(extensionId: string, operation: (repository: StorageRepository) => Promise<Result>): Promise<Result>;
+  transaction<Result>(extensionId: string, operation: (repository: StorageRepository) => Promise<Result>, guard?: InvocationGuard): Promise<Result>;
   get: typeof getStorageValue;
   set: typeof setStorageValue;
   delete: typeof deleteStorageValue;
@@ -117,9 +119,9 @@ export interface StorageRepository {
 }
 
 export const productionStorageRepository: StorageRepository = {
-  async transaction(extensionId, operation) {
+  async transaction(extensionId, operation, guard) {
     return getDb().transaction(async (transaction: StorageDatabase) => {
-      await verifyInvocationLocks(transaction);
+      await verifyInvocationLocks(transaction, guard);
       await transaction.execute(sql`SELECT id FROM extensions WHERE id = ${extensionId} FOR UPDATE`);
       return operation({
         ...productionStorageRepository,
@@ -207,6 +209,8 @@ export async function handleStorageRpc(
   if (!action) return rpcError(req.id, -32602, "Missing 'action' parameter");
 
   const scope = (params.scope as Scope) ?? "global";
+  const serviceInvocation = getRuntimeToolContext()?.serviceInvocation;
+  if (serviceInvocation && scope !== "global") return rpcError(req.id, -32106, "Service storage is limited to the installation scope");
   if (!["global", "conversation", "user"].includes(scope)) {
     return rpcError(req.id, -32602, "Invalid scope: must be global, conversation, or user");
   }
@@ -237,6 +241,7 @@ export async function handleStorageRpc(
     case "batch": return handleBatch(repository, extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
     default: return rpcError(req.id, -32602, `Unknown action: ${action}`);
   } };
+  if (serviceInvocation) return repository.transaction(extensionId, dispatch, async database => { await assertServiceCapabilities(serviceInvocation, extensionId, [{ kind: "storage" }], { database }); });
   return action === "set" || action === "batch" || action === "delete" ? repository.transaction(extensionId, dispatch) : dispatch(repository);
 }
 

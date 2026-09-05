@@ -22,6 +22,7 @@ export type ExecuteToolCall = (
   _opts?: {
     signal?: AbortSignal;
     invocationGuard?: InvocationGuard;
+    serviceInvocation?: import("../service-invocation").ServiceInvocation;
     callerExtensionId?: string;
     _callDepth?: number;
     metadata?: { invocationId?: string; source?: "inline" | "agent-run" };

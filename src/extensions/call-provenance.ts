@@ -41,6 +41,7 @@ export type CallProvenanceKind = "tool" | "schedule" | "event" | "render";
 
 export interface CallProvenance {
   serviceInvocation?: ServiceInvocation;
+  invocationGuard?: import("./runtime-locks").InvocationGuard;
   /** User the call is on behalf of. `null` only when `ownerless` —
    *  capability handlers soft-fail rather than throw in that case. */
   onBehalfOf: string | null;

@@ -116,6 +116,7 @@ export function _resetOverrideCacheForTests(): void {
 // ── Public surface ──────────────────────────────────────────────────
 
 export interface AuthorizeContext {
+  serviceInvocation?: import("./service-invocation").ServiceInvocation;
   projectConsent?: import("./project-consent").ProjectOperationConsent;
   extensionId: string;
   /**
@@ -300,6 +301,19 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       ...ctx,
       ...(parentAuditId !== undefined ? { parentAuditId } : {}),
     };
+    const { getRuntimeToolContext } = await import("./runtime-tool-context");
+    const serviceInvocation = ctx.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
+    if (serviceInvocation) {
+      try {
+        if (ctx.userId) throw new Error("Service capability cannot use a human principal");
+        const { assertServiceCapabilities } = await import("./service-capabilities");
+        await assertServiceCapabilities(serviceInvocation, ctx.extensionId, needed);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "Service capability denied";
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, undefined, reason);
+        return { decision: "deny", reason, auditId };
+      }
+    }
 
     // 1. Compute effective grant set.
     //
@@ -382,6 +396,10 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     //    `resolvePrompt` below, which is the single writer for
     //    always-allow rows (kind-only key — clicking "Allow forever"
     //    grants the kind for ANY value, e.g. any path under fs.write).
+    if (serviceInvocation) {
+      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined, "service-delegation-consent");
+      return { decision: "allow", auditId };
+    }
     const sensitive = needed.find((c) => SENSITIVE_KINDS.has(c.kind));
     if (sensitive) {
       if (ctx.projectConsent) {
