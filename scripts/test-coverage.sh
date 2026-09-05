@@ -354,6 +354,14 @@ run_legs() {
   set +e
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
       src/__tests__/bounded-json.server.test.ts \
+      src/__tests__/api-tool-invoke.server.test.ts \
+      src/__tests__/api-marketplace-id-install.server.test.ts \
+      src/__tests__/api-marketplace-export-v4.server.test.ts \
+      src/__tests__/task-helpers-load-snapshot.server.test.ts \
+      src/__tests__/task-helpers-write-and-broadcast.server.test.ts \
+      src/__tests__/task-helpers-find-assignment.server.test.ts \
+      src/__tests__/task-helpers-pick-spawn-agent-config.server.test.ts \
+      src/__tests__/task-helpers-broadcast-assignment-update.server.test.ts \
       src/__tests__/extension-author-page-server-load.server.test.ts \
       src/__tests__/extension-author-page.component.test.ts \
       src/lib/components/extensions/ExtensionBrowser.component.test.ts \
@@ -625,6 +633,10 @@ run_legs() {
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.include='src/lib/server/security/bounded-json.ts' \
       --coverage.include='src/lib/server/security/payload.ts' \
+      --coverage.include='src/lib/server/task-helpers.ts' \
+      --coverage.include='src/routes/api/tool-invoke/+server.ts' \
+      --coverage.include='**/api/marketplace/*/install/+server.ts' \
+      --coverage.include='**/api/marketplace/export/*/+server.ts' \
       --coverage.include='src/lib/server/extensions/*.ts' \
       --coverage.include='**/extensions/author/+page.svelte' \
       --coverage.include='**/extensions/author/+page.server.ts' \

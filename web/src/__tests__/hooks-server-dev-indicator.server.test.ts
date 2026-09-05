@@ -92,6 +92,22 @@ const ONBOARDED = {
 };
 
 describe("hooks.server.ts — dev indicator transformPageChunk wiring", () => {
+  test("the explicit local test endpoint keeps bounded resolution without session authority", async () => {
+    vi.stubEnv("PI_E2E_REAL", "1");
+    vi.stubEnv("EZCORP_ALLOW_TEST_SURFACE", "1");
+    vi.stubEnv("NODE_ENV", "test");
+    try {
+      const event = makeAuthedEvent("/api/__test/mock-llm/v1/chat/completions");
+      event.cookies.get.mockReturnValue(undefined);
+      const resolve = vi.fn(async () => new Response("local completion"));
+      const response = await handle({ event, resolve });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("local completion");
+      expect(resolve).toHaveBeenCalledOnce();
+      expect(event.locals.user).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   beforeEach(() => {
     vi.mocked(devPageTransform).mockReset();
     vi.mocked(getUserById).mockReset();

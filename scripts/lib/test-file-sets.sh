@@ -210,6 +210,10 @@ web_host_files() {
     # would add no threshold-gated coverage.
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/__tests__/message-toolbar-extension-actions.test.ts \
+      web/src/__tests__/iframe-card-logic.test.ts \
+      web/src/__tests__/extensions-data-route.test.ts \
+      web/src/__tests__/ask-user-answer-route.test.ts \
       web/src/__tests__/canvas-bridge.test.ts \
       web/src/__tests__/browser-invocation.test.ts \
       web/src/__tests__/extension-browser-authority.test.ts \
