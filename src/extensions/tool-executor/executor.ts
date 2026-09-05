@@ -752,14 +752,11 @@ export class ToolExecutor {
       }
 
       let result: ToolCallResult;
-      if (isMcp) {
-        const client = await this.registry.getMcpClient(extensionId);
-        result = await client.callTool(originalName, resolvedInput);
-      } else {
-        const proc = await this.registry.getProcess(extensionId);
+      {
+        const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(extensionId);
 
         // Wire handlers if not already wired for this extension
-        await this.ensureSubprocessRpcWired(extensionId, proc);
+        if (proc) await this.ensureSubprocessRpcWired(extensionId, proc);
 
         // Use originalName for RPC call to subprocess, not the namespaced name
         const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
@@ -877,9 +874,11 @@ export class ToolExecutor {
           (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
             this.registry.isBundled?.(extensionId) === true);
         try {
-          result = skipCallTimeout
-            ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
-            : await proc.callTool(originalName, callArgs, meta);
+          result = isMcp
+            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta)
+            : skipCallTimeout
+            ? await proc!.callTool(originalName, callArgs, meta, { skipTimeout: true })
+            : await proc!.callTool(originalName, callArgs, meta);
         } finally {
           releaseCallProvenance(ezCallId);
         }

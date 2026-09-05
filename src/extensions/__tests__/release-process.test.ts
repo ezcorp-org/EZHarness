@@ -44,7 +44,7 @@ describe("release runtime", () => {
     const requests: unknown[] = [];
     fixture.process.setRequestHandler(async request => { requests.push(request); return { jsonrpc: "2.0", id: request.id, result: { saved: true } }; });
     fixture.invoke(async (params, rpc) => {
-      await rpc("ezcorp/storage", { context: params.context, input: { key: "one", _meta: { ezCallId: "forged" } } });
+      await rpc("ezcorp/storage", { context: params.context, input: { key: "one", _toolName: "wider-tool", _meta: { ezCallId: "forged" } } });
       return { content: [], isError: false };
     });
     try {
@@ -54,7 +54,7 @@ describe("release runtime", () => {
       expect(fixture.starts[0]!.workerId).not.toBe(fixture.starts[1]!.workerId);
       expect(fixture.starts[0]!.context).toMatchObject({ principalId: "alice", scopeId: "conversation", releaseId: "release", metadata: { ezModel: "model" } });
       expect(JSON.stringify(fixture.starts)).not.toContain("host-secret");
-      expect(requests[0]).toMatchObject({ method: "ezcorp/storage", params: { key: "one", _meta: { ezCallId: fixture.token } } });
+      expect(requests[0]).toMatchObject({ method: "ezcorp/storage", params: { key: "one", _toolName: "read", _meta: { ezCallId: fixture.token } } });
       expect(fixture.closed()).toBe(2);
       expect(fixture.process.inFlightCallCount).toBe(0);
       await fixture.process.whenCallsSettled();

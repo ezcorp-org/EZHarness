@@ -16,6 +16,20 @@ export interface ReleaseRuntimeDependencies {
 }
 let dependencies: ReleaseRuntimeDependencies | undefined;
 export function configureReleaseRuntime(value: ReleaseRuntimeDependencies): void { dependencies = value; }
+export function getReleaseRuntime(): ReleaseRuntimeDependencies {
+  if (!dependencies) throw new ContractError("RUNNER_UNAVAILABLE", "Extension release runner is not configured");
+  return dependencies;
+}
+export async function resolveActiveRelease(extensionId: string, runtime: ReleaseRuntimeDependencies): Promise<ActiveExtensionRelease> {
+  const snapshot = await runtime.resolve(extensionId);
+  if (!snapshot?.installation.enabled || snapshot.installation.uninstalled || snapshot.installation.status !== "active" || snapshot.installation.activeReleaseId !== snapshot.release.id || snapshot.installation.id !== extensionId || snapshot.release.installationId !== extensionId || snapshot.installation.acknowledgedGeneration !== snapshot.installation.generation) throw new ContractError("RELEASE_NOT_ACTIVE", "Extension has no active acknowledged release");
+  validateManifest(snapshot.release.manifest);
+  validateResourceLimits(snapshot.limits);
+  return snapshot;
+}
+export function releaseBinding(snapshot: ActiveExtensionRelease): string {
+  return canonicalJson({ releaseId: snapshot.release.id, releaseDigest: snapshot.release.releaseDigest, generation: snapshot.installation.generation, grants: snapshot.installation.grants, policyDigest: snapshot.release.policyDigest });
+}
 
 const outputMethods = new Set(["ezcorp/state", "ezcorp/page-state"]);
 
@@ -46,11 +60,7 @@ export class ReleaseProcess extends ExtensionProcess {
   override setNotificationHandler(handler: (notification: JsonRpcNotification) => void): void { this.releaseNotification = handler; }
 
   private async active(): Promise<ActiveExtensionRelease> {
-    const snapshot = await this.runtime!.resolve(this.extensionId);
-    if (!snapshot?.installation.enabled || snapshot.installation.uninstalled || snapshot.installation.status !== "active" || snapshot.installation.activeReleaseId !== snapshot.release.id || snapshot.installation.id !== this.extensionId || snapshot.release.installationId !== this.extensionId || snapshot.installation.acknowledgedGeneration !== snapshot.installation.generation) throw new ContractError("RELEASE_NOT_ACTIVE", "Extension has no active acknowledged release");
-    validateManifest(snapshot.release.manifest);
-    validateResourceLimits(snapshot.limits);
-    return snapshot;
+    return resolveActiveRelease(this.extensionId, this.runtime!);
   }
 
   override async call(method: string, params: Record<string, unknown> = {}, _options?: { skipTimeout?: boolean }): Promise<JsonRpcResponse> {
@@ -88,7 +98,7 @@ export class ReleaseProcess extends ExtensionProcess {
       deadline: Date.now() + snapshot.limits.timeoutMs,
       ...(Object.keys(metadata).length ? { metadata } : {}),
     };
-    const binding = canonicalJson({ releaseId: snapshot.release.id, releaseDigest: snapshot.release.releaseDigest, generation: snapshot.installation.generation, grants: snapshot.installation.grants, policyDigest: snapshot.release.policyDigest });
+    const binding = releaseBinding(snapshot);
     let accepting = false;
     const runner = await this.runtime!.runner();
     let worker: RunnerExecution | undefined;
@@ -102,10 +112,12 @@ export class ReleaseProcess extends ExtensionProcess {
         const liveProvenance = resolveCallProvenance(token);
         if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
         const current = await this.active();
-        const liveBinding = canonicalJson({ releaseId: current.release.id, releaseDigest: current.release.releaseDigest, generation: current.installation.generation, grants: current.installation.grants, policyDigest: current.release.policyDigest });
+        const liveBinding = releaseBinding(current);
         if (liveBinding !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
         if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
         const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _meta: { ezCallId: token } };
+        delete input._toolName;
+        if (method === "tools/call") input._toolName = params.name;
         if (outputMethods.has(rpcMethod)) {
           if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
           if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");

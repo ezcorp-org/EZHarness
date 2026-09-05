@@ -188,7 +188,7 @@ export class McpClient {
     }));
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+  async callTool(name: string, args: Record<string, unknown>, _meta?: Record<string, unknown>): Promise<ToolCallResult> {
     if (!this.connected) await this.connect();
     const res = await this.client.callTool({ name, arguments: args });
     const content = Array.isArray(res.content) ? res.content : [];

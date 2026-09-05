@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { ExtensionRegistry } from "../extensions/registry";
-import { configureReleaseRuntime, ReleaseProcess } from "../extensions/release-process";
+import { configureReleaseRuntime, getReleaseRuntime, ReleaseProcess } from "../extensions/release-process";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
 afterEach(() => ExtensionRegistry.resetInstance());
@@ -11,6 +11,7 @@ function manifest(schemaVersion: number): ExtensionManifestV2 {
 
 function prepare() {
   configureReleaseRuntime({ runner: async () => { throw new Error("No worker should start during registration"); }, resolve: async () => null });
+  expect(getReleaseRuntime()).toBeDefined();
   return ExtensionRegistry.getInstance();
 }
 
