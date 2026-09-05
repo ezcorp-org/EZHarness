@@ -30,3 +30,9 @@ Toolchain: Bun1.3.14. Disposable PostgreSQL image: `docker.io/library/postgres@s
 - `bun test ./src/extensions/browser-invocation-control.test.ts`:17 tests,68 assertions,0 failures. Log: `/tmp/lifecycle-final-browser-unit-rerun.log`. An earlier concurrent run hit the existing5second PGlite setup-hook timeout before the first test body; the remaining16 tests passed. No test timeout or source was changed for the isolated rerun.
 
 No full coverage run was started in this incomplete-dependency worktree. Parent owns the final complete-dependency gate. The general plan's at-least-once delivery sentence was reported for correction; this cancellation proof does not claim that uncertain effects are replayed or rolled back.
+
+## Final parent ledger reconciliation
+
+Audit at parent `c6d8a1b4`: `/tmp/ez-extension-v4-backend12.log` passes24,381 tests in1,545 files. `/tmp/ez-coverage-parent-final3.log` passes25,657 tests with0 failures and1,239 enforced source files. `/tmp/ez-new-file-coverage-final3.log` gates126 new files; `/tmp/ez-patch-coverage-final3.log` covers changed executable lines in338 files. `/tmp/ez-types44.log` passes. These integrated results supersede the earlier local missing-dependency caveat; they do not alter the historical test receipts.
+
+Owned lifecycle/event/task/cancellation/lock proof boxes are reconciled. No new source change or test run was made for this audit. Remaining independent final browser/scanner/mobile and PR/maintainer-approval work is not checked here. Generic receipt guarantees exclude specialized host file-organizer actions; accepted answers do not restore an interrupted question process; transient UI observations remain best effort; external effects cannot be undone by cancellation. Candidate reports preserve unexercised capability labels rather than converting broad test success into a claim that each real external service was exercised.

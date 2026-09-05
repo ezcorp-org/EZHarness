@@ -58,7 +58,7 @@ Actual PostgreSQL 16 proof: `/tmp/lifecycle-postgres-receipts.log`. `scripts/ver
 
 The browser adds one bounded `Idempotency-Key` per logical extension action. An explicit key survives transport wrappers. The route requires the key for Hub actions, validates the declared page and own event namespace, and waits for durable delivery completion. Current grants and host project approval are checked again before the worker starts. Receipts use the same owner quota and retention rules as other admitted actions.
 
-This leaf does not yet add receipts to specialized host-rendered file-organizer actions. Their source transactions are a separate follow-up leaf. These Hub tests use a trusted sealed release fixture; the separate author control-flow E2E proves the human approval UI.
+Specialized host-rendered file-organizer actions remain outside the generic extension receipt guarantee. They have proposal/configuration state semantics, not an exactly-once extension delivery promise. Their separate authorization bypass is fixed and tested in `tasks/extension-v4-file-organizer-authority.md`; that fix does not add action receipts. These Hub tests use a trusted sealed release fixture; the separate author control-flow E2E proves the human approval UI.
 
 ## Conversation Custom Actions
 
