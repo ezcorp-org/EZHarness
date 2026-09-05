@@ -36,8 +36,8 @@ async function pointerCommitted(database: MigrationDb, installation: Installatio
 export class ExtensionDataMigrations {
   constructor(private readonly database: ReleaseDatabase, private readonly transform: (input: StorageMigrationInput) => Promise<unknown>) {}
 
-  async isPaused(installationId: string): Promise<boolean> {
-    return releaseRows(await this.database.execute(sql`SELECT 1 FROM extension_release_data_state WHERE installation_id = ${installationId} AND migration_id IS NOT NULL`)).length > 0;
+  async isPaused(installationId: string, database: MigrationDb = this.database): Promise<boolean> {
+    return releaseRows(await database.execute(sql`SELECT 1 FROM extension_release_data_state WHERE installation_id = ${installationId} AND migration_id IS NOT NULL`)).length > 0;
   }
 
   async prepare(installation: InstallationRecord, previous: ReleaseRecord | null, release: ReleaseRecord, operation: OperationRecord): Promise<void> {

@@ -132,9 +132,9 @@ async function initialize(): Promise<LifecycleServices> {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
       await enqueueExtensionNotification(extensionId, method, params ?? {});
     },
-    resolve: async (id: string) => {
-      const state = await repository.read(id);
-      if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id)) return null;
+    resolve: async (id, database) => {
+      const state = await repository.read(id, database);
+      if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id, database)) return null;
       const release = state.releases[state.installation.activeReleaseId];
       return release ? { release, installation: state.installation, limits: executionLimits } : null;
     },

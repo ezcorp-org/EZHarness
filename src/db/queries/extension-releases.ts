@@ -16,10 +16,9 @@ export function releaseRows<Result>(result: unknown): Result[] {
 
 const recordKinds = ["workspaces", "revisions", "operations", "releases", "approvals"] as const;
 
-async function readState(db: MigrationDb, installationId: string, lock: boolean): Promise<InstallationState | null> {
-  const installationRows = releaseRows<{ payload: string }>(await db.execute(lock
-    ? sql`SELECT payload FROM extension_release_installations WHERE id = ${installationId} FOR UPDATE`
-    : sql`SELECT payload FROM extension_release_installations WHERE id = ${installationId}`));
+async function readState(db: MigrationDb, installationId: string, lock: "update" | "share"): Promise<InstallationState | null> {
+  const lockClause = lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`;
+  const installationRows = releaseRows<{ payload: string }>(await db.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installationId} ${lockClause}`));
   if (!installationRows[0]) return null;
   const state: InstallationState = { installation: JSON.parse(installationRows[0].payload), workspaces: {}, revisions: {}, operations: {}, releases: {}, approvals: {} };
   const records = releaseRows<{ kind: typeof recordKinds[number]; id: string; payload: string }>(await db.execute(sql`SELECT kind, id, payload FROM extension_release_records WHERE installation_id = ${installationId}`));
@@ -56,8 +55,9 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
     });
   }
 
-  async read(installationId: string): Promise<InstallationState | null> {
-    return this.database.transaction((transaction) => readState(transaction, installationId, true));
+  async read(installationId: string, database?: MigrationDb): Promise<InstallationState | null> {
+    if (database) return readState(database, installationId, "share");
+    return this.database.transaction((transaction) => readState(transaction, installationId, "update"));
   }
 
   async list(ownerId: string, scope: string): Promise<InstallationRecord[]> {
@@ -66,7 +66,7 @@ export class DatabaseLifecycleRepository implements LifecycleRepository {
 
   async transact<Result>(installationId: string, change: (state: InstallationState) => Result | Promise<Result>, actor?: LifecycleActor): Promise<Result> {
     return this.database.transaction(async (transaction) => {
-      const state = await readState(transaction, installationId, true);
+      const state = await readState(transaction, installationId, "update");
       if (!state) throw new LifecycleError("not_found", "Installation not found.");
       const original = structuredClone(state);
       const result = await change(state);

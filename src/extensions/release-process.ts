@@ -5,6 +5,7 @@ import { ExtensionProcess } from "./subprocess";
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "./types";
 import { InvocationLocks, type InvocationGuard } from "./runtime-locks";
 import { getRuntimeToolContext, withRuntimeToolContext } from "./runtime-tool-context";
+import type { MigrationDb } from "../db/migrations/types";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -13,7 +14,7 @@ export interface ActiveExtensionRelease {
 }
 export interface ReleaseRuntimeDependencies {
   runner(): Promise<Runner>;
-  resolve(installationId: string): Promise<ActiveExtensionRelease | null>;
+  resolve(installationId: string, database?: MigrationDb): Promise<ActiveExtensionRelease | null>;
   dispatchNotification?(extensionId: string, method: string, params?: Record<string, unknown>): Promise<void>;
 }
 let dependencies: ReleaseRuntimeDependencies | undefined;
@@ -22,8 +23,8 @@ export function getReleaseRuntime(): ReleaseRuntimeDependencies {
   if (!dependencies) throw new ContractError("RUNNER_UNAVAILABLE", "Extension release runner is not configured");
   return dependencies;
 }
-export async function resolveActiveRelease(extensionId: string, runtime: ReleaseRuntimeDependencies): Promise<ActiveExtensionRelease> {
-  const snapshot = await runtime.resolve(extensionId);
+export async function resolveActiveRelease(extensionId: string, runtime: ReleaseRuntimeDependencies, database?: MigrationDb): Promise<ActiveExtensionRelease> {
+  const snapshot = await runtime.resolve(extensionId, database);
   if (!snapshot?.installation.enabled || snapshot.installation.uninstalled || snapshot.installation.status !== "active" || snapshot.installation.activeReleaseId !== snapshot.release.id || snapshot.installation.id !== extensionId || snapshot.release.installationId !== extensionId || snapshot.installation.acknowledgedGeneration !== snapshot.installation.generation) throw new ContractError("RELEASE_NOT_ACTIVE", "Extension has no active acknowledged release");
   validateManifest(snapshot.release.manifest);
   validateResourceLimits(snapshot.limits);
