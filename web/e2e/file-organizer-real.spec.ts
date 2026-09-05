@@ -189,7 +189,7 @@ test.describe(
     test.beforeAll(async ({ browser, request, baseURL }) => {
 			test.setTimeout(300_000);
 			const onboarding = await request.post("/api/onboarding/complete");
-			expect(onboarding.status(), await onboarding.text()).toBe(200);
+			expect(onboarding.status(), await onboarding.text()).toBe(204);
 			const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
 			try {
 				await importAndActivateBundledExtension({
