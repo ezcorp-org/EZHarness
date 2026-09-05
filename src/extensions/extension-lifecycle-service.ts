@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution, type WorkspaceFiles } from "@ezcorp/extension-contract";
-import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, RunnerClient } from "@ezcorp/extension-runner";
+import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies } from "@ezcorp/extension-runner";
+import { createLazyExtensionRunner } from "./runner-connection";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
@@ -116,10 +117,7 @@ interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionC
 let services: Promise<LifecycleServices> | undefined;
 
 async function initialize(): Promise<LifecycleServices> {
-  const socketPath = process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
-  const token = process.env.EZCORP_EXTENSION_RUNNER_TOKEN;
-  if (!socketPath || !isAbsolute(socketPath) || !token || token.length < 32) throw new LifecycleError("runner_unconfigured", "Configure the extension runner socket and its host authentication token.");
-  const runner = new RunnerClient({ socketPath, token });
+  const runner = createLazyExtensionRunner();
   const { getDb } = await import("../db/connection");
   const { getUserById } = await import("../db/queries/users");
   const { getExtension, getExtensionByName } = await import("../db/queries/extensions");

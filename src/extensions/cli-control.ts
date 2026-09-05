@@ -1,6 +1,8 @@
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
-import { buildLimits, filesDigest, RunnerClient } from "@ezcorp/extension-runner";
+import { buildLimits, filesDigest } from "@ezcorp/extension-runner";
+export { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
+import { getConfiguredExtensionRunner as getCliExtensionRunner } from "./runner-connection";
 import { getUserById } from "../db/queries/users";
 import { getExtensionByName } from "../db/queries/extensions";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
@@ -58,13 +60,6 @@ export async function initCliExtension(name: string): Promise<string> {
     await writeFile(destination, contents, { flag: "wx", mode: 0o600 });
   }
   return directory;
-}
-
-export function getCliExtensionRunner(): RunnerClient {
-  const socketPath = process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
-  const token = process.env.EZCORP_EXTENSION_RUNNER_TOKEN;
-  if (!socketPath || !isAbsolute(socketPath) || !token || token.length < 32) throw new LifecycleError("runner_unconfigured", "Configure the authenticated isolated extension runner before testing source.");
-  return new RunnerClient({ socketPath, token });
 }
 
 export async function verifyCliExtension(directory: string) {
