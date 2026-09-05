@@ -117,7 +117,7 @@ const RECORD = {
 };
 
 beforeEach(() => {
-  access.resolveDelegationConsentOr.mockReset().mockReturnValue(ENTRY);
+  access.resolveDelegationConsentOr.mockReset().mockResolvedValue(ENTRY);
   consent.buildDelegationConsent.mockReset().mockResolvedValue(RECORD);
   registry.getManifest.mockReset().mockReturnValue({ name: "ext" });
   db.createWorkflowDelegation
@@ -242,14 +242,14 @@ describe("the whole surface is session-only", () => {
 describe("consent-time authorization", () => {
   test("a user delegation is authorized as the SESSION's user, never the wire's", async () => {
     await POST(postEvent(member, { ...BODY, ownerKind: "user" }));
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1");
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1", null);
   });
 
   test("a service delegation is authorized as the SERVICE ACCOUNT", async () => {
     await POST(
       postEvent(member, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }),
     );
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1");
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1", null);
   });
 
   test("a refusal is returned verbatim and NOTHING is written (T15)", async () => {

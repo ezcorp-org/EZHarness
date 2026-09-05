@@ -39,6 +39,7 @@ import { listProjectIdsForUser } from "$server/db/queries/project-members";
 import type { AuthUser } from "$server/auth/types";
 import type { DelegationOwnerKind } from "$server/db/schema";
 import type { WorkflowDefinition, WorkflowVisibility } from "$server/types";
+import { validateWorkflow } from "$server/runtime/workflow-validator";
 
 /**
  * The JSON a workflow is serialized as.
@@ -191,18 +192,17 @@ export function denyVisibilityOr(
  * me, or ask an admin to make the workflow system-visible") because the
  * failure this exists to prevent is a user picking the service-account
  * arm for a forked — therefore `project`-visible — workflow and getting
- * a delegation that can never fire. There is no existence oracle to
- * protect here the way `resolveWorkflowOr` protects one: the caller is a
- * session, and the workflow they are trying to delegate is one they
- * named themselves.
+ * a delegation that can never fire.
  */
-export function resolveDelegationConsentOr(
+export async function resolveDelegationConsentOr(
   workflowName: string,
   ownerKind: DelegationOwnerKind,
   ownerUserId: string | null,
-): { entry: CachedWorkflow } | Response {
+  projectId: string | null = null,
+): Promise<{ entry: CachedWorkflow } | Response> {
+  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), ownerKind === "user" ? ownerUserId : null, projectId);
   const result = authorizeDelegationConsent(
-    getCachedWorkflows(),
+    entries,
     workflowName,
     ownerKind,
     ownerUserId,
@@ -214,6 +214,11 @@ export function resolveDelegationConsentOr(
     );
   }
   return { entry: result.entry };
+}
+
+export async function validateWorkflowForCaller(user: AuthUser, definition: WorkflowDefinition, projectId?: string | null): Promise<string[]> {
+  const entries = await listVisibleWorkflows(user, projectId);
+  return validateWorkflow(definition, { resolve: name => name === definition.name ? definition : entries.find(entry => entry.name === name) });
 }
 
 /** Everything this caller may see, already serialized. */

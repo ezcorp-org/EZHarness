@@ -185,7 +185,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // §6.1's consent-time check, previewed. Its refusal carries the reason
   // AND the remedy, so the dialog surfaces this verbatim instead of a
   // bare 403.
-  const resolved = resolveDelegationConsentOr(body.workflowName, body.ownerKind, ownerId);
+  const resolved = await resolveDelegationConsentOr(body.workflowName, body.ownerKind, ownerId, body.projectId ?? null);
   if (resolved instanceof Response) return resolved;
 
   const consent = await buildDelegationConsent({

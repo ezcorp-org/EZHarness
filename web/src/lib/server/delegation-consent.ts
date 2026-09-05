@@ -33,6 +33,7 @@ import {
 import type { ConsentHashMaterial } from "$server/runtime/workflow-capability-hash";
 import type { CachedWorkflow } from "$server/runtime/workflow-scope";
 import type { DelegationOwnerKind } from "$server/db/schema";
+import { filterAccessibleWorkflowEntries, workflowReleaseCanAccess } from "$server/runtime/workflow-release-assets";
 
 export interface DelegationConsentRequest {
   /** Already authorized for the delegation's principal by the caller. */
@@ -71,6 +72,9 @@ export interface DelegationConsentRecord {
 export async function buildDelegationConsent(
   request: DelegationConsentRequest,
 ): Promise<DelegationConsentRecord | Response> {
+  const principalId = request.ownerKind === "user" ? request.ownerId : null;
+  if (!await workflowReleaseCanAccess(request.entry, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
+  const entries = await filterAccessibleWorkflowEntries(getCachedWorkflows(), principalId, request.projectId);
   const record: SharedConsentRecord = await computeDelegationConsentRecord({
     entry: request.entry,
     extensionName: request.extensionName,
@@ -79,9 +83,12 @@ export async function buildDelegationConsent(
     runAs: { kind: request.ownerKind, id: request.ownerId },
     trigger: request.trigger,
     principal: delegationPrincipal(request.ownerKind, request.ownerId),
-    entries: getCachedWorkflows(),
+    entries,
     agents: getExecutor().listAgents(),
   });
+  const includedNames = new Set(record.material.graph.map(entry => entry.name));
+  const usedEntries = new Set([request.entry, ...entries.filter(entry => includedNames.has(entry.definition.name))]);
+  for (const entry of usedEntries) if (!await workflowReleaseCanAccess(entry, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (!record.pin.ok) return errorJson(409, record.pin.message);
   return {
     definitionVersionId: record.pin.definitionVersionId,

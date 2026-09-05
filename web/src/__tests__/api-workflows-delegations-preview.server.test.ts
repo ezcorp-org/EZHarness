@@ -94,7 +94,7 @@ const RECORD = {
 beforeEach(() => {
   access.resolveDelegationConsentOr
     .mockReset()
-    .mockReturnValue({ entry: { definition: { name: "ship-it", description: "", steps: [] } } });
+    .mockResolvedValue({ entry: { definition: { name: "ship-it", description: "", steps: [] } } });
   consent.buildDelegationConsent.mockReset().mockResolvedValue(RECORD);
   registry.getManifest.mockReset().mockReturnValue({ name: "ext" });
   accounts.findLiveServiceAccount.mockReset().mockResolvedValue({ id: "svc-1" });
@@ -156,7 +156,7 @@ describe("POST /api/workflows/delegations/preview — the session gate", () => {
 describe("POST /api/workflows/delegations/preview — the owner is never off the wire", () => {
   test("`user` previews as the SESSION's id, not a body-supplied one", async () => {
     await POST(previewEvent(member, { ...BODY, ownerKind: "user" }));
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1");
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1", null);
   });
 
   test("a `user` body naming a service account is refused, not silently trimmed", async () => {
@@ -171,7 +171,7 @@ describe("POST /api/workflows/delegations/preview — the owner is never off the
     await POST(
       previewEvent(member, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }),
     );
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1");
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1", null);
 
     accounts.findLiveServiceAccount.mockResolvedValue(undefined);
     const res = await POST(

@@ -19,6 +19,9 @@
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { workflowDefinitionHash } from "$server/runtime/workflow-definition-hash";
+import { releaseRuntimeFixture } from "$server/__tests__/helpers/release-runtime";
+import { releaseBinding } from "$server/extensions/release-process";
+vi.mock("$server/db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: "active", role: "member" }) }));
 
 const cache = vi.hoisted(() => ({ getCachedWorkflows: vi.fn(), getExecutor: vi.fn() }));
 vi.mock("$lib/server/context", () => ({
@@ -102,6 +105,42 @@ beforeEach(() => {
   registry.getGrantedPermissions.mockReset().mockReturnValue(null);
   db.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   db.getLatestWorkflowVersion.mockReset().mockResolvedValue(undefined);
+});
+
+test("consent assembly rejects an unbound extension root and omits an unbound nested graph", async () => {
+  const child = { ...entry("sealed:child", "private"), source: "extension", id: null, definition: { ...definition("sealed:child"), steps: [{ name: "private-step", agent: "confidential-agent", input: {} }] } };
+  const root = entry("root", "system", "sealed:child");
+  cache.getCachedWorkflows.mockReturnValue([root, child]);
+  const denied = await buildDelegationConsent(request({ entry: child, workflowName: "sealed:child" }));
+  expect(denied).toBeInstanceOf(Response);
+  if (denied instanceof Response) expect(denied.status).toBe(404);
+  expect(db.getWorkflowByName).not.toHaveBeenCalled();
+  const result = await buildDelegationConsent(request({ entry: root }));
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) return;
+  expect(result.material.graph.map(graph => graph.name)).toEqual(["root"]);
+  expect(result.material.unresolved).toEqual(["sealed:child"]);
+  expect(JSON.stringify(result)).not.toContain("confidential-agent");
+});
+
+test("a release revoked during the version query cannot return consent graph metadata", async () => {
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  const root = { ...entry("sealed:root", "private"), source: "extension", id: null, extensionRelease: { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) } };
+  cache.getCachedWorkflows.mockReturnValue([root]);
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  db.getWorkflowByName.mockImplementationOnce(async () => { entered.resolve(); await resume.promise; return undefined; });
+  const result = buildDelegationConsent(request({ entry: root, workflowName: "sealed:root" }));
+  await entered.promise;
+  fixture.snapshot.installation.enabled = false;
+  resume.resolve();
+  const response = await result;
+  expect(response).toBeInstanceOf(Response);
+  if (response instanceof Response) {
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("material");
+  }
 });
 
 // ── the capability lookups honour "undefined means unreachable" ─────

@@ -3,12 +3,12 @@ import { errorJson } from "$lib/server/http-errors";
 import * as workflowQueries from "$server/db/queries/workflows";
 import { reloadWorkflows } from "$lib/server/context";
 import { ensureWorkflowVersion } from "$server/db/queries/workflow-versions";
-import { validateOutputTemplate, validateWorkflow } from "$server/runtime/workflow-validator";
+import { validateOutputTemplate } from "$server/runtime/workflow-validator";
 import { validateModelOverride } from "$server/runtime/workflow-model";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { denyVisibilityOr, resolveWorkflowOr, toWire } from "$lib/server/workflow-access";
+import { denyVisibilityOr, resolveWorkflowOr, toWire, validateWorkflowForCaller } from "$lib/server/workflow-access";
 import type { RequestHandler } from "./$types";
 import type { WorkflowDefinition } from "$server/types";
 import { workflowBodySchema } from "../schema";
@@ -95,7 +95,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   }
   // Re-validate step-level rules when steps are being replaced.
   if (Array.isArray(parsed.data.steps)) {
-    const errors = validateWorkflow({
+    const errors = await validateWorkflowForCaller(user, {
       name: parsed.data.name ?? params.name,
       description: parsed.data.description ?? "",
       steps: parsed.data.steps,
