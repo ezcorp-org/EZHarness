@@ -32,7 +32,6 @@ steps:
     input:
       installationId: $steps.workspace.output.installation.id
       operationId: $steps.build.output.id
-      waitMs: 300000
   - name: handoff
     kind: transform
     output:
