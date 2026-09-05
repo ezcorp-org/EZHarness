@@ -38,10 +38,11 @@ test("real rootless native MCP uses only the scoped proxy, never direct host soc
     await runner.initialize();
     const manifest = { schemaVersion: 4, name: "native-proxy-test", version: "1.0.0", author: { name: "tests" }, description: "Native network fixture", kind: "mcp", permissions, mcpServers: [{ name: "native", transport: "stdio", command: "/usr/local/bin/bun", args: ["./native.ts"] }] };
     const files = { "native.ts": await Bun.file(new URL("./native-mcp-fixture.ts", import.meta.url)).text(), "extension.ts": `import {createMcpExtension,serve} from '@ezcorp/sdk/v4';await serve(await createMcpExtension({manifest:${JSON.stringify(manifest)}}));`, "metadata.test.ts": `import {test,expect} from 'bun:test';import {validateManifest} from '@ezcorp/extension-contract';test('TCP declaration',()=>expect(validateManifest(${JSON.stringify(manifest)}).permissions.networkTcp).toEqual(${JSON.stringify(permissions.networkTcp)}));` };
-    const result = await runner.build({ operationId: crypto.randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    const source = { ...files, "fixture-ca.pem": await Bun.file(join(root, "cert.pem")).text() };
+    const result = await runner.build({ operationId: crypto.randomUUID(), files: source, sourceDigest: filesDigest(source), entrypoint: "extension.ts", limits: buildLimits });
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");
-    for (const action of ["direct", "tunnel", "http", "tls", "credential", "unprivileged", "revoked"] as const) {
+    for (const action of ["direct", "tunnel", "http", "tls", "tls-wrong-host", "credential", "unprivileged", "revoked"] as const) {
       const trace: unknown[] = [];
       const workerId = crypto.randomUUID();
       const context = { invocationId: crypto.randomUUID(), workerId, releaseId: "release", principalId: "owner", scopeId: "conversation", token, deadline: Date.now() + 30_000 };
@@ -56,8 +57,8 @@ test("real rootless native MCP uses only the scoped proxy, never direct host soc
         return response.result;
       });
       try {
-        const invocation = worker.request("extension/invoke", { name: "exchange", input: { action: action === "revoked" ? "tunnel" : action === "unprivileged" ? "credential" : action, destination: action === "tls" ? tlsDestination : destination }, context });
-        if (action === "revoked" || action === "unprivileged") await expect(invocation).rejects.toThrow();
+        const invocation = worker.request("extension/invoke", { name: "exchange", input: { action: action === "revoked" ? "tunnel" : action === "unprivileged" ? "credential" : action, destination: action.startsWith("tls") ? tlsDestination : destination }, context });
+        if (action === "revoked" || action === "unprivileged" || action === "tls-wrong-host") await expect(invocation).rejects.toThrow();
         else {
           const outcome = await invocation.catch(error => { throw new Error(`${action} failed: ${JSON.stringify(trace)}`, { cause: error }); });
           expect(outcome).toMatchObject({ isError: false, content: [{ type: "text", text: action === "direct" ? "direct denied" : action === "http" ? "HTTP native payload" : action === "tls" ? "TLS native payload" : action === "credential" ? new Bun.CryptoHasher("sha256").update("fixture-approved-token").digest("hex") : "HTTP/1.1 200 Connection Established\r\n\r\nnative payload" }] });

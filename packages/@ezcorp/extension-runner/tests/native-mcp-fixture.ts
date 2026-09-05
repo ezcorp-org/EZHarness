@@ -2,11 +2,13 @@ import { createInterface } from "node:readline";
 import { connect } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
-const schema = { type: "object", properties: { destination: { type: "string" }, action: { type: "string", enum: ["direct", "tunnel", "http", "tls", "credential"] } }, required: ["destination", "action"], additionalProperties: false };
+const schema = { type: "object", properties: { destination: { type: "string" }, action: { type: "string", enum: ["direct", "tunnel", "http", "tls", "tls-wrong-host", "credential"] } }, required: ["destination", "action"], additionalProperties: false };
 async function exchange(destination: string, action: string): Promise<string> {
   if (action === "credential") return createHash("sha256").update(process.env.OPENAI_API_KEY ?? "missing").digest("hex");
   const direct = action === "direct";
+  const useTls = action === "tls" || action === "tls-wrong-host";
   const proxy = process.env.HTTPS_PROXY ? new URL(process.env.HTTPS_PROXY) : undefined;
   const target = direct ? new URL(`http://${destination}`) : proxy;
   if (!target) throw new Error("No invocation proxy");
@@ -17,13 +19,13 @@ async function exchange(destination: string, action: string): Promise<string> {
     const finish = (value: string) => { clearTimeout(timer); socket.destroy(); resolve(value); };
     socket.once("error", () => { clearTimeout(timer); socket.destroy(); if (direct) resolve("direct denied"); else reject(new Error("Proxy connection failed")); });
     const authorization = `Proxy-Authorization: Basic ${Buffer.from(`${target.username}:${target.password}`).toString("base64")}`;
-    socket.once("connect", () => socket.write(direct ? "native payload" : action === "http" ? `GET http://${destination}/fixture HTTP/1.1\r\nHost: ${destination}\r\n${authorization}\r\nConnection: close\r\n\r\n` : `CONNECT ${destination} HTTP/1.1\r\nHost: ${destination}\r\n${authorization}\r\n\r\n${action === "tls" ? "" : "native payload"}`));
+    socket.once("connect", () => socket.write(direct ? "native payload" : action === "http" ? `GET http://${destination}/fixture HTTP/1.1\r\nHost: ${destination}\r\n${authorization}\r\nConnection: close\r\n\r\n` : `CONNECT ${destination} HTTP/1.1\r\nHost: ${destination}\r\n${authorization}\r\n\r\n${useTls ? "" : "native payload"}`));
     const receive = (bytes: Buffer) => {
       received += bytes.toString();
-      if (action === "tls" && received.includes("\r\n\r\n")) {
+      if (useTls && received.includes("\r\n\r\n")) {
         socket.off("data", receive);
         if (!received.startsWith("HTTP/1.1 200 ")) { clearTimeout(timer); socket.destroy(); reject(new Error("CONNECT denied")); return; }
-        const secured = connectTls({ socket, servername: "localhost", rejectUnauthorized: false }, () => secured.write("GET /fixture HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+        const secured = connectTls({ socket, servername: action === "tls-wrong-host" ? "wrong.example" : "localhost", ca: readFileSync("./fixture-ca.pem") }, () => secured.write("GET /fixture HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
         let plaintext = "";
         secured.on("data", chunk => { plaintext += chunk.toString(); if (plaintext.includes("native payload")) { secured.destroy(); finish("TLS native payload"); } });
         secured.once("error", () => { clearTimeout(timer); socket.destroy(); reject(new Error("TLS fixture failed")); });

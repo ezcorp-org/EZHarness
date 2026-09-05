@@ -1,4 +1,4 @@
-import { ContractError } from "./validation";
+import { ContractError } from "./json";
 
 export const TUNNEL_CHUNK_BYTES = 64 * 1024;
 export const TUNNEL_MAX_BYTES = 32 * 1024 * 1024;
