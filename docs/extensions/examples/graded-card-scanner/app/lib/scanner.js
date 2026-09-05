@@ -83,9 +83,9 @@ function tryDecodeVariant(ZXing, source, v) {
 
 /**
  * Continuous scanner uses frames from the trusted host camera.
- * @param {{videoEl: HTMLImageElement, onText: (text: string) => void, onError: (err: Error) => void, bridge?:ReturnType<typeof canvasBridge>}} opts
+ * @param {{videoEl: HTMLImageElement, onText: (text: string) => void, onError: (err: Error) => void, onStop?:(reason:string)=>void, bridge?:ReturnType<typeof canvasBridge>}} opts
  */
-export function createScanner({ videoEl, onText, onError, bridge = canvasBridge() }) {
+export function createScanner({ videoEl, onText, onError, onStop, bridge = canvasBridge() }) {
   let running = false;
   let opening = false;
   let decoding = false;
@@ -107,12 +107,21 @@ export function createScanner({ videoEl, onText, onError, bridge = canvasBridge(
   };
 
   const unsubscribe = bridge.subscribeCamera(async event => {
+    if (event.type === "ezcorp.canvas.closed") {
+      generation += 1;
+      running = false;
+      opening = false;
+      sessionId = null;
+      videoEl.removeAttribute("src");
+      onStop?.("Scanner session ended. Reopen the extension preview.");
+      return;
+    }
     if (!sessionId || event.sessionId !== sessionId) return;
     if (event.type === "ezcorp.canvas.camera-stopped") {
       running = false;
       sessionId = null;
       videoEl.removeAttribute("src");
-      onError(new Error(typeof event.reason === "string" ? event.reason : "Camera stopped."));
+      onStop?.(typeof event.reason === "string" ? event.reason : "Camera stopped.");
       return;
     }
     if (!running || decoding || typeof event.dataUrl !== "string" || event.dataUrl.length > 700_000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(event.dataUrl)) return;

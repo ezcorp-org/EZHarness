@@ -132,7 +132,7 @@ async function runLookup(cert, fresh) {
   try {
     row.record = await lookupCard(cert, { fresh });
     row.status = "done";
-    row.error = undefined;
+    delete row.error;
     setMockMode(false);
     setStatus(`Cert ${cert} — done.`);
   } catch (err) {
@@ -293,6 +293,11 @@ const scanner = createScanner({
     paused = true;
     $('[data-testid="gcs-pause"]').textContent = "Start scanning";
   },
+  onStop: reason => {
+    paused = true;
+    $('[data-testid="gcs-pause"]').textContent = "Start scanning";
+    setStatus(reason);
+  },
 });
 
 /** @param {boolean} on */
@@ -313,11 +318,17 @@ window.addEventListener("pagehide", () => scanner.dispose(), { once: true });
 
 $('[data-testid="gcs-pause"]').addEventListener("click", () => setPaused(!paused));
 
-$('[data-testid="gcs-manual-form"]').addEventListener("submit", (e) => {
-  e.preventDefault();
+function addManualCert() {
   const input = /** @type {HTMLInputElement} */ ($('[data-testid="gcs-manual-input"]'));
   void handleDecoded(input.value);
   input.value = "";
+}
+$('[data-testid="gcs-manual-add"]').addEventListener("click", addManualCert);
+$('[data-testid="gcs-manual-input"]').addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addManualCert();
+  }
 });
 
 $('[data-testid="gcs-upload"]').addEventListener("change", async (e) => {

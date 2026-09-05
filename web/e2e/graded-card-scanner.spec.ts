@@ -1,91 +1,92 @@
-/**
- * Graded Card Scanner — e2e for the extension-served scanner SPA.
- *
- * The SPA ships as static files served by the extension data route
- * (`/api/extensions/graded-card-scanner/data/app/…`). The route handler
- * itself is covered by its own suite; this spec fulfills those URLs from
- * the checked-in `docs/extensions/examples/graded-card-scanner/app/`
- * files, so it drives the REAL page a phone gets, deterministically:
- *
- *   - the CDN (ZXing) and backend (`/api/tool-invoke`) are blocked, so
- *     the spec exercises the spec-mandated zero-network mock mode;
- *   - scans are driven through the page's deterministic simulate hook
- *     (`window.__gcsSimulateScan`), the same path the Simulate button uses;
- *   - IndexedDB persistence is asserted across a reload.
- *
- * The `@evidence` test satisfies the Visual evidence gate; captures are
- * a hard no-op unless EZCORP_E2E_EVIDENCE=1 (mirrors extensions-sort.spec).
- */
-import { readFile } from "node:fs/promises";
-import { dirname, join, normalize, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { mockCard } from "../../docs/extensions/examples/graded-card-scanner/app/lib/mock-card.js";
+import { renderItfRgba, rgbaToJpeg, rgbaToPng } from "../../docs/extensions/examples/graded-card-scanner/__tests__/helpers/barcode-render";
 
-const APP_DIR = join(
-	dirname(fileURLToPath(import.meta.url)),
-	"..",
-	"..",
-	"docs",
-	"extensions",
-	"examples",
-	"graded-card-scanner",
-	"app",
-);
-const BASE = "/api/extensions/graded-card-scanner/data/app";
+const SOURCE = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "docs/extensions/examples/graded-card-scanner");
+const FIXTURE_URL = "/scanner-bridge-fixture";
+const PREVIEW_URL = "/api/extensions/graded-card-scanner/preview";
+const configuration = JSON.parse(readFileSync(join(SOURCE, "ezcorp.browser.json"), "utf8"));
+const builderModule = join(SOURCE, "../../../../packages/@ezcorp/extension-runner/src/browser.ts");
+const builderCommand = `import { browserBuilderProgram } from ${JSON.stringify(builderModule)}; await import("data:text/javascript;base64," + Buffer.from(browserBuilderProgram).toString("base64"));`;
+const compiled = JSON.parse(execFileSync("bun", ["-e", builderCommand, JSON.stringify(configuration)], { cwd: SOURCE, encoding: "utf8", maxBuffer: 12 * 1024 * 1024 })).html as string;
+const cameraFrame = "data:image/jpeg;base64," + Buffer.from(rgbaToJpeg(renderItfRgba("87654321"))).toString("base64");
 
-const MIME: Record<string, string> = {
-	html: "text/html; charset=utf-8",
-	js: "application/javascript; charset=utf-8",
-	css: "text/css; charset=utf-8",
-};
+function app(page: Page) { return page.frameLocator('iframe[title="Scanner fixture"]'); }
 
-/** Serve the SPA from disk; make the backend unreachable (mock mode). */
 async function serveApp(page: Page): Promise<void> {
-	await page.route(`**${BASE}/**`, async (route) => {
-		const { pathname } = new URL(route.request().url());
-		const rel = pathname.slice(pathname.indexOf(BASE) + BASE.length + 1);
-		const target = normalize(join(APP_DIR, rel));
-		if (!target.startsWith(APP_DIR + sep)) return route.fulfill({ status: 404 });
-		try {
-			const body = await readFile(target);
-			const ext = target.slice(target.lastIndexOf(".") + 1);
-			return route.fulfill({
-				status: 200,
-				contentType: MIME[ext] ?? "application/octet-stream",
-				body,
-			});
-		} catch {
-			return route.fulfill({ status: 404 });
-		}
-	});
-	// Backend absent → the app must fall back to mock mode.
-	await page.route("**/api/conversations", (route) =>
-		route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
-	);
-	await page.route("**/api/tool-invoke", (route) =>
-		route.fulfill({
-			status: 503,
-			contentType: "application/json",
-			body: JSON.stringify({ success: false, error: "backend down" }),
-		}),
-	);
-	// No CDN in CI — ZXing load fails fast; camera is an enhancement only.
-	await page.route("https://cdn.jsdelivr.net/**", (route) => route.abort());
+  const saved = new Map<string, Record<string, unknown>>();
+  await page.exposeFunction("__scannerFixtureRequest", async (request: { method: string; params: { toolName: string; input: Record<string, unknown> } }) => {
+    expect(request.method).toBe("tool.invoke");
+    const { toolName, input } = request.params;
+    expect(configuration.tools).toContain(toolName);
+    expect(input).not.toHaveProperty("conversationId");
+    let result: unknown;
+    switch (toolName) {
+      case "lookup_card":
+        if (input.cert === "99999999") return { success: false, error: "Lookup unavailable." };
+        result = mockCard(String(input.cert));
+        break;
+      case "scanner_saved_get": result = saved.get(String(input.cert)) ?? null; break;
+      case "scanner_saved_upsert": {
+        const card = input.card as Record<string, unknown>;
+        saved.set(String(card.cert), structuredClone(card)); result = { saved: true }; break;
+      }
+      case "scanner_saved_list": result = { cards: [...saved.values()], nextCursor: null }; break;
+      case "scanner_saved_delete": result = { deleted: saved.delete(String(input.cert)) }; break;
+      case "scanner_saved_clear": saved.clear(); result = { deleted: true }; break;
+      default: throw new Error("Unexpected scanner fixture tool.");
+    }
+    return { success: true, output: JSON.stringify(result) };
+  });
+  await page.route("**" + PREVIEW_URL + "**", route => {
+    const nonce = new URL(route.request().url()).searchParams.get("nonce");
+    return route.fulfill({ contentType: "text/html; charset=utf-8", headers: { "Content-Security-Policy": "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'" }, body: '<script>Object.defineProperty(window,"__EZCORP_CANVAS_NONCE__",{value:' + JSON.stringify(nonce) + '});</script>' + compiled });
+  });
+  await page.route("**" + FIXTURE_URL, route => route.fulfill({
+    contentType: "text/html; charset=utf-8",
+    body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#0f172a;color:#f8fafc;font:14px system-ui}header{padding:12px}button{padding:10px}iframe{border:0;width:100%;height:calc(100vh - 52px)}</style></head><body><header>Controlled scanner bridge · Selected conversation: fixture-owned <button id="start" hidden>Start camera</button><button id="stop" hidden>Stop camera</button></header><iframe title="Scanner fixture" sandbox="allow-scripts"></iframe><script>
+      const frame=document.querySelector('iframe'), nonce=crypto.randomUUID();
+      frame.src=${JSON.stringify(PREVIEW_URL)}+'?nonce='+nonce;
+      let pendingCamera,sessionId,port;
+      const reply=(request,result)=>port.postMessage({type:'ezcorp.canvas.response',nonce,id:request.id,result});
+      window.addEventListener('message',event=>{
+        if(port||event.source!==frame.contentWindow||event.origin!=='null'||event.data?.nonce!==nonce||event.data.type!=='ezcorp.canvas.connect'||event.ports.length!==1)return;
+        port=event.ports[0];
+        port.onmessage=async message=>{
+        const request=message.data;
+        if(request?.nonce!==nonce||request.type!=='ezcorp.canvas.request')return;
+        if(request.method==='camera.start'){pendingCamera=request;document.querySelector('#start').hidden=false;return;}
+        if(request.method==='camera.stop'){sessionId=null;document.querySelector('#stop').hidden=true;reply(request,{stopped:true});return;}
+        reply(request,await window.__scannerFixtureRequest(request));
+        };
+        port.start();
+      });
+      document.querySelector('#start').onclick=()=>{
+        sessionId=crypto.randomUUID();reply(pendingCamera,{sessionId});
+        document.querySelector('#start').hidden=true;document.querySelector('#stop').hidden=false;
+        setTimeout(()=>{if(sessionId)port.postMessage({type:'ezcorp.canvas.camera',nonce,sessionId,dataUrl:${JSON.stringify(cameraFrame)}});},50);
+      };
+      document.querySelector('#stop').onclick=()=>{
+        port.postMessage({type:'ezcorp.canvas.camera-stopped',nonce,sessionId,reason:'User stopped camera.'});
+        sessionId=null;document.querySelector('#stop').hidden=true;
+      };
+    </script></body></html>`,
+  }));
 }
 
-/** Drive a scan through the page's deterministic hook. */
 function simulate(page: Page, text: string): Promise<void> {
-	return page.evaluate(
-		(t) => (window as unknown as { __gcsSimulateScan: (s: string) => Promise<void> }).__gcsSimulateScan(t),
-		text,
-	);
+  return app(page).locator("body").evaluate((_element, cert) => (window as unknown as { __gcsSimulateScan: (value: string) => Promise<void> }).__gcsSimulateScan(cert), text);
 }
 
-test.describe("Graded Card Scanner SPA", () => {
+test.describe("Graded Card Scanner opaque app with controlled host bridge", () => {
 	test.beforeEach(async ({ page }) => {
 		await serveApp(page);
-		await page.goto(`${BASE}/index.html`);
+		await page.goto(FIXTURE_URL);
 	});
 
 	test("scan → list → detail → chart works with zero network, and captures evidence @evidence", async ({
@@ -93,37 +94,37 @@ test.describe("Graded Card Scanner SPA", () => {
 	}, testInfo) => {
 		await simulate(page, "49392223");
 
-		// One capture: pending row lands, resolves to done via mock fallback.
-		await expect(page.getByTestId("gcs-row")).toHaveCount(1);
-		await expect(page.getByTestId("gcs-status-chip")).toHaveText("done");
-		await expect(page.getByTestId("gcs-mock-banner")).toBeVisible();
-		await expect(page.getByTestId("gcs-count")).toHaveText("1");
-		await expect(page.getByTestId("gcs-row")).toContainText("Charizard");
+		// One capture: pending row lands, resolves to done via explicit sample mode.
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
+		await expect(app(page).getByTestId("gcs-status-chip")).toHaveText("done");
+		await expect(app(page).getByTestId("gcs-mock-banner")).toBeVisible();
+		await expect(app(page).getByTestId("gcs-count")).toHaveText("1");
+		await expect(app(page).getByTestId("gcs-row")).toContainText("Charizard");
 		await captureEvidence(page, testInfo, "graded-card-scanner-list");
 
 		// Detail view.
-		await page.getByTestId("gcs-row").click();
-		await expect(page.getByTestId("gcs-detail")).toBeVisible();
-		await expect(page.getByTestId("gcs-detail-title")).toHaveText(
+		await app(page).getByTestId("gcs-row").click();
+		await expect(app(page).getByTestId("gcs-detail")).toBeVisible();
+		await expect(app(page).getByTestId("gcs-detail-title")).toHaveText(
 			"1999 Pokemon Base Set Charizard #4",
 		);
-		const rows = page.getByTestId("gcs-grade-table").locator("tbody tr");
+		const rows = app(page).getByTestId("gcs-grade-table").locator("tbody tr");
 		await expect(rows).toHaveCount(10);
 		// Scanned grade highlighted; lowest priced grade has no lower comparator.
-		await expect(page.locator(".gcs-tr-scanned")).toContainText("PSA 9");
+		await expect(app(page).locator(".gcs-tr-scanned")).toContainText("PSA 9");
 		await expect(rows.first()).toContainText("—");
 		// Chart renders both panels with the scanned bar marked.
-		const chart = page.getByTestId("gcs-chart").locator("svg");
+		const chart = app(page).getByTestId("gcs-chart").locator("svg");
 		await expect(chart).toBeVisible();
 		await expect(chart.locator("rect.gcs-bar")).toHaveCount(10);
 		await expect(chart.locator(".gcs-bar-scanned")).toHaveCount(1);
 		// Source + fetch time per value, mock-stamped.
-		await expect(page.getByTestId("gcs-sources")).toContainText("identity: mock");
+		await expect(app(page).getByTestId("gcs-sources")).toContainText("identity: mock");
 		await captureEvidence(page, testInfo, "graded-card-scanner-detail");
 
 		// Fetch fresh is briefly disabled after use (anti-spam).
-		await page.getByTestId("gcs-fetch-fresh").click();
-		await expect(page.getByTestId("gcs-fetch-fresh")).toBeDisabled();
+		await app(page).getByTestId("gcs-fetch-fresh").click();
+		await expect(app(page).getByTestId("gcs-fetch-fresh")).toBeDisabled();
 
 		// Capture contract (mirrors visual-evidence.spec) — meaningful in
 		// both modes rather than a bare screenshot call.
@@ -144,55 +145,82 @@ test.describe("Graded Card Scanner SPA", () => {
 		page,
 	}) => {
 		await simulate(page, "49392223");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(1);
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
 
 		// Same cert inside the ~8s cooldown window → silently ignored (the
 		// per-frame dedupe gate; a slab in frame decodes many times a second).
 		await simulate(page, "49392223");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(1);
-		await expect(page.getByTestId("gcs-count")).toHaveText("1");
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
+		await expect(app(page).getByTestId("gcs-count")).toHaveText("1");
 
 		// A modern slab's QR payload (psacard.com URL) via manual entry.
-		await page.getByTestId("gcs-manual-input").fill("https://www.psacard.com/cert/12345678");
-		await page.getByTestId("gcs-manual-add").click();
-		await expect(page.getByTestId("gcs-row")).toHaveCount(2);
+		await app(page).getByTestId("gcs-manual-input").fill("https://www.psacard.com/cert/12345678");
+		await app(page).getByTestId("gcs-manual-add").click();
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
 
 		// Garbage input is rejected with a message, not saved.
-		await page.getByTestId("gcs-manual-input").fill("not-a-cert");
-		await page.getByTestId("gcs-manual-add").click();
-		await expect(page.getByTestId("gcs-status")).toContainText("Not a PSA cert");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(2);
+		await app(page).getByTestId("gcs-manual-input").fill("not-a-cert");
+		await app(page).getByTestId("gcs-manual-add").click();
+		await expect(app(page).getByTestId("gcs-status")).toContainText("Not a PSA cert");
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
 
-		// Saved list survives reload (IndexedDB).
-		await page.goto(`${BASE}/index.html`);
-		await expect(page.getByTestId("gcs-row")).toHaveCount(2);
+		// Saved list survives reload through the scoped host tool fixture.
+		await page.reload();
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
 
 		// Post-reload the in-page gate is fresh but the DB still knows the
 		// cert → the "already scanned" path: no new row, no lookup, count 0.
 		await simulate(page, "49392223");
-		await expect(page.getByTestId("gcs-status")).toContainText("already scanned");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(2);
-		await expect(page.getByTestId("gcs-count")).toHaveText("0");
+		await expect(app(page).getByTestId("gcs-status")).toContainText("already scanned");
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
+		await expect(app(page).getByTestId("gcs-count")).toHaveText("0");
 
 		// Search filters the list.
-		await page.getByTestId("gcs-search").fill("12345678");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(1);
-		await page.getByTestId("gcs-search").fill("zzz-no-match");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(0);
-		await expect(page.getByTestId("gcs-empty")).toBeVisible();
+		await app(page).getByTestId("gcs-search").fill("12345678");
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
+		await app(page).getByTestId("gcs-search").fill("zzz-no-match");
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(0);
+		await expect(app(page).getByTestId("gcs-empty")).toBeVisible();
 	});
+
+	test("upload and explicit host camera start decode real barcode pixels; stop and tool failures remain visible", async ({ page }) => {
+    await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeHidden();
+    await expect(app(page).getByTestId("gcs-video")).not.toHaveAttribute("src");
+    await app(page).getByTestId("gcs-upload").setInputFiles({ name: "slab.png", mimeType: "image/png", buffer: Buffer.from(rgbaToPng(renderItfRgba("12345678"))) });
+    await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
+    await expect(app(page).getByTestId("gcs-status-chip")).toHaveText("done");
+    await app(page).getByTestId("gcs-pause").click();
+    await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeVisible();
+    await expect(app(page).getByTestId("gcs-video")).not.toHaveAttribute("src");
+    await page.getByRole("button", { name: "Start camera", exact: true }).click();
+    await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
+    await expect(app(page).getByTestId("gcs-video")).toHaveAttribute("src", /^data:image\/jpeg/);
+    await page.getByRole("button", { name: "Stop camera", exact: true }).click();
+    await expect(app(page).getByTestId("gcs-video")).not.toHaveAttribute("src");
+    await expect(app(page).getByTestId("gcs-pause")).toHaveText("Start scanning");
+    await app(page).getByTestId("gcs-manual-input").fill("99999999");
+    await app(page).getByTestId("gcs-manual-add").click();
+    await expect(app(page).getByTestId("gcs-status")).toContainText("Lookup unavailable.");
+    await expect(app(page).getByTestId("gcs-status-chip").filter({ hasText: "error" })).toHaveCount(1);
+    await expect(app(page).getByTestId("gcs-mock-banner")).toBeHidden();
+  });
 
 	test("delete one card, then clear all with confirm", async ({ page }) => {
 		await simulate(page, "49392223");
 		await simulate(page, "87654321");
-		await expect(page.getByTestId("gcs-row")).toHaveCount(2);
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(2);
 
-		await page.getByTestId("gcs-delete").first().click();
-		await expect(page.getByTestId("gcs-row")).toHaveCount(1);
+		await app(page).getByTestId("gcs-delete").first().click();
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
 
-		page.on("dialog", (dialog) => dialog.accept());
-		await page.getByTestId("gcs-clear-all").click();
-		await expect(page.getByTestId("gcs-row")).toHaveCount(0);
-		await expect(page.getByTestId("gcs-empty")).toBeVisible();
+
+		await app(page).getByTestId("gcs-clear-all").click();
+		await expect(app(page).getByTestId("gcs-clear-dialog")).toBeVisible();
+		await app(page).getByTestId("gcs-clear-cancel").click();
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(1);
+		await app(page).getByTestId("gcs-clear-all").click();
+		await app(page).getByTestId("gcs-clear-confirm").click();
+		await expect(app(page).getByTestId("gcs-row")).toHaveCount(0);
+		await expect(app(page).getByTestId("gcs-empty")).toBeVisible();
 	});
 });

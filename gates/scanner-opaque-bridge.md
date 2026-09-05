@@ -5,16 +5,16 @@ Scope: Preserve scanner camera and scan-tool flows through the trusted host brid
 - [x] G1: Reproduce the existing scanner failure in the real opaque app frame.
   EVIDENCE: Chromium loaded the original app/lib/db.js in an allow-scripts opaque frame; listCards failed with IndexedDB SecurityError. /tmp/v4-scanner-opaque-red.log
 
-- [x] G2: Scanner unit tests prove exact tool calls without caller authority IDs, denied untrusted messages, and no automatic camera start.
+- [x] G2: Scanner unit tests prove private-port tool calls without caller authority IDs, denied untrusted messages, and no automatic camera start.
   CHECK: PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH bun test ./docs/extensions/examples/graded-card-scanner/app/bridge.test.ts
   EXPECT: 0 fail
-  EVIDENCE: Five bridge/client tests pass; host origin, frame source, nonce, request id, camera session, bounded frames, private saved cards, and denial propagation asserted. /tmp/v4-scanner-bridge-coverage2.log
+  EVIDENCE: /tmp/v4-scanner-private-source.log — all six bridge tests pass, including host revocation clearing the last camera frame.
 
 - [x] G3: The complete scanner source suite and sealed candidate build pass.
-  EVIDENCE: 261 tests pass across 19 files; isolated lifecycle candidate verified with no diagnostics. /tmp/v4-scanner-source-commit.log and /tmp/v4-scanner-lifecycle-commit.jsonl
+  EVIDENCE: /tmp/v4-scanner-private-source.log — 262 tests, 2732 assertions; /tmp/v4-scanner-lifecycle-private-port.jsonl — sealed candidate verified, artifact 7144133417c4e2f9b0292dd6f62d3f9901d81ab1e330bb2cc2cecf17730a7d03. Catalog verification does not claim live network/storage exercise.
 
 - [ ] G4: Real browser camera and scan flow pass through the host bridge; desktop/mobile screenshots pass visual review.
-  EVIDENCE: pending
+  EVIDENCE: Production host bridge proof pending with runner owner. Controlled opaque-frame feature suite passes eight desktop/mobile tests, including real barcode pixels from upload and host camera frames: /tmp/v4-scanner-private-browser.log. Desktop list and mobile list/detail screenshots reviewed at /tmp/scanner-final-{1,3,4}.png; corrected missing fixture viewport before review. Controlled fixture is not production authorization evidence.
 
 - [x] G5: Source metadata lock is current and the integrated typecheck passes.
-  EVIDENCE: Data-only lock regenerated; full backend/web/tests/E2E typecheck passes in /tmp/v4-scanner-types-final-source.log.
+  EVIDENCE: regenerate-manifest-lock --check passes; /tmp/v4-scanner-private-types.log — complete typecheck passes.

@@ -31,15 +31,15 @@
           </label>
           <button data-testid="gcs-simulate" class="gcs-btn gcs-btn-secondary">Simulate scan</button>
         </div>
-        <form data-testid="gcs-manual-form" class="gcs-manual">
+        <div data-testid="gcs-manual-form" class="gcs-manual" role="group" aria-label="Certificate lookup">
           <input
             data-testid="gcs-manual-input"
             inputmode="numeric"
             placeholder="…or type a cert number"
             aria-label="Cert number"
           />
-          <button data-testid="gcs-manual-add" class="gcs-btn">Add</button>
-        </form>
+          <button data-testid="gcs-manual-add" class="gcs-btn" type="button">Add</button>
+        </div>
       </section>
 
       <!-- ── Saved list ───────────────────────────────────────── -->
