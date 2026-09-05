@@ -9,11 +9,12 @@ function fixture(dispatch: CanvasDispatch = async (_method, params) => params) {
   const target = {} as Window;
   const nonce = crypto.randomUUID();
   const channel = new MessageChannel();
+  const transferred = structuredClone(channel.port2, { transfer: [channel.port2] });
   const messages: Record<string, unknown>[] = [];
-  channel.port1.onmessage = event => messages.push(event.data);
+  channel.port1.onmessage = event => { messages.push(event.data); if (event.data.type === "ezcorp.canvas.closed") channel.port1.postMessage({ type: "ezcorp.canvas.closed-ack", nonce }); };
   let stops = 0;
   const bridge = new CanvasBridge(() => target, nonce, dispatch, () => { stops++; });
-  const connect = (overrides: Partial<MessageEvent> = {}) => bridge.connect({ source: target, origin: "null", data: { type: "ezcorp.canvas.connect", nonce }, ports: [channel.port2], ...overrides } as MessageEvent);
+  const connect = (overrides: Partial<MessageEvent> = {}) => bridge.connect({ source: target, origin: "null", data: { type: "ezcorp.canvas.connect", nonce }, ports: [transferred], ...overrides } as MessageEvent);
   const send = (value: Record<string, unknown>) => channel.port1.postMessage({ nonce, ...value });
   const request = (params: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => { const id = crypto.randomUUID(); send({ type: "ezcorp.canvas.request", id, method: "tool.invoke", params, ...extra }); return id; };
   cleanup.push(() => { bridge.close(); channel.port1.close(); });

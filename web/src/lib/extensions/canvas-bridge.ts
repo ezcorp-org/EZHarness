@@ -65,7 +65,14 @@ export class CanvasBridge {
     this.send({ type: "ezcorp.canvas.closed" });
     this.closed = true;
     this.lifetime.abort();
-    this.port?.close();
+    const port = this.port;
+    if (port) {
+      const drain = setTimeout(() => port.close(), 1000);
+      port.onmessage = event => {
+        const value = event.data;
+        if (value?.type === "ezcorp.canvas.closed-ack" && value.nonce === this.nonce && Object.keys(value).length === 2) { clearTimeout(drain); port.close(); }
+      };
+    }
     this.seen.clear();
     this.pending.clear();
     this.stopped();

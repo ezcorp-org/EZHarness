@@ -79,7 +79,7 @@ describe("DockHost", () => {
 		// load-bearing per the plan's critical-constraint #4.
 		const iframe = container.querySelector("iframe");
 		expect(iframe).not.toBeNull();
-		expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin");
+		expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts");
 	});
 
 	test("drag handle: pointerdown → pointermove writes via setDockSize", async () => {
