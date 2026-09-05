@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import ts from "typescript";
 import { createCanvasBridge, type CanvasBridge, type CanvasMethod, type CanvasWindow } from "./index";
 
 const opened: CanvasBridge[] = [];
@@ -152,4 +153,14 @@ test("rejects missing trusted context and compiles as a pure browser module", as
   expect(result.success).toBe(true);
   const output = await result.outputs[0]!.text();
   for (const forbidden of ["node:", "process.stdin", "new Function(", "eval(", "ajv"]) expect(output).not.toContain(forbidden);
+});
+
+test("browser authors can pass a DOM Window without installing Node ambient types", () => {
+  const path = new URL("./window.typecheck.ts", import.meta.url).pathname;
+  const options: ts.CompilerOptions = { module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ESNext, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], types: [], skipLibCheck: true, noEmit: true };
+  const host = ts.createCompilerHost(options);
+  const original = host.getSourceFile.bind(host);
+  host.getSourceFile = (file, ...args) => file === path ? ts.createSourceFile(file, 'import {createCanvasBridge} from "./index"; createCanvasBridge(window);', ts.ScriptTarget.ESNext, true) : original(file, ...args);
+  const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([path], options, host));
+  expect(diagnostics.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))).toEqual([]);
 });
