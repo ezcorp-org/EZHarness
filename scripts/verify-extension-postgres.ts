@@ -112,6 +112,7 @@ try {
         const deadline = Date.now() + 5000;
         while (true) {
           const blockers = await transaction.execute(sql`SELECT pg_blocking_pids(${peerId}::int) AS blockers`);
+          assert.ok(blockers[0], "PostgreSQL must report the observed connection blockers");
           if ((blockers[0].blockers as number[]).includes(ownerConnectionId)) break;
           assert.ok(Date.now() < deadline, `${label} revocation did not wait for the admitted effect transaction`);
           await Bun.sleep(10);
