@@ -77,7 +77,7 @@ test("type errors, absent, skipped and failing tests cannot produce a release", 
 }, 120_000);
 
 test("malicious build source cannot change a host file or obtain host environment", async () => {
-  const files = source(`async () => {const fs=await import('node:fs');let host=false;try{host=fs.existsSync(${JSON.stringify(root)})}catch{};let writable=true;try{fs.writeFileSync('/workspace/assets/greeting.txt','changed')}catch{writable=false};let network=true;try{await fetch('http://169.254.169.254/latest/meta-data/',{signal:AbortSignal.timeout(1000)})}catch{network=false};return {host,writable,network,uid:process.getuid(),secret:process.env.EZ_RUNNER_HOST_SECRET??null}}`);
+  const files = source(`async () => {const fs=await import('node:fs');let host=false;try{host=fs.existsSync(${JSON.stringify(root)})}catch{};let writable=true;try{fs.writeFileSync('/workspace/assets/greeting.txt','changed')}catch{writable=false};let network=true;try{await fetch('http://169.254.169.254/latest/meta-data/',{signal:AbortSignal.timeout(1000)})}catch{network=false};return {host,writable,network,uid:process.getuid!(),secret:process.env.EZ_RUNNER_HOST_SECRET??null}}`);
   process.env.EZ_RUNNER_HOST_SECRET = "not-for-extension";
   const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(result.diagnostics).toEqual([]);
@@ -105,9 +105,9 @@ test("locked dependency is bundled offline and retained in immutable release", a
 test("kernel PID, temporary storage, memory and descendant cancellation limits hold", async () => {
   const files = source(`async (value) => {
     const input = value as {action:string};
-    if(input.action==='oom'){const values=[];while(true){values.push(new Uint8Array(8*1024*1024).fill(123));await Bun.sleep(1)}}
+    if(input.action==='oom'){const values:Uint8Array[]=[];while(true){values.push(new Uint8Array(8*1024*1024).fill(123));await Bun.sleep(1)}}
     if(input.action==='disk'){try{await Bun.write('/tmp/full',new Uint8Array(20*1024*1024));return {limited:false}}catch{return {limited:true}}}
-    const children=[];try{for(let index=0;index<100;index++)children.push(Bun.spawn(['/bin/sleep','60'],{stdout:'ignore',stderr:'ignore'}))}catch{};
+    const children:{kill:()=>void}[]=[];try{for(let index=0;index<100;index++)children.push(Bun.spawn(['/bin/sleep','60'],{stdout:'ignore',stderr:'ignore'}))}catch{};
     if(input.action==='pids'){for(const child of children)child.kill();return {children:children.length}}
     await new Promise(()=>{});return {};
   }`);
