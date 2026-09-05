@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { deferredModuleFunctions } from "./helpers/mock-cleanup";
+import { deferredModuleFunctions, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 
 test("deferred module cleanup loads only on call and forwards exact arguments and results", async () => {
   let loads = 0;
@@ -34,4 +34,10 @@ test("deferred module cleanup loads only on call and forwards exact arguments an
 test("deferred cleanup rejects a runtime module whose function export disappeared", () => {
   const deferred = deferredModuleFunctions(() => ({ run: null }) as unknown as { run(): void }, { run: true });
   expect(() => deferred.run()).toThrow("Expected module function run");
+});
+
+test("unavailable workflow access fails closed without importing the web module", () => {
+  expect(() => unavailableWorkflowAccess().listVisibleWorkflows({} as never)).toThrow(
+    "Workflow access is unavailable outside its owning test",
+  );
 });

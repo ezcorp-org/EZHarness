@@ -18,6 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +81,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 }));
 
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );

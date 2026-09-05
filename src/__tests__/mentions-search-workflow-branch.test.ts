@@ -26,6 +26,7 @@
  */
 
 import { test, expect, describe, afterAll, mock } from "bun:test";
+import { unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 
 // ── Mock the SvelteKit aliases the +server.ts route imports ─────────
 // Must be registered BEFORE importing the route module.
@@ -86,6 +87,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 }));
 
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   mock.module("$server/runtime/ez-actions/registry", () => require("../runtime/ez-actions/registry"));
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
