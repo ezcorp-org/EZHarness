@@ -67,6 +67,28 @@ async function releaseFixture(setup = harness()) {
   return { ...setup, installation, workspace, operation: result, releaseId: result.releaseId! };
 }
 
+test("dependency resolution persists an exact revision and rejects concurrent edits", async () => {
+  const setup = harness({ resolveDependencies: async files => ({ ...files, "package-lock.json": "locked", "extension.ts": "must not replace source" }) });
+  const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "source" } });
+  const input = { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1 };
+  const resolved = await setup.lifecycle.resolveWorkspaceDependencies(actor, input);
+  expect(resolved.revision).toBe(2);
+  expect((await setup.lifecycle.readWorkspace(actor, installation.id, workspace.id)).files).toEqual({ "extension.ts": "source", "package-lock.json": "locked" });
+  await expect(setup.lifecycle.build(actor, { ...input, idempotencyKey: "old-revision" })).rejects.toThrow("current workspace revision");
+  await expect(setup.lifecycle.resolveWorkspaceDependencies(actor, input)).rejects.toThrow("Workspace changed");
+  setup.dependencies.resolveDependencies = async files => {
+    await setup.lifecycle.editWorkspace(actor, { ...input, expectedRevision: 2, writes: { "extension.ts": "new source" } });
+    return { ...files, "package-lock.json": "stale lock" };
+  };
+  await expect(setup.lifecycle.resolveWorkspaceDependencies(actor, { ...input, expectedRevision: 2 })).rejects.toThrow("Workspace changed");
+  expect((await setup.lifecycle.readWorkspace(actor, installation.id, workspace.id)).files["package-lock.json"]).toBe("locked");
+  setup.dependencies.resolveDependencies = undefined;
+  await expect(setup.lifecycle.resolveWorkspaceDependencies(actor, { ...input, expectedRevision: 3 })).rejects.toThrow("not configured");
+  setup.dependencies.resolveDependencies = async () => ({});
+  await setup.lifecycle.resolveWorkspaceDependencies(actor, { ...input, expectedRevision: 3 });
+  expect((await setup.lifecycle.readWorkspace(actor, installation.id, workspace.id)).files["package-lock.json"]).toBeUndefined();
+});
+
 async function approved(setup: Awaited<ReturnType<typeof releaseFixture>>, key = "activate") {
   const state = await setup.lifecycle.inspect(actor, setup.installation.id);
   const approval = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: ["storage:read"], expectedActiveReleaseId: state.installation.activeReleaseId });

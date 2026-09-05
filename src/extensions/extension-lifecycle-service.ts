@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { canonicalJson, compileValueSchema, validateManifest, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner } from "@ezcorp/extension-contract";
-import { buildLimits, DEFAULT_IMAGE, executionLimits, RunnerClient } from "@ezcorp/extension-runner";
+import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, RunnerClient } from "@ezcorp/extension-runner";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
@@ -132,7 +132,7 @@ async function initialize(): Promise<LifecycleServices> {
   const lifecycle = new ExtensionLifecycle({
     repository,
     blobs: new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases")),
-    runner, runnerProfile: "rootless-podman-v4", runnerImageDigest: process.env.EZCORP_EXTENSION_RUNNER_IMAGE ?? DEFAULT_IMAGE,
+    runner, resolveDependencies, runnerProfile: "rootless-podman-v4", runnerImageDigest: process.env.EZCORP_EXTENSION_RUNNER_IMAGE ?? DEFAULT_IMAGE,
     validatorVersion: "runner-v4.1", buildLimits,
     ...authorization,
     verifyCandidate: (release) => verifyExtensionCandidate(runner, release),

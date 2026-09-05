@@ -15,6 +15,7 @@ function fixture() {
     list: mock(async () => [installation]),
     readWorkspace: mock(async () => ({ workspace, files: createExtensionFiles() })),
     editWorkspace: mock(async () => ({ ...workspace, revision: 2 })),
+    resolveWorkspaceDependencies: mock(async () => ({ ...workspace, revision: 2 })),
     build: mock(async () => ({ id: "operation", state: "queued" })),
     runBuild: mock(async () => ({ id: "operation", state: "verified" })),
     inspect: mock(async () => state),
@@ -61,6 +62,15 @@ describe("extension control", () => {
     expect(await control.execute(actor, "extensions_build", { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" })).toMatchObject({ id: "operation" });
     expect(lifecycle.runBuild).toHaveBeenCalledWith(actor, "installation", "operation");
     expect(lifecycle.build).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" });
+  });
+
+  test("resolves dependencies through revision-checked workspace action without building", async () => {
+    const { control, lifecycle } = fixture();
+    const input = { action: "resolveDependencies", installationId: "installation", workspaceId: "workspace", expectedRevision: 1 };
+    expect(await control.execute(actor, "extensions_workspace", input)).toMatchObject({ revision: 2 });
+    expect(lifecycle.resolveWorkspaceDependencies).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1 });
+    expect(lifecycle.build).not.toHaveBeenCalled();
+    await expect(control.execute(actor, "extensions_workspace", { action: input.action, installationId: input.installationId, workspaceId: input.workspaceId })).rejects.toThrow("expectedRevision");
   });
 
   test("rejects extra input, invalid revisions, missing fields and approval attempts", async () => {

@@ -38,6 +38,7 @@ export interface LifecycleDependencies {
   repository: LifecycleRepository;
   blobs: BlobStore;
   runner: LifecycleRunner;
+  resolveDependencies?(files: WorkspaceFiles): Promise<WorkspaceFiles>;
   runnerProfile: string;
   runnerImageDigest: string;
   validatorVersion: string;

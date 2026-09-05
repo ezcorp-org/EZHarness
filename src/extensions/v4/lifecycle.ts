@@ -126,6 +126,16 @@ export class ExtensionLifecycle {
     });
   }
 
+  async resolveWorkspaceDependencies(actor: LifecycleActor, input: { installationId: string; workspaceId: string; expectedRevision: number }): Promise<WorkspaceRecord> {
+    await this.dependencies.authorize(actor, "workspace");
+    const { workspace, files } = await this.readWorkspace(actor, input.installationId, input.workspaceId);
+    if (workspace.revision !== input.expectedRevision) throw new LifecycleError("revision_conflict", "Workspace changed. Read its current revision.");
+    if (!this.dependencies.resolveDependencies) throw new LifecycleError("resolver_unconfigured", "Dependency resolution is not configured.");
+    const resolved = await this.dependencies.resolveDependencies(files);
+    const lock = resolved["package-lock.json"];
+    return this.editWorkspace(actor, { ...input, writes: lock === undefined ? {} : { "package-lock.json": lock }, deletes: lock === undefined ? ["package-lock.json"] : [] });
+  }
+
   async build(actor: LifecycleActor, input: { installationId: string; workspaceId: string; expectedRevision: number; idempotencyKey: string; entrypoint?: string }): Promise<LifecycleOperation> {
     await this.dependencies.authorize(actor, "build");
     const entrypoint = input.entrypoint ?? "extension.ts";
