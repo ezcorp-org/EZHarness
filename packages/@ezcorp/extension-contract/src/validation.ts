@@ -85,16 +85,24 @@ export function validateWorkspacePath(path: string): void {
 }
 
 export function validateWorkspaceFiles(value: unknown): WorkspaceFiles {
-  assertJson(value, 128 * 1024 * 1024);
+  return validateFileMap(value, 2000, 20, 128);
+}
+
+export function validateArtifactFiles(value: unknown): WorkspaceFiles {
+  return validateFileMap(value, 2004, 160, 192);
+}
+
+function validateFileMap(value: unknown, maxFiles: number, maxMiB: number, maxSerializedMiB: number): WorkspaceFiles {
+  assertJson(value, maxSerializedMiB * 1024 * 1024);
   if (!value || Array.isArray(value) || typeof value !== "object") throw new ContractError("INVALID_FILES", "Expected file map");
   const entries = Object.entries(value);
-  if (entries.length > 2000) throw new ContractError("DATA_LIMIT", "Workspace exceeds 2000 files");
+  if (entries.length > maxFiles) throw new ContractError("DATA_LIMIT", `File map exceeds ${maxFiles} files`);
   let totalBytes = 0;
   for (const [path, content] of entries) {
     validateWorkspacePath(path);
     if (typeof content !== "string") throw new ContractError("INVALID_FILES", "File must be text", path);
     totalBytes += encoder.encode(content).byteLength;
-    if (totalBytes > 20 * 1024 * 1024) throw new ContractError("DATA_LIMIT", "Workspace exceeds 20 MiB", path);
+    if (totalBytes > maxMiB * 1024 * 1024) throw new ContractError("DATA_LIMIT", `File map exceeds ${maxMiB} MiB`, path);
     const parts = path.split("/");
     for (let count = 1; count < parts.length; count++) if (Object.hasOwn(value, parts.slice(0, count).join("/"))) throw new ContractError("INVALID_PATH", "File conflicts with directory", path);
   }

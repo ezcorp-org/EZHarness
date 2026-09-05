@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, sealPublishedRelease, validatePublishedRelease, validateInvocationContext, validateManifest, validateResourceLimits, validateWire, validateWorkspaceFiles, validateWorkspacePath } from "./index";
+import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, sealPublishedRelease, validatePublishedRelease, validateInvocationContext, validateManifest, validateResourceLimits, validateWire, validateWorkspaceFiles, validateWorkspacePath, validateArtifactFiles } from "./index";
 
 const manifest = { schemaVersion: 4, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 
 describe("data contracts", () => {
+  test("artifact maps admit sealed dependencies while preserving path and count limits", () => {
+    const files = { ".runner/dependencies.json": "x".repeat(21 * 1024 * 1024) };
+    expect(validateArtifactFiles(files)).toBe(files);
+    expect(() => validateWorkspaceFiles(files)).toThrow();
+    expect(() => validateArtifactFiles({ "node_modules/evil": "x" })).toThrow();
+    expect(() => validateArtifactFiles(Object.fromEntries(Array.from({ length: 2005 }, (_, index) => [`file${index}`, ""])))).toThrow();
+  });
   test("published releases bind source, catalog, checksums and runner artifacts", async () => {
     const sourceFiles = { "extension.ts": "source" };
     const artifacts = { ...sourceFiles, ".runner/extension.js": "compiled" };
