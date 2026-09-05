@@ -2,7 +2,7 @@
 
 ## Result
 
-The rewrite runs in a separate worktree on `feat/extension-v4`. The original working directory is unchanged. Runtime checks pass. This is not a claim that the system has no possible defects.
+The rewrite runs in a separate worktree on `feat/extension-v4`. The original working directory is unchanged. Validation is still in progress: the complete backend and authenticated browser lanes found further failures after the earlier checkpoints below. This is not a claim that the system has no possible defects.
 
 The gate-integrity check still requires maintainer review. Its 84 findings concern retired, moved, or rewritten legacy tests and one removed threshold for deleted code. Every finding has a numbered disposition in [the migration mapping](../src/__tests__/extension-v4-migration-coverage.md). No maintainer label was applied by the implementation agent. The PR must remain a draft until the required review and CI checks pass.
 
@@ -105,3 +105,13 @@ The nine extension specifications above are a feature subset, not the complete a
 - Two additional isolated browser repeats timed out before the preview server listened. Their earlier passing cases do not prove repeatability. Startup diagnosis and a complete final-lane rerun remain required.
 
 Types 48 pass all four lanes. Lint 23 has no errors, 105 warnings and 11 informational findings. These checks precede the pending event-registration fix. PR 246 remains a draft; no failing gate is waived.
+
+## Production runtime and workflow follow-up
+
+The authenticated browser lane now launches the built production adapter, not Vite preview. An actual startup comparison recorded 53 successful Vite boots and two listener hangs; the exact unresolved promise was not identified. The production adapter passed 48 fresh boots. This is a runtime-fidelity change, not a claim to have fixed Vite.
+
+The first complete production-adapter lane had 48 passing tests and five failures. Three native form flows encountered the adapter's default HTTPS origin while the test browser used HTTP. The test server now pins its trusted origin to the configured browser URL. An actual browser regression proves that a foreign-origin form remains denied and the matching-origin form redirects before the original cancellation assertions run. Production CSRF checks are unchanged. Two other failures exhausted the invitation acceptance limit during test account setup; fixture isolation remains under review, without changing that security limit.
+
+At `740ee3aa`, the production image passed all eight real runner lifecycle checks, and disposable external PostgreSQL passed lifecycle, cancellation, effect-ordering and lock checks. At the `9bc2c893` tree, all 50 first-party candidates passed isolated build, tests and discovery again. These reports retain `unexercised` capability labels; they do not establish every live feature.
+
+The latest complete backend run reports 24,381 passing tests and 30 failures in ten files. Review found outdated provenance fixtures and a real pure-workflow evaluation regression. Those failures must be resolved before final validation or another push. The web checks at `ecb2c178` pass: 7,041 Vitest tests in 543 files, and 4,120 plain web tests in 221 files. Svelte reports zero errors and 13 warnings. Full coverage and the corrected complete browser lane remain pending.
