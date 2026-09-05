@@ -38,3 +38,16 @@ test("foreign installations are not disclosed", async () => {
   await expect(load(event("?installation=foreign"))).rejects.toMatchObject({ status: 404 });
   expect(mocks.readWorkspace).not.toHaveBeenCalled();
 });
+
+test("unexpected storage failures remain errors, not empty workspaces", async () => {
+  const failure = new Error("storage unavailable");
+  mocks.inspect.mockRejectedValue(failure);
+  await expect(load(event("?installation=installation"))).rejects.toBe(failure);
+});
+
+test("an installation opens its most recent workspace without a workspace query", async () => {
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation" }, workspaces: { old: { id: "old", createdAt: "2026-01-01" }, latest: { id: "latest", createdAt: "2026-02-01" } } });
+  mocks.readWorkspace.mockResolvedValue({ workspace: { id: "latest" }, files: {} });
+  expect(await load(event("?installation=installation"))).toMatchObject({ workspace: { id: "latest" } });
+  expect(mocks.readWorkspace).toHaveBeenCalledWith(expect.anything(), "installation", "latest");
+});

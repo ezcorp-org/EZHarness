@@ -27,6 +27,8 @@ import type { CapabilityDeclaration, ExtensionPermissions } from "./types";
 import { expandGrantPrefix } from "./permissions";
 
 export type CapabilityKind =
+  | "ezcorp:api:request"
+  | "ezcorp:api:events"
   | "network"
   | "fs.read"
   | "fs.write"
@@ -415,6 +417,11 @@ export function intersectPermissions(
   b: ExtensionPermissions,
 ): ExtensionPermissions {
   const out: ExtensionPermissions = { grantedAt: {} };
+  if (a.hostApi && b.hostApi) {
+    const routes = a.hostApi.routes.filter((route) => b.hostApi!.routes.some((other) => route.method === other.method && route.path === other.path));
+    const events = a.hostApi.events === true && b.hostApi.events === true;
+    if (routes.length || events) out.hostApi = { routes, events };
+  }
 
   // network — array intersection (lowercased)
   if (a.network && b.network) {
@@ -835,6 +842,10 @@ function intersectSearchProviders(
  * them via the per-tool `capabilities` declaration which the PDP
  * already enforces.
  */
+export function hostApiRouteCapability(route: { method: string; path: string }): Capability {
+  return { kind: "ezcorp:api:request", value: `${route.method} ${route.path}` };
+}
+
 export function grantsToCapabilitySet(
   grants: ExtensionPermissions | null,
   /** The user the authorization is for. A `$USER` grant segment expands
@@ -845,6 +856,10 @@ export function grantsToCapabilitySet(
 ): CapabilitySet {
   if (!grants) return [];
   const caps: Capability[] = [];
+  if (grants.hostApi) {
+    caps.push(...grants.hostApi.routes.map(hostApiRouteCapability));
+    if (grants.hostApi.events) caps.push({ kind: "ezcorp:api:events" });
+  }
 
   if (grants.network) {
     for (const host of grants.network) {

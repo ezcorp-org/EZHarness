@@ -46,4 +46,6 @@ test("lifecycle conflicts and denial codes remain machine-readable", async () =>
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ code: "revision_conflict" });
   expect(extensionControlError(new Response("denied", { status: 403 })).status).toBe(403);
+  mocks.approve.mockRejectedValue({ code: "stale_approval", message: "Release changed." });
+  expect((await approve(event({ approvalId: "approval", decision: true }, "session"))).status).toBe(409);
 });

@@ -1,550 +1,191 @@
-/**
- * Component tests for the extension-author preview page
- * (`web/src/routes/(app)/extensions/author/+page.svelte`).
- *
- * The page's behavior split:
- *   - file tabs: render the on-disk file map, click switches `selected`
- *   - debounced save: 600ms after last keystroke → PUT to the draft API
- *   - flushPendingSave: a 485cb20 fix that flushes a pending debounced
- *     PUT before Validate/Install/Discard fire, so the action's server
- *     roundtrip doesn't race a stale on-disk read
- *   - Validate / Install / Discard: each posts to a dedicated endpoint;
- *     Install on 201 calls `goto(redirectUrl)`, on non-2xx renders an
- *     install-error block; Discard prompts `confirm()` then DELETEs +
- *     navigates to /extensions
- *   - in-flight disabled state: while validating/installing/discarding
- *     each button's `disabled` reflects its own flag
- *   - empty files state: renders the "No files in this draft" branch
- *
- * The page reads `data: { draft, files }` from `+page.server.ts`
- * (covered separately by extension-author-page-server-load.server.test.ts);
- * here we mount the component with fixture data and exercise the
- * client-side surface.
- */
 import "@testing-library/jest-dom/vitest";
-import { render, fireEvent, waitFor } from "@testing-library/svelte";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/svelte";
+import { afterEach, expect, test, vi } from "vitest";
+import type { ComponentProps } from "svelte";
+import type { InstallationState } from "$server/extensions/v4/types";
+import AuthorPage from "../routes/(app)/extensions/author/+page.svelte";
+import { goto } from "$app/navigation";
 
-// Mock $app/navigation BEFORE importing the page so `goto` resolves to
-// the test spy. The stub in `src/__tests__/stubs/app-navigation.ts`
-// would otherwise return a fresh function each call.
-const gotoSpy = vi.fn();
-vi.mock("$app/navigation", () => ({
-	goto: (...args: unknown[]) => gotoSpy(...args),
-}));
+vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 
-// `./$types` is a type-only import inside the route; the Svelte
-// compiler erases it before vitest sees the module graph, so no
-// runtime stub is needed here.
+const installation = { id: "installation", ownerId: "owner", scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled" as const, grants: [], acknowledgedGeneration: 0 };
+const workspace = { id: "workspace", installationId: installation.id, revision: 1, sourceDigest: "source", createdAt: "2026-09-04" };
 
-import ExtensionAuthorPage from "../routes/(app)/extensions/author/+page.svelte";
-
-function makeData(overrides: Partial<{
-	draftId: string;
-	payload: Record<string, unknown>;
-	files: Record<string, string>;
-	/** Files the server could not read. The loader reports these instead of
-	 *  silently dropping them, so the fixture has to carry the field. */
-	unreadable: Array<{ name: string; error: string }>;
-}> = {}) {
-	const draftId = overrides.draftId ?? "draft-abc";
-	const payload =
-		overrides.payload ?? { name: "weather", type: "tool", mode: "author" };
-	const files =
-		overrides.files ?? {
-			"ezcorp.config.ts": "// config\nexport default { name: 'weather' };",
-			"index.ts": "// entry\nexport function tool() {}",
-		};
-	return {
-		draft: {
-			id: draftId,
-			kind: "extension" as const,
-			payload,
-			createdAt: new Date("2026-05-01T00:00:00.000Z"),
-			expiresAt: new Date("2026-05-02T00:00:00.000Z"),
-			consumedAt: null,
-		},
-		files,
-		unreadable: overrides.unreadable ?? [],
-	};
+function pageData(approval = false, canApprove = true): ComponentProps<typeof AuthorPage>["data"] {
+  const state: InstallationState = { installation, workspaces: { workspace }, revisions: {}, operations: {}, releases: {}, approvals: approval ? { approval: { id: "approval", installationId: installation.id, releaseId: "release", releaseDigest: "exact-release-digest", principalId: "owner", scope: "global", grants: ['["storage",true]'], runnerProfile: "podman", expectedActiveReleaseId: null, expectedGeneration: 0, status: "pending", createdAt: "2026-09-04" } } : {} };
+  return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], canApprove } as ComponentProps<typeof AuthorPage>["data"];
 }
 
-/**
- * Build a `fetch` spy whose response is selected per-URL+method. Returns
- * the spy AND a helper to override a route's response mid-test. The
- * spy is wired to `globalThis.fetch` so the SUT picks it up via plain
- * `fetch()` calls.
- */
-function installFetchSpy(routes: Record<
-	string,
-	(req: Request) => Promise<Response> | Response
->) {
-	const map = new Map(Object.entries(routes));
-	const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-		const url = typeof input === "string" ? input : input.toString();
-		const method = (init?.method ?? "GET").toUpperCase();
-		const key = `${method} ${url}`;
-		const handler = map.get(key);
-		if (!handler) {
-			throw new Error(`No fetch route registered for: ${key}`);
-		}
-		// `new Request(url)` rejects bare paths under jsdom, so anchor
-		// against a synthetic origin. Handlers only care about the
-		// method + body, not the host.
-		const req = new Request(`http://localhost${url}`, init);
-		return handler(req);
-	});
-	const originalFetch = globalThis.fetch;
-	globalThis.fetch = spy as unknown as typeof fetch;
-	return {
-		spy,
-		setRoute(key: string, handler: (req: Request) => Promise<Response> | Response) {
-			map.set(key, handler);
-		},
-		// Calls whose URL contains `substr`. Used to scope assertions to the
-		// draft endpoints, ignoring the `GET /api/extensions` fetches that
-		// AuthorCompositionPanel + ExtensionAttachPicker fire on mount.
-		callsMatching(substr: string) {
-			return spy.mock.calls.filter(([input]) => String(input).includes(substr));
-		},
-		restore() {
-			globalThis.fetch = originalFetch;
-		},
-	};
-}
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
-let fetchRig: ReturnType<typeof installFetchSpy>;
-
-beforeEach(() => {
-	gotoSpy.mockReset();
+test("saves all changes as one revision before queuing a build", async () => {
+  const data = pageData();
+  const calls: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+    const body = JSON.parse(String(init.body));
+    calls.push(body);
+    if (body.tool === "extensions_workspace") return Response.json({ ...workspace, revision: 2 });
+    if (body.tool === "extensions_build") return Response.json({ id: "operation", state: "queued" });
+    return Response.json(data.state);
+  }));
+  const view = render(AuthorPage, { data });
+  await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "edited" } });
+  await fireEvent.click(view.getByRole("button", { name: "Save and build" }));
+  await waitFor(() => expect(calls).toHaveLength(3));
+  expect(calls[0]).toMatchObject({ tool: "extensions_workspace", input: { expectedRevision: 1, writes: { "extension.ts": "edited", "src/helper.ts": "helper" } } });
+  expect(calls[1]).toMatchObject({ tool: "extensions_build", input: { expectedRevision: 2 } });
 });
 
-afterEach(() => {
-	fetchRig?.restore();
+test("a conflicting save retains local source and does not build", async () => {
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ message: "Revision conflict. Reload before editing." }, { status: 409 }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data: pageData() });
+  const editor = view.getByRole("textbox", { name: "Source: extension.ts" });
+  await fireEvent.input(editor, { target: { value: "keep this edit" } });
+  await fireEvent.click(view.getByRole("button", { name: "Save and build" }));
+  await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Revision conflict"));
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(editor).toHaveValue("keep this edit");
 });
 
-describe("ExtensionAuthorPage — render & file tabs", () => {
-	test("renders the file tree, draft metadata, and the first file's content", async () => {
-		fetchRig = installFetchSpy({});
-		const data = makeData();
-		const { getByTestId, getByText } = render(ExtensionAuthorPage, {
-			props: { data },
-		});
-		// File tree shows both files (sorted: ezcorp.config.ts < index.ts).
-		expect(getByTestId("file-tab-ezcorp.config.ts")).toBeInTheDocument();
-		expect(getByTestId("file-tab-index.ts")).toBeInTheDocument();
-		// First file (ezcorp.config.ts after sort) is the active tab.
-		expect(getByTestId("file-tab-ezcorp.config.ts")).toHaveClass("active");
-		// Its content is in the textarea.
-		const ta = getByTestId("file-content") as HTMLTextAreaElement;
-		expect(ta.value).toContain("// config");
-		// Draft metadata renders.
-		expect(getByText(/draft-abc/)).toBeInTheDocument();
-		expect(getByText(/weather/)).toBeInTheDocument();
-		expect(getByText(/\(tool\)/)).toBeInTheDocument();
-	});
-
-	test("clicking a different file tab swaps the textarea content and active highlight", async () => {
-		fetchRig = installFetchSpy({});
-		const data = makeData();
-		const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-
-		await fireEvent.click(getByTestId("file-tab-index.ts"));
-
-		expect(getByTestId("file-tab-index.ts")).toHaveClass("active");
-		expect(getByTestId("file-tab-ezcorp.config.ts")).not.toHaveClass("active");
-		const ta = getByTestId("file-content") as HTMLTextAreaElement;
-		expect(ta.value).toContain("// entry");
-	});
-
-	test("empty files map → renders the 'No files in this draft' branch", () => {
-		fetchRig = installFetchSpy({});
-		const data = makeData({ files: {} });
-		const { getByText, queryByTestId } = render(ExtensionAuthorPage, {
-			props: { data },
-		});
-		expect(getByText(/No files in this draft/i)).toBeInTheDocument();
-		// Textarea is not mounted because `selected` is empty.
-		expect(queryByTestId("file-content")).toBeNull();
-	});
+test("nested additions and deletions are saved atomically", async () => {
+  const fetcher = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => Response.json({ ...workspace, revision: 2 }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data: pageData() });
+  await fireEvent.click(view.getByRole("button", { name: "Remove selected file" }));
+  await fireEvent.input(view.getByRole("textbox", { name: "Add a file" }), { target: { value: "src/nested/new.ts" } });
+  await fireEvent.click(view.getByRole("button", { name: "Add file" }));
+  await fireEvent.click(view.getByRole("button", { name: "Save revision" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  const input = JSON.parse(String(fetcher.mock.calls[0]![1]?.body)).input;
+  expect(input.deletes).toEqual(["extension.ts"]);
+  expect(input.writes).toEqual({ "src/helper.ts": "helper", "src/nested/new.ts": "" });
 });
 
-describe("ExtensionAuthorPage — debounced save", () => {
-	test("typing into the textarea fires PUT /api/extensions/author/draft/<id> after 600ms with the edited content", async () => {
-		vi.useFakeTimers();
-		try {
-			const putBodies: Array<{ path: string; content: string }> = [];
-			fetchRig = installFetchSpy({
-				"PUT /api/extensions/author/draft/draft-abc": async (req) => {
-					putBodies.push(await req.json());
-					return new Response(null, { status: 204 });
-				},
-			});
-
-			const data = makeData();
-			const { getByTestId } = render(ExtensionAuthorPage, {
-				props: { data },
-			});
-			const ta = getByTestId("file-content") as HTMLTextAreaElement;
-			await fireEvent.input(ta, {
-				target: { value: "// edited config\nexport default {};" },
-			});
-
-			// Before 600ms — no PUT yet. (The composition panel's on-mount
-			// `GET /api/extensions` is ignored; we scope to the draft route.)
-			await vi.advanceTimersByTimeAsync(599);
-			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(0);
-
-			// Crossing 600ms — exactly one PUT, with the new content.
-			await vi.advanceTimersByTimeAsync(2);
-			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(1);
-			expect(putBodies).toEqual([
-				{
-					path: "ezcorp.config.ts",
-					content: "// edited config\nexport default {};",
-				},
-			]);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+test("approval requires explicit review and sends only the exact approval ID", async () => {
+  const data = pageData(true);
+  const fetcher = vi.fn(async (url: string, _init?: RequestInit) => Response.json(url.endsWith("/approve") ? {} : data.state));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  const approve = view.getByRole("button", { name: "Approve exact release" });
+  expect(approve).toBeDisabled();
+  expect(view.getByText("exact-release-digest")).toBeVisible();
+  await fireEvent.click(view.getByRole("checkbox"));
+  await fireEvent.click(approve);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(fetcher.mock.calls[0]![0]).toBe("/api/extensions/releases/installation/approve");
+  expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ approvalId: "approval", decision: true });
 });
 
-describe("ExtensionAuthorPage — validate flow", () => {
-	test("ok=true response renders the success block; ok=false renders the error list", async () => {
-		let validateOk = true;
-		fetchRig = installFetchSpy({
-			"POST /api/extensions/author/draft/draft-abc/validate": async () => {
-				if (validateOk) {
-					return new Response(
-						JSON.stringify({ ok: true, pass: true, errors: [], steps: [] }),
-						{ status: 200, headers: { "content-type": "application/json" } },
-					);
-				}
-				return new Response(
-					JSON.stringify({
-						ok: false,
-						pass: false,
-						errors: ["missing version", "bad capability"],
-						steps: [],
-					}),
-					{ status: 200, headers: { "content-type": "application/json" } },
-				);
-			},
-		});
-
-		const data = makeData();
-		const { getByTestId, queryByText, findByText } = render(
-			ExtensionAuthorPage,
-			{ props: { data } },
-		);
-
-		await fireEvent.click(getByTestId("validate-btn"));
-		// Success copy — the gate that ran is the SAME one Install runs,
-		// so the promise made here is one the install can keep.
-		await findByText(/Acceptance gate passed\. This draft is ready to install\./i);
-		const status = getByTestId("validation-status");
-		expect(status).toHaveClass("ok");
-
-		// Now flip to failure and re-validate.
-		validateOk = false;
-		await fireEvent.click(getByTestId("validate-btn"));
-		await waitFor(() => {
-			expect(queryByText(/Acceptance gate passed/i)).toBeNull();
-		});
-		await findByText(/missing version/);
-		await findByText(/bad capability/);
-		expect(getByTestId("validation-status")).toHaveClass("err");
-	});
-
-	// H2: a failing sandboxed round-trip is now visible HERE, with the
-	// step that failed — previously Validate only ran manifest checks and
-	// happily said "ready to install" for a draft that 422'd on install.
-	test("renders the per-step verdicts so a failure names the failing step", async () => {
-		fetchRig = installFetchSpy({
-			"POST /api/extensions/author/draft/draft-abc/validate": async () =>
-				new Response(
-					JSON.stringify({
-						ok: false,
-						pass: false,
-						errors: ["smoke-test-roundtrip: Smoke test failed: boom"],
-						steps: [
-							{ name: "manifest-present", ok: true, detail: "Found ezcorp.config.ts" },
-							{ name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
-							{
-								name: "smoke-test-roundtrip",
-								ok: false,
-								detail: "Smoke test failed: boom",
-							},
-						],
-					}),
-					{ status: 200, headers: { "content-type": "application/json" } },
-				),
-		});
-
-		const data = makeData();
-		const { getByTestId, findByTestId } = render(ExtensionAuthorPage, {
-			props: { data },
-		});
-		await fireEvent.click(getByTestId("validate-btn"));
-
-		const failing = await findByTestId("validation-step-smoke-test-roundtrip");
-		expect(failing).toHaveClass("step-err");
-		expect(failing).toHaveTextContent(/Smoke test failed: boom/);
-		expect(getByTestId("validation-step-load-manifest")).toHaveClass("step-ok");
-	});
+test("non-session visitors cannot approve", () => {
+  const view = render(AuthorPage, { data: pageData(true, false) });
+  expect(view.getByRole("checkbox")).toBeDisabled();
+  expect(view.getByRole("button", { name: "Approve exact release" })).toBeDisabled();
+  expect(view.getByRole("button", { name: "Reject" })).toBeDisabled();
 });
 
-describe("ExtensionAuthorPage — save failures are their own banner", () => {
-	test("a failed PUT renders the save-error block, not the install-error block", async () => {
-		vi.useFakeTimers();
-		try {
-			fetchRig = installFetchSpy({
-				"PUT /api/extensions/author/draft/draft-abc": async () =>
-					new Response("disk full", { status: 500 }),
-			});
-			const data = makeData();
-			const { getByTestId, queryByTestId } = render(ExtensionAuthorPage, {
-				props: { data },
-			});
-			const ta = getByTestId("file-content") as HTMLTextAreaElement;
-			await fireEvent.input(ta, { target: { value: "// edited" } });
-			await vi.advanceTimersByTimeAsync(700);
-
-			const banner = getByTestId("save-error");
-			expect(banner).toHaveTextContent(/Could not save ezcorp\.config\.ts/);
-			expect(banner).toHaveTextContent(/NOT on disk/);
-			// The install banner is untouched, so a later install error can
-			// never overwrite the "your edit did not persist" message.
-			expect(queryByTestId("install-error")).toBeNull();
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	test("a later install error does not erase the save error", async () => {
-		vi.useFakeTimers();
-		try {
-			fetchRig = installFetchSpy({
-				"PUT /api/extensions/author/draft/draft-abc": async () =>
-					new Response("disk full", { status: 500 }),
-				"POST /api/extensions/author/install": async () =>
-					new Response(JSON.stringify({ message: "nope" }), {
-						status: 422,
-						headers: { "content-type": "application/json" },
-					}),
-			});
-			const data = makeData();
-			const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-			const ta = getByTestId("file-content") as HTMLTextAreaElement;
-			await fireEvent.input(ta, { target: { value: "// edited" } });
-			await vi.advanceTimersByTimeAsync(700);
-			expect(getByTestId("save-error")).toBeInTheDocument();
-
-			await fireEvent.click(getByTestId("install-btn"));
-			await vi.runAllTimersAsync();
-
-			expect(getByTestId("install-error")).toHaveTextContent(/422/);
-			expect(getByTestId("save-error")).toHaveTextContent(/Could not save/);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+test("empty workspace list offers an isolated scaffold, not an install shortcut", async () => {
+  const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [] };
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ openUrl: "/extensions/author?installation=new" }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  expect(view.getByText("No workspaces yet.")).toBeVisible();
+  await fireEvent.input(view.getByLabelText("Extension name"), { target: { value: "new-extension" } });
+  await fireEvent.click(view.getByRole("button", { name: "Create workspace" }));
+  await waitFor(() => expect(goto).toHaveBeenCalledWith("/extensions/author?installation=new", { invalidateAll: true }));
+  expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toMatchObject({ tool: "extensions_workspace", input: { action: "create", name: "new-extension" } });
 });
 
-describe("ExtensionAuthorPage — install flow", () => {
-	test("happy path: 201 + redirectUrl → calls goto(redirectUrl)", async () => {
-		fetchRig = installFetchSpy({
-			"POST /api/extensions/author/install": async () =>
-				new Response(
-					JSON.stringify({
-						extensionId: "ext-new",
-						redirectUrl: "/extensions/weather",
-					}),
-					{ status: 201, headers: { "content-type": "application/json" } },
-				),
-		});
-
-		const data = makeData();
-		const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-		await fireEvent.click(getByTestId("install-btn"));
-
-		await waitFor(() => expect(gotoSpy).toHaveBeenCalledTimes(1));
-		expect(gotoSpy).toHaveBeenCalledWith("/extensions/weather");
-	});
-
-	test("422 error: renders the install-error block and does NOT navigate", async () => {
-		fetchRig = installFetchSpy({
-			"POST /api/extensions/author/install": async () =>
-				new Response(
-					JSON.stringify({ error: "manifest invalid: missing version" }),
-					{ status: 422, headers: { "content-type": "application/json" } },
-				),
-		});
-
-		const data = makeData();
-		const { getByTestId, findByTestId } = render(ExtensionAuthorPage, {
-			props: { data },
-		});
-		await fireEvent.click(getByTestId("install-btn"));
-
-		const errBlock = await findByTestId("install-error");
-		expect(errBlock).toHaveTextContent(/422/);
-		expect(errBlock).toHaveTextContent(/manifest invalid/);
-		expect(gotoSpy).not.toHaveBeenCalled();
-	});
+test("create failures show the error and do not navigate", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => new Response("{}", { status: 503 })));
+  const view = render(AuthorPage, { data: { ...pageData(), state: null, workspace: null, files: {}, installations: [] } });
+  await fireEvent.click(view.getByRole("button", { name: "Create workspace" }));
+  await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Request failed (503)"));
+  expect(goto).not.toHaveBeenCalled();
 });
 
-describe("ExtensionAuthorPage — discard flow", () => {
-	test("confirm=true → DELETE draft + goto /extensions", async () => {
-		let deleted = false;
-		fetchRig = installFetchSpy({
-			"DELETE /api/extensions/author/draft/draft-abc": async () => {
-				deleted = true;
-				return new Response(null, { status: 204 });
-			},
-		});
-		const originalConfirm = window.confirm;
-		window.confirm = vi.fn().mockReturnValue(true);
-		try {
-			const data = makeData();
-			const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-			await fireEvent.click(getByTestId("discard-btn"));
-
-			await waitFor(() => expect(deleted).toBe(true));
-			await waitFor(() => expect(gotoSpy).toHaveBeenCalledWith("/extensions"));
-		} finally {
-			window.confirm = originalConfirm;
-		}
-	});
-
-	// The DELETE response used to be ignored entirely: a 500 still
-	// navigated to /extensions, telling the user "discarded" about a
-	// draft that was still fully there.
-	test("failed DELETE → error banner, stays on the page", async () => {
-		fetchRig = installFetchSpy({
-			"DELETE /api/extensions/author/draft/draft-abc": async () =>
-				new Response("draft is locked", { status: 500 }),
-		});
-		const originalConfirm = window.confirm;
-		window.confirm = vi.fn().mockReturnValue(true);
-		try {
-			const data = makeData();
-			const { getByTestId, findByTestId } = render(ExtensionAuthorPage, {
-				props: { data },
-			});
-			await fireEvent.click(getByTestId("discard-btn"));
-
-			const banner = await findByTestId("discard-error");
-			expect(banner).toHaveTextContent(/Discard failed \(500\)/);
-			expect(banner).toHaveTextContent(/draft is locked/);
-			expect(gotoSpy).not.toHaveBeenCalled();
-		} finally {
-			window.confirm = originalConfirm;
-		}
-	});
-
-	test("confirm=false → no DELETE, no navigation", async () => {
-		fetchRig = installFetchSpy({});
-		const originalConfirm = window.confirm;
-		window.confirm = vi.fn().mockReturnValue(false);
-		try {
-			const data = makeData();
-			const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-			await fireEvent.click(getByTestId("discard-btn"));
-
-			// No async work expected, but give the microtask queue a tick.
-			await Promise.resolve();
-			// Scope to the draft route — the composition panel's on-mount
-			// `GET /api/extensions` is unrelated to the discard flow.
-			expect(fetchRig.callsMatching("/author/draft/")).toHaveLength(0);
-			expect(gotoSpy).not.toHaveBeenCalled();
-		} finally {
-			window.confirm = originalConfirm;
-		}
-	});
+test("file switching changes the editor without saving or losing content", async () => {
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data: pageData() });
+  await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "kept" } });
+  await fireEvent.click(view.getByRole("button", { name: "src/helper.ts", exact: true }));
+  expect(view.getByRole("textbox", { name: "Source: src/helper.ts" })).toHaveValue("helper");
+  await fireEvent.click(view.getByRole("button", { name: "extension.ts", exact: true }));
+  expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("kept");
+  expect(fetcher).not.toHaveBeenCalled();
 });
 
-describe("ExtensionAuthorPage — in-flight disabled state", () => {
-	test("clicking Validate disables it until the fetch resolves; Install disables only Install", async () => {
-		let releaseValidate!: (r: Response) => void;
-		const validatePending = new Promise<Response>((resolve) => {
-			releaseValidate = resolve;
-		});
-		fetchRig = installFetchSpy({
-			"POST /api/extensions/author/draft/draft-abc/validate": () =>
-				validatePending,
-		});
-
-		const data = makeData();
-		const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
-		const validateBtn = getByTestId("validate-btn") as HTMLButtonElement;
-		const installBtn = getByTestId("install-btn") as HTMLButtonElement;
-		const discardBtn = getByTestId("discard-btn") as HTMLButtonElement;
-
-		expect(validateBtn.disabled).toBe(false);
-		await fireEvent.click(validateBtn);
-
-		// During the pending fetch, the Validate button is disabled. The
-		// page tracks each action's in-flight state independently — Install
-		// and Discard remain interactive (the v1 UX is "any action can
-		// override any other action"; only its own button reflects the
-		// in-flight flag).
-		await waitFor(() => expect(validateBtn.disabled).toBe(true));
-		expect(installBtn.disabled).toBe(false);
-		expect(discardBtn.disabled).toBe(false);
-
-		releaseValidate(
-			new Response(JSON.stringify({ ok: true }), {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			}),
-		);
-		await waitFor(() => expect(validateBtn.disabled).toBe(false));
-	});
+test("traversal, empty and duplicate file names cannot alter the workspace", async () => {
+  const view = render(AuthorPage, { data: pageData() });
+  for (const path of ["", "extension.ts", "../escape.ts", "/absolute.ts", "bad\\\\file.ts", "empty//file.ts"]) {
+    await fireEvent.input(view.getByLabelText("Add a file"), { target: { value: path } });
+    await fireEvent.click(view.getByRole("button", { name: "Add file", exact: true }));
+    expect(view.getByRole("alert")).toBeVisible();
+  }
+  expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("original");
+  expect(view.getByRole("button", { name: "Save revision" })).toBeDisabled();
 });
 
-describe("ExtensionAuthorPage — pending-save flush (485cb20 regression guard)", () => {
-	test("a pending debounced save is flushed BEFORE Validate POSTs", async () => {
-		vi.useFakeTimers();
-		try {
-			const order: string[] = [];
-			fetchRig = installFetchSpy({
-				"PUT /api/extensions/author/draft/draft-abc": async (req) => {
-					order.push(`PUT:${(await req.json()).content}`);
-					return new Response(null, { status: 204 });
-				},
-				"POST /api/extensions/author/draft/draft-abc/validate": async () => {
-					order.push("VALIDATE");
-					return new Response(JSON.stringify({ ok: true }), {
-						status: 200,
-						headers: { "content-type": "application/json" },
-					});
-				},
-			});
+test("removing every file leaves a recoverable empty editor", async () => {
+  const view = render(AuthorPage, { data: pageData() });
+  await fireEvent.click(view.getByRole("button", { name: "Remove selected file" }));
+  await fireEvent.click(view.getByRole("button", { name: "Remove selected file" }));
+  expect(view.getByText("Add a file to begin.")).toBeVisible();
+  expect(view.getByRole("button", { name: "Remove selected file" })).toBeDisabled();
+});
 
-			const data = makeData();
-			const { getByTestId } = render(ExtensionAuthorPage, { props: { data } });
+test("an in-flight build blocks concurrent actions and preserves unsaved edits on failure", async () => {
+  let finish!: (response: Response) => void;
+  const fetcher = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+  vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data: pageData() });
+  await fireEvent.click(view.getByRole("button", { name: "Save and build" }));
+  expect(view.getByRole("button", { name: "Building…" })).toBeDisabled();
+  expect(view.getByRole("button", { name: "Refresh status" })).toBeDisabled();
+  expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toBeDisabled();
+  finish(Response.json({ message: "Runner unavailable" }, { status: 503 }));
+  await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Runner unavailable"));
+  expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("original");
+});
 
-			// Type — a save timer is now scheduled at t+600ms.
-			const ta = getByTestId("file-content") as HTMLTextAreaElement;
-			await fireEvent.input(ta, {
-				target: { value: "// unsaved edit" },
-			});
-			// Advance only 100ms so the debounce has NOT fired naturally.
-			await vi.advanceTimersByTimeAsync(100);
-			expect(order).toEqual([]);
+test("manual refresh leaves edited source untouched", async () => {
+  const data = pageData();
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => Response.json(data.state)));
+  const view = render(AuthorPage, { data });
+  await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "unsaved" } });
+  await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+  await waitFor(() => expect(view.getByRole("button", { name: "Refresh status" })).toBeEnabled());
+  expect(view.getByRole("textbox", { name: "Source: extension.ts" })).toHaveValue("unsaved");
+});
 
-			// Click Validate mid-debounce. `flushPendingSave` should clear
-			// the timer and run the save first, THEN POST validate.
-			await fireEvent.click(getByTestId("validate-btn"));
-			// Drain the microtask + macrotask queues so both awaited fetches
-			// settle.
-			await vi.runAllTimersAsync();
+test("dirty source warns on browser exit, saved source does not", async () => {
+  const view = render(AuthorPage, { data: pageData() });
+  const savedEvent = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(savedEvent); expect(savedEvent.defaultPrevented).toBe(false);
+  await fireEvent.input(view.getByRole("textbox", { name: "Source: extension.ts" }), { target: { value: "unsaved" } });
+  const dirtyEvent = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(dirtyEvent); expect(dirtyEvent.defaultPrevented).toBe(true);
+});
 
-			expect(order).toEqual(["PUT:// unsaved edit", "VALIDATE"]);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
+test("human rejection targets one approval without activating code", async () => {
+  const data = pageData(true);
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(data.state)); vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  await fireEvent.click(view.getByRole("button", { name: "Reject", exact: true }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toEqual({ approvalId: "approval", decision: false });
+  expect(fetcher.mock.calls.every((call) => !String(call[1]?.body).includes('"activate"'))).toBe(true);
+});
+
+test("approved activation and disable send explicit lifecycle actions", async () => {
+  const data = pageData(true); data.state!.approvals.approval!.status = "approved";
+  data.state!.installation = { ...installation, enabled: true };
+  const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(data.state)); vi.stubGlobal("fetch", fetcher);
+  const view = render(AuthorPage, { data });
+  await fireEvent.click(view.getByRole("button", { name: "Activate approved release" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(String(fetcher.mock.calls[0]![1]?.body))).toMatchObject({ tool: "extensions_release", input: { action: "activate", approvalId: "approval" } });
+  await fireEvent.click(view.getByRole("button", { name: "Disable installation" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+  expect(JSON.parse(String(fetcher.mock.calls[2]![1]?.body))).toMatchObject({ tool: "extensions_release", input: { action: "disable" } });
 });

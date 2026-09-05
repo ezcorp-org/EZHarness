@@ -1,8 +1,17 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { createHostApiTransport } from "$lib/server/extensions/host-api-transport";
+import { createHostApiTransport, initializeHostApiTransport } from "$lib/server/extensions/host-api-transport";
 import { resetInternalKeyStoreForTests, verifyInternalKey } from "$lib/server/security/internal-auth";
 
-afterEach(() => { resetInternalKeyStoreForTests(); vi.restoreAllMocks(); });
+afterEach(() => { resetInternalKeyStoreForTests(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+
+test("startup binds only a valid configured loopback port", () => {
+  vi.stubEnv("EZCORP_PORT", "4173");
+  expect(() => initializeHostApiTransport()).not.toThrow();
+  for (const value of ["bad", "0", "65536", "4173/path"]) {
+    vi.stubEnv("EZCORP_PORT", value);
+    expect(() => initializeHostApiTransport()).toThrow("Invalid local API port");
+  }
+});
 
 test("only the direct loopback origin can receive host credentials", () => {
   for (const origin of ["https://evil.test", "http://localhost:3000", "http://127.0.0.1@evil.test", "http://127.0.0.1/api", "http://127.0.0.1?redirect=1"]) expect(() => createHostApiTransport(origin)).toThrow("loopback");

@@ -295,6 +295,7 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
   // deletion is invisible to every other guard in this file.
   const KNOWN_INLINE_ADMIN_GATES: readonly string[] = [
     "api/extensions/[id]/violations/+server.ts",
+    "api/extensions/import-source/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
   ];
@@ -321,7 +322,7 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     // DISCRIMINATION is the number that matters: of every route file that
     // compares a role against "admin", only a small minority are gates.
     const population = bypass.length + gates.size;
-    expect(gates.size).toBe(3);
+    expect(gates.size).toBe(KNOWN_INLINE_ADMIN_GATES.length);
     expect(population).toBeGreaterThanOrEqual(35);
     expect(bypass.length).toBe(population - 3);
   });
@@ -747,6 +748,8 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/service-accounts/:id",
       "PATCH /api/service-accounts/:id/daily-cap",
       "PATCH /api/workflows/delegations/:id",
+      "POST /api/extensions/import-source",
+      "POST /api/extensions/releases/:installationId/approve",
       "POST /api/service-accounts",
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",

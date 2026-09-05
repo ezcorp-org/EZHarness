@@ -353,6 +353,13 @@ run_legs() {
   (
   set +e
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
+      src/__tests__/extension-author-page-server-load.server.test.ts \
+      src/__tests__/extension-author-page.component.test.ts \
+      src/__tests__/extension-control-routes.server.test.ts \
+      src/__tests__/extension-credential-resolver.server.test.ts \
+      src/__tests__/extension-host-api-transport.server.test.ts \
+      src/__tests__/extension-legacy-cutover.server.test.ts \
+      src/__tests__/extension-source-import.server.test.ts \
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
@@ -602,6 +609,12 @@ run_legs() {
       src/__tests__/api-conversations-id-agent-chat.server.test.ts \
       src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+      --coverage.include='src/lib/server/extensions/*.ts' \
+      --coverage.include='**/extensions/author/+page.svelte' \
+      --coverage.include='**/extensions/author/+page.server.ts' \
+      --coverage.include='src/routes/api/extensions/control/+server.ts' \
+      --coverage.include='src/routes/api/extensions/releases/**/+server.ts' \
+      --coverage.include='src/routes/api/extensions/import-source/+server.ts' \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
       --coverage.include='src/lib/hub.ts' \

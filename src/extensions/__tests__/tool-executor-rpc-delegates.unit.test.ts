@@ -197,7 +197,7 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
     }
   });
 
-  test("handlePiStorage logs the actorExtensionId tripwire on a mismatched token", async () => {
+  test("handlePiStorage rejects a mismatched token before storage access", async () => {
     const exec: ExecLike = new ToolExecutor(registry(), createStubPermissionEngine("allow-all"));
     // Token minted for a DIFFERENT actor than the resolving extension → the
     // resolveStorageProvenance tripwire warns (defense-in-depth) but proceeds.
@@ -209,7 +209,7 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
         method: "ezcorp/storage",
         params: { _meta: { ezCallId: tok } },
       })) as JsonRpcResponse;
-      expect(resp.result).toEqual({ ok: true });
+      expect(resp.error?.code).toBe(-32602);
     } finally {
       releaseCallProvenance(tok);
     }

@@ -3,6 +3,7 @@ import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { RpcHandlerDeps } from "./tool-executor/rpc-handlers";
 import { resolveReverseRpcMeta } from "./tool-executor/provenance";
 import { LifecycleError } from "./v4/types";
+import { hostApiRouteCapability, type Capability } from "./capability-types";
 
 export interface HostApiTransport {
   request(userId: string, request: { path: string; method: string; body?: unknown }): Promise<{ status: number; body: string; headers?: Record<string, string> }>;
@@ -36,6 +37,7 @@ export function validateHostApiRequest(input: unknown, permissions: { routes: { 
 export async function handleHostApi(deps: RpcHandlerDeps, extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
   const resolved = resolveReverseRpcMeta(extensionId, request);
   if (!resolved.ok) return resolved.errorResponse;
+  const { onBehalfOf, conversationId } = resolved;
   try {
     const manifest = deps.registry.getManifest(extensionId);
     const grants = deps.registry.getGrantedPermissions(extensionId);
@@ -46,16 +48,23 @@ export async function handleHostApi(deps: RpcHandlerDeps, extensionId: string, r
     const { getUserById } = await import("../db/queries/users");
     const user = await getUserById(resolved.onBehalfOf);
     if (user?.status !== "active") throw new LifecycleError("unauthorized", "An active caller is required.");
+    async function authorize(capability: Capability): Promise<void> {
+      const decision = await deps.engine.authorize({ extensionId, userId: onBehalfOf, conversationId, toolName: request.method }, [capability]);
+      if (decision.decision !== "allow") throw new LifecycleError("permission_denied", "Host API access is not permitted in this context.");
+    }
     let result: unknown;
     if (request.method === "ezcorp/api.events") {
       if (!declared.events || !approved.events) throw new LifecycleError("permission_denied", "Runtime event access was not approved.");
       const input = request.params as Record<string, unknown> | undefined;
       const waitMs = input?.waitMs ?? 1000;
       if (!Number.isSafeInteger(waitMs) || Number(waitMs) < 0 || Number(waitMs) > 1000 || input?.cursor !== undefined && (typeof input.cursor !== "string" || !/^\d{1,20}$/.test(input.cursor))) throw new LifecycleError("invalid_input", "Provide a numeric cursor and waitMs between 0 and 1000.");
+      await authorize({ kind: "ezcorp:api:events" });
       result = await transport.events(user.id, { cursor: input?.cursor as string | undefined, waitMs: Number(waitMs), conversationId: resolved.conversationId });
     } else {
       const input = validateHostApiRequest(request.params, declared);
       validateHostApiRequest(input, approved);
+      const grantedRoute = approved.routes.find((route) => route.method === input.method && routeMatches(route.path, input.path.split("?")[0]!))!;
+      await authorize(hostApiRouteCapability(grantedRoute));
       result = await transport.request(user.id, input);
     }
     return { jsonrpc: "2.0", id: request.id, result };

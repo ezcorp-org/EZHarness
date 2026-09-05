@@ -26,6 +26,10 @@ import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 // Every ToolExecutor method the dispatch table can invoke. The stub records
 // which method a route resolved to and returns a tagged response.
 const HANDLER_NAMES = [
+  "handlePiHostApi",
+  "handlePiProjectPullRequest",
+  "handlePiNetworkBroker",
+  "handlePiCredentialBroker",
   "handlePiInvoke",
   "handlePiFsRead",
   "handlePiFsWrite",

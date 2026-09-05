@@ -1,4 +1,5 @@
-import { expect, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
+import { expect } from "./hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord, InstallationRecord, LifecycleApproval } from "../../../src/extensions/v4/types";
 
