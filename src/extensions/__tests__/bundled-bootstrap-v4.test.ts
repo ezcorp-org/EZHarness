@@ -5,7 +5,7 @@ const states = new Map<string, InstallationState>();
 const builds: unknown[] = [];
 const approved: unknown[] = [];
 let users = [{ id: "admin", role: "admin", status: "active" }];
-let legacy: { id: string; creatorUserId: string | null } | undefined;
+let legacy: { id: string; creatorUserId: string | null; enabled: boolean } | undefined;
 const updates: unknown[] = [];
 mock.module("../../db/connection", () => ({ getDb: () => ({}) }));
 mock.module("../../db/queries/users", () => ({ listUsers: async () => users }));
@@ -44,7 +44,7 @@ test("stages immutable source once without executing config or approving release
 
 test("preserves existing installation identity and creator and disables legacy projection", async () => {
   users.push({ id: "creator", role: "member", status: "active" });
-  legacy = { id: "legacy", creatorUserId: "creator" };
+  legacy = { id: "legacy", creatorUserId: "creator", enabled: true };
   await stageBundledExtensionSources([{ name: "test", path: "extensions/test" }]);
   expect(states.get("legacy")?.installation.ownerId).toBe("creator");
   expect(updates).toEqual([["legacy", { enabled: false, grantedPermissions: { grantedAt: {} } }]]);
