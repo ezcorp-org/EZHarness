@@ -18,6 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { deferredWorkflowAccess } from "./helpers/mock-cleanup";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,6 +90,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 // later file's own mock still wins through the alias, and nothing is loaded
 // here at module-load time.
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", deferredWorkflowAccess);
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );

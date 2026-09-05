@@ -18,6 +18,35 @@
  */
 import { mock } from "bun:test";
 
+export function deferredModuleFunctions<Module>(
+  load: () => Module,
+  names: { [Name in keyof Module]: Module[Name] extends (...args: never[]) => unknown ? true : never },
+): Module {
+  return Object.fromEntries(Object.keys(names).map((name) => [name, (...args: unknown[]) => {
+    const module = load();
+    const callable = module[name as keyof Module];
+    if (typeof callable !== "function") throw new TypeError(`Expected module function ${name}`);
+    return Reflect.apply(callable, undefined, args);
+  }])) as Module;
+}
+
+type WorkflowAccessModule = typeof import("../../../web/src/lib/server/workflow-access");
+
+export function deferredWorkflowAccess(): WorkflowAccessModule {
+  return deferredModuleFunctions<WorkflowAccessModule>(
+    () => require("../../../web/src/lib/server/workflow-access"),
+    {
+      toWire: true,
+      callerFor: true,
+      resolveWorkflowOr: true,
+      denyVisibilityOr: true,
+      resolveDelegationConsentOr: true,
+      validateWorkflowForCaller: true,
+      listVisibleWorkflows: true,
+    } satisfies { [Name in keyof WorkflowAccessModule]: true },
+  );
+}
+
 // Paths relative to THIS file (src/__tests__/helpers/mock-cleanup.ts).
 // ../../ goes up from helpers/ → __tests__/ → src/
 // mock.module() resolves relative to the calling file, so we use ../../
@@ -338,7 +367,6 @@ const MODULE_PATHS = [
   "../../../web/src/lib/server/security/rate-limiter",
   "../../../web/src/lib/server/security/payload",
   "../../../web/src/lib/server/context",
-  "../../../web/src/lib/server/workflow-access",
   "../../../web/src/lib/server/oauth-config",
   "../../../web/src/lib/server/http-errors",
   // conversation-extensions-route.test.ts (web route __tests__) mocks
