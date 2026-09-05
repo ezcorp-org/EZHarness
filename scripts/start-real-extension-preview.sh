@@ -41,6 +41,10 @@ console.log("Authenticated rootless runner ready");
 if [[ "${1:-}" == "--probe-only" ]]; then exit 0; fi
 cd web
 bun run build
-bun ./node_modules/vite/bin/vite.js preview --port "${EZCORP_PORT:-4173}" --strictPort &
+export PORT="${EZCORP_PORT:-4173}"
+export HOST=127.0.0.1
+export BODY_SIZE_LIMIT="${BODY_SIZE_LIMIT:-134217728}"
+unset SOCKET_PATH
+bun build/index.js &
 preview_pid=$!
 wait "$preview_pid"

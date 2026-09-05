@@ -38,8 +38,7 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 
 // The deterministic mock LLM is served by this same preview server; pi-ai's
-// HTTP client must reach it on the actual bound port (vite preview's :4173),
-// which isn't reflected in PORT/EZCORP_PORT. Point the resolver at it
+// HTTP client must reach it on the actual bound port. Point the resolver at it
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
@@ -111,17 +110,6 @@ export default defineConfig({
     { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
   ],
   webServer: {
-    // Use Vite preview against the production build, identical to the
-    // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer
-    // initialises, auth runs end-to-end, and `/api/auth/*` handlers
-    // execute their real logic.
-    //
-    // `bun run preview` MUST execute from `web/` (where the
-    // package.json + svelte-kit preview wiring live). The previous
-    // `bun --cwd web run …` form was a typo — `bun`'s CLI requires
-    // `--cwd=<path>` with an equals sign; without it, bun treats
-    // `--cwd` as run-args and dumps usage help instead of building.
-    //
     // Pinning `cwd: web/` means `process.cwd()` at boot points at
     // `web/`, which would have broken the legacy `getProjectRoot()`
     // walk-up that anchored on `cwd`. We work around this by exporting
@@ -159,13 +147,6 @@ export default defineConfig({
       // Disable telemetry / external auto-init that might race the
       // setup endpoint on first boot.
       EZCORP_DISABLE_TELEMETRY: "1",
-      // Vite preview (`bun run preview`) sets NODE_ENV=production at
-      // build time, which trips the belt-and-braces gate on the
-      // `/api/__test/*` endpoints (added in 6ba7b2d):
-      //
-      //   if (process.env.PI_E2E_REAL !== "1" || process.env.NODE_ENV === "production")
-      //     return 404
-      //
       // Real production deployments do NOT set NODE_ENV=test, so the
       // gate stays effective for them. The harness explicitly opts in
       // here, unblocking the seed/cleanup endpoints. Endpoint code is
