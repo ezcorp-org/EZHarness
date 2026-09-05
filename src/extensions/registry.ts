@@ -7,7 +7,7 @@ import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
 import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
-import { listExtensions, updateExtension } from "../db/queries/extensions";
+import { listExtensions } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { findProjectRoot } from "@ezcorp/sdk/runtime";
 import { getProjectRoot } from "./bundled";
 import { resolveInstallPath } from "./install-roots";
-import { McpClient } from "../mcp/client";
+import type { McpClient } from "../mcp/client";
 import type { McpProxyHandle } from "./mcp-proxy";
 import {
   buildEntityToolDefinitions,
@@ -957,158 +957,7 @@ export class ExtensionRegistry {
     this.mcpClients.set(extensionId, client);
     return client;
   }
-  /**
-   * The extension's MCP transport is gone — the server restarted, the stdio
-   * child exited, or the stream dropped.
-   *
-   * Dropping the cache entry is what makes the recovery COMPLETE. Clearing
-   * `connected` alone would let the next `getMcpClient` fall through to the
-   * rebuild path and hand the same instance back (`existing ?? new
-   * McpClient`), reconnecting against a spec built for the dead child — a
-   * forward proxy that has since been replaced, a veth slot that has been
-   * released. With the entry gone, the next call rebuilds the whole sandbox
-   * envelope and constructs a client from the fresh spec.
-   *
-   * The identity check is not paranoia: a reconnect can already have
-   * replaced the entry by the time a late close event lands, and an
-   * unconditional delete would evict the LIVE client.
-   */
-  private onMcpTransportClosed(extensionId: string, client: McpClient): void {
-    if (this.mcpClients.get(extensionId) !== client) return;
-    this.mcpClients.delete(extensionId);
-    log.info("MCP transport closed — cached client dropped, next call reconnects", {
-      extensionId,
-    });
-  }
-
-  /**
-   * `notifications/tools/list_changed` — the server says its catalog moved.
-   *
-   * Reuses {@link refreshMcpTools}, the SAME entry point
-   * `POST /api/mcp-servers/[id]/refresh` drives, so a server-initiated change
-   * invalidates exactly what an admin refresh invalidates (the manifest at
-   * rest plus `manifests` / `extensionTools` / `toolMap`) instead of a
-   * parallel subset that would drift from it.
-   *
-   * COALESCED, not just serialized. Serializing bounds INTERLEAVING; it does
-   * not bound WORK. One refresh is `getMcpClient` (which rebuilds the whole
-   * sandbox envelope when the transport has closed) + a `tools/list` round
-   * trip + `listExtensions(false)` (every extension row) + an `updateExtension`
-   * jsonb write, so a chatty or hostile server emitting N notifications used
-   * to buy N of those plus N retained closures — a chain the map does not even
-   * hold a reference to. At most ONE refresh is queued behind the in-flight
-   * one: the queue is a flag, so notification 3..N collapse onto notification
-   * 2 and the last one still wins, which is the only ordering that can be
-   * correct. Peak outstanding work is 2 refreshes per extension, whatever the
-   * server does.
-   */
-  private onMcpToolListChanged(extensionId: string): void {
-    const inFlight = this.mcpToolRefreshes.get(extensionId);
-    if (inFlight) {
-      // Last notification wins, and it costs one boolean rather than one
-      // more link. The in-flight refresh re-runs once when it lands.
-      inFlight.queued = true;
-      return;
-    }
-    // Published BEFORE the drain starts (the drain's own identity check reads
-    // it), so `promise` is placeheld for the one statement in between. No
-    // await separates the two, so nothing can observe the placeholder.
-    const entry: McpToolRefresh = { queued: false, promise: Promise.resolve() };
-    this.mcpToolRefreshes.set(extensionId, entry);
-    entry.promise = this.drainMcpToolRefreshes(extensionId, entry);
-  }
-
-  /**
-   * Run this extension's refresh, then its ONE coalesced re-run if a
-   * notification arrived while it was in flight.
-   *
-   * Never rejects — both arms of each refresh are handled — so a failing
-   * refresh cannot wedge the next notification.
-   *
-   * The identity check is the SHUTDOWN interlock. `killAll()` closes every
-   * MCP client and `reload()` drops the stale ones; a queued re-run that
-   * survived either would call `getMcpClient`, find no cached client, and
-   * REBUILD the sandbox envelope — respawning the stdio child of a server the
-   * host has deliberately just closed. Dropping the map entry is therefore how
-   * both of those cancel a queued refresh, and this loop asks whether it is
-   * still the registry's before it does any more work.
-   */
-  private async drainMcpToolRefreshes(
-    extensionId: string,
-    entry: McpToolRefresh,
-  ): Promise<void> {
-    try {
-      for (;;) {
-        entry.queued = false;
-        try {
-          const tools = await this.refreshMcpTools(extensionId);
-          log.info("MCP server changed its tool catalog", {
-            extensionId,
-            toolCount: tools.length,
-          });
-        } catch (err) {
-          log.warn("MCP tools/list_changed refresh failed", {
-            extensionId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        if (!entry.queued) return;
-        if (this.mcpToolRefreshes.get(extensionId) !== entry) {
-          log.info("MCP tools/list_changed refresh dropped — extension was shut down", {
-            extensionId,
-          });
-          return;
-        }
-      }
-    } finally {
-      // Only THIS drain's own slot, so a `killAll()` + fresh notification
-      // cannot have its entry deleted by the drain it replaced.
-      if (this.mcpToolRefreshes.get(extensionId) === entry) {
-        this.mcpToolRefreshes.delete(extensionId);
-      }
-    }
-  }
-
-  /**
-   * Connect to the MCP server, re-list its tools, and write the fresh
-   * list back into the extension row's manifest and in-memory maps.
-   */
   async refreshMcpTools(extensionId: string): Promise<ToolDefinition[]> {
-    const manifest = this.manifests.get(extensionId);
-    if (!manifest || manifest.kind !== "mcp") {
-      throw new Error(`Extension ${extensionId} is not an MCP extension`);
-    }
-    const client = await this.getMcpClient(extensionId);
-    const tools = await client.listTools();
-
-    if (manifest.schemaVersion === 4) return tools;
-
-    // Re-derive the per-tool capability declaration: `tools` is a fresh
-    // `tools/list` from the wire and carries none, so a bare
-    // `{...manifest, tools}` would drop every MCP tool back to an EMPTY
-    // needed-cap set — both in memory and, via the `updateExtension` below,
-    // at rest. The ceiling in `manifest.permissions` is preserved as-is.
-    const updatedManifest: ExtensionManifestV2 = normalizeMcpManifest({ ...manifest, tools });
-    this.manifests.set(extensionId, updatedManifest);
-
-    const ext = (await listExtensions(false)).find((e) => e.id === extensionId);
-    const extName = ext?.name ?? manifest.name;
-
-    // Register the NORMALIZED tools so `getToolsForExtension` /
-    // `getToolsForAgent` expose the same declaration the manifest carries.
-    const registered: RegisteredTool[] = (updatedManifest.tools ?? []).map((t) => ({
-      ...t,
-      name: `${manifest.name}__${t.name}`,
-      originalName: t.name,
-      extensionId,
-      extensionName: extName,
-    }));
-    const prev = this.extensionTools.get(extensionId) ?? [];
-    for (const old of prev) this.toolMap.delete(old.name);
-    this.extensionTools.set(extensionId, registered);
-    for (const tool of registered) this.toolMap.set(tool.name, tool);
-
-    await updateExtension(extensionId, { manifest: updatedManifest });
-    return tools;
+    return (await this.getMcpClient(extensionId)).listTools();
   }
 }
