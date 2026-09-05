@@ -432,6 +432,7 @@ services:
       - /dev/null:/repo/web/.pi-secret:ro
       - /dev/null:/repo/web/e2e/.docker-auth.json:ro
       - /dev/null:/repo/web/e2e/.validate-auth.json:ro
+      - /dev/null:/repo/web/e2e/.real-auth.json:ro
       - /dev/null:/repo/.claude.json:ro
       # The REPO-ROOT pair, which the list above missed while masking the
       # web/ copy of the same filename. These are the LEGACY secret location
