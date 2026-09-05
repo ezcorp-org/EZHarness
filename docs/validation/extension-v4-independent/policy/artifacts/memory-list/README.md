@@ -22,7 +22,7 @@ env PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH \
 
 Exit: `1`. The owner received the directly attributed row but not the row owned
 through its conversation. The other-user and admin checks passed. Raw output:
-`red.txt`.
+`red.txt.gz`.
 
 Pre-fix source SHA-256:
 
@@ -43,7 +43,7 @@ env PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH \
 
 Exit: `0`. Result: 29 tests passed, 77 assertions, 0 failures. This verifies the
 management handler, extension RPC ownership, and prompt-injection ownership.
-Raw output: `combined-green.txt`.
+Raw output: `combined-green.txt.gz`.
 
 Post-fix source SHA-256:
 
@@ -53,5 +53,5 @@ Post-fix source SHA-256:
 
 Artifact SHA-256:
 
-- `red.txt`: `9f55be19822e6a954c19688881e10371c521c174a08ac40d2a1eb6d071e418b1`
-- `combined-green.txt`: `90dcf4cb8d8dcda89ee16ceab65cde4159df3e85953d4aa78a4f60b38a4ff953`
+- `red.txt.gz`: `e4bda6ab93df540163905993adbae87b3faf99aa7554357ee42e1579cfcb5ac2`
+- `combined-green.txt.gz`: `f03771fd09ecea8aaf60df4b2584abfc268f302179903bbd8846de75ba50f2b3`
