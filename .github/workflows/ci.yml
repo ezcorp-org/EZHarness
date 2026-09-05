@@ -1,4 +1,6 @@
 name: ci
+env:
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
 
 # Bun is PINNED (not "latest") in every job: an unannounced bun release can
 # change install/test semantics under us — bun 1.3.14's isolated linker broke

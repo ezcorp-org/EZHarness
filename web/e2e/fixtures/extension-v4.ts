@@ -14,12 +14,16 @@ export async function extensionClient(request: APIRequestContext, baseURL: strin
 
 export async function buildWorkspace(client: HarnessClient, created: CreatedWorkspace): Promise<InstallationState> {
   const operation = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, idempotencyKey: crypto.randomUUID() });
+  return waitForExtensionBuild(client, created.installation.id, operation.id);
+}
+
+export async function waitForExtensionBuild(client: HarnessClient, installationId: string, operationId: string): Promise<InstallationState> {
   let state: InstallationState;
   await expect.poll(async () => {
-    state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id, operationId: operation.id, waitMs: 1000 });
-    return state.operations[operation.id]!.state;
+    state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: 1000 });
+    return state.operations[operationId]!.state;
   }, { timeout: 240000, intervals: [1000], message: "The real isolated candidate build must finish." }).not.toMatch(/^(queued|building|verifying)$/);
-  expect(state!.operations[operation.id]!.state, JSON.stringify(state!.operations[operation.id]!.diagnostics)).toBe("verified");
+  expect(state!.operations[operationId]!.state, JSON.stringify(state!.operations[operationId]!.diagnostics)).toBe("verified");
   expect(Object.keys(state!.releases)).toHaveLength(1);
   return state!;
 }

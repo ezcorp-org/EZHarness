@@ -4,9 +4,9 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "bunx --bun vite dev",
-		"build": "bunx --bun vite build",
-		"preview": "bunx --bun vite preview",
+		"dev": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite dev",
+		"build": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build",
+		"preview": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json --watch",
