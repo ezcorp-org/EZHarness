@@ -83,6 +83,8 @@
   "src/db/migrations/add-mcp-workspace-credentials.ts": 100,
   "src/extensions/source-import.ts": 100,
   "src/extensions/source-input.ts": 100,
+  "src/runtime/briefing/completion-intents.ts": 100,
+  "src/db/migrations/add-run-domain-event-intents.ts": 100,
   "src/extensions/source-adoption.ts": 100,
   "web/src/lib/server/extensions/control-actor.ts": 100,
   "web/src/routes/api/__test/marketplace-release/+server.ts": 100,

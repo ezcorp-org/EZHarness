@@ -2514,6 +2514,14 @@ export type NewPreviewSession = typeof previewSessions.$inferInsert;
 // stable, but the run pipeline only consumes it in Phase 3 (web-search
 // section).
 
+export const runDomainEventIntents = pgTable("run_domain_event_intents", {
+  runId: text("run_id").primaryKey(),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const briefingConfigs = pgTable("briefing_configs", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
