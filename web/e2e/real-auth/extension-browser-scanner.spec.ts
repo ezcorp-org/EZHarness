@@ -1,0 +1,62 @@
+import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { test, expect } from "../fixtures/hydration.js";
+import { captureEvidence } from "../fixtures/evidence";
+import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import type { WorkspaceFiles, WorkspaceRecord } from "@ezcorp/extension-contract";
+
+test.use({ actionTimeout: 15000, navigationTimeout: 30000, launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } });
+
+test("real sealed scanner uses approved tools and explicit host camera without session access @evidence", async ({ page, request, baseURL }, testInfo) => {
+  test.setTimeout(360000);
+  const { client } = await extensionClient(request, baseURL!);
+  const root = resolve(import.meta.dirname, "../../..");
+  const snapshot = JSON.parse(execFileSync("bun", ["-e", "const {snapshotFirstPartyExtension}=await import('./scripts/migrate-extension-v4.ts');console.log(JSON.stringify(await snapshotFirstPartyExtension(process.cwd(),'graded-card-scanner')));"], { cwd: root, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 })) as { files: WorkspaceFiles };
+  const name = "graded-card-scanner";
+  const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
+  try {
+    const original = await client.extensionControl<{ files: WorkspaceFiles }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: created.workspace.id });
+    created.workspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, writes: snapshot.files, deletes: Object.keys(original.files).filter(path => !(path in snapshot.files)) });
+    const state = await buildWorkspace(client, created);
+    const approval = await requestRelease(client, state);
+    const approved = await request.post(`/api/extensions/releases/${created.installation.id}/approve`, { data: { approvalId: approval.id, decision: true } });
+    expect(approved.status(), await approved.text()).toBe(200);
+    await client.extensionControl("extensions_release", { action: "activate", installationId: created.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() });
+    await page.goto(`/extensions/${name}/preview`);
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    const project = page.getByLabel("New conversation project");
+    const projectId = await project.locator("option:not([disabled])").first().getAttribute("value");
+    expect(projectId).toBeTruthy();
+    await project.selectOption(projectId!);
+    await page.getByRole("button", { name: "Create preview conversation", exact: true }).click();
+    await expect(page).toHaveURL(/conversationId=/);
+    const frame = page.frameLocator("iframe");
+    await expect(frame.getByRole("heading", { name: "Graded Card Scanner" })).toBeVisible();
+    await expect(frame.getByTestId("gcs-empty")).toBeVisible();
+    const security = await frame.locator("body").evaluate(() => {
+      let parentDenied = false;
+      let cookieDenied = false;
+      try { void parent.document.body; } catch { parentDenied = true; }
+      try { void document.cookie; } catch { cookieDenied = true; }
+      return { parentDenied, cookieDenied };
+    });
+    expect(security).toEqual({ parentDenied: true, cookieDenied: true });
+    await frame.getByTestId("gcs-pause").press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Start camera", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Start camera", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Stop camera", exact: true }).first()).toBeVisible();
+    await expect.poll(() => frame.getByTestId("gcs-video").getAttribute("src")).toMatch(/^data:image\/jpeg;base64,/);
+    await captureEvidence(page, testInfo, "extension-scanner-trusted-camera", { fullPage: true });
+    await page.getByRole("button", { name: "Stop camera", exact: true }).first().click();
+    await expect(frame.getByTestId("gcs-pause")).toHaveText("Start scanning");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await captureEvidence(page, testInfo, "extension-scanner-protected-mobile", { fullPage: true });
+    await client.extensionControl("extensions_release", { action: "disable", installationId: created.installation.id, idempotencyKey: crypto.randomUUID() });
+    await frame.getByTestId("gcs-pause").press("Enter");
+    await expect(page.getByText("Preview closed because access changed or its document navigated. Reopen it to continue.", { exact: true })).toBeVisible();
+  } finally {
+    await client.extensionControl("extensions_release", { action: "uninstall", installationId: created.installation.id, idempotencyKey: crypto.randomUUID() });
+  }
+});
