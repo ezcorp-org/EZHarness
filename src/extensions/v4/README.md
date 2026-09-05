@@ -34,6 +34,11 @@ secrets, entities, and files are retained but are not transformed by this API.
 An unreadable code rollback fails with `data_restore_required`; it never silently
 discards writes made by the newer release.
 
+Entity seeds run during generation-fenced publication in the same transaction as
+the catalog projection. File placeholders resolve only from the verified release
+artifact, never an old host install path. Missing files or invalid seed data roll
+back every seed and the projection. Replays preserve existing user edits.
+
 ## Delivery queue
 
 `ExtensionDeliveryQueue` stores event, webhook, and schedule deliveries with an
@@ -83,7 +88,7 @@ data-migration suites use real PGlite transactions. The blob tests use real file
 To check the other supported driver against a disposable PostgreSQL database:
 
 ```sh
-EXTENSION_TEST_POSTGRES_URL=postgres://... bun src/extensions/v4/postgres.integration.ts
+EXTENSION_TEST_POSTGRES_URL=postgres://... bun scripts/verify-extension-postgres.ts
 ```
 
 The PostgreSQL check creates and removes its own random schema. It verifies JSON

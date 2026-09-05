@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { SQL } from "bun";
 import { drizzle } from "drizzle-orm/bun-sql";
-import { up } from "../../db/migrations/add-extension-releases";
-import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
-import { ExtensionDeliveryQueue } from "./deliveries";
-import { ExtensionDataMigrations } from "./data-migrations";
+import { up } from "../src/db/migrations/add-extension-releases";
+import { DatabaseLifecycleRepository } from "../src/db/queries/extension-releases";
+import { ExtensionDeliveryQueue } from "../src/extensions/v4/deliveries";
+import { ExtensionDataMigrations } from "../src/extensions/v4/data-migrations";
 import type { OperationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
 
 const url = process.env.EXTENSION_TEST_POSTGRES_URL;
