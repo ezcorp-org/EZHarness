@@ -1,471 +1,104 @@
-// Regression tests for PATCH /api/extensions/[id] covering the response
-// branches the UI depends on:
-//   - disable (enabled:false) happy path → 200 and DB write
-//   - enable (enabled:true) via PATCH → 400 (must use POST /:id/activate)
-//   - unknown extension id → 404
-//   - missing/invalid `enabled` field → 400
-// Plus the side-effects the handler promises:
-//   - ExtensionRegistry.reload() called on every successful mutation
-//
-// Mirrors c3-confirm-endpoint.test.ts's handler-level probe approach:
-// mock the DB + registry modules, then drive PATCH via createMockEvent
-// and assert on captured calls / status codes.
-
-import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  createMockEvent,
-  jsonFromResponse,
-  MEMBER_USER,
-  ADMIN_USER,
-} from "./helpers/mock-request";
+import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "./helpers/mock-request";
+import { LifecycleError, type LifecycleActor } from "../extensions/v4/types";
 
-// ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();
-
-mock.module(
-  "../../web/src/routes/api/extensions/[id]/$types",
-  () => ({}),
-);
-
-mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
-mock.module("../../web/src/lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
-
-// ── Stub extension record & capture mutations ────────────────────
-let getExtensionReturnsNull = false;
-let storedEnabled = true;
-const updateCalls: Array<{ id: string; data: Record<string, unknown> }> = [];
-const resetFailuresCalls: string[] = [];
-const deleteCalls: string[] = [];
-
-/** Set for the #205 GET test: makes the stubbed row an MCP extension whose
- *  connection carries a credential in the URL query and in argv. */
-let mcpManifestWithSecrets: Record<string, unknown> | null = null;
-
-const fakeExtensionRow = async (id: string) => {
-  if (getExtensionReturnsNull) return null;
-  if (mcpManifestWithSecrets) return { id, name: "mcp-ext", manifest: mcpManifestWithSecrets };
-  return {
-    id,
-    name: "fake-ext",
-    version: "1.0.0",
-    description: "",
-    manifest: {
-      schemaVersion: 2,
-      name: "fake-ext",
-      version: "1.0.0",
-      description: "",
-      author: { name: "test" },
-      permissions: {},
-    },
-    source: "local:/tmp/fake-ext",
-    installPath: "/tmp/fake-ext",
-    enabled: storedEnabled,
-    grantedPermissions: { grantedAt: {} },
-    checksumVerified: true,
-    consecutiveFailures: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+let missing = false;
+let legacy = false;
+let enabled = true;
+let manifest: Record<string, unknown> = { schemaVersion: 4, name: "fixture" };
+let mutationFailure = false;
+const mutations: { action: string; actor: LifecycleActor; id: string }[] = [];
+const directWrites = mock(() => { throw new Error("Route bypassed release lifecycle"); });
+const reload = mock(() => { throw new Error("Route bypassed fenced publication"); });
+const read = async (id: string) => missing ? null : { id, name: "fixture", enabled, manifest };
+const queries = () => ({ getExtensionByRef: read, getExtension: read, updateExtension: directWrites, deleteExtension: directWrites, resetFailures: directWrites });
+mock.module("../db/queries/extensions", queries);
+mock.module("$server/db/queries/extensions", queries);
+const lifecycle = {
+  async inspect() { if (missing || legacy) throw new LifecycleError("not_found", "Installation not found"); },
+  async disable(actor: LifecycleActor, id: string) { if (mutationFailure) throw new LifecycleError("generation_superseded", "A newer generation exists"); mutations.push({ action: "disable", actor, id }); enabled = false; },
+  async uninstall(actor: LifecycleActor, id: string) { mutations.push({ action: "uninstall", actor, id }); },
 };
+const services = () => ({ getExtensionLifecycle: async () => lifecycle });
+mock.module("../extensions/extension-lifecycle-service", services);
+mock.module("$server/extensions/extension-lifecycle-service", services);
+const registry = () => ({ ExtensionRegistry: { getInstance: () => ({ reload, killAll: reload }) } });
+mock.module("../extensions/registry", registry);
+mock.module("$server/extensions/registry", registry);
+const scopes = () => ({ requireScope: () => null });
+mock.module("$lib/server/security/api-keys", scopes);
+mock.module("../../web/src/lib/server/security/api-keys", scopes);
+const { GET, PATCH, DELETE } = await import("../../web/src/routes/api/extensions/[id]/+server");
 
-const extensionsQueriesMock = () => ({
-  getExtension: fakeExtensionRow,
-  // GET resolves the route param as a REFERENCE (id OR manifest name); the
-  // mutating handlers under test stay id-only. Stubbed so the route module's
-  // imports resolve either way.
-  getExtensionByRef: fakeExtensionRow,
-  updateExtension: async (id: string, data: Record<string, unknown>) => {
-    updateCalls.push({ id, data });
-    return { id, name: "fake-ext", enabled: data.enabled };
-  },
-  deleteExtension: async (id: string) => {
-    deleteCalls.push(id);
-    return true;
-  },
-  resetFailures: async (id: string) => {
-    resetFailuresCalls.push(id);
-  },
-});
-mock.module("$server/db/queries/extensions", extensionsQueriesMock);
-mock.module("../db/queries/extensions", extensionsQueriesMock);
-
-// ── Security module stub — drive hasSecurityViolation per test ───
-let violationFlag = false;
-const securityMock = () => ({
-  hasSecurityViolation: async () => violationFlag,
-});
-mock.module("$server/extensions/security", securityMock);
-mock.module("../extensions/security", securityMock);
-
-// ── Registry reload stub — count invocations ─────────────────────
-let reloadCount = 0;
-let killAllCount = 0;
-const registryMock = () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      reload: async () => { reloadCount++; },
-      killAll: () => { killAllCount++; },
-    }),
-  },
-});
-mock.module("$server/extensions/registry", registryMock);
-mock.module("../extensions/registry", registryMock);
-
-// Hub page cache — REAL module (shared singleton), aliased so the
-// handler's `$server/extensions/page-cache` import and this file's
-// relative import observe one cache instance.
-mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
-
-// ── Handler import (AFTER mocks) ─────────────────────────────────
-import { GET, PATCH, DELETE } from "../../web/src/routes/api/extensions/[id]/+server";
-import { getPageCache } from "../extensions/page-cache";
-import type { HubPageTree } from "../extensions/page-schema";
-
-const FAKE_TREE: HubPageTree = { title: "T", nodes: [] };
-
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
-  try {
-    return (await handler(event)) as Response;
-  } catch (e) {
-    if (e instanceof Response) return e;
-    throw e;
-  }
+async function request(method: "GET" | "PATCH" | "DELETE", options: { body?: unknown; user?: typeof ADMIN_USER | typeof MEMBER_USER | null; session?: boolean } = {}) {
+  const event = createMockEvent({ method, url: "http://localhost/api/extensions/installation", params: { id: "installation" }, body: options.body, user: options.user === null ? undefined : options.user ?? ADMIN_USER });
+  if (options.session) event.locals.authMethod = "session";
+  try { return await ({ GET, PATCH, DELETE }[method])(event as never); }
+  catch (error) { if (error instanceof Response) return error; throw error; }
 }
 
-afterAll(() => {
-  // In-file ≥2-registration pattern (mock-cleanup meta-test): the
-  // factory points at the REAL module, so re-registering keeps
-  // subsequent files in this process clean.
-  mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
-  restoreModuleMocks();
-});
+beforeEach(() => { missing = legacy = mutationFailure = false; enabled = true; manifest = { schemaVersion: 4, name: "fixture" }; mutations.length = 0; directWrites.mockClear(); reload.mockClear(); });
+afterAll(() => restoreModuleMocks());
 
-beforeEach(() => {
-  updateCalls.length = 0;
-  resetFailuresCalls.length = 0;
-  deleteCalls.length = 0;
-  reloadCount = 0;
-  killAllCount = 0;
-  getExtensionReturnsNull = false;
-  violationFlag = false;
-  storedEnabled = true;
-  mcpManifestWithSecrets = null;
-  getPageCache().clear();
-});
-
-describe("GET /api/extensions/[id] — issue #205 credential scrub", () => {
-  // This single-row read is `read`-scope + ANY member role, and it used to
-  // `json(ext)` the raw row while its LIST sibling scrubbed — the widest MCP
-  // credential read in the app. It matters for a legacy row whose manifest
-  // still holds plaintext (the boot backfill has not reached it yet), which is
-  // exactly what the stub returns here.
-  test("an MCP row's url query + argv credentials never reach the response", async () => {
-    mcpManifestWithSecrets = {
-      kind: "mcp",
-      name: "mcp-ext",
-      tools: [],
-      permissions: {},
-      mcpServers: [
-        {
-          transport: "http",
-          name: "mcp-ext",
-          url: "https://mcp.vendor.com/mcp?api_key=GET-URL-LEAK",
-          headers: { Authorization: "Bearer GET-HDR-LEAK" },
-        },
-        {
-          transport: "stdio",
-          name: "mcp-ext-stdio",
-          command: "npx",
-          args: ["-y", "srv", "--token=GET-ARGV-LEAK"],
-        },
-      ],
-    };
-    const event = createMockEvent({
-      method: "GET",
-      url: "http://localhost/api/extensions/mcp-ext",
-      params: { id: "mcp-ext" },
-      user: MEMBER_USER,
-    });
-    const res = await call(GET, event);
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).not.toContain("GET-URL-LEAK");
-    expect(body).not.toContain("GET-HDR-LEAK");
-    expect(body).not.toContain("GET-ARGV-LEAK");
-    // The NAMES survive — the edit form pre-fills them.
-    expect(body).toContain("api_key=");
-    expect(body).toContain("--token=");
-    expect(body).toContain("Authorization");
+describe("extension release route delegation", () => {
+  test("disable delegates exact identity and returns the disabled projection", async () => {
+    const response = await request("PATCH", { body: { enabled: false }, session: true });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: "installation", enabled: false });
+    expect(mutations).toEqual([{ action: "disable", id: "installation", actor: { principalId: ADMIN_USER.id, scope: "global", kind: "human" } }]);
+    expect(directWrites).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
   });
 
-  test("a non-MCP row is served unchanged", async () => {
-    const event = createMockEvent({
-      method: "GET",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      user: MEMBER_USER,
-    });
-    const res = await call(GET, event);
-    expect(res.status).toBe(200);
-    const body = await jsonFromResponse(res);
-    expect(body.name).toBe("fake-ext");
+  test("uninstall delegates once without deleting projection, data or unrelated processes", async () => {
+    expect((await request("DELETE")).status).toBe(204);
+    expect(mutations).toEqual([{ action: "uninstall", id: "installation", actor: { principalId: ADMIN_USER.id, scope: "global", kind: "agent" } }]);
+    expect(directWrites).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  test("generation conflicts cannot produce a success response", async () => {
+    mutationFailure = true;
+    const response = await request("PATCH", { body: { enabled: false } });
+    expect(response.status).toBe(409);
+    expect(enabled).toBe(true);
+    expect(mutations).toHaveLength(0);
+  });
+
+  test("legacy enable and malformed inputs never mutate installation authority", async () => {
+    for (const body of [{ enabled: true }, { enabled: "yes" }, { enabled: 0 }]) expect((await request("PATCH", { body })).status).toBe(410);
+    for (const body of [{ other: true }, null, []]) expect((await request("PATCH", { body })).status).toBe(400);
+    expect(mutations).toHaveLength(0);
+  });
+
+  test("missing and legacy installations cannot bypass lifecycle inspection", async () => {
+    missing = true;
+    for (const method of ["GET", "PATCH", "DELETE"] as const) expect((await request(method, { body: { enabled: false } })).status).toBe(404);
+    missing = false; legacy = true;
+    for (const method of ["PATCH", "DELETE"] as const) expect((await request(method, { body: { enabled: false } })).status).toBe(410);
+    expect(mutations).toHaveLength(0);
+  });
+
+  test("mutations require an administrator while reads permit a member", async () => {
+    for (const method of ["PATCH", "DELETE"] as const) {
+      expect((await request(method, { body: { enabled: false }, user: null })).status).toBe(401);
+      expect((await request(method, { body: { enabled: false }, user: MEMBER_USER })).status).toBe(403);
+    }
+    expect((await request("GET", { user: MEMBER_USER })).status).toBe(200);
+    expect(mutations).toHaveLength(0);
   });
 });
 
-describe("PATCH /api/extensions/[id] — happy paths", () => {
-  test("disable (enabled:false) → 200, updateExtension called, no resetFailures", async () => {
-    storedEnabled = true;
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: false },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(200);
-    expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0]!.data.enabled).toBe(false);
-    // The disable is recorded as DELIBERATE. Without this flag the boot
-    // reconcilers cannot tell it apart from a gate disable, and
-    // `ensureBundledExtensions` re-enables every disabled built-in — so a
-    // user turning one off got it back on the next restart.
-    expect(updateCalls[0]!.data.disabledByUser).toBe(true);
-    expect(resetFailuresCalls).toHaveLength(0);
-    expect(reloadCount).toBe(1);
-  });
-
-  test("disable evicts the extension's cached Hub page trees (other extensions untouched)", async () => {
-    // Extension Pages Hub: the cache TTL is 60s — a disable must not
-    // leave trees that a quick re-enable would serve stale.
-    getPageCache().set("ext-1", "dashboard", FAKE_TREE);
-    getPageCache().set("ext-1", "stats", FAKE_TREE);
-    getPageCache().set("ext-2", "dashboard", FAKE_TREE);
-
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: false },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(200);
-    expect(getPageCache().get("ext-1", "dashboard")).toBeNull();
-    expect(getPageCache().get("ext-1", "stats")).toBeNull();
-    expect(getPageCache().get("ext-2", "dashboard")).not.toBeNull();
-  });
-
-  test("enable (enabled:true) via PATCH → 400 (must use /:id/activate)", async () => {
-    storedEnabled = false;
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: true },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    const data = await jsonFromResponse(res);
-    expect(res.status).toBe(400);
-    expect(String(data.error)).toContain("/activate");
-    expect(updateCalls).toHaveLength(0);
-    expect(resetFailuresCalls).toHaveLength(0);
-    expect(reloadCount).toBe(0);
-  });
-});
-
-describe("PATCH /api/extensions/[id] — sad paths", () => {
-  test("unknown extension id → 404, no DB write", async () => {
-    getExtensionReturnsNull = true;
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/missing",
-      params: { id: "missing" },
-      body: { enabled: false },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    const data = await jsonFromResponse(res);
-    expect(res.status).toBe(404);
-    expect(String(data.error)).toContain("Not found");
-    expect(updateCalls).toHaveLength(0);
-    expect(reloadCount).toBe(0);
-  });
-
-  test("disable is NOT blocked by security violation (one-way gate)", async () => {
-    storedEnabled = true;
-    violationFlag = true;
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: false },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(200);
-    expect(updateCalls[0]!.data.enabled).toBe(false);
-  });
-
-  test("body without enabled field → 400, no DB write", async () => {
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { somethingElse: "ignored" },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    const data = await jsonFromResponse(res);
-    expect(res.status).toBe(400);
-    expect(String(data.error)).toContain("No valid update fields");
-    expect(updateCalls).toHaveLength(0);
-    expect(reloadCount).toBe(0);
-  });
-
-  test("enabled as non-boolean (string) → 400, no DB write", async () => {
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: "yes" },
-      user: ADMIN_USER,
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(400);
-    expect(updateCalls).toHaveLength(0);
-  });
-
-  test("no auth → 401, no DB write", async () => {
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: false },
-      // no user
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(401);
-    expect(updateCalls).toHaveLength(0);
-  });
-
-  test("non-admin → 403, no DB write (disable is instance-wide, admin-only)", async () => {
-    storedEnabled = true;
-    const event = createMockEvent({
-      method: "PATCH",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      body: { enabled: false },
-      user: MEMBER_USER,
-    });
-    const res = await call(PATCH, event);
-    expect(res.status).toBe(403);
-    expect(updateCalls).toHaveLength(0);
-    expect(reloadCount).toBe(0);
-  });
-});
-
-describe("GET /api/extensions/[id]", () => {
-  test("existing id → 200 with extension body", async () => {
-    const event = createMockEvent({
-      method: "GET",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      user: MEMBER_USER,
-    });
-    const res = await call(GET, event);
-    const data = await jsonFromResponse(res);
-    expect(res.status).toBe(200);
-    expect(data.id).toBe("ext-1");
-    expect(data.name).toBe("fake-ext");
-  });
-
-  test("unknown id → 404", async () => {
-    getExtensionReturnsNull = true;
-    const event = createMockEvent({
-      method: "GET",
-      url: "http://localhost/api/extensions/missing",
-      params: { id: "missing" },
-      user: MEMBER_USER,
-    });
-    const res = await call(GET, event);
-    expect(res.status).toBe(404);
-  });
-});
-
-describe("DELETE /api/extensions/[id]", () => {
-  test("existing id → 204, deleteExtension + reload, and killAll NEVER", async () => {
-    // `killAll()` kills EVERY extension's subprocess, closes every MCP
-    // client and tears down every forward proxy — uninstalling one
-    // extension took the others down with it. The route used to call it
-    // under a comment claiming it was scoped to this extension.
-    // `reload()` is the correctly-scoped teardown: it drops exactly the
-    // removed or runtime-changed entries (see `ExtensionRegistry.reload`).
-    const event = createMockEvent({
-      method: "DELETE",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      user: ADMIN_USER,
-    });
-    const res = await call(DELETE, event);
-    expect(res.status).toBe(204);
-    expect(deleteCalls).toEqual(["ext-1"]);
-    expect(killAllCount).toBe(0);
-    expect(reloadCount).toBe(1);
-  });
-
-  test("uninstall evicts the extension's cached Hub page trees", async () => {
-    getPageCache().set("ext-1", "dashboard", FAKE_TREE);
-    getPageCache().set("ext-2", "dashboard", FAKE_TREE);
-
-    const event = createMockEvent({
-      method: "DELETE",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      user: ADMIN_USER,
-    });
-    const res = await call(DELETE, event);
-    expect(res.status).toBe(204);
-    expect(getPageCache().get("ext-1", "dashboard")).toBeNull();
-    expect(getPageCache().get("ext-2", "dashboard")).not.toBeNull();
-  });
-
-  test("unknown id → 404, no delete or reload", async () => {
-    getExtensionReturnsNull = true;
-    const event = createMockEvent({
-      method: "DELETE",
-      url: "http://localhost/api/extensions/missing",
-      params: { id: "missing" },
-      user: ADMIN_USER,
-    });
-    const res = await call(DELETE, event);
-    expect(res.status).toBe(404);
-    expect(deleteCalls).toHaveLength(0);
-    expect(killAllCount).toBe(0);
-    expect(reloadCount).toBe(0);
-  });
-
-  test("non-admin → 403, nothing deleted or killed", async () => {
-    const event = createMockEvent({
-      method: "DELETE",
-      url: "http://localhost/api/extensions/ext-1",
-      params: { id: "ext-1" },
-      user: MEMBER_USER,
-    });
-    const res = await call(DELETE, event);
-    expect(res.status).toBe(403);
-    expect(deleteCalls).toHaveLength(0);
-    expect(killAllCount).toBe(0);
-    expect(reloadCount).toBe(0);
-  });
+test("single-row reads scrub MCP query, header and argv credentials", async () => {
+  manifest = { kind: "mcp", name: "fixture", tools: [], permissions: {}, mcpServers: [
+    { transport: "http", name: "remote", url: "https://mcp.example.com/mcp?api_key=URL-LEAK", headers: { Authorization: "Bearer HDR-LEAK" } },
+    { transport: "stdio", name: "local", command: "npx", args: ["-y", "server", "--token=ARGV-LEAK"] },
+  ] };
+  const response = await request("GET", { user: MEMBER_USER });
+  expect(response.status).toBe(200);
+  const body = await response.text();
+  for (const value of ["URL-LEAK", "HDR-LEAK", "ARGV-LEAK"]) expect(body).not.toContain(value);
+  for (const value of ["api_key=", "--token=", "Authorization"]) expect(body).toContain(value);
 });
