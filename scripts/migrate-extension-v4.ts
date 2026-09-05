@@ -87,7 +87,8 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
         const contents = Buffer.concat(chunks);
         bytes += contents.byteLength;
         if (bytes > MAX_SOURCE_BYTES || Object.keys(files).length >= MAX_FILES) throw new Error("Extension source limit exceeded");
-        files[filePath] = decoder.decode(contents);
+        try { files[filePath] = decoder.decode(contents); }
+        catch { throw new Error(`Source file must be UTF-8 text; binary assets are not supported: ${filePath}`); }
       } finally {
         await handle.close();
       }

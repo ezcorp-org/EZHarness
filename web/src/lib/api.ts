@@ -1792,6 +1792,8 @@ export interface ImportItemResult {
 	requested: string;
 	finalName?: string;
 	extId?: string;
+	operationId?: string;
+	openUrl?: string;
 	status: "ok" | "error";
 	message?: string;
 }
@@ -1824,4 +1826,13 @@ export async function uninstallExtension(id: string): Promise<void> {
 		method: "DELETE",
 	});
 	if (!res.ok && res.status !== 204) await checkResponse(res);
+}
+
+export async function removeImportedSkill(installationId: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/extensions/control`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ tool: "extensions_release", input: { action: "uninstall", installationId } }),
+	});
+	await checkResponse(res);
 }

@@ -90,10 +90,14 @@ export async function collectGitHubSource(input: Extract<ExtensionSourceInput, {
   return files;
 }
 
-export async function importExtensionSource(actor: LifecycleActor, input: ExtensionSourceInput) {
+async function requireSourceAdministrator(actor: LifecycleActor): Promise<void> {
   const user = await getUserById(actor.principalId);
   if (user?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
   if (user.role !== "admin" || actor.kind !== "human") throw new LifecycleError("forbidden", "A human administrator must import source");
+}
+
+export async function importExtensionSource(actor: LifecycleActor, input: ExtensionSourceInput) {
+  await requireSourceAdministrator(actor);
   let files: WorkspaceFiles;
   if (input.kind === "marketplace") files = await collectMarketplaceSource(input.versionId);
   else if (input.kind === "github") files = await collectGitHubSource(input, { token: await sourceCredentialResolver(actor, input.repository) ?? undefined });
@@ -108,7 +112,12 @@ export async function importExtensionSource(actor: LifecycleActor, input: Extens
     }
   }
   const provenance = input.kind === "local" ? { kind: "local", name: basename(input.path) } : input;
-  files["extension-source.json"] = JSON.stringify({ schemaVersion: 4, source: provenance }, null, 2);
+  return stageExtensionSourceFiles(actor, files, provenance);
+}
+
+export async function stageExtensionSourceFiles(actor: LifecycleActor, sourceFiles: WorkspaceFiles, provenance: ExtensionSourceInput | { kind: "local" | "skill"; name: string }) {
+  await requireSourceAdministrator(actor);
+  const files = { ...validateWorkspaceFiles(sourceFiles), "extension-source.json": JSON.stringify({ schemaVersion: 4, source: provenance }, null, 2) };
   const lifecycle = await getExtensionLifecycle();
   const result = await lifecycle.createWorkspace(actor, { files });
   const operation = await lifecycle.build(actor, { installationId: result.installation.id, workspaceId: result.workspace.id, expectedRevision: result.workspace.revision, idempotencyKey: `source-import:${result.workspace.sourceDigest}` });

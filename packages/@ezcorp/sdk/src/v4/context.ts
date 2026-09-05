@@ -7,6 +7,7 @@ const active = new AsyncLocalStorage<ExtensionContext>();
 export function withExtensionContext<Result>(context: ExtensionContext, action: () => Result): Result { return active.run(context, action); }
 export function getExtensionContext(): ExtensionContext | undefined { return active.getStore(); }
 export function getInvocationContext(): Readonly<InvocationContext> | undefined { return active.getStore()?.invocation; }
+export function getInvocationSignal(): AbortSignal | undefined { return active.getStore()?.signal; }
 export async function getGrantedEnv(name: string): Promise<string | null> {
   const context = active.getStore();
   if (!context) throw new ContractError("NO_INVOCATION", "Credentials require an active invocation");
