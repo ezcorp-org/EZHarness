@@ -43,6 +43,7 @@ export interface CallProvenance {
    *  capability handlers soft-fail rather than throw in that case. */
   onBehalfOf: string | null;
   conversationId: string | null;
+  projectId?: string;
   runId: string | null;
   parentCallId: string | null;
   /** Host-owned — sourced from the registered-tool record, NOT the

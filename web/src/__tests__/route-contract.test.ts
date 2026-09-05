@@ -298,6 +298,7 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     "api/extensions/import-source/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
+    "api/marketplace/[id]/install/+server.ts",
   ];
 
   test("the set of inline-admin-gated routes is EXACTLY the frozen list", () => {
@@ -324,7 +325,7 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     const population = bypass.length + gates.size;
     expect(gates.size).toBe(KNOWN_INLINE_ADMIN_GATES.length);
     expect(population).toBeGreaterThanOrEqual(35);
-    expect(bypass.length).toBe(population - 3);
+    expect(bypass.length).toBe(population - KNOWN_INLINE_ADMIN_GATES.length);
   });
 
   test("known bypass sites are classified as bypasses, by name", () => {
@@ -580,7 +581,7 @@ describe("registry ⇄ filesystem parity", () => {
   // the count test fails if the baseline no longer matches the list (so the
   // ratchet cannot be loosened by deleting lines). Both failures name what to
   // do. This list may only SHRINK. Sorted; keep it sorted.
-  const BASELINE_SCOPELESS = 78;
+  const BASELINE_SCOPELESS = 77;
   const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
     "DELETE /api/agent-configs/:id",
     "DELETE /api/extensions/:id/settings/user",
@@ -642,7 +643,6 @@ describe("registry ⇄ filesystem parity", () => {
     "POST /api/extensions/:id/modifiable",
     "POST /api/marketplace",
     "POST /api/marketplace/:id/flag",
-    "POST /api/marketplace/:id/install",
     "POST /api/marketplace/:id/rate",
     "POST /api/marketplace/import",
     "POST /api/onboarding/complete",
@@ -750,6 +750,7 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/workflows/delegations/:id",
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
+      "POST /api/marketplace/:id/install",
       "POST /api/service-accounts",
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",

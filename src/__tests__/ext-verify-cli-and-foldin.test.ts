@@ -26,6 +26,18 @@ mock.module("../db/queries/extensions", () => ({
   disableExtension: async () => {},
 }));
 
+let verifiedState = "succeeded";
+const verifyCalls: string[] = [];
+mock.module("../extensions/cli-control", () => ({
+  initCliExtension: async () => "/source",
+  stageCliExtension: async () => ({}),
+  updateCliExtension: async () => ({}),
+  removeCliExtension: async () => {},
+  verifyCliExtension: async (directory: string) => {
+    verifyCalls.push(directory);
+    return { state: verifiedState, diagnostics: [], tests: [{ name: "typecheck", passed: verifiedState === "succeeded" }] };
+  },
+}));
 afterAll(() => restoreModuleMocks());
 
 const { parseArgs, cli } = await import("../cli");
@@ -49,6 +61,7 @@ describe("parseArgs — ext verify", () => {
 
 describe("cli — ext verify --json", () => {
   test("passing fixture ⇒ prints VerifyResult JSON, exit 0", async () => {
+    verifiedState = "succeeded";
     const fx = buildVerifyFixture({ name: "cli-verify-pass" });
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...a) => {
@@ -65,9 +78,9 @@ describe("cli — ext verify --json", () => {
       ).rejects.toThrow("exit:0");
       const out = logs.join("\n");
       const parsed = JSON.parse(out);
-      expect(parsed.pass).toBe(true);
-      expect(Array.isArray(parsed.steps)).toBe(true);
-      expect(parsed.steps.every((s: { ok: boolean }) => s.ok)).toBe(true);
+      expect(parsed.state).toBe("succeeded");
+      expect(parsed.tests).toEqual([{ name: "typecheck", passed: true }]);
+      expect(verifyCalls.at(-1)).toBe(fx.dir);
     } finally {
       logSpy.mockRestore();
       exitSpy.mockRestore();
@@ -75,7 +88,8 @@ describe("cli — ext verify --json", () => {
     }
   }, 20_000);
 
-  test("failing fixture (missing smokeTest) ⇒ exit 1", async () => {
+  test("a failed isolated build exits 1", async () => {
+    verifiedState = "failed";
     const fx = buildVerifyFixture({ name: "cli-verify-fail", smokeTest: null });
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     const exitSpy = spyOn(process, "exit").mockImplementation(((
@@ -94,7 +108,8 @@ describe("cli — ext verify --json", () => {
     }
   }, 20_000);
 
-  test("non-json mode prints human steps + verdict", async () => {
+  test("default output retains structured isolated build evidence", async () => {
+    verifiedState = "succeeded";
     const fx = buildVerifyFixture({ name: "cli-verify-human" });
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...a) => {
@@ -108,8 +123,7 @@ describe("cli — ext verify --json", () => {
     try {
       await expect(cli(["ext", "verify", fx.dir])).rejects.toThrow("exit:0");
       const out = logs.join("\n");
-      expect(out).toContain("VERIFY: PASS");
-      expect(out).toContain("smoke-test-roundtrip");
+      expect(JSON.parse(out)).toMatchObject({ state: "succeeded", tests: [{ name: "typecheck", passed: true }] });
     } finally {
       logSpy.mockRestore();
       exitSpy.mockRestore();
