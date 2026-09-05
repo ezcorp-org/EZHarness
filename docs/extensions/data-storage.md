@@ -1,189 +1,40 @@
-# Data Storage Convention
+# Extension data
 
-Every extension that writes persistent data to the host filesystem MUST put it under a single, predictable path. This keeps the repo tidy, prevents collisions between extensions, and makes it trivial for users (and agents helping users) to find, back up, or reset extension state.
+## Choose the correct store
 
-For permissions and the `ezcorp/storage` key-value API, see [API Reference](api-reference.md) and [Manifest Schema](manifest-schema.md).
+- Use host storage with `user` scope for private user data.
+- Use `conversation` scope for state belonging to the host-bound conversation.
+- Use `global` scope only for data intentionally shared within the installation.
+- Use declared settings for visible configuration, not credentials.
+- Use the credential broker for secrets. Do not copy secrets into files, source, settings, logs, or ordinary storage.
 
----
+The host binds the installation and scope IDs. Extension-supplied user or conversation IDs do not grant access. Inactive users and revoked bindings cannot use the broker.
 
-## The Convention
+## Storage operations
 
-```
-<projectRoot>/.ezcorp/extension-data/<extension-name>/
-```
+Use `Storage` from `@ezcorp/sdk/runtime` during an active v4 invocation, for example `new Storage("user")`. Its `get`, `set`, `delete`, `list`, and `batch` methods call the host's bounded storage API. The host enforces value limits, installation quotas, and scope checks.
 
-- `<projectRoot>` -- the nearest ancestor directory containing a `.git/` folder. If no `.git/` is found while walking up, fall back to `process.cwd()`.
-- `<extension-name>` -- must match the `name` field in the extension's `ezcorp.config.ts` manifest.
+Write batches commit together. A separate `get` followed by `set` is not an atomic update. Process-local state and mutexes do not coordinate separate workers. Shared read-modify-write operations require the host-backed coordination supported by the current SDK; use a stable explicit key and keep the critical section bounded. Do not perform an automatic callback retry around non-idempotent external effects.
 
-Inside that directory the extension owns the layout. Use subdirectories for logical groupings (e.g. `vault/`, `cache/`) and keep top-level files for small singletons like `config.json`.
+## Files
 
-> **Visibility: the tree is PROJECT-SHARED, not per-user.** Everything an
-> extension writes here is served to *every* chat-scoped user of the
-> deployment via `GET /api/extensions/<name>/data/<path>` (the route
-> requires the extension to be installed **and enabled**, but it does not
-> — and cannot — partition files by user). Never write per-user private
-> data (personal notes, tokens, per-user documents) into this tree. Use
-> the `ezcorp/storage` key-value API with **user scope** for per-user
-> state, and the extension **secrets** capability for credentials — both
-> are host-mediated and scoped to the acting user. See
-> [API Reference](api-reference.md).
+Use host-mediated filesystem helpers such as `fsRead`, `fsWrite`, and `fsList` with virtual paths:
 
----
+- `/project`: the current approved project binding.
+- `/data`: this installation's extension-data namespace.
 
-## Why
+Relative paths resolve under `/project`. The current extension's historical `.ezcorp/extension-data/<name>` prefix maps to `/data` for migrated code. This mapping grants neither host paths nor another extension's data.
 
-- **One `.gitignore` rule** -- the project root already ignores `.ezcorp/`, so no extension can accidentally cause user vault files, task stores, or logs to be committed.
-- **Zero collisions** -- two extensions can both pick `config.json` as a filename without clobbering each other.
-- **Trivial reset** -- deleting `.ezcorp/extension-data/` wipes every extension's state at once; deleting a single subdirectory resets just one.
-- **Single hidden directory** -- the platform itself uses `.ezcorp/` for its own state, so users only ever see one hidden directory at the project root.
+`/data` is installation-shared, not a private user vault. Put private state in user-scoped storage. Host data routes retain their own access checks; a filesystem path is not an authorization token.
 
----
+Do not walk for `.git`, infer the host root from `cwd`, or use `EZCORP_PROJECT_ROOT` as authority. Direct worker filesystem access sees only its restricted environment; it does not expose persistent host data. Do not run a postinstall script on the host to create directories.
 
-## How to Implement
+## Source assets are separate
 
-**Inside a sandboxed tool subprocess you cannot walk the filesystem for `.git` yourself** — the Phase 3 sandbox-preload poisons `node:fs` / `Bun.file` at module load (see `packages/@ezcorp/sdk/src/runtime/fs.ts`). The production pattern has two halves:
+Source files belong to immutable workspace revisions and sealed releases. Binary assets use the canonical base64 envelope and explicit executable bit. Code and control files remain text. Uploading an executable asset does not run it on the host. See [Imports](v4-imports.md).
 
-1. **Project root:** read the `EZCORP_PROJECT_ROOT` env var. The host does the `.git` walk once and injects the answer at subprocess spawn time (`buildAllowedEnv` in `src/extensions/registry.ts`).
-2. **File IO:** use the SDK's host-mediated helpers — `fsRead`, `fsWrite`, `fsList`, `fsStat`, `fsExists`, `fsMkdir`, `fsUnlink` from `@ezcorp/sdk/runtime`. They call the host's `ezcorp/fs.*` reverse-RPC and are the only supported fs path from extension code.
+## Upgrade and recovery
 
-This is exactly what `docs/extensions/examples/task-stack/index.ts` does — its `resolveProjectRoot()` prefers the env var and only falls back to a lazy `require("node:fs")` walk for unit tests and ad-hoc CLI runs where no sandbox is active:
+Uninstall retains data and history. Rollback changes active code only; it does not silently undo data writes. A storage schema change needs an explicit migration plan and a tested rollback policy.
 
-```typescript
-import { join, dirname } from "node:path";
-import { fsRead, fsWrite, fsMkdir } from "@ezcorp/sdk/runtime";
-
-export function resolveProjectRoot(from: string = process.cwd()): string {
-  // (1) Host-injected — production fast path.
-  const fromEnv = process.env.EZCORP_PROJECT_ROOT;
-  if (fromEnv && fromEnv.length > 0) return fromEnv;
-
-  // (2) Lazy fs walk — test / CLI contexts only (no sandbox active).
-  let fs: typeof import("node:fs");
-  try {
-    fs = require("node:fs") as typeof import("node:fs");
-  } catch {
-    return from; // fs poisoned and no env hint — defer the error to IO time
-  }
-  let dir = from;
-  while (true) {
-    if (fs.existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from; // reached filesystem root
-    dir = parent;
-  }
-}
-
-const DATA_DIR = join(resolveProjectRoot(), ".ezcorp", "extension-data", "my-extension");
-// Then read/write via fsRead(path) / fsWrite(path, contents) — never raw node:fs.
-```
-
-A raw `node:fs` `.git` walker is still fine **host-side** — in `scripts/postinstall.ts` and other install/build scripts that run outside the sandbox (see the next section), or via the SDK's `findProjectRoot()` helper, which is host-side only.
-
-`.ezcorp/` is already listed in the top-level `.gitignore`, so there is nothing for the extension author to add.
-
----
-
-## `postinstall.ts` Pattern
-
-Scaffold the directory in your `scripts/postinstall.ts` so it exists on first run. Postinstall scripts run **host-side** (outside the tool sandbox), so a raw `node:fs` walker is legitimate here:
-
-```typescript
-#!/usr/bin/env bun
-import { mkdirSync, existsSync } from "fs";
-import { join, dirname } from "path";
-
-function findProjectRoot(from: string = process.cwd()): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
-
-const dataDir = join(findProjectRoot(), ".ezcorp", "extension-data", "my-extension");
-mkdirSync(dataDir, { recursive: true });
-console.log(`my-extension data dir initialized at ${dataDir}`);
-```
-
-Register the script in your manifest:
-
-```typescript
-scripts: {
-  postinstall: "scripts/postinstall.ts",
-}
-```
-
----
-
-## Reading Extension Data from Outside the Extension
-
-An agent that is **not** the extension itself -- for example, the Claude-style assistant a user is chatting with -- will sometimes need to read or edit an extension's user-visible files (open a note, inspect a task store, tail a log). Discovery is identical: walk up for `.git/`, then append the convention path.
-
-Shell (for agents running commands):
-
-```bash
-# From anywhere inside the project
-ls "$(git rev-parse --show-toplevel)/.ezcorp/extension-data/"
-
-# Read auto-note's config
-cat "$(git rev-parse --show-toplevel)/.ezcorp/extension-data/auto-note/config.json"
-```
-
-TypeScript (for agents using Bun or Node APIs):
-
-```typescript
-const root = findProjectRoot();
-const autoNoteVault = join(root, ".ezcorp", "extension-data", "auto-note", "vault");
-const taskStore   = join(root, ".ezcorp", "extension-data", "task-stack", "task-stack.json");
-```
-
-Agents should prefer reading from these paths over asking the user where an extension stores its data. The convention is the contract.
-
----
-
-## Storage API vs Filesystem Convention
-
-Two different mechanisms, two different use cases:
-
-| Mechanism | Use it for | Lives where |
-|-----------|------------|-------------|
-| `ezcorp/storage` reverse-RPC | Opaque key-value state, server-authoritative, isolated per-extension, quota-enforced | Platform database |
-| `.ezcorp/extension-data/<name>/` | User-visible files -- markdown vaults, JSON task stores, logs, generated output users might open in an editor | Project filesystem |
-
-If a human would ever want to open the file in their editor or grep it with `rg`, use the filesystem convention. If it's internal state the user never needs to see, use `ezcorp/storage`.
-
----
-
-## Worked Examples
-
-### `task-stack`
-
-Single JSON store at the root of its data directory:
-
-```
-<projectRoot>/.ezcorp/extension-data/task-stack/
-  task-stack.json         # all stacks, tasks, subtasks, deps, artifacts
-```
-
-See `docs/extensions/examples/task-stack/index.ts` for the `resolveProjectRoot()` + `STORE_PATH` wiring (env-var first, host-mediated `fsRead`/`fsWrite` for IO).
-
-### `auto-note`
-
-Mixed layout -- a markdown vault the user browses plus a small JSON config:
-
-```
-<projectRoot>/.ezcorp/extension-data/auto-note/
-  config.json             # vault settings, category overrides
-  vault/
-    _index.md             # auto-generated index
-    ideas/
-    tasks/
-    decisions/
-    references/
-    journal/
-    meetings/
-```
-
-See `docs/extensions/examples/auto-note/scripts/postinstall.ts` for the scaffold and `docs/extensions/examples/auto-note/lib/vault.ts` for runtime usage.
+The current migration facility covers the supported extension-storage rows. It is not an automatic converter for arbitrary filesystem trees, settings, or encrypted legacy state. Do not delete old data to make an upgrade pass.

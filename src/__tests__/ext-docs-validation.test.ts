@@ -33,10 +33,6 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function lineCount(content: string): number {
-  return content.split("\n").length;
-}
-
 /** Extract all relative markdown links like [text](relative-path.md) */
 function extractInternalLinks(
   content: string,
@@ -76,9 +72,9 @@ describe("README.md (landing page)", () => {
     expect(content.length).toBeGreaterThan(0);
   });
 
-  test("contains Extension Development heading", async () => {
+  test("contains the extension landing heading", async () => {
     content ??= await readText(join(DOCS_DIR, "README.md"));
-    expect(content).toContain("# Extension Development");
+    expect(content).toContain("# Extensions");
   });
 
   test("links to getting-started.md", async () => {
@@ -96,24 +92,24 @@ describe("README.md (landing page)", () => {
     expect(content).toContain("manifest-schema.md");
   });
 
-  test("links to examples/", async () => {
+  test("links to current harness authoring", async () => {
     content ??= await readText(join(DOCS_DIR, "README.md"));
-    expect(content).toContain("examples/");
+    expect(content).toContain("AUTHORING.md");
   });
 
-  test("references ezcorp ext init", async () => {
+  test("requires an isolated build", async () => {
     content ??= await readText(join(DOCS_DIR, "README.md"));
-    expect(content).toContain("ezcorp ext init");
+    expect(content).toContain("isolated build and tests");
   });
 
-  test("references ezcorp ext dev", async () => {
+  test("keeps edits separate from the active release", async () => {
     content ??= await readText(join(DOCS_DIR, "README.md"));
-    expect(content).toContain("ezcorp ext dev");
+    expect(content).toContain("does not change the active release");
   });
 
-  test("references ezcorp ext publish", async () => {
+  test("requires human review before activation", async () => {
     content ??= await readText(join(DOCS_DIR, "README.md"));
-    expect(content).toContain("ezcorp ext publish");
+    expect(content).toContain("human review → activation");
   });
 });
 
@@ -130,20 +126,22 @@ describe("getting-started.md", () => {
     expect(content).toMatch(/## Prerequisites/i);
   });
 
-  test("covers skill creation (Part 1)", async () => {
+  test("documents the actual default scaffold command", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(content).toContain("ezcorp ext init");
-    expect(content).toContain("--type skill");
+    expect(content).toContain("bun src/cli.ts ext init my-extension");
+    expect(content).toContain("inline manifest in `extension.ts`");
   });
 
-  test("covers tool creation (Part 2)", async () => {
+  test("documents scaffold implementation and test files", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(content).toContain("--type tool");
+    expect(content).toContain("src/echo.ts");
+    expect(content).toContain("src/echo.test.ts");
   });
 
   test("covers publishing", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(content).toContain("ezcorp ext publish");
+    expect(content).toContain("publishExtension({ extDir, token })");
+    expect(content).toContain("Publishing is not installation approval");
   });
 
   test("has troubleshooting section", async () => {
@@ -167,9 +165,10 @@ describe("getting-started.md", () => {
     expect(content).toContain("manifest-schema.md");
   });
 
-  test("minimum length: 150 lines", async () => {
+  test("documents runner failures and rejected automatic approval", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(lineCount(content)).toBeGreaterThanOrEqual(150);
+    expect(content).toContain("missing runner must not cause unisolated execution");
+    expect(content).toContain("`--yes` cannot approve a release");
   });
 });
 
@@ -194,18 +193,18 @@ describe("api-reference.md", () => {
   ];
 
   for (const cmd of cliCommands) {
-    test(`documents CLI command: ezcorp ext ${cmd}`, async () => {
+    test(`documents CLI command: ext ${cmd}`, async () => {
       content ??= await readText(join(DOCS_DIR, "api-reference.md"));
-      expect(content).toContain(`ezcorp ext ${cmd}`);
+      expect(content).toMatch(new RegExp("`" + cmd + "(?:[ <`])"));
     });
   }
 
   const sdkTypes = [
-    "JsonRpcRequest",
-    "JsonRpcResponse",
-    "ToolCallResult",
-    "ToolDefinition",
-    "SkillDefinition",
+    "defineExtension",
+    "serve",
+    "validateManifest",
+    "defineRuntimeManifest",
+    "createRuntimeExtension",
   ];
 
   for (const type of sdkTypes) {
@@ -215,9 +214,9 @@ describe("api-reference.md", () => {
     });
   }
 
-  test("has JSON-RPC protocol section", async () => {
+  test("keeps protocol framing inside the SDK", async () => {
     content ??= await readText(join(DOCS_DIR, "api-reference.md"));
-    expect(content).toMatch(/JSON-RPC Protocol/i);
+    expect(content).toContain("SDK owns framing, cancellation, dispatch, and schema validation");
   });
 
   test("cross-links to manifest-schema.md", async () => {
@@ -225,9 +224,11 @@ describe("api-reference.md", () => {
     expect(content).toContain("manifest-schema.md");
   });
 
-  test("minimum length: 150 lines", async () => {
+  test("documents every control tool and exact revision rules", async () => {
     content ??= await readText(join(DOCS_DIR, "api-reference.md"));
-    expect(lineCount(content)).toBeGreaterThanOrEqual(150);
+    for (const tool of ["describe", "workspace", "build", "inspect", "release"]) expect(content).toContain(`extensions_${tool}`);
+    expect(content).toContain("expectedRevision");
+    expect(content).toContain("idempotency key");
   });
 });
 
@@ -256,12 +257,12 @@ describe("manifest-schema.md", () => {
   }
 
   const componentTypes = [
-    "tools[]",
-    "skills[]",
-    "agent",
-    "mcpServers[]",
-    "scripts",
-    "dependencies",
+    "tools",
+    "skills",
+    "agents",
+    "MCP",
+    "workflows",
+    "settings",
   ];
 
   for (const component of componentTypes) {
@@ -273,10 +274,10 @@ describe("manifest-schema.md", () => {
 
   const permissionTypes = ["network", "filesystem", "shell", "env"];
 
-  test("has permissions deep-dive with all 4 types", async () => {
+  test("documents all retained capability families", async () => {
     content ??= await readText(join(DOCS_DIR, "manifest-schema.md"));
     for (const perm of permissionTypes) {
-      expect(content).toContain(`### \`${perm}\``);
+      expect(content).toContain(perm);
     }
   });
 
@@ -285,26 +286,18 @@ describe("manifest-schema.md", () => {
     expect(content).toContain("api-reference.md");
   });
 
-  test("contains complete example manifest with defineExtension and schemaVersion: 2", async () => {
+  test("references the shared v4 template and canonical schema", async () => {
     content ??= await readText(join(DOCS_DIR, "manifest-schema.md"));
-    const blocks = extractCodeBlocks(content);
-    const tsBlocks = blocks.filter((b) => b.lang === "typescript");
-    const fullExample = tsBlocks.find(
-      (b) =>
-        b.code.includes("schemaVersion") &&
-        b.code.includes("tools") &&
-        b.code.includes("permissions") &&
-        b.code.includes("defineExtension"),
-    );
-    expect(fullExample).toBeDefined();
-
-    // Validate it contains schemaVersion: 2
-    expect(fullExample!.code).toContain("schemaVersion: 2");
+    expect(content).toContain("schemaVersion: 4");
+    expect(content).toContain("extensions_describe");
+    expect(content).toContain("extension-contract/src/wire-schema.json");
+    expect(content).not.toContain("schemaVersion: 2");
   });
 
-  test("minimum length: 150 lines", async () => {
+  test("separates declared capabilities from runtime authority", async () => {
     content ??= await readText(join(DOCS_DIR, "manifest-schema.md"));
-    expect(lineCount(content)).toBeGreaterThanOrEqual(150);
+    expect(content).toContain("A declaration is not a grant");
+    expect(content).toContain("Changing a manifest on disk never updates an active installation");
   });
 });
 
@@ -368,19 +361,13 @@ describe("internal link integrity", () => {
 // ── 3. Code example validation ──────────────────────────────────
 
 describe("getting-started.md code example validation", () => {
-  test("all manifest code blocks use TypeScript defineExtension pattern", async () => {
+  test("documented starter files match the executable shared scaffold", async () => {
     const content = await readText(join(DOCS_DIR, "getting-started.md"));
-    const blocks = extractCodeBlocks(content);
-    const tsManifestBlocks = blocks.filter(
-      (b) => b.lang === "typescript" && b.code.includes("schemaVersion"),
-    );
-
-    expect(tsManifestBlocks.length).toBeGreaterThan(0);
-
-    // Full manifest blocks should use defineExtension
-    const fullBlocks = tsManifestBlocks.filter((b) => b.code.includes("export default"));
-    for (const block of fullBlocks) {
-      expect(block.code).toContain("defineExtension");
+    const { scaffoldWorkspace } = await import("@ezcorp/sdk/scaffold");
+    const scaffold = scaffoldWorkspace({ name: "my-extension", description: "Documented starter" });
+    for (const path of ["extension.ts", "src/echo.ts", "src/echo.test.ts"]) {
+      expect(content).toContain(path);
+      expect(scaffold.files[path]).toBeDefined();
     }
   });
 
