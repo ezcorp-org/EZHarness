@@ -87,7 +87,7 @@ for (const name of ["SUBSTACK_SESSION_TOKEN", "SUBSTACK_USER_ID"]) test(`Substac
   try {
     const dependencies: RpcHandlerDeps = { registry: ExtensionRegistry.getInstance(), engine: createStubPermissionEngine(), resolveExtensionScopeGrant: async () => false };
     const response = await handleCredentialBroker(dependencies, installationId, { jsonrpc: "2.0", id: name, method: "ezcorp/env.get", params: { name, _meta: { ezCallId: token } } }, { resolveCredential });
-    expect(response).toMatchObject({ error: { message: "Only approved provider credential handles are available." } });
+    expect(response).toMatchObject({ error: { code: -32603, message: "Only approved provider credentials are available." } });
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(JSON.stringify(response)).not.toContain("host-secret-must-not-leak");
     expect((await lifecycle.inspect(actor, installationId)).installation).toEqual(before.installation);
