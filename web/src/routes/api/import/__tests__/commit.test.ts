@@ -17,6 +17,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
@@ -70,7 +71,7 @@ let installImpl: (d: string) => Promise<{ id: string }> = async () => ({
   id: "ext-installed",
 });
 mock.module("$server/extensions/source-import", () => ({
-  stageExtensionSourceFiles: async (actor: unknown, files: Record<string, string>, provenance: { name: string }) => {
+  stageExtensionSourceFiles: async (actor: unknown, files: WorkspaceFiles, provenance: { name: string }) => {
     installCalls.push({ files, actor, provenance });
     const installation = await installImpl(provenance.name);
     return { installation, operation: { id: "build-operation" }, openUrl: "/extensions/author?installation=ext-installed" };
@@ -262,13 +263,18 @@ describe("commit — happy path", () => {
 });
 
 describe("commit — collisions + failures", () => {
-  test("binary skill assets fail explicitly before lifecycle staging", async () => {
+  test("binary skill assets preserve exact bytes in an unapproved workspace", async () => {
     const { sessionId, skillId } = await stageFixture(true);
     const response = await POST(evt({ projectId: "proj-1", sessionId, skills: [skillId] }));
     const { results } = await response.json();
-    expect(results[0].status).toBe("error");
-    expect(results[0].message).toContain("binary assets are not supported");
-    expect(installCalls).toHaveLength(0);
+    expect(results[0].status).toBe("ok");
+    expect(installCalls).toHaveLength(1);
+    const asset = installCalls[0].files["skill/image.png"];
+    expect(asset).toEqual({ encoding: "base64", data: "//4=", executable: false });
+    expect(workspaceFileBytes(asset)).toEqual(new Uint8Array([255, 254]));
+    expect(results[0].operationId).toBe("build-operation");
+    expect(results[0].openUrl).toContain("/extensions/author");
+    expect(reloadCalled).toBe(false);
   });
   test("suffixes a skill whose name is taken", async () => {
     existingExtNames = new Set(["baz"]);
