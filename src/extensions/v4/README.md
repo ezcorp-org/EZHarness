@@ -47,6 +47,22 @@ host-issued call token. The queue is host-only; it is not a harness tool.
 
 ## Checks
 
+Version 4 filesystem calls use `/project` and `/data`, not host paths. `/project`
+resolves from the authenticated caller's conversation and project membership.
+`/data` is the extension's retained shared data directory. Both the manifest and
+the approved grant must cover the virtual path. Descriptor-based access rejects
+symlink traversal. File transfers are limited to 512 KiB per call under the
+bounded runner protocol; larger transfers require a separate chunked API.
+
+`VirtualFilesystemPorts.roots` and `StorageContext.repository` let candidate tests
+use the production handlers with temporary roots and isolated storage. Storage
+ports include scoped queries, transactions, conversation wiring, and encryption.
+Tests must not substitute an allow-all production identity or production secrets.
+The default storage port keeps quota checks and writes in one transaction.
+Catalog verification never invents a smoke tool call. Declared smoke checks must
+pass using the candidate broker; sealed catalog verification alone is not proof
+of all feature behavior.
+
 Run each `*.test.ts` file in its own Bun process. The lifecycle, delivery, and
 data-migration suites use real PGlite transactions. The blob tests use real files.
 To check the other supported driver against a disposable PostgreSQL database:

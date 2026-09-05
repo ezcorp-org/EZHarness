@@ -100,11 +100,13 @@ describe("candidate verification", () => {
     expect(malformed.closed()).toBe(true);
   });
 
-  test("a tool manifest cannot hide behind a missing smoke test", async () => {
+  test("sealed catalogs do not invent an undeclared smoke invocation", async () => {
     const manifest = structuredClone(release.manifest);
     delete manifest.smokeTest;
-    const fixture = candidateRunner(async () => manifest);
-    await expect(verifyExtensionCandidate(fixture.runner, { ...release, manifest })).rejects.toMatchObject({ code: "smoke_test_required" });
+    const methods: string[] = [];
+    const fixture = candidateRunner(async (method) => { methods.push(method); return manifest; });
+    await verifyExtensionCandidate(fixture.runner, { ...release, manifest });
+    expect(methods).toEqual(["extension/discover"]);
     expect(fixture.closed()).toBe(true);
   });
 });

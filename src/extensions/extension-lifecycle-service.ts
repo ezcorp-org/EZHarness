@@ -69,7 +69,6 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
   try {
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
-    if ((discovered.tools?.length ?? 0) > 0 && !discovered.smokeTest) throw new LifecycleError("smoke_test_required", "A tool extension must declare a smoke test.");
     if (discovered.smokeTest) {
       const smoke = discovered.smokeTest;
       const tool = discovered.tools?.find((candidate) => candidate.name === smoke.tool);

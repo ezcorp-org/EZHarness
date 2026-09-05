@@ -17,11 +17,13 @@ import {
   type FsRpcResponse,
 } from "../fs-handler";
 import { resolveReverseRpcMeta } from "./provenance";
+import { handleVirtualFilesystemRpc, type VirtualFilesystemPorts, type VirtualFsOperation } from "../virtual-filesystem";
 
 /** The `ToolExecutor` state an fs.* handler reads: the PDP + the registry. */
 export interface FsRpcDeps {
   engine: PermissionEngine;
   registry: ExtensionRegistry;
+  virtualFilesystem?: VirtualFilesystemPorts;
 }
 
 /**
@@ -196,49 +198,42 @@ export function buildFsHandlerCtx(
 
 /** `ezcorp/fs.read` — host-mediated read. Streams >1MB responses. */
 export async function handlePiFsRead(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsReadRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "read", handleFsReadRpc);
 }
 
 /** `ezcorp/fs.write` — host-mediated write. */
 export async function handlePiFsWrite(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsWriteRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "write", handleFsWriteRpc);
 }
 
 /** `ezcorp/fs.list` — host-mediated directory list. */
 export async function handlePiFsList(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsListRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "list", handleFsListRpc);
 }
 
 /** `ezcorp/fs.stat` — host-mediated stat. */
 export async function handlePiFsStat(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsStatRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "stat", handleFsStatRpc);
 }
 
 /** `ezcorp/fs.exists` — host-mediated existence check. */
 export async function handlePiFsExists(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsExistsRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "exists", handleFsExistsRpc);
 }
 
 /** `ezcorp/fs.mkdir` — host-mediated mkdir. */
 export async function handlePiFsMkdir(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
-  if (!built.ok) return built.errorResponse;
-  return handleFsMkdirRpc(req, built.ctx);
+  return handleFsOperation(deps, extensionId, req, "mkdir", handleFsMkdirRpc);
 }
 
 /** `ezcorp/fs.unlink` — host-mediated unlink. */
 export async function handlePiFsUnlink(deps: FsRpcDeps, extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse> {
-  const built = buildFsHandlerCtx(deps, extensionId, req);
+  return handleFsOperation(deps, extensionId, req, "unlink", handleFsUnlinkRpc);
+}
+
+async function handleFsOperation(deps: FsRpcDeps, extensionId: string, request: JsonRpcRequest, operation: VirtualFsOperation, legacy: (request: JsonRpcRequest, context: FsHandlerContext) => Promise<FsRpcResponse>): Promise<FsRpcResponse> {
+  const built = buildFsHandlerCtx(deps, extensionId, request);
   if (!built.ok) return built.errorResponse;
-  return handleFsUnlinkRpc(req, built.ctx);
+  if (Number(deps.registry.getManifest(extensionId)?.schemaVersion) === 4) return handleVirtualFilesystemRpc(operation, request, built.ctx, deps.virtualFilesystem);
+  return legacy(request, built.ctx);
 }
