@@ -1,3 +1,4 @@
+import { emitTerminalRun } from "./domain-events";
 import type {
   AgentContext,
   AgentDefinition,
@@ -946,20 +947,9 @@ export class AgentExecutor {
     };
     run.finishedAt = Date.now();
     const conversationId = this.runConversations.get(id);
-    this.bus.emit("run:cancel", { run, conversationId });
-    // Safety net for the leaked-promise case: if the aborted await never
-    // unblocks, streamChat stays suspended and its `finally →
-    // finalizeCleanup` (the only caller of dbRuns.updateRun) never runs,
-    // so the `runs` row would stay `status='running'` forever while the
-    // user already cancelled. Persist a terminal state directly here.
-    // Fire-and-forget (cancelRun is sync + widely called) and idempotent
-    // — finalizeRunRow only transitions a still-`running` row, so the
-    // healthy path that DOES reach finalizeCleanup is unaffected.
-    if (this.persist) {
-      dbRuns.finalizeRunRow(id, "cancelled").catch((err) => {
-        log.error("cancelRun finalizeRunRow failed", { error: String(err) });
-      });
-    }
+    void emitTerminalRun({ persist: this.persist, bus: this.bus }, run, "run:cancel", { run, conversationId }, "abnormal").catch((err) => {
+      log.error("cancelRun finalization failed", { error: String(err) });
+    });
     return true;
   }
 

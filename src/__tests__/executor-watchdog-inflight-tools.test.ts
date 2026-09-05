@@ -38,6 +38,10 @@ afterAll(() => restoreModuleMocks());
 /** Every runId passed to updateHeartbeat, in call order — the defer branch
  *  writes one per tick on purpose (see the heartbeat-cadence test). */
 const heartbeatWrites: string[] = [];
+mock.module("../db/queries/runs", () => ({
+  finalizeRunRow: async () => 1,
+  terminalizeOrphanedRuns: async () => 0,
+}));
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async (runId: string) => { heartbeatWrites.push(runId); },
   updatePartialResponse: async () => {},

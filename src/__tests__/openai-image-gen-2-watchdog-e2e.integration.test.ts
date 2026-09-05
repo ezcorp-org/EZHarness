@@ -35,6 +35,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
 
+mock.module("../db/queries/runs", () => ({ finalizeRunRow: async () => 1, terminalizeOrphanedRuns: async () => 0 }));
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},

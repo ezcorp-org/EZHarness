@@ -5,7 +5,9 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { getActiveRun, markInterrupted } from "$server/db/queries/active-runs";
+import { getActiveRun } from "$server/db/queries/active-runs";
+import { finalizeRunRow } from "$server/db/queries/runs";
+import { emitPersistedDomainEvent } from "$server/extensions/domain-event-outbox";
 import { getPendingAskUserForConversation } from "$server/runtime/ask-user-registry";
 import { getPendingCallerToolCallsForUser } from "$server/runtime/remote-tool-registry";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
@@ -137,31 +139,19 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // a run:error on the bus so every connected client cleans up its streaming state.
   const dbRun = await getActiveRun(params.id);
   if (dbRun) {
+    const reason = "Force-cancelled (no in-memory run)";
+    const run = { id: dbRun.id, agentName: "chat", status: "error" as const, startedAt: dbRun.startedAt.getTime(), finishedAt: Date.now(), logs: [], result: { success: false, output: null, error: reason } };
+    const event = { id: `run:${dbRun.id}:error`, type: "run:error" as const, conversationId: params.id, payload: { run, runId: dbRun.id, error: reason, conversationId: params.id } };
+    let count: number;
     try {
-      await markInterrupted(dbRun.id);
-    } catch (err) {
-      return errorJson(500, `Failed to mark run interrupted: ${String(err)}`);
-    }
-    try {
-      const bus = getBus();
-      bus.emit("run:error", {
-        run: {
-          id: dbRun.id,
-          agentName: "chat",
-          status: "error",
-          startedAt: dbRun.startedAt.getTime(),
-          finishedAt: Date.now(),
-          logs: [],
-          result: { success: false, output: null, error: "Force-cancelled (no in-memory run)" },
-        },
-        runId: dbRun.id,
-        error: "Force-cancelled (no in-memory run)",
-        conversationId: params.id,
-      });
+      count = await finalizeRunRow(dbRun.id, "error", reason, event, true);
     } catch {
-      /* bus unavailable is non-fatal — the DB flip already unsticks the client on next poll */
+      return errorJson(500, "Failed to finalize the run.");
     }
-    return json({ cancelled: true, path: "db-fallback", runId: dbRun.id });
+    if (count) {
+      try { emitPersistedDomainEvent(getBus(), event); } catch {}
+    }
+    return json({ cancelled: count === 1, path: "db-fallback", runId: dbRun.id });
   }
 
   return errorJson(404, "No active run");

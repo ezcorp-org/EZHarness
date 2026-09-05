@@ -119,14 +119,12 @@ describe("cancelRun terminalizes the runs row (orphan-row safety net)", () => {
     const ok = exec.cancelRun(active!.id);
     expect(ok).toBe(true);
 
-    // run:cancel still fires (existing behavior preserved).
-    expect(cancelEvents).toEqual([active!.id]);
+    expect(cancelEvents).toEqual([]);
     // In-memory terminal state set by cancelRun (sanity).
     expect(active!.status).toBe("cancelled");
 
-    // The fix: the `runs` row is terminalized directly, independent of
-    // whether finalizeCleanup ever runs. Fire-and-forget — drain it.
     await new Promise<void>((r) => queueMicrotask(r));
+    expect(cancelEvents).toEqual([active!.id]);
     expect(finalizeRunRowCalls).toHaveLength(1);
     expect(finalizeRunRowCalls[0]!.runId).toBe(active!.id);
     expect(finalizeRunRowCalls[0]!.status).toBe("cancelled");
