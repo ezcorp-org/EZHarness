@@ -182,7 +182,6 @@ export function registerCallProvenance(
     ...(opts?.expiresAt !== undefined ? { expiresAt: opts.expiresAt } : {}),
   });
   log.debug("registered call provenance", {
-    ezCallId: id,
     kind: prov.kind,
     actorExtensionId: prov.actorExtensionId,
     onBehalfOf: prov.onBehalfOf,
@@ -210,7 +209,6 @@ export function resolveCallProvenance(
   const e = registry.get(ezCallId);
   if (!e) {
     log.warn("call-provenance resolve miss — token unknown or already released", {
-      ezCallId,
       liveEntries: registry.size,
     });
     return undefined;
@@ -227,7 +225,7 @@ export function resolveCallProvenance(
 export function releaseCallProvenance(ezCallId: string | undefined | null): void {
   if (typeof ezCallId !== "string" || ezCallId.length === 0) return;
   const had = registry.delete(ezCallId);
-  log.debug("released call provenance", { ezCallId, had, liveEntries: registry.size });
+  log.debug("released call provenance", { had, liveEntries: registry.size });
 }
 
 /**

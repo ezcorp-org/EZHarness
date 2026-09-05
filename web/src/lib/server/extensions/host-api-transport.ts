@@ -4,7 +4,7 @@ import { provisionInternalKey, revokeInternalKey } from "$lib/server/security/in
 
 const RESPONSE_LIMIT = 512 * 1024;
 
-export function createHostApiTransport(baseUrl: string, fetcher: typeof fetch = fetch): HostApiTransport {
+export function createHostApiTransport(baseUrl: string, fetcher: (input: string | URL | Request, init?: RequestInit) => Promise<Response> = fetch): HostApiTransport {
   const base = new URL(baseUrl);
   if (base.protocol !== "http:" || base.hostname !== "127.0.0.1" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("The extension API broker requires the direct loopback HTTP origin.");
 

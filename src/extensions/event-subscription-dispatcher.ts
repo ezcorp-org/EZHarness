@@ -394,7 +394,7 @@ export class EventSubscriptionDispatcher {
           kind: "event",
           ownerless,
         });
-        proc.sendNotification(`ezcorp/event/${eventType}`, {
+        await proc.sendNotification(`ezcorp/event/${eventType}`, {
           ...sanitize(eventType, payload, allowFull),
           _meta: { ezCallId },
         });

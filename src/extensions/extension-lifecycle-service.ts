@@ -117,6 +117,10 @@ async function initialize(): Promise<LifecycleServices> {
   const { configureReleaseRuntime } = await import("./release-process");
   configureReleaseRuntime({
     runner: async () => runner,
+    dispatchNotification: async (extensionId, method, params) => {
+      const { enqueueExtensionNotification } = await import("./delivery-runtime");
+      await enqueueExtensionNotification(extensionId, method, params);
+    },
     resolve: async (id: string) => {
       const state = await repository.read(id);
       if (!state?.installation.activeReleaseId || !state.installation.enabled || state.installation.uninstalled || await migrations.isPaused(id)) return null;
@@ -149,6 +153,7 @@ export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { ret
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
+export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void> {
   const { getDb } = await import("../db/connection");
