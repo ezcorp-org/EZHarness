@@ -128,6 +128,17 @@ test("oversized host frames close the session and reject outstanding callers", a
   await expect(promise).rejects.toThrow("closed");
 });
 
+test("host authority revocation rejects requests and notifies camera subscribers immediately", async () => {
+  const data = fixture();
+  const events: unknown[] = [];
+  data.bridge.subscribeCamera(event => events.push(event));
+  const pending = data.bridge.request("camera.start", {});
+  await data.next();
+  data.reply({ type: "ezcorp.canvas.closed", nonce: data.nonce });
+  await expect(pending).rejects.toThrow("closed");
+  expect(events).toEqual([{ type: "ezcorp.canvas.closed", nonce: data.nonce }]);
+});
+
 test("rejects missing trusted context and compiles as a pure browser module", async () => {
   expect(() => fixture({ document: { URL: "data:text/html,test" } })).toThrow("trusted");
   expect(() => fixture({ __EZCORP_CANVAS_NONCE__: "invalid" })).toThrow("missing");

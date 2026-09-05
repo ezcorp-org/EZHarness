@@ -22,7 +22,8 @@ pending requests to 32. Tool and stop requests expire within 60 seconds. Camera
 start requests can wait up to five minutes for trusted host consent.
 
 `subscribeCamera(listener)` returns an unsubscribe function. It receives bounded
-JPEG camera frames or a camera-stopped event. The host owns camera access and
+JPEG camera frames, a camera-stopped event, or `ezcorp.canvas.closed` when the
+host revokes the connection. The host owns camera access and
 consent; the extension does not receive a browser camera grant.
 
 `close()` rejects pending requests, sends a host close message, and closes both

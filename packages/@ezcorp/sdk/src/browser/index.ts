@@ -1,7 +1,7 @@
 import { assertJson } from "@ezcorp/extension-contract/json";
 
 export type CanvasMethod = "tool.invoke" | "camera.start" | "camera.stop";
-export type CanvasCameraEvent = { type: "ezcorp.canvas.camera"; nonce: string; sessionId: string; dataUrl: string } | { type: "ezcorp.canvas.camera-stopped"; nonce: string; sessionId: string; reason: string };
+export type CanvasCameraEvent = { type: "ezcorp.canvas.camera"; nonce: string; sessionId: string; dataUrl: string } | { type: "ezcorp.canvas.camera-stopped"; nonce: string; sessionId: string; reason: string } | { type: "ezcorp.canvas.closed"; nonce: string };
 export interface CanvasRequestOptions { signal?: AbortSignal; timeoutMs?: number }
 export interface CanvasWindow {
   readonly document: { readonly URL: string };
@@ -68,6 +68,11 @@ export function createCanvasBridge(target: CanvasWindow): CanvasBridge {
       data = event.data as Record<string, unknown>;
     } catch { close(); return; }
     if (data.nonce !== nonce) return;
+    if (data.type === "ezcorp.canvas.closed" && Object.keys(data).every(key => key === "type" || key === "nonce")) {
+      try { for (const listener of listeners) listener({ type: "ezcorp.canvas.closed", nonce }); }
+      finally { close(); }
+      return;
+    }
     if (data.type === "ezcorp.canvas.camera" || data.type === "ezcorp.canvas.camera-stopped") {
       const image = data.type === "ezcorp.canvas.camera";
       const keys = image ? ["type", "nonce", "sessionId", "dataUrl"] : ["type", "nonce", "sessionId", "reason"];
