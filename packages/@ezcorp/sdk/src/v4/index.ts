@@ -52,7 +52,8 @@ export function defineExtension(definition: ExtensionDefinition): DefinedExtensi
         validateInvocationContext(context.invocation);
         context.signal.throwIfAborted();
         checkInput(input);
-        const output = await withExtensionContext(context, () => withInvocationChannel(manifest.name, context, handlers === tools ? name : undefined, () => handler.handle(input, context)));
+        const output = await withInvocationChannel(manifest.name, context, handlers === tools ? name : undefined, invocationContext =>
+          withExtensionContext(invocationContext, () => handler.handle(input, invocationContext)));
         context.signal.throwIfAborted();
         checkOutput(output);
         return output;
