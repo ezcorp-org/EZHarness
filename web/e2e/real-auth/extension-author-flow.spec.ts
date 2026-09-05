@@ -10,7 +10,7 @@ test("nested workspace → isolated build → exact human approval → activatio
   await page.goto(created.openUrl);
   await expect(page.getByRole("heading", { name: "Extension workspace", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true })).toContainText("export function echo");
+  await expect(page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true })).toHaveValue(/export function echo/);
   await page.getByLabel("Add a file", { exact: true }).fill("docs/nested/review.md");
   await page.getByRole("button", { name: "Add file", exact: true }).click();
   await page.getByRole("textbox", { name: "Source: docs/nested/review.md", exact: true }).fill("Reviewed source stays in a revision.");

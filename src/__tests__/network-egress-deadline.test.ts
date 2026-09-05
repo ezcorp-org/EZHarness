@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
 import { guardedFetch, guardedStreamingFetch } from "../search/egress";
 
+test("caller transport headers cannot override the pinned destination", async () => {
+  for (const name of ["host", "connection", "content-length", "transfer-encoding", "upgrade", "te", "trailer", "keep-alive", "proxy-authorization", "proxy-authenticate", "proxy-connection"]) {
+    await expect(guardedFetch("https://example.com", { headers: { [name]: "malicious" } }, { mode: "read", resolveHost: async () => ["93.184.216.34"], fetchImpl: async () => { throw new Error("must not send"); } })).rejects.toHaveProperty("reason", "host-not-allowed");
+  }
+});
+
 test("response body must finish before the overall deadline", async () => {
   let cancelled = false;
   await expect(guardedFetch("https://example.com", {}, { mode: "read", timeoutMs: 20, resolveHost: async () => ["93.184.216.34"], fetchImpl: async () => new Response(new ReadableStream({ cancel() { cancelled = true; } })) })).rejects.toThrow("deadline");

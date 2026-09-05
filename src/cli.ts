@@ -32,13 +32,12 @@ import {
 } from "./auth/tool-policy";
 import { getVisibleMode } from "./db/queries/modes";
 import { apiRegistry } from "./api-registry";
-import { installFromLocal, installWithDependencies, updateExtension as updateExt, removeExtension as removeExt, checkForUpdates } from "./extensions/installer";
+import { initCliExtension, stageCliExtension, updateCliExtension, removeCliExtension, verifyCliExtension } from "./extensions/cli-control";
 import { satisfiesRange } from "./extensions/manifest";
 import type { DependencyTreeNode } from "./extensions/dependency-resolver";
 import { listExtensions, getExtensionByName } from "./db/queries/extensions";
 import { getRequiredPermissions } from "./extensions/permissions";
-import type { ExtensionPermissions, ExtensionManifestV2 } from "./extensions/types";
-import { promptForPermissions } from "./extensions/install-grant";
+import type { ExtensionManifestV2 } from "./extensions/types";
 
 /**
  * `initDb()` for CLI commands: a datadir held by a LIVE server (see
@@ -562,127 +561,23 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "ext:init": {
-      const { initExtension } = await import("./extensions/sdk/init");
-      try {
-        await initExtension({
-          extName: parsed.extName,
-          type: parsed.type as "tool" | "skill" | "agent" | "multi" | undefined,
-        });
-      } catch (err: unknown) {
-        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(1);
-      }
+      const directory = await initCliExtension(parsed.extName ?? "my-extension");
+      console.log(`Created v4 source at ${directory}. Use ext test to build it in isolation.`);
       break;
     }
 
     case "ext:install": {
-      if (!parsed.source) {
-        console.error("Error: source required. Usage: ezcorp ext install <source> [--yes]");
-        process.exit(1);
-      }
-
+      if (!parsed.source) throw new Error("Usage: ezcorp ext install <source>");
+      if (parsed.autoApprove) throw new Error("--yes cannot approve an extension. Review the exact tested release in a human session.");
       await initDbOrExit();
-
-      try {
-        const { existsSync } = await import("node:fs");
-        const { resolve } = await import("node:path");
-        const resolvedPath = resolve(parsed.source);
-        const isLocalPath = existsSync(resolve(resolvedPath, "ezcorp.config.ts")) ||
-          existsSync(resolve(resolvedPath, "ezcorp.config.js"));
-
-        if (isLocalPath) {
-          const { loadManifest } = await import("./extensions/loader");
-          const manifest = await loadManifest(resolvedPath);
-          let permissions: ExtensionPermissions = { grantedAt: {} };
-          try {
-            permissions = await promptForPermissions(manifest as unknown as ExtensionManifestV2, !!parsed.autoApprove);
-          } catch { /* use default empty permissions */ }
-          const ext = await installFromLocal(resolvedPath, permissions, true);
-          console.log(`Installed ${ext.name} v${ext.version} from ${parsed.source}`);
-        } else {
-          const extensionsDir = process.env.__EZCORP_TEST_EXTENSIONS_DIR;
-          const { root, dependencies } = await installWithDependencies(
-            parsed.source,
-            { grantedAt: {} }, // base permissions; onPermissionPrompt overrides
-            {
-              ...(extensionsDir ? { extensionsDir } : {}),
-              enabled: true,
-              onConfirm: async (tree: string, _count: number) => {
-                if (parsed.autoApprove) return true;
-                console.log(`\nDependency tree:\n${tree}`);
-                return true;
-              },
-              onPermissionPrompt: async (manifest: ExtensionManifestV2) => {
-                return promptForPermissions(manifest, !!parsed.autoApprove);
-              },
-            },
-          );
-
-          if (dependencies.length > 0) {
-            console.log(`Installed ${root.name} v${root.version} with ${dependencies.length} dependencies`);
-          } else {
-            console.log(`Installed ${root.name} v${root.version} from ${parsed.source}`);
-          }
-        }
-      } catch (err: unknown) {
-        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(1);
-      }
+      console.log(JSON.stringify(await stageCliExtension(parsed.source), null, 2));
       break;
     }
 
     case "ext:update": {
+      if (!parsed.extName) throw new Error("Usage: ezcorp ext update <name>. Each release needs an explicit review.");
       await initDbOrExit();
-
-      const checkDependentCompat = async (updatedName: string, newVersion: string) => {
-        const allExts = await listExtensions();
-        for (const other of allExts) {
-          const otherManifest = other.manifest as ExtensionManifestV2;
-          if (!otherManifest.dependencies) continue;
-          for (const [depName, depSpec] of Object.entries(otherManifest.dependencies)) {
-            if (depName === updatedName && !satisfiesRange(newVersion, depSpec.version)) {
-              console.log(`Warning: ${other.name} requires ${updatedName} ${depSpec.version} but ${newVersion} is installed`);
-            }
-          }
-        }
-      };
-
-      if (parsed.extName) {
-        try {
-          const result = await updateExt(parsed.extName);
-          console.log(`Updated ${parsed.extName}: ${result.from} -> ${result.to}`);
-          await checkDependentCompat(parsed.extName, result.to);
-        } catch (err: unknown) {
-          console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-          process.exit(1);
-        }
-      } else {
-        // Update all extensions
-        const exts = await listExtensions();
-        if (exts.length === 0) {
-          console.log("No extensions installed.");
-          break;
-        }
-
-        let updated = 0;
-        for (const ext of exts) {
-          try {
-            const check = await checkForUpdates(ext);
-            if (check.available) {
-              const result = await updateExt(ext.name);
-              console.log(`Updated ${ext.name}: ${result.from} -> ${result.to}`);
-              await checkDependentCompat(ext.name, result.to);
-              updated++;
-            }
-          } catch (err: unknown) {
-            console.error(`Failed to update ${ext.name}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-
-        if (updated === 0) {
-          console.log("All extensions are up to date.");
-        }
-      }
+      console.log(JSON.stringify(await updateCliExtension(parsed.extName), null, 2));
       break;
     }
 
@@ -714,32 +609,10 @@ export async function cli(args: string[]): Promise<void> {
     }
 
     case "ext:remove": {
-      if (!parsed.extName) {
-        console.error("Error: extension name required. Usage: ezcorp ext remove <name> [--force]");
-        process.exit(1);
-      }
-
+      if (!parsed.extName) throw new Error("Usage: ezcorp ext remove <name>");
       await initDbOrExit();
-
-      // Check for dependents
-      const dependents = await findDependents(parsed.extName);
-
-      if (dependents.length > 0 && !parsed.force) {
-        console.error(`Cannot remove ${parsed.extName}: required by ${dependents.join(", ")}`);
-        process.exit(1);
-      }
-
-      if (dependents.length > 0 && parsed.force) {
-        console.log(`Force removing ${parsed.extName} (required by ${dependents.join(", ")})`);
-      }
-
-      try {
-        await removeExt(parsed.extName);
-        console.log(`Removed ${parsed.extName}`);
-      } catch (err: unknown) {
-        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
-        process.exit(1);
-      }
+      await removeCliExtension(parsed.extName);
+      console.log(`Removed ${parsed.extName}. Extension data is retained.`);
       break;
     }
 
@@ -839,37 +712,12 @@ export async function cli(args: string[]): Promise<void> {
       break;
     }
 
-    case "ext:dev": {
-      const { startDevServer } = await import("./extensions/sdk/dev");
-      await startDevServer({ extDir: parsed.extDir });
-      break;
-    }
-
-    case "ext:test": {
-      const { runExtensionTests } = await import("./extensions/sdk/test-runner");
-      const code = await runExtensionTests({ extDir: parsed.extDir, filter: parsed.filter });
-      return process.exit(code);
-    }
-
+    case "ext:dev":
+    case "ext:test":
     case "ext:verify": {
-      // Deterministic, zero-LLM acceptance gate. Exit 0 iff `pass`.
-      const { verifyExtension } = await import("./extensions/sdk/verify");
-      const { resolve: resolvePath } = await import("node:path");
-      // Resolve to an absolute path: `loadManifest` does a bare
-      // `import(join(dir, "ezcorp.config.ts"))`, which Bun resolves
-      // relative to the LOADER module, not the CWD — a relative
-      // `./docs/...` arg would otherwise fail to load.
-      const extDir = resolvePath(parsed.extDir ?? process.cwd());
-      const result = await verifyExtension({ extDir });
-      if (parsed.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        for (const step of result.steps) {
-          console.log(`${step.ok ? "✓" : "✗"} ${step.name}: ${step.detail}`);
-        }
-        console.log(result.pass ? "\nVERIFY: PASS" : "\nVERIFY: FAIL");
-      }
-      return process.exit(result.pass ? 0 : 1);
+      const result = await verifyCliExtension(parsed.extDir ?? process.cwd());
+      console.log(JSON.stringify(result, null, 2));
+      return process.exit(result.state === "succeeded" ? 0 : 1);
     }
 
     case "key:mint": {

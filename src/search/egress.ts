@@ -398,6 +398,7 @@ export async function guardedFetch(
     }
 
     const headers = new Headers(init.headers ?? {});
+    for (const key of headers.keys()) if (["host", "connection", "content-length", "transfer-encoding", "upgrade", "te", "trailer", "keep-alive", "proxy-authorization", "proxy-authenticate", "proxy-connection"].includes(key)) return block("host-not-allowed", currentUrl, "Transport headers must be managed by the host");
     headers.set("host", parsed.host);
 
     let res: Response;
