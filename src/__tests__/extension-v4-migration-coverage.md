@@ -1,5 +1,27 @@
 # Extension cutover test mapping
 
+## Library control follow-up
+
+`web/e2e/extensions-install-gate.spec.ts` now exercises source admission in
+the rendered import page: a host-credential refusal is shown verbatim, the
+form becomes usable again, and no installation card or activation appears.
+The positive control submits an exact local source request without grants
+and hands off to the exact candidate workspace for review. These are controlled
+API fixtures, not a claim that the old blanket `*_API_KEY` rule still applies.
+Version 4 uses declared, approved opaque credential handles. Real source import,
+credential access, and approval boundaries have separate server and real-auth tests.
+
+`web/e2e/toast-notifications.spec.ts` preserves the failed-install alert through
+the supported MCP candidate endpoint. Its completion, error, dismissal, and
+severity checks now use the actual runtime SSE stream, not the removed WebSocket
+transport, and wait for the current sidebar link instead of a retired heading.
+
+`web/e2e/real-auth/extension-author-flow.spec.ts` verifies that an approved
+installation appears without the virtual native-tool row, the owner can prepare
+and save a revision without the legacy modifiable flag, and the active release
+ID and generation stay unchanged. List and detail component tests keep MCP
+staging and legacy-only modification controls covered.
+
 These legacy suites tested host-imported metadata and automatic permission
 changes. Version 4 removes that behavior rather than granting it another route.
 No test is skipped. The replacements exercise the new boundary explicitly.
