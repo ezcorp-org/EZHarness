@@ -104,6 +104,7 @@ async function postEvent(
 ): Promise<APIResponse> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await request.post(evtUrl(suffix), {
+			headers: { "Idempotency-Key": crypto.randomUUID() },
       data: { source: "hub", pageId, payload },
     });
     if (res.status() !== 429) return res;
@@ -113,7 +114,10 @@ async function postEvent(
     await new Promise((r) => setTimeout(r, Math.min(retryAfter + 1, 65) * 1000));
   }
   // Final attempt — return whatever we get so the assertion surfaces it.
-  return request.post(evtUrl(suffix), { data: { source: "hub", pageId, payload } });
+  return request.post(evtUrl(suffix), {
+		headers: { "Idempotency-Key": crypto.randomUUID() },
+		data: { source: "hub", pageId, payload },
+	});
 }
 
 /** Read the WRITER's config.json out of the container (the persistence
