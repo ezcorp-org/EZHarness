@@ -72,6 +72,8 @@ Task source and host behavior: /tmp/lifecycle-task-final-coverage.log has 141 te
 
 Remaining task fixture audit: `/tmp/lifecycle-task-cohort-final.log` has 44 passing tests and 123 assertions, with no skips. Real SQL fixtures now supply the active conversation owner, current project membership and task store installation. The wire-only fixture uses the shared revision-checking task-event persistence port, not an acknowledgement with no state commit. The previously skipped assignment-completion test runs with all original auto-advance assertions. The global loop notice test explicitly asserts `durable:false`; global content-free notices do not claim durable scoped delivery.
 
+Web task API fixtures: `/tmp/lifecycle-web-task-fixture-final.log` has 57 tests and 240 assertions passing. Both suites use the shared task publication port and include the assignment writer export. Completion callbacks settle their asynchronous task-state publication before asserting that the next child stream starts. Existing ownership, stop/retry, parent-message and continuation assertions remain intact. Scoped lint passes.
+
 - [x] The generic conversation card event route admits a receipt and all eligible deliveries before HTTP success or UI bus emission.
   CHECK: cd web && bun test ./src/__tests__/hub-isolated-action.integration.test.ts
   EXPECT: 5 tests pass.
