@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ReleaseRecord, Runner, RunnerExecution } from "@ezcorp/extension-contract";
-import { createLifecycleAuthorization, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
+import { createLifecycleAuthorization, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
 import { requestedReleaseGrants } from "./extension-control";
 import type { InstallationRecord, LifecycleActor } from "./v4";
 
@@ -83,6 +83,26 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
 }
 
 describe("candidate verification", () => {
+  test("storage migration binds identity, denies effects, validates output and closes its worker", async () => {
+    const candidate = structuredClone(release);
+    candidate.manifest.methods = [{ name: "migrate", description: "Migrate", inputSchema: { type: "object" }, outputSchema: { type: "object", required: ["values"] } }];
+    const input = { release: candidate, method: "migrate", principalId: "owner", scope: "private", fromVersion: "1", toVersion: "2", values: { note: "retained" } };
+    const calls: unknown[] = [];
+    const fixture = candidateRunner(async (method, payload) => { calls.push({ method, payload }); return { values: input.values }; });
+    const originalStart = fixture.runner.start;
+    fixture.runner.start = async (request, reverse) => {
+      await expect(reverse("ezcorp/storage.set", { context: request.context })).rejects.toMatchObject({ code: "migration_effect_denied" });
+      return originalStart(request, reverse);
+    };
+    expect(await runStorageMigration(fixture.runner, input)).toEqual({ values: input.values });
+    expect(fixture.contexts[0]).toMatchObject({ principalId: "owner", scopeId: "data-migration:private" });
+    expect(calls[0]).toMatchObject({ method: "extension/dispatch", payload: { method: "migrate", input: { fromVersion: "1", toVersion: "2", values: input.values } } });
+    expect(fixture.closed()).toBe(true);
+    await expect(runStorageMigration(fixture.runner, { ...input, method: "undeclared" })).rejects.toMatchObject({ code: "migration_method_missing" });
+    const invalid = candidateRunner(async () => ({}));
+    await expect(runStorageMigration(invalid.runner, input)).rejects.toThrow();
+    expect(invalid.closed()).toBe(true);
+  });
   test("smoke error status assertions check both expected outcomes", async () => {
     for (const expected of [true, false]) {
       const candidate = structuredClone(release);
