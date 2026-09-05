@@ -115,6 +115,7 @@ export interface MockOverrides {
 		status: "success" | "error" | "interrupted";
 		messageId?: string | null;
 		cardType?: string | null;
+		cardLayout?: string | null;
 	}>>;
 	/**
 	 * Path listings that the mention search API returns for `type=path` queries.
