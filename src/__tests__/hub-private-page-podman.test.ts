@@ -136,6 +136,12 @@ test("rootless page rendering never shares a worker result or cache across authe
     fixture.snapshot.installation.acknowledgedGeneration++;
     expect((await render("alice")).page?.title).toBe("Private for alice");
     expect(renders).toBe(3);
+    const cursor = aliceEvents.match(/^id: (\d+)$/m)?.[1];
+    expect(cursor).toBeDefined();
+    const replay = await fetch(`${base}/events`, { headers: { cookie: cookies.alice!, "last-event-id": cursor! }, signal: streamSignal });
+    const replayed = await readOwnState(replay, "alice");
+    expect(replayed).toContain('"type":"ext:state"');
+    expect(replayed).not.toContain("Private for bob");
     fixture.snapshot.installation.enabled = false;
     const revoked = await fetch(`${base}/page`, { headers: { cookie: cookies.alice! } });
     expect(revoked.status).toBe(404);
@@ -149,3 +155,26 @@ test("rootless page rendering never shares a worker result or cache across authe
     await rm(root, { recursive: true, force: true });
   }
 }, 120_000);
+
+test("a retired bus cannot block private event replay on a replacement bus", async () => {
+  const { addSink, replayFrom, __resetSseResumeBufferForTests } = await import("../../web/src/lib/server/sse-resume-buffer");
+  __resetSseResumeBufferForTests();
+  const previous = new EventBus<Record<string, unknown>>();
+  const next = new EventBus<Record<string, unknown>>();
+  const seen: unknown[] = [];
+  try {
+    addSink({ on: (event, handler) => {
+      const remove = previous.on(event, handler);
+      return () => { remove(); throw new Error("Retired bus cleanup failed"); };
+    } }, () => {});
+    const remove = addSink(next, event => { seen.push(event.data); });
+    previous.emit("run:complete", { source: "retired" });
+    next.emit("run:complete", { source: "replacement" });
+    expect(seen).toEqual([{ source: "replacement" }]);
+    expect(replayFrom(0).map(event => event.data)).toEqual(seen);
+    remove();
+    next.emit("run:complete", { source: "disconnected" });
+    expect(seen).toHaveLength(1);
+    expect(replayFrom(1).map(event => event.data)).toEqual([{ source: "disconnected" }]);
+  } finally { __resetSseResumeBufferForTests(); }
+});
