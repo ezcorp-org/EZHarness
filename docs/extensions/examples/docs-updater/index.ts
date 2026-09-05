@@ -171,7 +171,7 @@ export async function readCommitSubjects(
   repoPath: string,
   sinceHash: string | undefined,
 ): Promise<string[]> {
-  if (getInvocationContext()) return getChannel().request<string[]>("ezcorp/project.commitSubjects", { sinceHash });
+  if (getInvocationContext()) return getChannel().request<string[]>("ezcorp/project.commitSubjects", sinceHash ? { sinceHash } : {});
   const range = sinceHash ? [`${sinceHash}..HEAD`] : ["-1"];
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", ...range, "--format=%s"],
