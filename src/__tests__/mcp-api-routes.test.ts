@@ -84,14 +84,28 @@ test("blocked targets and connection failures have the same public error", async
   expect(staged).toBe(0);
 });
 
-test("the offline stdio profile rejects runtime installers, credentials and network hosts", async () => {
-  for (const definition of [{ command: "npx" }, { command: "/packaged/server", env: { TOKEN: "secret" } }, { command: "/packaged/server", args: ["https://example.com"] }]) {
+test("the stdio profile rejects runtime installers and plaintext credentials", async () => {
+  for (const definition of [{ command: "npx" }, { command: "/packaged/server", env: { TOKEN: "secret" } }]) {
     const response = await POST(event({ name: "offline", server: { name: "offline", transport: "stdio", ...definition } }));
     expect(response.status).toBe(500);
     expect((await response.json()).code).toBe("unsupported_mcp_profile");
   }
   expect(staged).toBe(0);
   expect((await POST(event({ name: "offline", server: { name: "offline", transport: "stdio", command: "/packaged/server" } }))).status).toBe(202);
+});
+
+test("networked stdio stages distinct HTTP and TCP requests without release approval", async () => {
+  const response = await POST(event({ name: "native", server: { name: "native", transport: "stdio", command: "/packaged/server", args: ["https://example.com"] } }));
+  expect(response.status, await response.clone().text()).toBe(202);
+  const result = await response.json();
+  expect(result.operation.state).toBe("queued");
+  expect(result.installation.activeReleaseId).toBeUndefined();
+  expect(operations).toHaveLength(1);
+  expect(staged).toBe(1);
+  const manifest = JSON.parse(files["mcp.manifest.json"]!);
+  expect(manifest.permissions.network).toEqual(["example.com"]);
+  expect(manifest.permissions.networkTcp).toEqual(["example.com:443"]);
+  expect(manifest.permissions.mcpInvoke).toBe(true);
 });
 
 test("edit and refresh report missing installations without creating source", async () => {

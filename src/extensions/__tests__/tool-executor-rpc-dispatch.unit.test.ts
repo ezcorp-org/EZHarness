@@ -31,6 +31,7 @@ const HANDLER_NAMES = [
   "handlePiProjectGit",
   "handlePiProjectPullRequestReview",
   "handlePiNetworkBroker",
+  "handlePiNetworkTunnel",
   "handlePiCredentialBroker",
   "handlePiInvoke",
   "handlePiFsRead",
@@ -77,6 +78,16 @@ function makeStubExecutor(): { self: ToolExecutor; lastCalled: () => string | nu
 }
 
 describe("routeReverseRpc dispatch table", () => {
+  test("native transport and credential methods use distinct exact handlers", async () => {
+    for (const method of ["open", "write", "read", "close"].map((action) => `ezcorp/network.tunnel.${action}`).concat("ezcorp/env.get", "ezcorp/credentials.read")) {
+      const { self, lastCalled } = makeStubExecutor();
+      const response = await routeReverseRpc(self, "ext-1", { jsonrpc: "2.0", id: 1, method, params: {} });
+      const expected = method.startsWith("ezcorp/network.tunnel.") ? "handlePiNetworkTunnel" : "handlePiCredentialBroker";
+      expect(lastCalled()).toBe(expected);
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { via: expected } });
+    }
+  });
+
   test("every exact-match route resolves to a real handler (never -32601)", async () => {
     const { self, lastCalled } = makeStubExecutor();
     const methods = Object.keys(REVERSE_RPC_ROUTES);

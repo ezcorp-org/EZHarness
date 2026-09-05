@@ -217,14 +217,19 @@ describe("MCP tool dispatch is gated by the PDP", () => {
       server,
       cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
     });
-    // The same list `mcp-sandbox.ts` hands the forward proxy as
-    // `permittedHosts`, and the same value `mcp-proxy.ts` re-authorizes each
-    // CONNECT against — so the grant maps onto real egress enforcement.
     expect(ext.grantedPermissions.network).toEqual(["stdio.example.com"]);
 
     const { registry } = await bootRegistry(ext.id);
     const conv = await createConversation(projectId, { title: "stdio" });
-    const ok = await makeExecutor(registry).executeToolCall("pdp-stdio__probe", {}, conv.id, null);
+    await expect(
+      makeExecutor(registry).executeToolCall("pdp-stdio__probe", {}, conv.id, null),
+    ).rejects.toThrow(/Missing capability network\.tcp \(stdio\.example\.com:443\)/);
+    const legacyGrants = { ...ext.grantedPermissions, networkTcp: ["stdio.example.com:443"], grantedAt: { ...ext.grantedPermissions.grantedAt, networkTcp: Date.now() } };
+    await updateExtension(ext.id, { grantedPermissions: legacyGrants, installedPermissions: legacyGrants });
+    ExtensionRegistry.resetInstance();
+    _resetPermissionEngineForTests();
+    const fullyGranted = await bootRegistry(ext.id);
+    const ok = await makeExecutor(fullyGranted.registry).executeToolCall("pdp-stdio__probe", {}, conv.id, null);
     expect(ok.isError).toBe(true);
     expect(ok.content[0]?.text).toContain("approved v4 release");
 
