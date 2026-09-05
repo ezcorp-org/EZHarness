@@ -33,7 +33,7 @@ export async function verifyFirstPartyLifecycle(options: { projectRoot: string; 
   let passed = 0;
   let failed = 0;
   try {
-    runner = new PodmanRunner({ root: join(directory, "runner"), ...await provisionToolchain() });
+    runner = new PodmanRunner({ root: join(directory, "runner"), ...await provisionToolchain({ sdkEntrypoint: join(options.projectRoot, "packages/@ezcorp/sdk/src/v4/index.ts") }) });
     await runner.initialize();
     const activeRunner = runner;
     const driver = drizzle(database);
