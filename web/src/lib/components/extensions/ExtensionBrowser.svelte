@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick, untrack } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { CanvasBridge, type CanvasMethod } from "$lib/extensions/canvas-bridge";
   import { SANDBOX_FLAGS_STRICT } from "$lib/components/tool-cards/iframe-card-logic";
   import { userFetch } from "$lib/utils/fetch-policy";
@@ -8,10 +8,11 @@
   const context = untrack(() => ({ name, binding, nonce, conversationId, tools: [...tools] }));
   const endpoint = `/api/extensions/${encodeURIComponent(context.name)}/preview`;
   const iframeSrc = `${endpoint}?${new URLSearchParams({ binding: context.binding, conversationId: context.conversationId, nonce: context.nonce })}`;
-  let iframe: HTMLIFrameElement | undefined;
+  let iframe = $state<HTMLIFrameElement>();
   let video: HTMLVideoElement | undefined;
   let dialog: HTMLDialogElement | undefined;
   let unavailable = $state(false);
+  let mounted = $state(false);
   let cameraError = $state("");
   let starting = $state(false);
   let camera = $state<{ id: string; stream: MediaStream; timer: ReturnType<typeof setInterval>; expiry: ReturnType<typeof setTimeout> } | null>(null);
@@ -111,6 +112,7 @@
   }
 
   const bridge = new CanvasBridge(() => iframe?.contentWindow, context.nonce, dispatch, () => { unavailable = true; stopCamera("preview-closed"); });
+  onMount(() => { mounted = true; });
   onDestroy(() => bridge.close());
   $effect(() => { if (pendingCamera) { if (dialog && !dialog.open) dialog.showModal(); } else dialog?.close(); });
 </script>
@@ -121,7 +123,7 @@
   {#if camera}<div class="camera-status"><span class="live">● Camera sharing · up to 2 frames per second</span><button onclick={() => stopCamera("stopped")}>Stop camera</button></div>{/if}
   {#if unavailable}<div class="notice" role="alert">Preview closed because access changed or its document navigated. Reopen it to continue.</div>{/if}
   {#if cameraError}<div class="notice" role="status">{cameraError}</div>{/if}
-  <iframe bind:this={iframe} title={`${context.name} preview`} src={iframeSrc} sandbox={SANDBOX_FLAGS_STRICT} referrerpolicy="no-referrer" onload={() => bridge.loaded()}></iframe>
+  {#if mounted}<iframe bind:this={iframe} title={`${context.name} preview`} src={iframeSrc} sandbox={SANDBOX_FLAGS_STRICT} referrerpolicy="no-referrer" onload={() => bridge.loaded()}></iframe>{/if}
 </section>
 <dialog bind:this={dialog} oncancel={event => { event.preventDefault(); stopCamera("cancelled"); }} aria-labelledby="camera-consent-title">
   <div class="camera-dialog">
@@ -139,13 +141,13 @@
 <style>
   .extension-browser{border:1px solid var(--color-border);border-radius:.75rem;overflow:hidden;background:var(--color-surface)}
   .trust-bar{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;padding:.85rem 1rem;border-bottom:1px solid var(--color-border);font-size:.8rem;color:var(--color-text-muted)}
-  .trust-bar strong{color:var(--color-text)}.status-dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--color-primary)}
+  .trust-bar strong{color:var(--color-text-primary)}.status-dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--color-accent)}
   iframe{width:100%;height:min(78vh,65rem);min-height:32rem;display:block;border:0;background:white}
-  .notice{padding:1rem;border-bottom:1px solid var(--color-border);color:var(--color-text)}
-  dialog{width:min(44rem,calc(100vw - 2rem));padding:0;border:1px solid var(--color-border);border-radius:1rem;background:var(--color-surface);color:var(--color-text);box-shadow:0 24px 80px #0008}
-  dialog::backdrop{background:#0009;backdrop-filter:blur(3px)}.camera-dialog{padding:1.5rem}.eyebrow{font-size:.7rem;letter-spacing:.12em;font-weight:700;color:var(--color-primary)}
+  .notice{padding:1rem;border-bottom:1px solid var(--color-border);color:var(--color-text-primary)}
+  dialog{width:min(44rem,calc(100vw - 2rem));padding:0;border:1px solid var(--color-border);border-radius:1rem;background:var(--color-surface);color:var(--color-text-primary);box-shadow:0 24px 80px #0008}
+  dialog::backdrop{background:#0009;backdrop-filter:blur(3px)}.camera-dialog{padding:1.5rem}.eyebrow{font-size:.7rem;letter-spacing:.12em;font-weight:700;color:var(--color-accent)}
   h2{font-size:1.4rem;font-weight:600;margin:.65rem 0}p{line-height:1.6;color:var(--color-text-muted);margin:0 0 1rem}
   video{display:block;width:100%;max-height:45vh;min-height:8rem;background:#111;border-radius:.5rem;object-fit:contain}
-  .camera-actions{display:flex;align-items:center;justify-content:flex-end;gap:.75rem;margin-top:1.2rem;flex-wrap:wrap}.camera-status{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.75rem 1rem;border-bottom:1px solid var(--color-border)}.live{margin-right:auto;color:var(--color-primary);font-size:.8rem}
-  button{padding:.65rem 1rem;border:1px solid var(--color-border);border-radius:.5rem;background:var(--color-surface);color:var(--color-text);cursor:pointer}.primary{background:var(--color-primary);color:var(--color-bg);font-weight:600}button:disabled{opacity:.6;cursor:wait}
+  .camera-actions{display:flex;align-items:center;justify-content:flex-end;gap:.75rem;margin-top:1.2rem;flex-wrap:wrap}.camera-status{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.75rem 1rem;border-bottom:1px solid var(--color-border)}.live{margin-right:auto;color:var(--color-accent);font-size:.8rem}
+  button{padding:.65rem 1rem;border:1px solid var(--color-border);border-radius:.5rem;background:var(--color-surface);color:var(--color-text-primary);cursor:pointer}.primary{background:var(--color-accent);color:var(--color-accent-contrast);font-weight:600}button:disabled{opacity:.6;cursor:wait}
 </style>
