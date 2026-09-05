@@ -78,3 +78,17 @@ Draft PR 246 at `5cdf49fe` exposed failures that local checks had missed:
 The patched-parser all-50 sweep passes without interruption at commit `3ee4f8cf`, tree `c2eb306b627df08ce696dbf7dc3e76a2854d4a8e` (`/tmp/ez-all50-fast-uri-patched.jsonl`, empty stderr). This supersedes the earlier baseline-plus-delta candidate proof for the parser change. Contract tests pass 23/291 assertions; SDK tests pass 1,023/2,332 assertions with actual Podman tests enabled. Backend run 14 passes 24,406 tests in 1,547 files before the Hub lane addition; its five tests pass separately. Plain-web run 11 passes 4,120 tests in 221 files after that move. Gate integrity still reports the same 84 migration findings; no approval label has been applied.
 
 These are follow-up local results, not a claim that the next hosted CI run passes. The PR remains a draft.
+
+## Final follow-up local checks
+
+Product source is fixed at `362a0aec` (tree `e05dc0a3b7a4b32b346a041401ec21a5a5ddf2b9`). Later commits update browser tests and evidence only. Source imports now lead to candidate review instead of retired direct-install endpoints. Owners can prepare v4 revisions without an obsolete modification flag; the native-tool sentinel is not presented as an uninstallable extension. Updated screenshots were opened and reviewed.
+
+- Full coverage run 4: 25,671 passing tests, zero failures, 1,535 shards; all 1,239 enforced source files pass (`/tmp/ez-ci-coverage-final4.log`).
+- New-file and patch checks: all 126 new source files gated; changed executable lines in all 338 source files covered (`/tmp/ez-ci-new-file-coverage4.log`, `/tmp/ez-ci-patch-coverage4.log`).
+- Same-runtime web suite: 7,029 tests in 543 files pass (`/tmp/ez-ci-bun-vitest-full2.log`).
+- Updated browser cohorts: all 58 extension and notification tests pass together. The required mock lane also passes 210 tests with its 12 pre-existing skips (`/tmp/ez-ci-extensions-combined.log`, `/tmp/ez-ci-mock-gate-final3.log`).
+- All nine actual authenticated/rootless extension specifications pass together after the UI changes, including the revised owner-edit path, explicit cancellation and protected scanner (`/tmp/ez-ci-real-final11.log`, 2.7 minutes).
+- Types 47, Svelte check 3, lint 22, build 6, visual evidence and manifest-lock checks pass. Svelte still reports 13 warnings; lint still reports 105 warnings and 11 informational findings.
+- Final production image `55ebd3389dbd68439956fd747fb7e3ba1f317d5ff8dd4f6ae2fbc5a1c9acb266` passes all eight actual checks (`/tmp/ez-container-ui-final-verify.log`).
+
+The browser migration preserves test counts and current safety assertions. It does not restore destructive purge, mutable inline grants, generic Git installation, or the retired blanket credential-name rule. The migration document records those distinctions for human review.
