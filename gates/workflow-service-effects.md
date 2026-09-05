@@ -26,3 +26,13 @@ Product snapshot `a2d2c7d9`, merged locally as `f02276a6`, passes `EXTENSION_TES
 `bun test ./src/extensions/runtime-locks-postgres.test.ts` passes 2 tests and 4 assertions at the same snapshot; log `/tmp/lifecycle-runtime-locks-postgres-final.log`. Both commands use the pinned PostgreSQL image in `scripts/test-images.json` and remove their own disposable containers. This is ordering of admitted database effects, not a claim of rollback or exactly-once behavior for external effects.
 
 The runner agent reports the actual authenticated rootless service storage and `/data` browser test passes in `/tmp/ez-service-storage-real1.log`: one test, exact service identity, storage set/get, file write/read, and no changed state or second run after revocation. Broader final-suite and PR gates remain the parent task's responsibility.
+
+## Frozen runtime proof
+
+Final product tree `beaa01d3b2a58bab7ed4ea9e95e049b3cc17e723` retains the nominal host-only service boundary and removes one duplicate release-binding check before ordinary reverse-RPC effects. The effect admission callback still checks the live release, service proof, cancellation state and supplied transaction immediately before the effect. Lock acquire and release keep their explicit check because they do not use ordinary effect admission.
+
+`/tmp/ez-release-dedup-coverage.log` passes 27 release-lifetime and runtime-lock tests with 142 assertions. `/tmp/ez-release-dedup-lines.log` records execution of every changed `release-process.ts` line: lines 166 through 169 have 308, 181, 78 and 103 hits. The unchanged authenticated rootless service test passes in `/tmp/ez-service-storage-releaseprocess1.log`. It uses a null-human service principal, performs storage get/set and `/data` write/read, then proves revocation prevents changed state and a second run.
+
+`/tmp/ez-sol-runtime-postgres-final.log` passes the lifecycle script against the pinned disposable PostgreSQL image. Two independent database clients prove seven ordered fences: release, publication, user, membership, service account, delegation and running workflow. PostgreSQL reports the revoking client blocked by the admitted effect transaction. After that transaction commits, revocation completes and the next canonical authority check denies execution. The service and delegation fences call `workflowReleaseCanExecute` with the exact effect transaction. `/tmp/ez-sol-runtime-locks-postgres-final.log` passes 2 runtime-lock tests with 4 assertions. The owned container was removed after both commands.
+
+These SQL results prove transaction ordering and denial of later admissions. They do not promise rollback, cancellation or exactly-once behavior for a network, shell, file or other external effect that was already admitted.
