@@ -45,6 +45,11 @@ release matches this host build's checked-in first-party source digest. Agent
 writes share the release publication transaction. A conflicting user-owned agent
 is kept; publication fails instead of using that agent's prompt. Disabling the
 release removes its live agent registrations but keeps stored user data.
+Host-managed rows carry an internal installation identifier. Startup loads them
+only for an acknowledged active release with the exact approved grants. Ordinary
+user agents with the same name remain available, but factory workflows cannot
+use them as substitutes. Migration marks only exact ownerless legacy built-ins;
+it does not claim user-owned or changed rows.
 
 Historical first-party source attestation is not yet retained across host
 upgrades. If a previous host build's ez-factory source digest is no longer in the

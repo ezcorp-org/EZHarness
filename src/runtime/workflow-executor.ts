@@ -1574,7 +1574,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal },
+              { skippedSteps, depth: ctx.depth, signal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -1998,6 +1998,7 @@ export class WorkflowExecutor {
       modelBinding,
       inputSink,
       flow.skippedSteps,
+      flow.requireManagedFactoryAgent,
     );
   }
 
@@ -2116,6 +2117,7 @@ export class WorkflowExecutor {
     modelBinding: WorkflowModelBinding | undefined,
     inputSink: WorkflowStepInputSink,
     skippedSteps: ReadonlyMap<string, string>,
+    requireManagedFactoryAgent?: boolean,
   ): Promise<AgentResult> {
     const refCtx: RefContext = { input, stepResults, prevResult, skippedSteps };
     const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
@@ -2137,6 +2139,7 @@ export class WorkflowExecutor {
         userId,
         modelOverride,
         inputSink,
+        requireManagedFactoryAgent,
       );
       if (result.success) return result;
 
@@ -2157,7 +2160,12 @@ export class WorkflowExecutor {
     userId: string | undefined,
     modelOverride: ModelOverride | undefined,
     inputSink: WorkflowStepInputSink,
+    requireManagedFactoryAgent?: boolean,
   ): Promise<AgentAttemptOutcome> {
+    if (requireManagedFactoryAgent) {
+      const { assertManagedFactoryAgent } = await import("../extensions/ez-factory-release-agents");
+      assertManagedFactoryAgent(step.agent as string, this.agentExecutor.listAgents());
+    }
     const agentRun = await this.agentExecutor.runAgent(
       step.agent as string,
       resolvedInput,
@@ -2302,6 +2310,7 @@ export class WorkflowExecutor {
           userId,
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
+          flow.requireManagedFactoryAgent,
         );
         // Written BEFORE the failure check, so a loop that dies on
         // iteration 3 still records that iterations 1 and 2 happened and
@@ -2410,6 +2419,7 @@ export class WorkflowExecutor {
  * parameters through `runStep` and `runLoop`.
  */
 interface FlowContext {
+  requireManagedFactoryAgent?: boolean;
   /** Steps this run has skipped, name → reason. MUTABLE: `executeFrom`
    *  owns it and each skipped step records itself into it, which is what
    *  makes the skip transitive and what makes a downstream ref error say

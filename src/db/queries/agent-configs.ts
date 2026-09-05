@@ -138,6 +138,7 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
   }
   const row = {
     id,
+    managedByExtensionId: null,
     name: data.name,
     description: data.description ?? "",
     capabilities: data.capabilities ?? ["llm"],
@@ -290,6 +291,12 @@ export async function loadDbAgents(): Promise<Map<string, AgentDefinition>> {
   const agents = new Map<string, AgentDefinition>();
   const configs = await listAgentConfigs();
   for (const row of configs) {
+    if (row.managedByExtensionId) {
+      const { loadManagedFactoryAgent } = await import("../../extensions/ez-factory-release-agents");
+      const managed = await loadManagedFactoryAgent(row);
+      if (managed) agents.set(row.name, managed);
+      continue;
+    }
     agents.set(row.name, configToAgent(dbConfigToAgentConfig(row)));
   }
   return agents;

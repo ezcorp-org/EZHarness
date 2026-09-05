@@ -7,9 +7,10 @@ import { releaseRuntimeFixture } from "./helpers/release-runtime";
 import { users, agentConfigs } from "../db/schema";
 import { up } from "../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
-import { createAgentConfig, listAgentConfigs } from "../db/queries/agent-configs";
+import { createAgentConfig, listAgentConfigs, loadDbAgents } from "../db/queries/agent-configs";
 import { publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
-import { configureEzFactoryAgentPublisher, publishEzFactoryAgents } from "../extensions/ez-factory-release-agents";
+import { configureEzFactoryAgentPublisher, createEzFactoryAgentPublisher, publishEzFactoryAgents, isManagedFactoryAgent, loadManagedFactoryAgent, assertManagedFactoryAgent } from "../extensions/ez-factory-release-agents";
+import { up as migrateManagedAgents } from "../db/migrations/add-managed-extension-agents";
 import { EZ_FACTORY_AGENTS } from "../extensions/ez-factory-agents";
 import { ExtensionRegistry } from "../extensions/registry";
 import { getProjectRoot } from "../extensions/project-root";
@@ -38,10 +39,7 @@ async function fixture(attested = true) {
   const repository = new DatabaseLifecycleRepository(database);
   await repository.create({ installation: runtime.snapshot.installation, releases: { [runtime.snapshot.release.id]: runtime.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
   const executor = new AgentExecutor(await loadAgents(join(getProjectRoot(), "src/agents"), { includeDb: true }), new EventBus<AgentEvents>());
-  configureEzFactoryAgentPublisher((definitions, names) => {
-    for (const name of names) executor.unregisterAgent(name);
-    for (const definition of definitions) executor.registerAgent(definition);
-  });
+  configureEzFactoryAgentPublisher(createEzFactoryAgentPublisher(executor));
   return { ...runtime.snapshot, database, repository, executor };
 }
 
@@ -65,7 +63,7 @@ test("approved host-attested publication seeds all fixed agents and makes them r
   const workflow = Bun.YAML.parse(await Bun.file(join(getProjectRoot(), "extensions/ez-factory/etl-factory.workflow.yaml")).text()) as { steps: Array<{ agent?: string }> };
   const steps = workflow.steps.filter((candidate) => candidate.agent?.startsWith("ez-factory ")).map((step, index) => ({ name: `factory-${index}`, kind: "agent" as const, agent: step.agent!, input: { source: "fixture" } }));
   expect(steps.map((step) => step.agent)).toEqual(["ez-factory extractor", "ez-factory writer"]);
-  const result = await new WorkflowExecutor(setup.executor, new EventBus<AgentEvents>()).runWorkflow({ name: "factory-publication-lookup", description: "Dispatch every real ETL agent name", steps }, {});
+  const result = await new WorkflowExecutor(setup.executor, new EventBus<AgentEvents>()).runWorkflow({ name: "ez-factory:publication-lookup", source: "extension", description: "Dispatch every real ETL agent name", steps }, {});
   expect(result.result).toMatchObject({ success: true, output: { valid: true } });
 });
 
@@ -75,6 +73,82 @@ test("publication is idempotent across repeated generation publication", async (
   await publishExtensionGeneration(setup.installation, setup.release);
   expect(await factoryRows()).toHaveLength(3);
   expect(setup.executor.listAgents().filter((agent) => agent.name.startsWith("ez-factory "))).toHaveLength(3);
+});
+
+test("startup preserves a user-owned colliding agent but the factory workflow cannot use it", async () => {
+  const setup = await fixture();
+  await createAgentConfig({ name: EZ_FACTORY_AGENTS[0]!.name, description: "User agent", prompt: "User prompt", userId: setup.installation.ownerId });
+  const executor = new AgentExecutor(await loadAgents(join(getProjectRoot(), "src/agents"), { includeDb: true }), new EventBus<AgentEvents>());
+  const original = executor.listAgents().find((agent) => agent.name === EZ_FACTORY_AGENTS[0]!.name)!;
+  configureEzFactoryAgentPublisher(createEzFactoryAgentPublisher(executor));
+  publishEzFactoryAgents([]);
+  expect(executor.listAgents()).toContain(original);
+  const workflow = { name: "ez-factory:collision", source: "extension" as const, description: "Factory provenance", steps: [{ name: "extract", agent: original.name, input: {} }] };
+  const rejected = await new WorkflowExecutor(executor, new EventBus<AgentEvents>()).runWorkflow(workflow, {});
+  expect(rejected.result?.success).toBe(false);
+  expect(JSON.stringify(rejected.result)).toContain("Approved host agent unavailable");
+  expect((await executor.runAgent(original.name, {})).result?.success).toBe(true);
+});
+
+test("active managed rows reload only with acknowledged attested release state", async () => {
+  const setup = await fixture();
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const rows = await factoryRows();
+  expect(rows.every((row) => row.managedByExtensionId === setup.installation.id)).toBe(true);
+  const active = await loadDbAgents();
+  expect(rows.every((row) => isManagedFactoryAgent(active.get(row.name)!))).toBe(true);
+  configureEzFactoryAgentPublisher();
+  const restarted = new AgentExecutor(active, new EventBus<AgentEvents>());
+  configureEzFactoryAgentPublisher(createEzFactoryAgentPublisher(restarted));
+  expect(restarted.listAgents().filter(isManagedFactoryAgent)).toHaveLength(3);
+  publishEzFactoryAgents([]);
+  expect(restarted.listAgents().filter(isManagedFactoryAgent)).toEqual([]);
+  await setup.repository.transact(setup.installation.id, (state) => { state.installation.acknowledgedGeneration = 0; });
+  expect(await loadManagedFactoryAgent(rows[0]!)).toBeNull();
+  await setup.repository.transact(setup.installation.id, (state) => { state.installation.acknowledgedGeneration = state.installation.generation; state.installation.grants = ["unexpected"]; });
+  expect(await loadManagedFactoryAgent(rows[0]!)).toBeNull();
+  await setup.repository.transact(setup.installation.id, (state) => { state.installation.enabled = false; state.installation.generation++; });
+  const inactive = await loadDbAgents();
+  expect(rows.every((row) => !inactive.has(row.name))).toBe(true);
+});
+
+test("legacy migration marks only exact ownerless built-in rows and is idempotent", async () => {
+  const setup = await fixture();
+  const [canonical, owned, changed] = EZ_FACTORY_AGENTS;
+  for (const [definition, userId, prompt] of [[canonical!, undefined, canonical!.prompt], [owned!, setup.installation.ownerId, owned!.prompt], [changed!, undefined, "User changed prompt"]] as const) {
+    await createAgentConfig({ id: definition.id, name: definition.name, description: "Legacy fixture", prompt, outputFormat: "json", userId });
+  }
+  await migrateManagedAgents(setup.database);
+  await migrateManagedAgents(setup.database);
+  const rows = await factoryRows();
+  expect(rows.find((row) => row.id === canonical!.id)?.managedByExtensionId).toBe("legacy:ez-factory");
+  expect(rows.find((row) => row.id === owned!.id)?.managedByExtensionId).toBeNull();
+  expect(rows.find((row) => row.id === changed!.id)?.managedByExtensionId).toBeNull();
+  const loaded = await loadDbAgents();
+  expect(loaded.has(canonical!.name)).toBe(false);
+  expect(loaded.has(owned!.name)).toBe(true);
+  expect(loaded.has(changed!.name)).toBe(true);
+});
+
+test("managed loader rejects changed definitions and detached provenance", async () => {
+  const setup = await fixture();
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const row = (await factoryRows())[0]!;
+  for (const invalid of [{ ...row, managedByExtensionId: null }, { ...row, prompt: "altered" }, { ...row, outputFormat: "text" }, { ...row, managedByExtensionId: "missing" }]) expect(await loadManagedFactoryAgent(invalid)).toBeNull();
+  expect(() => assertManagedFactoryAgent("ordinary agent", [])).not.toThrow();
+  expect(() => assertManagedFactoryAgent(row.name, [])).toThrow("Approved host agent unavailable");
+});
+
+test("a later user runtime replacement survives factory disable publication", async () => {
+  const setup = await fixture();
+  await publishExtensionGeneration(setup.installation, setup.release);
+  const original = setup.executor.listAgents().find((agent) => agent.name === EZ_FACTORY_AGENTS[0]!.name)!;
+  const userReplacement = { ...original, description: "User runtime replacement" };
+  setup.executor.registerAgent(userReplacement);
+  publishEzFactoryAgents([]);
+  expect(setup.executor.listAgents()).toContain(userReplacement);
+  expect(isManagedFactoryAgent(userReplacement)).toBe(false);
+  expect(setup.executor.listAgents().filter(isManagedFactoryAgent)).toEqual([]);
 });
 
 test("user-owned same-name rows cause a clean conflict, not deletion or takeover", async () => {

@@ -3000,6 +3000,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionReleases(db);
   const { up: addExtensionProjectAuthority } = await import("./migrations/add-extension-project-authority");
   await addExtensionProjectAuthority(db);
+  const { up: addManagedExtensionAgents } = await import("./migrations/add-managed-extension-agents");
+  await addManagedExtensionAgents(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

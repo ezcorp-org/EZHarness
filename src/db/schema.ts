@@ -455,6 +455,7 @@ export type MessageEmbedOutbox = typeof messageEmbedOutbox.$inferSelect;
 
 export const agentConfigs = pgTable("agent_configs", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  managedByExtensionId: text("managed_by_extension_id"),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   capabilities: jsonb("capabilities").notNull().$type<string[]>().default(["llm"]),
