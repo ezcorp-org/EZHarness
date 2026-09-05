@@ -192,7 +192,9 @@
 	let bannerText = $state<string>("");
 	let bannerError = $state<string>("");
 	let dismissTimer: ReturnType<typeof setTimeout> | null = null;
-	let lastSeededOutput: unknown = $state(undefined);
+	// Keep object outputs raw so identity comparisons do not compare a Svelte
+	// proxy with the original tool result and repeatedly reseed edited values.
+	let lastSeededOutput: unknown = $state.raw(undefined);
 
 	// When the tool output arrives (history hydration / first render),
 	// seed the live state. This effect runs whenever the parsed payload
