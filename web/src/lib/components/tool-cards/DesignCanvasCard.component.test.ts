@@ -494,24 +494,25 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 	});
 
 	test("dirty dot appears for the changed knob only", async () => {
+		const initialCall = makeCallWithPayload({
+			knobs: [
+				{
+					key: "primaryColor",
+					kind: "color",
+					label: "Primary",
+					var: "--color-primary",
+				},
+				{
+					key: "secondaryColor",
+					kind: "color",
+					label: "Secondary",
+					var: "--color-secondary",
+				},
+			],
+			knobValues: { primaryColor: "#ff0066", secondaryColor: "#00ff00" },
+		});
 		const { getByTestId, queryByTestId, rerender } = render(DesignCanvasCard, {
-			toolCall: makeCallWithPayload({
-				knobs: [
-					{
-						key: "primaryColor",
-						kind: "color",
-						label: "Primary",
-						var: "--color-primary",
-					},
-					{
-						key: "secondaryColor",
-						kind: "color",
-						label: "Secondary",
-						var: "--color-secondary",
-					},
-				],
-				knobValues: { primaryColor: "#ff0066", secondaryColor: "#00ff00" },
-			}),
+			toolCall: initialCall,
 			conversationId: "conv-1",
 		});
 
@@ -531,6 +532,12 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 		await fireEvent.input(primary, { target: { value: "#000000" } });
 		expect(queryByTestId("dirty-dot-primaryColor")).not.toBeNull();
 		expect(queryByTestId("dirty-dot-secondaryColor")).toBeNull();
+		await rerender({
+			toolCall: { ...initialCall, duration: 999 },
+			conversationId: "conv-1",
+		});
+		expect(primary.value).toBe("#000000");
+		expect(queryByTestId("dirty-dot-primaryColor")).not.toBeNull();
 
 		// A replacement open-canvas result initializes the new payload once.
 		await rerender({
