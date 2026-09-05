@@ -26,6 +26,9 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    # Keep headroom above normal Postgres use while bounding unexpected growth.
+    # Actual memory use varies with connections, queries, and maintenance work.
+    mem_limit: 1g
 
   app:
     build:
@@ -39,6 +42,11 @@ services:
     # that, NOT to depend on host networking. See `docs/deployment.md`
     # §"Container networking" for the production layout.
     network_mode: host
+    # Raise the stateless app's OOM score relative to Postgres. This influences
+    # kernel victim selection but does not guarantee which process is killed.
+    oom_score_adj: 500
+    # Set an upper bound on app container memory use.
+    mem_limit: 4g
     environment:
       - DATABASE_URL=postgres://ezcorp:ezcorp@localhost:5432/ezcorp
       - EZCORP_PORT=3000
@@ -520,7 +528,11 @@ services:
   searxng:
     image: docker.io/searxng/searxng:latest
     restart: unless-stopped
-    mem_limit: 256m
+    # Raised from 256m to leave room for search bursts. A limit reserves no RAM.
+    mem_limit: 512m
+    # Raise this optional service's OOM score above the app and Postgres.
+    # The score influences victim selection but does not guarantee ordering.
+    oom_score_adj: 750
     cpus: 0.5
     ports:
       - "127.0.0.1:8889:8080"
