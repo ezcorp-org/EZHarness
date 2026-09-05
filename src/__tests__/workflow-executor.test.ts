@@ -17,6 +17,24 @@ function setup(agents: AgentDefinition[]) {
   return { bus, executor, workflow };
 }
 
+test("database-free nested workflows retain the parent's effect guard", async () => {
+  let active = true;
+  const effects: string[] = [];
+  const bus = new EventBus<AgentEvents>();
+  const agents = new AgentExecutor(loadAgentsStatic([
+    makeAgent("revoke", async () => { effects.push("first"); active = false; return { success: true }; }),
+    makeAgent("forbidden", async () => { effects.push("forbidden"); return { success: true }; }),
+  ]), bus);
+  const child: WorkflowDefinition = { name: "child", description: "Child", steps: [{ name: "first", agent: "revoke" }, { name: "second", agent: "forbidden" }] };
+  const workflow = new WorkflowExecutor(agents, bus, { workflowResolver: name => name === child.name ? child : undefined });
+  try {
+    const run = await workflow.runWorkflow({ name: "parent", description: "Parent", steps: [{ name: "nested", kind: "workflow", workflow: child.name }] }, {}, undefined, undefined, undefined, { invocationGuard: async () => { if (!active) throw new Error("Upstream authority revoked"); } });
+    expect(run.status).toBe("error");
+    expect(effects).toEqual(["first"]);
+    expect(JSON.stringify(run.result)).toContain("Upstream authority revoked");
+  } finally { agents.destroy(); }
+});
+
 describe("WorkflowExecutor", () => {
   test("runs steps sequentially when no dependsOn", async () => {
     const order: string[] = [];
