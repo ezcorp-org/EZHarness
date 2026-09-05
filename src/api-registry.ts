@@ -61,6 +61,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/control", description: "Manage versioned extension workspaces, builds and releases", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "POST", path: "/api/extensions/releases/:installationId/approve", description: "Approve or reject an exact extension release from a human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/releases/:installationId/project", description: "Bind or revoke project access for the exact active release from its owner's human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/extensions/:name/preview", description: "Read an opaque-origin browser bundle for an exact active release and owned conversation", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/:name/preview", description: "Invoke only the declared browser tools for an exact release and owned conversation", category: "extensions", scope: "session" },
   // Auth
   { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", scope: "public", schemaKey: "loginSchema" },
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },

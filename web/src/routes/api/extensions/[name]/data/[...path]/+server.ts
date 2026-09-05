@@ -10,6 +10,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { extensionDataRoot } from "$server/chat/attachments/ext-files-resolver";
 import { getExtensionByName } from "$server/db/queries/extensions";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
+import { EXTENSION_DOCUMENT_CSP as STRICT_CSP } from "../../../../../../lib/server/extension-document";
 
 // ── /api/extensions/[name]/data/[...path] — Phase A2 static-file route ──
 //
@@ -83,18 +84,6 @@ function contentTypeFor(filePath: string): string {
   const ext = filePath.slice(dot + 1).toLowerCase();
   return CONTENT_TYPE_BY_EXT[ext] ?? "application/octet-stream";
 }
-
-const STRICT_CSP =
-  "sandbox allow-scripts; " +
-  "default-src 'none'; " +
-  "script-src 'unsafe-inline'; " +
-  "style-src 'unsafe-inline'; " +
-  "font-src data:; " +
-  "img-src data: blob:; " +
-  "connect-src 'none'; " +
-  "frame-ancestors 'self'; " +
-  "base-uri 'none'; " +
-  "form-action 'none'";
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "chat");

@@ -57,7 +57,7 @@ export function validateIframeSrc(
   if (parsed.origin !== originUrl.origin) {
     return { ok: false, reason: "Cross-origin iframe URLs are not allowed" };
   }
-  const path = parsed.pathname.match(/^\/api\/extensions\/([a-z0-9][a-z0-9-_.]{0,63})\/data\/(.+)$/);
+  const path = parsed.pathname.match(/^\/api\/extensions\/([a-z0-9][a-z0-9-_.]{0,63})\/(data\/.+|preview)$/);
   if (parsed.username || parsed.password || !path || (extensionName !== undefined && path[1] !== extensionName)) {
     return { ok: false, reason: "Only this extension's sandboxed data URLs are allowed" };
   }

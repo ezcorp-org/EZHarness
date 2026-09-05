@@ -753,6 +753,7 @@ describe("registry ⇄ filesystem parity", () => {
     const SESSION_ONLY = [
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
+      "GET /api/extensions/:name/preview",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",
@@ -761,6 +762,7 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/workflows/delegations/:id",
       "POST /api/__test/marketplace-release",
       "POST /api/__test/project-proposal",
+      "POST /api/extensions/:name/preview",
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
