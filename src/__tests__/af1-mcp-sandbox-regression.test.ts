@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { isolatedMcpRelease } from "./helpers/mcp-isolated-release-fixture";
-import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
+import type { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
 
 let release: Awaited<ReturnType<typeof isolatedMcpRelease>>;
 let fixture: ReturnType<typeof mcpReleaseFixture>;

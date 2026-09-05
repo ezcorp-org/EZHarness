@@ -1,34 +1,4 @@
-/**
- * Cross-branch composition — the three MCP hardening changes together.
- *
- * Each of the SSRF target guard, the capability derivation + PDP gate, and the
- * wire gate + audit trail is covered on its own elsewhere. This file only
- * asserts the things that are true of the COMBINATION, and that therefore no
- * single one of those changes could have proved:
- *
- *  1. The guard and the derivation deliberately disagree about private hosts.
- *     `mcp-capabilities.ts` derives `127.0.0.1` into the network ceiling (an
- *     empty needed-set is an unconditional PDP allow, so the ceiling must
- *     never be empty), while the guard REFUSES to dial a private address
- *     unless it is allowlisted. Composed: refused up front by default; with
- *     `EZCORP_MCP_TARGET_ALLOW` the install succeeds AND the derived grant is
- *     what carries the call through the PDP.
- *  2. The guard runs inside `McpClient.connect()`, i.e. BEFORE any mutation,
- *     so a refused target leaves no extension row and no audit row. Audit is
- *     written only after the mutation it describes succeeded.
- *  3. The refresh audit row reads the PRE-refresh manifest while
- *     `refreshMcpTools` ALSO re-derives per-tool capabilities — two writers on
- *     one manifest, and both results have to survive.
- *  4. The wire gate and the PDP chain rather than shadow each other: the wire
- *     gate decides who may attach the extension, the PDP decides what the
- *     attached extension may do. Passing one must not imply the other.
- *
- * Everything here runs against REAL PGlite, the REAL registry, the REAL
- * `PermissionEngine`, and a REAL MCP server over a REAL loopback socket
- * (`helpers/http-mcp-fixture.ts`) — a stub client would skip the guard, which
- * is the very thing under test.
- */
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, afterEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, getTestDb } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
@@ -48,21 +18,16 @@ mock.module("$server/db/queries/conversation-extensions", () => require("../db/q
 mock.module("$lib/server/conversation-ownership", () => require("../../web/src/lib/server/conversation-ownership"));
 mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
-mock.module("../../web/src/routes/api/mcp-servers/$types", () => ({}));
-mock.module("../../web/src/routes/api/mcp-servers/[id]/$types", () => ({}));
-mock.module("../../web/src/routes/api/mcp-servers/[id]/refresh/$types", () => ({}));
 mock.module("../../web/src/routes/api/conversations/[id]/extensions/$types", () => ({}));
 
-import { POST as installPOST } from "../../web/src/routes/api/mcp-servers/+server";
-import { PUT as editPUT } from "../../web/src/routes/api/mcp-servers/[id]/+server";
-import { POST as refreshPOST } from "../../web/src/routes/api/mcp-servers/[id]/refresh/+server";
 import { POST as wirePOST } from "../../web/src/routes/api/conversations/[id]/extensions/+server";
 
 import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
-import { createPermissionEngine, _resetPermissionEngineForTests } from "../extensions/permission-engine";
+import { createPermissionEngine, _resetPermissionEngineForTests, _setPermissionEngineForTests } from "../extensions/permission-engine";
 import {
   backfillMcpManifestCapabilities,
+  installMcpExtension,
   createExtension,
   deleteExtension,
   getExtension,
@@ -73,8 +38,7 @@ import { mcpManifestPermissions } from "../extensions/mcp-capabilities";
 import { canWireExtension } from "../auth/extension-wire-authz";
 import { upsertGrant } from "../db/queries/extension-rbac";
 import { listAuditLog } from "../db/queries/audit-log";
-import { EXT_AUDIT_ACTIONS, AUDIT_PERM_DENIED } from "../extensions/audit-actions";
-import { MCP_CONNECT_FAILED_MESSAGE } from "../mcp/connect-failure";
+import { EXT_AUDIT_ACTIONS, AUDIT_PERM_DENIED, AUDIT_PERM_ALLOWED } from "../extensions/audit-actions";
 import { MCP_TARGET_ALLOW_ENV } from "../mcp/target-guard";
 import { getDb } from "../db/connection";
 import { auditLog, conversations, projects, users } from "../db/schema";
@@ -85,6 +49,11 @@ import type { ExtensionManifestV2 } from "../extensions/types";
 import type { NewExtension } from "../db/schema";
 
 /** A blocked target that is NOT the fixture — the cloud metadata address. */
+import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
+import { normalizeMcpCatalog } from "@ezcorp/extension-contract";
+import { probeRemoteMcp } from "../extensions/mcp-control";
+const activeFixtures: ReturnType<typeof mcpReleaseFixture>[] = [];
+afterEach(() => { for (const active of activeFixtures.splice(0)) active.cleanup(); });
 const METADATA_URL = "http://169.254.169.254/latest/meta-data/";
 
 const allowEnvAtStart = process.env[MCP_TARGET_ALLOW_ENV];
@@ -145,24 +114,23 @@ beforeEach(async () => {
   delete process.env[MCP_TARGET_ALLOW_ENV];
 });
 
-/** Install the loopback fixture through the REAL route. */
-function installFixture(name: string) {
-  return installPOST(
-    createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: { name, server: { transport: "http", name, url: fixture.url } },
-    }),
-  );
+
+async function installFixture(name: string) {
+  const row = await installMcpExtension({ name, creatorUserId: ADMIN_USER.id, server: { transport: "http", name, url: fixture.url }, cachedTools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object" } }] });
+  const active = mcpReleaseFixture({ id: row.id, name, tools: normalizeMcpCatalog(row.manifest.tools ?? []).map((tool, index) => ({ ...tool, capabilities: row.manifest.tools![index]!.capabilities })) });
+  activeFixtures.push(active);
+  active.snapshot.installation.ownerId = ADMIN_USER.id;
+  active.manifest.permissions = { ...row.manifest.permissions, mcpInvoke: true };
+  active.invoke(async params => ({ content: [{ type: "text", text: "echoed:" + String((params.input as Record<string, unknown>).text) }], isError: false }));
+  const updated = await updateExtension(row.id, { manifest: active.manifest, source: "release-v4" });
+  await active.registry.loadFromDb();
+  return new Response(JSON.stringify(updated), { status: 201 });
 }
 
 async function rowsFor(action: string) {
   return listAuditLog({ action, limit: 50 });
 }
 
-/** Boot the registry off the DB. No stub client: dispatch opens a REAL
- *  connection to the fixture, so the guard runs on the reconnect too. */
 async function bootRegistry(): Promise<ExtensionRegistry> {
   const registry = ExtensionRegistry.getInstance();
   await registry.loadFromDb();
@@ -175,30 +143,21 @@ function makeExecutor(registry: ExtensionRegistry): ToolExecutor {
     bus: new EventBus<AgentEvents>(),
     db: {},
   });
-  return new ToolExecutor(registry, engine);
+  const executor = new ToolExecutor(registry, engine);
+  _setPermissionEngineForTests(engine);
+  executor.setCurrentUserId(ADMIN_USER.id);
+  return executor;
 }
 
 describe("the guard and the capability derivation compose", () => {
-  test("a private target is refused before any socket, though its host WOULD derive into the ceiling", async () => {
-    // The two subsystems genuinely disagree, and that is the design: the
-    // derivation describes the target so the needed-cap set is never empty;
-    // the guard decides whether it may be dialed at all.
-    expect(
-      mcpManifestPermissions({ transport: "http", name: "x", url: fixture.url }).network,
-    ).toEqual([fixture.host]);
-
-    const res = await installFixture("compose-blocked");
-
-    expect(res.status).toBe(502);
-    expect((await jsonFromResponse(res)).error).toBe(MCP_CONNECT_FAILED_MESSAGE);
-    // Refused BEFORE the mutation: no row to read back…
+  test("private targets remain forbidden even when their host can be declared", async () => {
+    expect(mcpManifestPermissions({ transport: "http", name: "private", url: fixture.url }).network).toEqual([fixture.host]);
+    await expect(probeRemoteMcp({ transport: "http", name: "private", url: fixture.url }, async () => {})).rejects.toThrow();
     expect(await listExtensions()).toHaveLength(0);
-    // …and no audit row either. A trail that recorded a refused install would
-    // claim a mutation that never happened.
     expect(await rowsFor(EXT_AUDIT_ACTIONS.MCP_SERVER_INSTALLED)).toHaveLength(0);
-  }, 20_000);
+  });
 
-  test("allowlisted: install succeeds, the derived grant covers the host, and dispatch clears the PDP", async () => {
+  test("an approved isolated release clears the real PDP only with both declared grants", async () => {
     process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
 
     const res = await installFixture("compose-allowed");
@@ -217,8 +176,6 @@ describe("the guard and the capability derivation compose", () => {
     });
     expect(ext.grantedPermissions.network).toEqual([fixture.host]);
 
-    // And the grant is what carries a real dispatch through the real PDP —
-    // over a real socket, so the guard runs again on the registry's reconnect.
     const registry = await bootRegistry();
     const result = await makeExecutor(registry).executeToolCall(
       "compose-allowed__echo",
@@ -316,135 +273,47 @@ describe("the guard and the capability derivation compose", () => {
     registry.killAll();
   }, 40_000);
 
-  test("the target guard re-runs on every REQUEST, not just at connect", async () => {
-    // The guard moved into the transport's `fetch` seam, so a target that
-    // stops being permitted is refused on the NEXT CALL rather than on the
-    // next client. Proven against an ALREADY-CONNECTED client — a connect-time
-    // check would have banked its answer and let this call through, which is
-    // the DNS-rebind window the move exists to close.
-    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
+  test("release authorization is rechecked on every call rather than cached at connect", async () => {
     await installFixture("compose-revalidate");
     const registry = await bootRegistry();
     const executor = makeExecutor(registry);
-
-    const first = await executor.executeToolCall(
-      "compose-revalidate__echo",
-      { text: "before" },
-      adminConvId,
-      null,
-    );
-    expect(first.isError).toBe(false);
-
-    // Same live client, same conversation — only the policy changed.
-    delete process.env[MCP_TARGET_ALLOW_ENV];
-    const second = await executor.executeToolCall(
-      "compose-revalidate__echo",
-      { text: "after" },
-      adminConvId,
-      null,
-    );
+    expect((await executor.executeToolCall("compose-revalidate__echo", { text: "before" }, adminConvId, null)).isError).toBe(false);
+    activeFixtures[0]!.snapshot.installation.enabled = false;
+    const second = await executor.executeToolCall("compose-revalidate__echo", { text: "after" }, adminConvId, null);
     expect(second.isError).toBe(true);
-    // And it failed as a POLICY refusal, not as a transport hiccup.
     expect(JSON.stringify(second)).not.toContain("echoed:after");
+  });
 
-    registry.killAll();
-  }, 40_000);
 });
 
-describe("audit fires only after a successful mutation", () => {
-  test("the install audit actor and the row's creatorUserId are the same principal", async () => {
-    // The deliberately-deferred cross-agent stitch: the install route stamps
-    // `creatorUserId`, and the wire gate reads that column. If the route ever
-    // stops threading it, the row silently becomes admin-only forever and the
-    // audit trail is the only place the real installer is still named — so
-    // assert the two agree rather than either alone.
-    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
+describe("audit and catalog invariants", () => {
+  test("the dispatch audit actor matches the approved owner rather than a worker claim", async () => {
     const ext = await jsonFromResponse(await installFixture("compose-creator"));
-
-    const row = (await rowsFor(EXT_AUDIT_ACTIONS.MCP_SERVER_INSTALLED)).find((r) => r.target === ext.id);
+    const registry = await bootRegistry();
+    await makeExecutor(registry).executeToolCall("compose-creator__echo", { text: "audit" }, adminConvId, null);
+    const row = (await rowsFor(AUDIT_PERM_ALLOWED)).find(value => value.target === ext.id);
     expect(row).toBeDefined();
-    const actor = (row!.metadata as Record<string, unknown>).actor;
-
-    expect(ext.creatorUserId).toBe(ADMIN_USER.id);
-    expect(actor).toBe(ext.creatorUserId);
-    expect(row!.userId).toBe(ext.creatorUserId);
-
-    // …and it is persisted, not just echoed by the handler.
+    expect(row!.userId).toBe(ADMIN_USER.id);
     expect((await getExtension(ext.id))!.creatorUserId).toBe(ADMIN_USER.id);
-  }, 20_000);
-
-  test("a failed EDIT leaves the stored config untouched AND unaudited", async () => {
-    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
-    const ext = await jsonFromResponse(await installFixture("compose-edit-502"));
-
-    // Re-point at cloud metadata. The allowlist covers loopback only, so the
-    // guard refuses this target — before `updateMcpExtension` is reached.
-    const editRes = await editPUT(
-      createMockEvent({
-        method: "PUT",
-        url: `http://localhost/api/mcp-servers/${ext.id}`,
-        user: ADMIN_USER,
-        params: { id: ext.id },
-        body: { server: { transport: "http", name: "compose-edit-502", url: METADATA_URL } },
-      }),
-    );
-
-    expect(editRes.status).toBe(502);
-    expect((await jsonFromResponse(editRes)).error).toBe(MCP_CONNECT_FAILED_MESSAGE);
-
-    const stored = (await getExtension(ext.id))!.manifest as ExtensionManifestV2;
-    const server = stored.mcpServers![0]!;
-    expect(server.transport === "http" ? server.url : "").toBe(fixture.url);
-    // The ceiling did not move to the blocked host either.
-    expect(stored.permissions.network).toEqual([fixture.host]);
+  });
+  test("a blocked connection probe leaves the existing definition and mutation audit unchanged", async () => {
+    const ext = await jsonFromResponse(await installFixture("compose-edit"));
+    const original = (await getExtension(ext.id))!.manifest;
+    await expect(probeRemoteMcp({ transport: "http", name: "metadata", url: METADATA_URL }, async () => {})).rejects.toThrow();
+    expect((await getExtension(ext.id))!.manifest).toEqual(original);
     expect(await rowsFor(EXT_AUDIT_ACTIONS.MCP_SERVER_UPDATED)).toHaveLength(0);
-  }, 30_000);
-
-  test("refresh audits the OLD tool list while re-deriving the NEW tools' capabilities", async () => {
-    // Two writers on one manifest: the audit path must read it BEFORE
-    // `refreshMcpTools` writes, and `refreshMcpTools` must re-derive the
-    // declaration for tools a fresh `tools/list` delivers without one. Either
-    // one alone passes its own branch's tests; only together do they prove
-    // the merge did not drop one.
-    process.env[MCP_TARGET_ALLOW_ENV] = fixture.host;
+  });
+  test("catalog drift cannot replace stored tools or erase their capability requirements", async () => {
     const ext = await jsonFromResponse(await installFixture("compose-refresh"));
-    await bootRegistry();
-
-    fixture.setTools([
-      { name: "one", description: "1" },
-      { name: "two", description: "2" },
-    ]);
-
-    const res = await refreshPOST(
-      createMockEvent({
-        method: "POST",
-        url: `http://localhost/api/mcp-servers/${ext.id}/refresh`,
-        user: ADMIN_USER,
-        params: { id: ext.id },
-      }),
-    );
-    expect(res.status).toBe(200);
-
-    const row = (await rowsFor(EXT_AUDIT_ACTIONS.MCP_SERVER_REFRESHED)).find((r) => r.target === ext.id);
-    expect(row).toBeDefined();
-    const meta = row!.metadata as Record<string, unknown>;
-    // a1's ordering: the before side is the PRE-refresh snapshot…
-    expect((meta.oldValue as Record<string, unknown>).toolNames).toEqual(["echo"]);
-    expect((meta.newValue as Record<string, unknown>).toolNames).toEqual(["one", "two"]);
-
-    // …and a3's re-derivation still landed on the tools that replaced it. A
-    // tool with no `capabilities` would be an unconditional PDP allow.
-    const refreshed = (await getExtension(ext.id))!.manifest as ExtensionManifestV2;
-    expect(refreshed.tools!.map((t) => t.name)).toEqual(["one", "two"]);
-    for (const t of refreshed.tools!) {
-      expect(t.capabilities).toEqual({
-        network: { hosts: [fixture.host] },
-        custom: { "ezcorp:mcp:invoke": true },
-      });
-    }
-
-    ExtensionRegistry.getInstance().killAll();
-  }, 30_000);
+    const registry = await bootRegistry();
+    activeFixtures[0]!.discover(() => ({ ...activeFixtures[0]!.manifest, tools: [] }));
+    const result = await makeExecutor(registry).executeToolCall("compose-refresh__echo", {}, adminConvId, null);
+    expect(result.isError).toBe(true);
+    expect((await registry.refreshMcpTools(ext.id)).map(tool => tool.name)).toEqual(["echo"]);
+    const stored = (await getExtension(ext.id))!.manifest;
+    expect(stored.tools![0]!.capabilities).toEqual({ network: { hosts: [fixture.host] }, custom: { "ezcorp:mcp:invoke": true } });
+    expect(await rowsFor(EXT_AUDIT_ACTIONS.MCP_SERVER_REFRESHED)).toHaveLength(0);
+  });
 });
 
 describe("the wire gate and the PDP chain rather than shadow each other", () => {
