@@ -2,7 +2,7 @@
 // — generation prompts go through the host's configured model. What
 // `generator.ts` produces is a SCAFFOLD: a self-contained HTML document
 // with a `<style id="design-tokens">` block populated from the project's
-// design system, a Tailwind CDN link, and a placeholder body the agent
+// design system, the pinned embedded Tailwind browser runtime, and a placeholder body the agent
 // is expected to replace via subsequent edit calls.
 //
 // The scaffold is the architectural anchor for `tweak-design` — the
@@ -10,18 +10,21 @@
 // the token block, otherwise knob changes don't propagate.
 
 import type { DesignSystem, DraftMeta } from "./types";
+// Vendored from @tailwindcss/browser 4.3.3 so generated documents work under
+// the extension route's network-blocking CSP. The adjacent LICENSE is MIT.
+import tailwindBrowser from "./tailwind-browser-4.3.3.txt" with { type: "text" };
 
-const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0/dist/tailwind.min.css";
+export const TAILWIND_BROWSER_SHA256 = "6d8c473ef2f8ad63feafc0bd76502dda31501a6c135dc4c6173f6268cde595be";
 
 export interface ScaffoldInput {
   meta: DraftMeta;
   designSystem: DesignSystem;
-  /** When true, drafts ship without the Tailwind CDN link. The body
+  /** When true, drafts ship without the embedded Tailwind browser runtime. The body
    *  uses raw CSS-variable references (e.g.
    *  `style="padding: var(--space-4)"`) instead of utility classes. */
   inlineTailwind?: boolean;
   /** Body markup authored by the calling agent. The scaffold wraps it
-   *  with the `<style id="design-tokens">` block + Tailwind CDN link.
+   *  with the `<style id="design-tokens">` block + embedded Tailwind browser runtime.
    *  When omitted, a labeled placeholder is rendered so the missing
    *  body is visible at a glance instead of looking broken. */
   bodyMarkup?: string;
@@ -29,9 +32,9 @@ export interface ScaffoldInput {
 
 export function buildScaffold({ meta, designSystem, inlineTailwind, bodyMarkup }: ScaffoldInput): string {
   const tokensCss = buildTokensBlock(designSystem);
-  const tailwindLink = inlineTailwind
+  const tailwindRuntime = inlineTailwind
     ? ""
-    : `<link rel="stylesheet" href="${TAILWIND_CDN}" />`;
+    : `<script data-tailwind-browser="4.3.3">${tailwindBrowser}</script>`;
 
   const body = bodyMarkup && bodyMarkup.trim().length > 0
     ? `<!-- Prompt: ${escapeHtml(meta.prompt)} -->
@@ -60,7 +63,6 @@ ${bodyMarkup}`
   <style id="design-tokens">
 ${tokensCss}
   </style>
-  ${tailwindLink}
   <style>
     body { margin: 0; }
   </style>
@@ -68,6 +70,7 @@ ${tokensCss}
 <body>
 ${body}
 </body>
+${tailwindRuntime}
 </html>`;
 }
 

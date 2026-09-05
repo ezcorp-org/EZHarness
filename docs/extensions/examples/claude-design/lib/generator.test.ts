@@ -6,8 +6,9 @@
 // Without this invariant, knob tweaks don't propagate.
 
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { applyKnobs } from "./tweak";
-import { buildScaffold, buildTokensBlock } from "./generator";
+import { buildScaffold, buildTokensBlock, TAILWIND_BROWSER_SHA256 } from "./generator";
 import type { DesignSystem, DraftMeta } from "./types";
 
 const DS: DesignSystem = {
@@ -91,6 +92,11 @@ describe("buildTokensBlock", () => {
 // ── buildScaffold structural invariants ───────────────────────────
 
 describe("buildScaffold — structural invariants", () => {
+  test("vendored Tailwind runtime matches the reviewed bytes", async () => {
+    const bytes = await Bun.file(new URL("./tailwind-browser-4.3.3.txt", import.meta.url)).arrayBuffer();
+    expect(createHash("sha256").update(Buffer.from(bytes)).digest("hex")).toBe(TAILWIND_BROWSER_SHA256);
+  });
+
   test("contains exactly one <style id=\"design-tokens\"> block", () => {
     const html = buildScaffold({ meta: META, designSystem: DS });
     const matches = html.match(/<style\s+id="design-tokens"/g) ?? [];
@@ -103,14 +109,16 @@ describe("buildScaffold — structural invariants", () => {
     expect(html).toContain("</html>");
   });
 
-  test("default mode includes the cdn.jsdelivr.net Tailwind link", () => {
+  test("default mode embeds the pinned Tailwind browser runtime", () => {
     const html = buildScaffold({ meta: META, designSystem: DS });
-    expect(html).toContain("cdn.jsdelivr.net");
+    expect(html).toContain('data-tailwind-browser="4.3.3"');
+    expect(html).not.toContain("cdn.jsdelivr.net");
+    expect(html).toContain("tailwindcss");
   });
 
-  test("inlineTailwind:true does NOT include cdn.jsdelivr.net", () => {
+  test("inlineTailwind:true omits the Tailwind browser runtime", () => {
     const html = buildScaffold({ meta: META, designSystem: DS, inlineTailwind: true });
-    expect(html).not.toContain("cdn.jsdelivr.net");
+    expect(html).not.toContain("data-tailwind-browser");
   });
 });
 
