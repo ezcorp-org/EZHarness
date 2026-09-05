@@ -151,9 +151,9 @@ export default defineExtension({
   // opaque "Transport closed" crash-loop that auto-disabled this
   // extension on 2026-07-11.
   npmDependencies: {
-    "@zxing/library": "^0.23.0",
-    "fast-png": "^8.0.0",
-    "jpeg-js": "^0.4.4",
+    "@zxing/library": "0.23.0",
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4",
   },
 
   agent: {

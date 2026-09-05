@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { EzcorpClient, onBehalfOfContext } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { EzcorpClient, onBehalfOfContext } from "../../../../../packages/@ezcorp/ai-kit/src/client";
+import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** End-to-end assertion of the on-behalf-of chain against a live server.
  *  The test pretends to be the ai-kit subprocess: it already has an

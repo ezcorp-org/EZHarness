@@ -11,7 +11,7 @@ import { register as registerOrchestrate } from "./src/mcp/tools/orchestrate";
 
 export function createBrokerFetch(requestHost: <Result>(method: string, input: unknown) => Promise<Result> = (method, input) => getChannel().request(method, input)): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
-    const request = new Request(input, init);
+    const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
     const url = new URL(request.url);
     if (url.origin !== "https://extension-api.invalid") throw new Error("Invalid host API origin");
     if (url.pathname === "/api/runtime-events") {

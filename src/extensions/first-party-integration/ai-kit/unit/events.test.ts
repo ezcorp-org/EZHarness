@@ -8,7 +8,7 @@
  * copy of this guard.
  */
 import { describe, expect, test } from "bun:test";
-import { RUNTIME_EVENT_NAMES } from "../../src/types";
+import { RUNTIME_EVENT_NAMES } from "../../../../../packages/@ezcorp/ai-kit/src/types";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../../web/src/lib/runtime-event-names";
 

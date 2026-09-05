@@ -215,7 +215,7 @@ export default defineExtension({
   // substack MCP child. Verify-only (host does NOT install it): must exist
   // in the deployment's node_modules (app root package.json). See
   // src/extensions/npm-deps.ts.
-  npmDependencies: { "@modelcontextprotocol/sdk": "^1.29.0" },
+  npmDependencies: { "@modelcontextprotocol/sdk": "1.30.0" },
   permissions: {
     storage: true,
     llm: {

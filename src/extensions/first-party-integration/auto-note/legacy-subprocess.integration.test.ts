@@ -4,6 +4,7 @@ import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { join } from "node:path";
 import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { makeFsRpcHandler } from "@ezcorp/sdk/test";
+import { CATEGORIES } from "../../../../docs/extensions/examples/auto-note/lib/types";
 const TMP_DIR = join("/tmp", `auto-note-subprocess-${Date.now()}`);
 afterAll(() => rmSync(TMP_DIR, { recursive: true, force: true }));
 type Spawned = {

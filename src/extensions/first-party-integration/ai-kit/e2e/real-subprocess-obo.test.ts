@@ -1,3 +1,5 @@
+import {fileURLToPath as fixtureFilePath} from "node:url";
+const fixtureImportMeta={dir:fixtureFilePath(new URL("../../../../../packages/@ezcorp/ai-kit/test/e2e/",import.meta.url)),url:new URL("../../../../../packages/@ezcorp/ai-kit/test/e2e/real-subprocess-obo.test.ts",import.meta.url).href};
 /**
  * E2E: Full on-behalf-of chain validated with a REAL spawned subprocess.
  *
@@ -78,9 +80,9 @@ describe.skipIf(SKIP)("e2e subprocess: full OBO chain with real stdio MCP", () =
     // All DB imports are dynamic here: process.env["EZCORP_DB_PATH"] = ":memory:"
     // was already set at module top-level (above), but dynamic import ensures no
     // import hoisting can evaluate DB_PATH before we set the env.
-    const { initDb, getDb } = await import("../../../../../src/db/connection");
-    const { createConversation } = await import("../../../../../src/db/queries/conversations");
-    const { getUserById } = await import("../../../../../src/db/queries/users");
+    const { initDb, getDb } = await import("../../../../db/connection");
+    const { createConversation } = await import("../../../../db/queries/conversations");
+    const { getUserById } = await import("../../../../db/queries/users");
 
     await initDb();
     const db = getDb();
@@ -221,7 +223,7 @@ describe.skipIf(SKIP)("e2e subprocess: full OBO chain with real stdio MCP", () =
     // ── 4 + 5. Spawn real subprocess + connect MCP Client over stdio ─────────
     // StdioClientTransport spawns and owns the subprocess lifecycle.
     // rawKey is passed ONLY to the subprocess env — never to this process's env.
-    const serverScript = resolve(import.meta.dir, "../../src/mcp/server.ts");
+    const serverScript = resolve(fixtureImportMeta.dir, "../../src/mcp/server.ts");
 
     mcpTransport = new StdioClientTransport({
       command: BUN_BIN,
@@ -256,7 +258,7 @@ describe.skipIf(SKIP)("e2e subprocess: full OBO chain with real stdio MCP", () =
     );
     resetInternalKeyStoreForTests();
 
-    const { closeDb } = await import("../../../../../src/db/connection");
+    const { closeDb } = await import("../../../../db/connection");
     await closeDb();
 
     delete process.env["EZCORP_DB_PATH"];

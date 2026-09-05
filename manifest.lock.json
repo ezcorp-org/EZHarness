@@ -67,9 +67,9 @@
     "excel": {
       "directory": "docs/extensions/examples/excel",
       "entrypoint": "extension.ts",
-      "files": 8,
-      "bytes": 36925,
-      "sourceDigest": "c014c0fcb81e6160cd6f1154fa2c3438ea65a0f8d879d58e5dd6c9a564f6faf5"
+      "files": 10,
+      "bytes": 108679,
+      "sourceDigest": "96387ecbafc130629dff803a291ecde02e9e4a24d88f526fea3a50ae2bafffe1"
     },
     "extension-author": {
       "directory": "docs/extensions/examples/extension-author",
@@ -89,8 +89,8 @@
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
       "files": 25,
-      "bytes": 203773,
-      "sourceDigest": "6b55c336b3fe63cb35f159a61d72e4365fa84a044727fff33a5a9fa9e7396815"
+      "bytes": 203767,
+      "sourceDigest": "c5b2f9d07319c03b61a014ff7f2413ace0f9e507a54e725663642a0dba60ac2f"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
@@ -103,8 +103,8 @@
       "directory": "docs/extensions/examples/github-projects",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 67800,
-      "sourceDigest": "56a82b47c5cd1f9fb639a19c2034d04ce8fcfdd80b4e77dd73f660ef04cc8f1c"
+      "bytes": 67794,
+      "sourceDigest": "80035f425801fb8a2e4d8289182e1d22f1536b9882df40aaf8224f32f976b83b"
     },
     "github-stats": {
       "directory": "docs/extensions/examples/github-stats",
@@ -116,9 +116,9 @@
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
-      "files": 53,
-      "bytes": 288816,
-      "sourceDigest": "b25c61cebac4142d044f3b6e734000373d3b522555595b832fe4e2258259b3bd"
+      "files": 55,
+      "bytes": 291065,
+      "sourceDigest": "9d0fc1a23851e0d303f428cd917f41fe93014c224be49acf6a7bd7ee02ac0ff7"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
@@ -131,8 +131,8 @@
       "directory": "docs/extensions/examples/kokoro-tts",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 31946,
-      "sourceDigest": "f44e8c124a0b467c9ad4756dd5d7feda20f0d417ebd54aa7d36a7b0a8dd21ef2"
+      "bytes": 31945,
+      "sourceDigest": "cf9aa8180234dee99a584235d30cb7ea077ca0c1021239a0870a483568ac8b7c"
     },
     "log-analyzer": {
       "directory": "docs/extensions/examples/log-analyzer",
@@ -235,16 +235,16 @@
     "substack-engagement": {
       "directory": "docs/extensions/examples/substack-engagement",
       "entrypoint": "extension.ts",
-      "files": 28,
-      "bytes": 210423,
-      "sourceDigest": "49a1f04e55701a17af2d98bef95fecc5c5b8bcf38b4a590c5fc304e7bf831d9a"
+      "files": 30,
+      "bytes": 291956,
+      "sourceDigest": "88f64248e4bf113f1f854397c914614ca915cdecc4b66fa0dff82a76638118f3"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
-      "files": 31,
-      "bytes": 156180,
-      "sourceDigest": "02a96bb72842fb23f60a2bd0683fdf4cd9aef7bf3c74de0f0700db40fe11c84b"
+      "files": 33,
+      "bytes": 237708,
+      "sourceDigest": "f7c73037f3ac8bd4b1938f5150e6925dcffff39a451c4a3537560db5e7384597"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -347,9 +347,9 @@
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
-      "files": 61,
-      "bytes": 372297,
-      "sourceDigest": "d9071bc17351ae1bc75f616dc99cbd314de3ad42f84418ebe2b9d4a59e69e316"
+      "files": 54,
+      "bytes": 421722,
+      "sourceDigest": "9cd270617443daa842deaec7267eada13e11e68cc7921880a356724907668581"
     }
   }
 }

@@ -54,7 +54,7 @@ let nextSearchResult: () => JsonRpcResponse["result"] | { error: { code: number;
 function wireHostRpc(proc: ExtensionProcess): void {
   proc.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
     if (req.method === "ezcorp/search") {
-      const params = (req.params ?? {}) as SearchCall;
+      const params = (req.params ?? {}) as unknown as SearchCall;
       searchCalls.push(params);
       const out = nextSearchResult();
       if (out && typeof out === "object" && "error" in out) {

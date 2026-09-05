@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { EzcorpClient } from "../../../../../packages/@ezcorp/ai-kit/src/client";
+import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** Live-server counterpart to `docs/quickstart-curl.md`. Runs the auth →
  *  create conversation → send message → stream → run:complete recipe against

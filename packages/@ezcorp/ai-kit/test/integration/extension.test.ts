@@ -22,7 +22,7 @@ import { startStubServer, type StubServer } from "../fixtures/stub-server";
 // Import the validator from the host project (not the SDK — the SDK just
 // re-exports the identity defineExtension; the authoritative validator lives
 // in src/extensions/manifest.ts which is what the platform uses at load time).
-import { validateManifestV2 } from "../../../../../src/extensions/manifest";
+import { validateManifest } from "@ezcorp/extension-contract";
 import manifest from "../../ezcorp.config";
 
 // ── Locked tool-name list ─────────────────────────────────────────────────
@@ -51,14 +51,12 @@ const LOCKED_TOOL_NAMES = new Set([
 ]);
 
 describe("ezcorp.config manifest", () => {
-  test("passes validateManifestV2", () => {
-    const result = validateManifestV2(manifest);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
+  test("passes the canonical v4 manifest validator", () => {
+    expect(validateManifest(manifest)).toEqual(manifest);
   });
 
-  test("schemaVersion is the literal number 2", () => {
-    expect(manifest.schemaVersion).toBe(2);
+  test("schemaVersion is the literal number 4", () => {
+    expect(manifest.schemaVersion).toBe(4);
   });
 
   test("name is 'ai-kit'", () => {
@@ -111,9 +109,12 @@ describe("ezcorp.config manifest", () => {
     }
   });
 
-  test("permissions.network is declared (localhost at minimum)", () => {
-    expect(Array.isArray(manifest.permissions.network)).toBe(true);
-    expect((manifest.permissions.network ?? []).length).toBeGreaterThan(0);
+  test("declares exact host API routes without direct localhost networking or credentials", () => {
+    expect(manifest.permissions.network).toBeUndefined();
+    expect(manifest.permissions.env).toBeUndefined();
+    expect(manifest.permissions.hostApi?.events).toBe(true);
+    expect(manifest.permissions.hostApi?.routes).toContainEqual({ method: "GET", path: "/api/projects" });
+    expect(manifest.permissions.hostApi?.routes).toContainEqual({ method: "POST", path: "/api/conversations" });
   });
 
   test("scripts.postinstall points to postinstall script", () => {

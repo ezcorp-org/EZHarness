@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { EzcorpClient } from "../../../../../packages/@ezcorp/ai-kit/src/client";
+import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** Validates that ai-kit auto-installs on every EZCorp boot by default.
  *  Operators opt out by setting `EZCORP_DISABLE_AI_KIT=1`. Skipped cleanly

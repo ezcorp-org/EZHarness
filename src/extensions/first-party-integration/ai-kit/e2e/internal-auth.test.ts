@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { EzcorpClient } from "../../../../../packages/@ezcorp/ai-kit/src/client";
+import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** End-to-end verification of the internal-auth security contract against
  *  a live SvelteKit server. Skipped unless EZCORP_E2E_BASE_URL is set.

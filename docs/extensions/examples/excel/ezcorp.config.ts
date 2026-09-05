@@ -54,7 +54,7 @@ export default defineExtension({
   // (host does NOT install it) — it must be present in the deployment's
   // node_modules (declared in the app root package.json). See
   // src/extensions/npm-deps.ts.
-  npmDependencies: { exceljs: "^4.4.0" },
+  npmDependencies: { exceljs: "4.4.0" },
   permissions: {},
   resources: { memory: "256MB", callTimeoutMs: 30000 },
 });
