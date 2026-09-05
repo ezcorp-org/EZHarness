@@ -40,3 +40,33 @@ The former reopen suite's owner, modifiable, bundled, ID lookup, and complete
 source invariants now run against real PGlite and the immutable blob store in
 reopen-extension.test.ts. Missing source refuses a partial workspace. Reopen
 cannot copy host files, execute configuration, approve, or activate a release.
+
+## Installer replacement
+
+The retired installer, installer-coverage, installer-v2,
+installer-preloaded-manifest, installer-deputy-flag,
+installer-idempotent-local, installer-tool-list-drift, and
+ts-manifest-installer-gaps suites invoked the removed direct installer.
+Their replacement is not merely its rejection test:
+
+- installer-v4-cutover tests every legacy entrypoint, preloaded executable
+  metadata, caller/bundled flags, malformed canonical metadata, name boundaries,
+  and deputy declarations without automatic grants.
+- source-import-staging tests actual filesystem collection and local, registered
+  project, bundled, and scoped GitHub import orchestration. It checks all human
+  account gates, symlink/relative/outside-root refusal, complete source snapshots,
+  secret exclusion, host-written provenance, revision/build identity, and failure
+  without activation. import-wired-e2e checks real database workspace persistence.
+- install-source-roots preserves all 13 pure containment and path-portability
+  cases from installer-coverage, including empty paths inside an allowed root,
+  traversal, near-matches, bundled paths, and registered project roots.
+- v4 lifecycle tests cover source and release immutability, idempotency, source
+  revision conflicts, exact approval binding, catalog verification, activation,
+  registry generation acknowledgement, disable, and uninstall retention.
+- Runner dependency tests cover pinned package resolution and integrity instead
+  of testing host npm execution or a host cp/git extraction error string.
+
+Direct remote update and arbitrary git clone are not silently emulated. The
+supported import surfaces and remaining gaps are recorded in
+docs/extensions/v4-imports.md. Uninstall retains source and user data; it never
+uses a caller-supplied host path for deletion.
