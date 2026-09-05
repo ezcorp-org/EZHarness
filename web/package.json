@@ -32,7 +32,7 @@
 		"@vitest/coverage-v8": "4.1.11",
 		"jsdom": "^30.0.1",
 		"rollup-plugin-visualizer": "^7.1.1",
-		"svelte": "^5.56.9",
+		"svelte": "^5.57.0",
 		"svelte-check": "^4.7.6",
 		"tailwindcss": "^4.2.1",
 		"typescript": "^6.0.3",
@@ -48,9 +48,9 @@
 		"kokoro-js": "^1.2.0",
 		"linkedom": "^0.18.12",
 		"lucide-svelte": "^1.0.1",
-		"marked": "^18.0.10",
+		"marked": "^18.0.11",
 		"svelte-adapter-bun": "^1.0.1",
-		"svelte-dnd-action": "^0.9.69",
-		"zod": "^4.3.6"
+		"svelte-dnd-action": "^0.9.79",
+		"zod": "^4.5.2"
 	}
 }
