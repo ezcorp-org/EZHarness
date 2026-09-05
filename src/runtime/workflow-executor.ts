@@ -503,6 +503,22 @@ export class WorkflowExecutor {
     }
   }
 
+  private async refuseWorkflow(
+    run: WorkflowRun,
+    code: string,
+    message: string,
+    userId: string | undefined,
+    operation: string,
+    persistRefusal = true,
+  ): Promise<WorkflowRun> {
+    run.status = "error";
+    run.finishedAt = Date.now();
+    run.result = { success: false, output: null, error: { code, message } };
+    if (persistRefusal) await this.persistCritical(operation, () => finalizeWorkflowRunRow(run.id, "error", run.result));
+    this.bus.emit("workflow:error", { workflowRun: run, error: message, userId });
+    return run;
+  }
+
   /**
    * Record one loop iteration's child row. Telemetry, so it rides
    * {@link persistWrite}'s never-throw contract — a trace row must never
@@ -793,7 +809,7 @@ export class WorkflowExecutor {
     // a YAML workflow simply has no row, which is what the nullable FK
     // is for.
     const persistStart = entry.source === "extension" ? this.persistCritical : this.persistWrite;
-    await persistStart.call(this, "insert", async () => {
+    const insertRun = async () => {
       const definition = await getWorkflowByName(workflow.name);
       // The version this run executes. Resolved at START, so an edit
       // landing mid-run cannot retroactively change what the run says it
@@ -822,7 +838,7 @@ export class WorkflowExecutor {
       // or a workflow with no row). If a trace ever needs to name the
       // snapshot for a run of a stale cache entry, resolve it BY
       // `stepsHash` — do not widen this claim back to "latest".
-      const ranVersion = version?.stepsHash === ranHash ? version : undefined;
+      const ranVersion = entry.source !== "extension" && version?.stepsHash === ranHash ? version : undefined;
       await insertWorkflowRun({
         id: workflowRun.id,
         workflowName: workflow.name,
@@ -866,10 +882,15 @@ export class WorkflowExecutor {
         runAsKind: opts?.runAsKind ?? null,
         runAs: opts?.runAs ?? null,
       });
-    });
+    };
+    try {
+      await persistStart.call(this, "insert", insertRun);
+    } catch {
+      return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
+    }
 
     if (!await workflowReleaseCanAccess(entry, userId ?? null, projectId)) {
-      throw new Error("Workflow release authority is no longer available");
+      return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
     }
     return this.executeFrom({
       workflow,
@@ -979,16 +1000,8 @@ export class WorkflowExecutor {
     // gate could instead destroy every approval-parked run, one direct
     // call each — strictly worse than the attack the check exists to
     // stop.
-    const refuseTerminal = async (code: string, message: string): Promise<WorkflowRun> => {
-      workflowRun.status = "error";
-      workflowRun.finishedAt = Date.now();
-      workflowRun.result = { success: false, output: null, error: { code, message } };
-      await this.persistCritical("resume-refusal", () =>
-        finalizeWorkflowRunRow(workflowRun.id, "error", workflowRun.result),
-      );
-      this.bus.emit("workflow:error", { workflowRun, error: message, userId });
-      return workflowRun;
-    };
+    const refuseTerminal = (code: string, message: string): Promise<WorkflowRun> =>
+      this.refuseWorkflow(workflowRun, code, message, userId, "resume-refusal");
 
     const refuseTransient = (code: string, message: string): WorkflowRun => {
       workflowRun.status = "suspended";
@@ -2970,6 +2983,7 @@ export async function resumeClaimedRun(
 
 function executionEntry(workflow: WorkflowDefinition): CachedWorkflow {
   const runtime = getWorkflowRuntime();
-  return runtime?.getCachedWorkflows?.().find((entry) => entry.definition.name === workflow.name)
-    ?? systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml");
+  const entry = runtime && workflowResumeEntry(runtime, workflow.name);
+  if (entry) return entry.source === "extension" ? entry : { ...entry, definition: workflow };
+  return systemCachedWorkflow(workflow, workflow.name.includes(":") ? "extension" : "yaml");
 }

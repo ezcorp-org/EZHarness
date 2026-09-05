@@ -181,17 +181,33 @@ test("direct execution rechecks release authority after durable reads and never 
   const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
   const { workflowRuns } = await import("../db/schema");
   const bus = new EventBus<import("../types").AgentEvents>();
+  const activeRuns = new Set<string>();
+  const errors: string[] = [];
+  bus.on("workflow:start", ({ workflowRun }) => activeRuns.add(workflowRun.id));
+  bus.on("workflow:error", ({ workflowRun }) => {
+    activeRuns.delete(workflowRun.id);
+    errors.push(workflowRun.id);
+  });
   let effects = 0;
   const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, stepSubstitute: () => { effects++; return undefined; } });
   registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [entry!], workflowExecutor: executor });
   try {
     await expect(executor.runWorkflow(structuredClone(entry!.definition), {}, undefined, "owner")).rejects.toThrow("release authority");
+    const failedInsertId = crypto.randomUUID();
+    expect((await executor.runWorkflow(entry!.definition, {}, "missing-project", "owner", undefined, { runId: failedInsertId })).result?.error).toMatchObject({ code: "run-persistence-failed" });
+    expect(errors).toEqual([failedInsertId]);
+    expect(await getWorkflowRunRow(failedInsertId)).toBeUndefined();
+    expect(activeRuns.size).toBe(0);
     let reads = 0;
     setup.runtime.resolve = async () => {
       if (++reads === 3) setup.snapshot.installation.enabled = false;
       return setup.snapshot;
     };
-    await expect(executor.runWorkflow(entry!.definition, {}, undefined, "owner")).rejects.toThrow("release authority");
+    const revokedRunId = crypto.randomUUID();
+    expect((await executor.runWorkflow(entry!.definition, {}, undefined, "owner", undefined, { runId: revokedRunId })).status).toBe("error");
+    expect((await getWorkflowRunRow(revokedRunId))?.status).toBe("error");
+    expect(errors).toEqual([failedInsertId, revokedRunId]);
+    expect(activeRuns.size).toBe(0);
     const id = await claimedReleaseRun(entry!);
     await getTestDb().update(workflowRuns).set({ definitionHash: workflowExecutionHash(entry!.definition, entry!.extensionRelease) }).where(eq(workflowRuns.id, id));
     const row = await getWorkflowRunRow(id);
@@ -200,6 +216,13 @@ test("direct execution rechecks release authority after durable reads and never 
     reads = 0;
     expect((await executor.resumeWorkflow(entry!.definition, resumeArgsFromRow(row!), undefined, { resumedBy: "release-test", entry })).result?.error).toMatchObject({ code: "not-resumable" });
     expect(effects).toBe(0);
+    registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [{ ...entry!, source: "yaml", extensionRelease: undefined }], workflowExecutor: executor });
+    await expect(executor.runWorkflow(entry!.definition, {}, undefined, "owner")).rejects.toThrow("release authority");
+    for (const source of ["yaml", "db"] as const) {
+      const hostDefinition = { ...entry!.definition, name: "host-workflow" };
+      registerWorkflowRuntime({ getWorkflows: () => [hostDefinition], getCachedWorkflows: () => [{ ...entry!, definition: hostDefinition, source, extensionRelease: undefined }], workflowExecutor: executor });
+      expect((await executor.runWorkflow(structuredClone(hostDefinition), {}, undefined, "owner")).status).toBe("success");
+    }
   } finally { _resetWorkflowRuntimeForTests(); }
 });
 

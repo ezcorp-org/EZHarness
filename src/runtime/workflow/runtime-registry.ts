@@ -91,7 +91,8 @@ export function workflowResumeEntry(
   name: string,
 ): CachedWorkflow | undefined {
   if (runtime.getCachedWorkflows) {
-    return runtime.getCachedWorkflows().find((entry) => entry.definition.name === name);
+    const entry = runtime.getCachedWorkflows().find((entry) => entry.definition.name === name);
+    return entry && name.includes(":") && entry.source !== "extension" ? { ...entry, source: "extension" } : entry;
   }
   const definition = runtime.getWorkflows().find((entry) => entry.name === name);
   return definition && systemCachedWorkflow(definition, name.includes(":") ? "extension" : "yaml");
