@@ -404,6 +404,12 @@ export class ExtensionRegistry {
    *  value to detect that an install / uninstall / upgrade happened under
    *  them, without re-querying the DB on every check. */
   private loadGeneration = 0;
+  private readonly reloadListeners = new Set<() => void | Promise<void>>();
+
+  onReload(listener: () => void | Promise<void>): () => void {
+    this.reloadListeners.add(listener);
+    return () => { this.reloadListeners.delete(listener); };
+  }
 
   /** @see loadGeneration */
   get generation(): number {
@@ -506,6 +512,7 @@ export class ExtensionRegistry {
     }
 
     this.buildDepRoutes();
+    for (const listener of this.reloadListeners) await listener();
     this.loadGeneration++;
   }
 

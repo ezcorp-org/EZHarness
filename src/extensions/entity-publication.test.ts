@@ -13,23 +13,77 @@ import { publishExtensionGeneration } from "./extension-lifecycle-service";
 import { createExtension, getExtension, getExtensionByName, getExtensionByRef, getExtensionsByNames, listExtensions } from "../db/queries/extensions";
 import { resolveFilePlaceholders } from "./entities/seed";
 import { ExtensionRegistry } from "./registry";
+import { EventSubscriptionDispatcher } from "./event-subscription-dispatcher";
+import { LifecycleHookDispatcher } from "./lifecycle-dispatcher";
+import { EventBus } from "../runtime/events";
+import type { AgentEvents } from "../types";
+import { isRegisteredExtensionEvent, registerExtensionEvent, unregisterExtensionEvent } from "../runtime/sse-conversation-filter";
 
 mockDbConnection();
 beforeEach(setupTestDb);
 afterAll(async () => { ExtensionRegistry.resetInstance(); await closeTestDb(); });
 
-async function fixture(triggerPermissions = false) {
+async function fixture(triggerPermissions = false, contributions = false) {
   const database = getTestDb();
   await up(database);
   const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@example.test`, passwordHash: "unused", name: "Owner" }).returning();
   const manifest = validateManifest({ schemaVersion: 4, name: "publication-fixture", version: "2.0.0", description: "Fixture", author: { name: "Test" }, permissions: { storage: true }, entities: [{ type: "note", label: "Note", pluralLabel: "Notes", scope: "user", schema: { type: "object", properties: { body: { type: "string" } }, required: ["body"] }, seed: [{ slug: "one", data: { body: "{file:./one.txt}" } }, { slug: "two", data: { body: "{file:./two.txt}" } }] }] });
   if (triggerPermissions) { manifest.permissions.webhooks = ["tickets"]; manifest.permissions.schedule = { crons: ["0 * * * *"] }; }
+  if (contributions) { manifest.permissions.eventSubscriptions = ["publication-fixture:job-save"]; manifest.lifecycleHooks = ["run:complete"]; }
   const runtime = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: owner!.id });
   const repository = new DatabaseLifecycleRepository(database);
   await repository.create({ installation: runtime.snapshot.installation, releases: { [runtime.snapshot.release.id]: runtime.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
   await createExtension({ id: runtime.snapshot.installation.id, name: manifest.name, version: "1.0.0", manifest: { ...manifest, version: "1.0.0" }, source: "release-v4", creatorUserId: owner!.id });
   return { ...runtime.snapshot, repository, database };
 }
+
+test("publication refreshes custom events and removes disabled namespaces without a restart", async () => {
+  const { installation, release, repository } = await fixture(false, true);
+  const registry = ExtensionRegistry.getInstance();
+  await registry.loadFromDb();
+  const bus = new EventBus<AgentEvents>();
+  const events = new EventSubscriptionDispatcher(bus, registry, async () => []);
+  const hooks = new LifecycleHookDispatcher(bus, registry);
+  events.reconcileFromRegistry();
+  hooks.reconcileFromRegistry();
+  events.start();
+  hooks.start();
+  const unsubscribe = registry.onReload(() => { events.reconcileFromRegistry(); hooks.reconcileFromRegistry(); });
+  registerExtensionEvent("other-owner", "save");
+  try {
+    expect(isRegisteredExtensionEvent("publication-fixture:job-save")).toBe(false);
+    await publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" });
+    expect(isRegisteredExtensionEvent("publication-fixture:job-save")).toBe(true);
+    expect(isRegisteredExtensionEvent("publication-fixture:undeclared")).toBe(false);
+    await registry.reload();
+    expect(isRegisteredExtensionEvent("publication-fixture:job-save")).toBe(true);
+    const disabled = { ...installation, enabled: false, status: "disabled" as const, generation: installation.generation + 1, grants: [] };
+    await repository.transact(installation.id, state => { state.installation = disabled; });
+    await publishExtensionGeneration(disabled, null);
+    expect(isRegisteredExtensionEvent("publication-fixture:job-save")).toBe(false);
+    expect(isRegisteredExtensionEvent("other-owner:save")).toBe(true);
+    await registry.reload();
+    expect(isRegisteredExtensionEvent("publication-fixture:job-save")).toBe(false);
+  } finally {
+    unsubscribe();
+    events.stop();
+    hooks.stop();
+    unregisterExtensionEvent("other-owner", "save");
+  }
+});
+
+test("failed asynchronous reload callbacks reject publication and do not acknowledge a load", async () => {
+  const { installation, release } = await fixture();
+  const registry = ExtensionRegistry.getInstance();
+  const generation = registry.generation;
+  const unsubscribe = registry.onReload(async () => { await Promise.resolve(); throw new Error("contribution refresh failed"); });
+  try {
+    await expect(publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" })).rejects.toThrow("contribution refresh failed");
+    expect(registry.generation).toBe(generation);
+  } finally { unsubscribe(); }
+  await publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" });
+  expect(registry.generation).toBe(generation + 1);
+});
 
 test("publication atomically seeds immutable files and preserves existing user edits on replay", async () => {
   const { installation, release, database } = await fixture();

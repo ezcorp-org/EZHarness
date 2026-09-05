@@ -33,6 +33,7 @@ import {
 } from "../runtime/sse-conversation-filter";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
+import { manifestEventsIncludeFullPayload } from "./clamp-permissions";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
@@ -69,6 +70,7 @@ const DEFAULT_OVERFLOW_AUDIT_MS = 1000;
 export class EventSubscriptionDispatcher {
   /** extensionId → set of subscribed event types (post-clamp). */
   private readonly subscriptions = new Map<string, Set<SubscribableEvent>>();
+  private readonly namespaces = new Map<string, string>();
   /** event type → set of extensionIds subscribed to it. Mirror of
    *  `subscriptions` so `dispatch` can fan out without a full-map scan. */
   private readonly eventToExtensions = new Map<SubscribableEvent, Set<string>>();
@@ -136,6 +138,23 @@ export class EventSubscriptionDispatcher {
     this.includeFullPayload.set(extensionId, value);
   }
 
+  reconcileFromRegistry(): void {
+    const started = this.started;
+    const payloadGrants = new Map(this.includeFullPayload);
+    this.stop();
+    for (const extensionId of this.subscriptions.keys()) this.unregisterExtension(extensionId);
+    this.namespaces.clear();
+    this.includeFullPayload.clear();
+    for (const [extensionId, manifest] of this.registry.getAllManifests()) {
+      const subscriptions = this.registry.getGrantedPermissions(extensionId)?.eventSubscriptions;
+      if (Array.isArray(subscriptions) && subscriptions.length > 0) {
+        this.registerExtension(extensionId, subscriptions);
+        this.setIncludeFullPayload(extensionId, payloadGrants.get(extensionId) === true && manifestEventsIncludeFullPayload(manifest.permissions.eventSubscriptions));
+      }
+    }
+    if (started) this.start();
+  }
+
   registerExtension(extensionId: string, eventTypes: string[]): void {
     // Defensive: tests pass a stub registry that may not implement
     // `getManifest`. Treat missing as "no manifest", which short-circuits
@@ -145,6 +164,7 @@ export class EventSubscriptionDispatcher {
         ? this.registry.getManifest(extensionId)
         : undefined;
     const ownNamespace = manifest?.name;
+    if (ownNamespace) this.namespaces.set(extensionId, ownNamespace);
 
     let extSubs = this.subscriptions.get(extensionId);
     let added = 0;
@@ -212,11 +232,7 @@ export class EventSubscriptionDispatcher {
     // therefore have a matching SSE-filter registry entry to clean
     // up) vs platform events (registered as direct carriers; not
     // owned by us).
-    const manifest =
-      typeof this.registry.getManifest === "function"
-        ? this.registry.getManifest(extensionId)
-        : undefined;
-    const ownNamespace = manifest?.name;
+    const ownNamespace = this.namespaces.get(extensionId);
 
     for (const eventType of subs) {
       const extSet = this.eventToExtensions.get(eventType);
@@ -243,6 +259,7 @@ export class EventSubscriptionDispatcher {
       }
     }
     this.subscriptions.delete(extensionId);
+    this.namespaces.delete(extensionId);
   }
 
   /**

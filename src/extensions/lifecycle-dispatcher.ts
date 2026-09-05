@@ -71,11 +71,23 @@ export class LifecycleHookDispatcher {
   private hookToExtensions = new Map<LifecycleHookName, Set<string>>();
   /** unsubscribe functions from EventBus */
   private unsubscribers: Array<() => void> = [];
+  private started = false;
 
   constructor(
     private readonly bus: EventBus<AgentEvents>,
     private readonly registry: ExtensionRegistry,
   ) {}
+
+  reconcileFromRegistry(): void {
+    const started = this.started;
+    this.stop();
+    this.subscriptions.clear();
+    this.hookToExtensions.clear();
+    for (const [extensionId, manifest] of this.registry.getAllManifests()) {
+      if (manifest.lifecycleHooks?.length) this.registerExtension(extensionId, manifest.lifecycleHooks as LifecycleHookName[]);
+    }
+    if (started) this.start();
+  }
 
   /**
    * Register an extension to receive specific lifecycle hooks.
@@ -108,6 +120,8 @@ export class LifecycleHookDispatcher {
    * On event, sanitizes the payload and sends fire-and-forget notifications.
    */
   start(): void {
+    if (this.started) return;
+    this.started = true;
     for (const hook of ALLOWED_LIFECYCLE_HOOKS) {
       const extSet = this.hookToExtensions.get(hook);
       if (!extSet || extSet.size === 0) continue;
@@ -127,6 +141,7 @@ export class LifecycleHookDispatcher {
    * Unsubscribe from all EventBus listeners.
    */
   stop(): void {
+    this.started = false;
     for (const unsub of this.unsubscribers) {
       unsub();
     }

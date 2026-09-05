@@ -41,7 +41,6 @@ import {
 } from "$server/extensions/state-mediator";
 import {
   LifecycleHookDispatcher,
-  type LifecycleHookName,
 } from "$server/extensions/lifecycle-dispatcher";
 import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
 import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
@@ -307,15 +306,7 @@ export async function ensureInitialized(): Promise<void> {
 
   // Wire lifecycle hook dispatcher (sends sanitized events to subscribed extensions)
   lifecycleDispatcher = new LifecycleHookDispatcher(bus, registry);
-  for (const [extId, manifest] of registry.getAllManifests()) {
-    if (manifest.lifecycleHooks?.length) {
-      // manifest.lifecycleHooks is declared as string[] on the manifest
-      // type; the dispatcher validates each entry against ALLOWED_LIFECYCLE_HOOKS
-      // at registration time, so the structural assertion here is narrower
-      // than `any` and preserves runtime behavior.
-      lifecycleDispatcher.registerExtension(extId, manifest.lifecycleHooks as LifecycleHookName[]);
-    }
-  }
+  lifecycleDispatcher.reconcileFromRegistry();
   lifecycleDispatcher.start();
   registerTeardown("lifecycle-dispatcher", () => {
     lifecycleDispatcher?.stop();
@@ -334,14 +325,13 @@ export async function ensureInitialized(): Promise<void> {
     registry,
     getConversationExtensionIds,
   );
-  for (const [extId] of registry.getAllManifests()) {
-    const granted = registry.getGrantedPermissions(extId);
-    const subs = granted?.eventSubscriptions;
-    if (Array.isArray(subs) && subs.length > 0) {
-      eventSubscriptionDispatcher.registerExtension(extId, subs);
-    }
-  }
+  eventSubscriptionDispatcher.reconcileFromRegistry();
   eventSubscriptionDispatcher.start();
+  const unsubscribeReload = registry.onReload(() => {
+    lifecycleDispatcher!.reconcileFromRegistry();
+    eventSubscriptionDispatcher!.reconcileFromRegistry();
+  });
+  registerTeardown("extension-contribution-reload", unsubscribeReload);
   registerTeardown("event-subscription-dispatcher", () => {
     eventSubscriptionDispatcher?.stop();
   });
