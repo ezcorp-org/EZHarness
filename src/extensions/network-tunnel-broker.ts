@@ -1,4 +1,4 @@
-import { connect, isIP, type Socket } from "node:net";
+import { isIP, Socket } from "node:net";
 import { lookup } from "node:dns/promises";
 import { decodeTunnelChunk, parseTcpDestination, TUNNEL_CHUNK_BYTES, TUNNEL_MAX_BYTES, TUNNEL_MAX_LIFETIME_MS } from "@ezcorp/extension-contract";
 import { isBlockedIp, parseIpv4, type ResolveHost } from "../search/egress";
@@ -87,7 +87,7 @@ export async function handleNetworkTunnel(deps: RpcHandlerDeps, extensionId: str
         clearTimeout(deadlineTimer);
         if (!addresses.length || addresses.length > 32 || addresses.some(address => !isIP(address) || !allowedPrivate && isBlockedIp(address))) throw new Error("TCP address denied");
         await authorize(destination);
-        socket = connect({ host: addresses[0]!, port });
+        socket = new Socket();
         if (socket.readableHighWaterMark > TUNNEL_CHUNK_BYTES) throw new Error("TCP buffer limit is not enforced");
         socket.on("readable", () => socket!.pause());
         socket.pause();
@@ -95,6 +95,7 @@ export async function handleNetworkTunnel(deps: RpcHandlerDeps, extensionId: str
           deadlineTimer = setTimeout(() => reject(new Error("TCP connect deadline exceeded")), 10_000);
           socket!.once("connect", resolve);
           socket!.once("error", reject);
+          socket!.connect({ host: addresses[0]!, port });
         });
         clearTimeout(deadlineTimer);
         await authorize(destination);

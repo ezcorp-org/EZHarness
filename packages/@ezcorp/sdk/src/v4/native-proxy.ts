@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer } from "node:http";
 import type { Socket } from "node:net";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { ContractError, decodeTunnelChunk, parseTcpDestination, TUNNEL_CHUNK_BYTES, TUNNEL_MAX_LIFETIME_MS } from "@ezcorp/extension-contract";
@@ -16,7 +16,7 @@ export async function startNativeProxy(context: ExtensionContext): Promise<{ env
   const handles = new Set<string>();
   let closed = false;
   let requests = 0;
-  const authorized = (request: IncomingMessage) => {
+  const authorized = (request: { headers: Record<string, string | string[] | undefined> }) => {
     const header = request.headers["proxy-authorization"];
     return !closed && !context.signal.aborted && Date.now() < context.invocation.deadline && typeof header === "string" && Buffer.byteLength(header) === expected.length && timingSafeEqual(Buffer.from(header), expected);
   };
