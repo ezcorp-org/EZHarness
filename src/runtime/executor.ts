@@ -55,8 +55,9 @@ import { logger } from "../logger";
 const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
 import { WatchdogManager } from "./executor-watchdog";
-import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt } from "./executor-helpers";
+import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt, type PiLlmAdapter } from "./executor-helpers";
 import { workflowScopeKey } from "./workflow-scope-key";
+import { isServiceInvocation } from "../extensions/service-invocation";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -458,8 +459,11 @@ export class AgentExecutor {
     modelOverride?: import("../types").ModelOverride,
     control?: AgentExecutionControl,
   ): Promise<AgentRun> {
+    const serviceInvocation = control?.serviceInvocation;
+    if (serviceInvocation && (!isServiceInvocation(serviceInvocation) || userId || (projectId ?? null) !== serviceInvocation.projectId)) throw new Error("Service agents require their exact host-issued service and project authority, without a human identity");
     const assertActive = async () => {
       control?.signal?.throwIfAborted();
+      await serviceInvocation?.assertActive();
       await control?.invocationGuard?.();
       control?.signal?.throwIfAborted();
     };
@@ -467,7 +471,7 @@ export class AgentExecutor {
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
 
-    const resolvedInput = await this.resolveInput(input, projectId);
+    const resolvedInput = serviceInvocation ? { ...input } : await this.resolveInput(input, projectId);
     await assertActive();
 
     const run: AgentRun = {
@@ -513,7 +517,8 @@ export class AgentExecutor {
     // own log (`warn`) puts it on `/runs/[id]` next to the step that asked —
     // the same fact the delegation consent dialog already shows before a grant
     // (`findEffortNoops`), now at the moment it actually bites.
-    const piLlm = createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
+    const denyServiceAdapter = (): never => { throw new Error("Direct host file, shell and LLM adapters are unavailable to service agents. Use an approved extension tool with explicit service capabilities instead."); };
+    const piLlm: PiLlmAdapter = serviceInvocation ? { complete: denyServiceAdapter, stream: denyServiceAdapter } : createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
     const guarded = async <Result>(effect: () => Promise<Result>): Promise<Result> => {
       controller.signal.throwIfAborted();
       await assertActive();
@@ -525,8 +530,8 @@ export class AgentExecutor {
       input: resolvedInput,
       // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
       llm: piLlm as any,
-      shell: control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
-      file: control ? {
+      shell: serviceInvocation ? { run: denyServiceAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
+      file: serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : control ? {
         read: (...args) => guarded(() => this.file.read(...args)),
         write: (...args) => guarded(() => this.file.write(...args)),
         exists: (...args) => guarded(() => this.file.exists(...args)),
