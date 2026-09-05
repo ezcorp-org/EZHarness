@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
+mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
 
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ listAgents: () => [] }),
@@ -34,8 +35,9 @@ import { requestedReleaseGrants } from "../extensions/extension-control";
 import { snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
 import { getProjectRoot } from "../extensions/project-root";
 import { getExtensionByName } from "../db/queries/extensions";
-import { GET as mentionsSearchGet } from "../../web/src/routes/api/mentions/search/+server";
 import { GET as extensionAuditGet } from "../../web/src/routes/api/extensions/[id]/audit/+server";
+
+const { GET: mentionsSearchGet } = await import("../../web/src/routes/api/mentions/search/+server");
 
 let ADMIN_USER = { id: "", role: "admin", email: "a@t", name: "Admin" };
 let root: string;
@@ -76,6 +78,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await runner?.close();
+  mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   restoreModuleMocks();
   await closeTestDb();
   if (root) await rm(root, { recursive: true, force: true });
