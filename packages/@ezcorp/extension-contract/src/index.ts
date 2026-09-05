@@ -1,2 +1,2 @@
-export * from "./types";
+export type * from "@ezcorp/extension-contract/types";
 export * from "./validation";

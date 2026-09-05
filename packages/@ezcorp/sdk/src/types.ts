@@ -1,1 +1,1 @@
-export * from "@ezcorp/extension-contract/legacy";
+export type * from "@ezcorp/extension-contract/legacy";

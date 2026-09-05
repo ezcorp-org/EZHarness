@@ -342,6 +342,7 @@ export interface ExtensionPageDeclaration {
 // schema/seed/preview shape changes in one place propagate to both
 // sides — see `packages/@ezcorp/sdk/src/entities/types.ts`.
 import type { EntityDeclaration } from "./entities";
+import type { HostApiPermission } from "./types";
 
 export interface ExtensionManifestV2 {
   schemaVersion: 2 | 3;
@@ -459,6 +460,7 @@ export interface ExtensionManifestV2 {
 
   // Package-level metadata
   permissions: {
+    hostApi?: HostApiPermission;
     network?: string[];
     filesystem?: string[];
     shell?: boolean;
@@ -726,6 +728,7 @@ export interface ExtensionManifestV2 {
 // ── Permissions (granted at install time) ────────────────────────
 
 export interface ExtensionPermissions {
+  hostApi?: HostApiPermission;
   network?: string[];
   filesystem?: string[];
   shell?: boolean;

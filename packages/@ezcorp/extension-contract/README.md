@@ -10,6 +10,6 @@ This package owns data types and runtime validation. It does not import the host
 
 Tool and runtime method schemas support object, array, string, number, boolean, and null types; required fields; bounds; enum/const; alternatives; and local named references. Schema size, depth, reference expansion, and alternatives are bounded. Recursive and remote references are rejected. Patterns use the linear-time RE2JS engine; backreferences and unsupported RE2 syntax are rejected. Input and output must be bounded JSON data. Schemas never coerce values or add defaults.
 
-The checked `src/wire-schema.json` is generated from `src/types.ts`. Run `bun run schema:generate` after changing data types, then `bun run schema:check` and `bun run build`. CI must run the schema check.
+The checked `src/wire-schema.json` is generated from `src/types.d.ts`. Run `bun run schema:generate` after changing data types, then `bun run schema:check` and `bun run build`. CI must run the schema check.
 
 Runner operations receive immutable file data and host-issued IDs, never host paths or raw container options. `RunnerExecution` uses bounded newline-delimited JSON-RPC. `extension/discover` returns metadata. `extension/invoke` accepts `{name,input,context}`; `extension/dispatch` accepts `{method,input,context}`. `extension/cancel` accepts `{invocationId}`. Reverse RPC carries `{context,input}`. The host must revalidate the context against its active invocation registry and approved release before every effect.

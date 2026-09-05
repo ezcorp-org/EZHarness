@@ -1,7 +1,7 @@
 import Ajv from "ajv";
 import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
-import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFiles } from "./types";
+import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFiles } from "@ezcorp/extension-contract/types";
 
 export const PROTOCOL_VERSION = 4;
 export const VALIDATOR_VERSION = "4.0.0";

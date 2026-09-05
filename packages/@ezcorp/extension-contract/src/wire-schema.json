@@ -786,43 +786,7 @@
               "type": "array"
             },
             "hostApi": {
-              "additionalProperties": false,
-              "properties": {
-                "events": {
-                  "type": "boolean"
-                },
-                "routes": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "method": {
-                        "enum": [
-                          "GET",
-                          "POST",
-                          "PUT",
-                          "PATCH",
-                          "DELETE"
-                        ],
-                        "type": "string"
-                      },
-                      "path": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "method",
-                      "path"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
-                }
-              },
-              "required": [
-                "routes",
-                "events"
-              ],
-              "type": "object"
+              "$ref": "#/definitions/HostApiPermission"
             },
             "lessons": {
               "additionalProperties": false,
@@ -1270,6 +1234,45 @@
       "required": [
         "id",
         "title"
+      ],
+      "type": "object"
+    },
+    "HostApiPermission": {
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "type": "boolean"
+        },
+        "routes": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE"
+                ],
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "method",
+              "path"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "routes",
+        "events"
       ],
       "type": "object"
     },

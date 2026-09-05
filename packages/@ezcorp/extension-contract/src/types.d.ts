@@ -3,6 +3,10 @@ import type { ExtensionManifestV2, ToolDefinition } from "./legacy";
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type WorkspaceFiles = Record<string, string>;
 export type ValueSchema = Record<string, unknown>;
+export interface HostApiPermission {
+  routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[];
+  events: boolean;
+}
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
   mcpOutputSchema?: ValueSchema;
@@ -15,7 +19,7 @@ export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVe
   dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {
     mcpInvoke?: boolean;
-    hostApi?: { routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[]; events: boolean };
+    hostApi?: HostApiPermission;
     custom?: Record<string, JsonValue>;
   };
 }
