@@ -2,6 +2,7 @@ import Ajv from "ajv";
 import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
 import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFiles } from "@ezcorp/extension-contract/types";
+import { parseTcpDestination } from "./network";
 
 export const PROTOCOL_VERSION = 4;
 export const VALIDATOR_VERSION = "4.0.0";
@@ -188,6 +189,11 @@ export function compileValueSchema(value: unknown): (input: unknown) => void {
 
 export function validateManifest(value: unknown): ExtensionManifestV4 {
   const manifest = validateWire("manifest", value);
+  if (manifest.permissions.networkTcp) {
+    if (manifest.permissions.networkTcp.length > 32 || new Set(manifest.permissions.networkTcp).size !== manifest.permissions.networkTcp.length) throw new ContractError("INVALID_MANIFEST", "TCP grants must be a unique bounded destination list");
+    for (const destination of manifest.permissions.networkTcp) parseTcpDestination(destination);
+  }
+  if (manifest.permissions.secretRead && (new Set(manifest.permissions.secretRead).size !== manifest.permissions.secretRead.length || manifest.permissions.secretRead.some(name => !["OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN", "GITHUB_TOKEN"].includes(name)))) throw new ContractError("INVALID_MANIFEST", "Raw credential grants must name unique supported providers");
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(manifest.name) || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) throw new ContractError("INVALID_MANIFEST", "Invalid extension name or version");
   if (manifest.entrypoint) validateWorkspacePath(manifest.entrypoint.replace(/^\.\//, ""));
   const names = new Set<string>();

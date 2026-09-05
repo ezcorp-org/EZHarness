@@ -19,6 +19,8 @@ export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVe
   dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {
     mcpInvoke?: boolean;
+    networkTcp?: string[];
+    secretRead?: string[];
     hostApi?: HostApiPermission;
     custom?: Record<string, JsonValue>;
   };
