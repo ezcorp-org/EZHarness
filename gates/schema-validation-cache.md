@@ -9,6 +9,7 @@
   EVIDENCE: `/tmp/ez-auto-note-cached-final.log`: seven tests, 50 assertions pass. The concurrent case completes in 1.51 seconds; the prior failure exceeded 30 seconds. Worker and lock deadlines are unchanged. This includes bounded contention backoff.
 - [x] Pass contract build and full contract tests.
   EVIDENCE: `/tmp/ez-cache-contract-build2.log`, `/tmp/ez-contract-cache-full.log`: 22 tests, 278 assertions pass.
-- [ ] Pass final integrated coverage.
+- [x] Pass final integrated coverage.
+  EVIDENCE: `/tmp/ez-coverage-parent-final3.log` passes all 1,239 enforced files; `/tmp/ez-patch-coverage-final3.log` passes all changed executable lines in 338 files. Cache source is unchanged since its focused proof.
 
 This cache does not store permissions, principals, active releases, or host capability decisions. Every effect retains fresh release and grant checks.

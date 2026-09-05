@@ -20,7 +20,7 @@
   CHECK: cd web && PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4185 BODY_SIZE_LIMIT=134217728 EZCORP_E2E_EVIDENCE=1 bunx playwright test --config=playwright.real.config.ts --project=chromium e2e/real-auth/extension-binary-assets.spec.ts
   EXPECT: exit 0
   EVIDENCE: /tmp/binary-browser-real3.log 1 pass with fresh authenticated PGlite and rootless runner. First run found CSP-blocked AJV initialization; browser-safe codec subpath fixes it. Mobile file-button clipping fixed and regression checked.
-- [ ] B6: Shared schema/SDK packaging, typecheck, formatting, source lock, and changed-source coverage pass.
-  EVIDENCE: schema/contract/SDK builds, source lock check, formatting, web E2E typecheck pass. Svelte check has 0 errors and 13 existing warnings. Backend typecheck has one unrelated stale suspended-status fixture; parent has its fix. Full integrated coverage/typecheck remains a parent gate.
+- [x] B6: Shared schema/SDK packaging, typecheck, formatting, source lock, and changed-source coverage pass.
+  EVIDENCE: Schema/contract/SDK builds pass. Final `/tmp/ez-types44.log`, `/tmp/ez-source-lock-final.log`, `/tmp/ez-coverage-parent-final3.log`, and `/tmp/ez-patch-coverage-final3.log` pass. `/tmp/ez-svelte-final1.log` reports zero errors and 13 warnings; lint19 exits zero with 105 warnings and 11 informational findings.
 
 Scope includes browser-safe codec extraction and streamed route limits because actual browser/security validation found these as required root fixes. CSP, invocation frame limits, permissions, and coverage floors must not be weakened.

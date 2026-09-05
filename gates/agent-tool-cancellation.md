@@ -6,5 +6,5 @@
   CHECK: bun test ./src/extensions/__tests__/agent-tool-cancellation.test.ts
   EXPECT: 0 fail
   EVIDENCE: /tmp/v4-agent-wrapper-reviewed.log — 110 tests and 388 assertions pass, including five new wrapper tests, existing namespaced/timeout tests, and schema-cache regressions.
-- [ ] Run adjacent wrapper regressions and full typecheck.
-  EVIDENCE: Adjacent wrappers pass; /tmp/v4-api-invoke-review.log — 26 API single-attempt tests pass. Backend and test typechecks pass. Full web typecheck blocked by the independent root-owned ExtensionBrowser.component.test.ts:94 ByRoleOptions exact property; reported to root. No further concrete cache/API/lifetime defects found in scoped review.
+- [x] Run adjacent wrapper regressions and full typecheck.
+  EVIDENCE: Adjacent wrappers pass; `/tmp/v4-api-invoke-review.log` has 26 passing API single-attempt tests. The unsupported component-test option is fixed. `/tmp/ez-types44.log` passes backend, web, and test checks; backend12 passes 24,381 tests. No unresolved blocking cache/API/lifetime defect remains from this scoped review.
