@@ -1894,11 +1894,8 @@ describe("the shared rungs still bound the delegated op", () => {
   });
 });
 
-describe("the ordinary `run` op is untouched by any of this", () => {
-  test("a `system` cache entry still reconstructs when getCachedWorkflows is absent", async () => {
-    // Rung 12b's `cachedEntryFor` fallback is DELIBERATELY weaker than
-    // D7's refusal, and this pins that the two paths kept their separate
-    // behaviours — the trap in this phase was inheriting the fallback.
+describe("the ordinary `run` op requires release provenance", () => {
+  test("an extension workflow without cached release provenance is refused", async () => {
     _resetWorkflowRuntimeForTests();
     cacheReader = undefined;
     cachedEntries = [systemCachedWorkflow(
@@ -1922,8 +1919,8 @@ describe("the ordinary `run` op is untouched by any of this", () => {
       }),
     );
 
-    expect(resp.error).toBeUndefined();
-    expect(started[0]?.workflow.name).toBe(`${EXT_NAME}:own`);
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_FOUND" });
+    expect(started).toHaveLength(0);
   });
 });
 

@@ -9,7 +9,11 @@
  * than a comment: the batcher's own output is asserted, and the run is
  * then executed end-to-end through it.
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeAll, afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { workflowReleaseFixture } from "./helpers/workflow-release";
+import { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } from "../runtime/workflow/runtime-registry";
+import { users } from "../db/schema";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { discoverFirstPartyManifest as loadManifest, withFirstPartyExecution } from "./helpers/first-party-manifest";
@@ -45,6 +49,12 @@ const CONDITIONS_HOSTS = [
   "www.atlantaallergy.com",
 ];
 
+mockDbConnection();
+beforeAll(async () => {
+  await setupTestDb();
+  await getTestDb().insert(users).values({ id: "workflow-owner", email: "workflow@test.invalid", passwordHash: "unused", name: "Owner" });
+});
+afterAll(async () => { _resetWorkflowRuntimeForTests(); await closeTestDb(); });
 beforeEach(() => _resetGooglePollenKeyResolverForTests());
 
 // ── Upstream fixtures (the suite never touches the network) ──────────
@@ -137,6 +147,8 @@ async function loadConditionsWorkflow(): Promise<WorkflowDefinition> {
   ]);
   const wf = loaded.find((w) => w.name === `${EXT_NAME}:conditions`);
   if (!wf) throw new Error("conditions.workflow.yaml did not load");
+  const { entry } = workflowReleaseFixture(wf, "workflow-owner");
+  registerWorkflowRuntime({ getWorkflows: () => [wf], getCachedWorkflows: () => [entry], workflowExecutor: executor() });
   return wf;
 }
 
@@ -299,7 +311,7 @@ describe("conditions workflow — end to end", () => {
   test("runs green and assembles the full report, fetching the two upstreams concurrently", async () => {
     const probe = stubUpstream();
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" }, undefined, "workflow-owner");
       expect(run.status).toBe("success");
       expect(probe.peakConcurrent()).toBe(2);
 
@@ -325,7 +337,7 @@ describe("conditions workflow — end to end", () => {
       return json(FORECAST_BODY);
     }) as typeof fetch);
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Austin" }, undefined, "workflow-owner");
       expect(run.status).toBe("success");
       const out = run.result!.output as Record<string, unknown>;
       expect((out.pollen as { available: boolean }).available).toBe(false);
@@ -343,7 +355,7 @@ describe("conditions workflow — end to end", () => {
       return json(FORECAST_BODY);
     }) as typeof fetch);
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Atlantis" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Atlantis" }, undefined, "workflow-owner");
       expect(run.status).toBe("error");
       const error = run.result!.error;
       const message = typeof error === "string" ? error : error!.message;
@@ -372,7 +384,7 @@ describe("conditions workflow — end to end", () => {
       toolRunnerFactory: runner,
     });
 
-    const run = await wf.runWorkflow(await loadConditionsWorkflow(), { city: "Nowhere" });
+    const run = await wf.runWorkflow(await loadConditionsWorkflow(), { city: "Nowhere" }, undefined, "workflow-owner");
     expect(run.status).toBe("error");
     const error = run.result!.error;
     const message = typeof error === "string" ? error : error!.message;

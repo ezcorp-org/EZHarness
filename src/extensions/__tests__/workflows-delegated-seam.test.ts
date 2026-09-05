@@ -21,6 +21,7 @@
  *      seam is a door frame with the door shut.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { workflowReleaseFixture } from "../../__tests__/helpers/workflow-release";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb, closeTestDb, mockDbConnection, getTestDb,
@@ -126,6 +127,7 @@ function deps(perms?: ExtensionPermissions): RpcHandlerDeps {
 }
 
 function registerRuntime() {
+  const { entry } = workflowReleaseFixture(SHIPPED, userId, extensionId);
   registerWorkflowRuntime({
     workflowExecutor: {
       async runWorkflow(workflow, _input, _proj, uid) {
@@ -147,6 +149,7 @@ function registerRuntime() {
       }) as never,
     },
     getWorkflows: () => [SHIPPED],
+    getCachedWorkflows: () => [entry],
   });
 }
 

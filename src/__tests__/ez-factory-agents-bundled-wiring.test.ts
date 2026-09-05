@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
 import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { workflowReleaseEntry } from "./helpers/workflow-release";
+import { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } from "../runtime/workflow/runtime-registry";
 import { users, agentConfigs } from "../db/schema";
 import { up } from "../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
@@ -26,7 +28,7 @@ mock.module("../runtime/executor-helpers", () => ({
   createPiLlmAdapter: () => ({ complete: async () => ({ text: '{"valid":true}', usage: { inputTokens: 1, outputTokens: 1 } }) }),
 }));
 beforeEach(setupTestDb);
-afterEach(() => { configureEzFactoryAgentPublisher(); publishEzFactoryAgents([]); ExtensionRegistry.resetInstance(); });
+afterEach(() => { configureEzFactoryAgentPublisher(); publishEzFactoryAgents([]); ExtensionRegistry.resetInstance(); _resetWorkflowRuntimeForTests(); });
 afterAll(async () => { await closeTestDb(); mock.restore(); });
 
 async function fixture(attested = true) {
@@ -35,12 +37,13 @@ async function fixture(attested = true) {
   const [owner] = await database.insert(users).values({ email: `${crypto.randomUUID()}@example.test`, passwordHash: "unused", name: "Owner" }).returning();
   const manifest = structuredClone(await discoverFirstPartyManifest(join(getProjectRoot(), "extensions/ez-factory")));
   const runtime = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: owner!.id });
+  runtime.configure();
   runtime.snapshot.release.sourceDigest = attested ? firstPartySources.sources["ez-factory"].sourceDigest : "0".repeat(64);
   const repository = new DatabaseLifecycleRepository(database);
   await repository.create({ installation: runtime.snapshot.installation, releases: { [runtime.snapshot.release.id]: runtime.snapshot.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
   const executor = new AgentExecutor(await loadAgents(join(getProjectRoot(), "src/agents"), { includeDb: true }), new EventBus<AgentEvents>());
   configureEzFactoryAgentPublisher(createEzFactoryAgentPublisher(executor));
-  return { ...runtime.snapshot, database, repository, executor };
+  return { ...runtime.snapshot, database, repository, executor, snapshot: runtime.snapshot };
 }
 
 async function factoryRows() {
@@ -63,7 +66,10 @@ test("approved host-attested publication seeds all fixed agents and makes them r
   const workflow = Bun.YAML.parse(await Bun.file(join(getProjectRoot(), "extensions/ez-factory/etl-factory.workflow.yaml")).text()) as { steps: Array<{ agent?: string }> };
   const steps = workflow.steps.filter((candidate) => candidate.agent?.startsWith("ez-factory ")).map((step, index) => ({ name: `factory-${index}`, kind: "agent" as const, agent: step.agent!, input: { source: "fixture" } }));
   expect(steps.map((step) => step.agent)).toEqual(["ez-factory extractor", "ez-factory writer"]);
-  const result = await new WorkflowExecutor(setup.executor, new EventBus<AgentEvents>()).runWorkflow({ name: "ez-factory:publication-lookup", source: "extension", description: "Dispatch every real ETL agent name", steps }, {});
+  const definition = { name: "ez-factory:publication-lookup", source: "extension" as const, description: "Dispatch every real ETL agent name", steps };
+  const workflowExecutor = new WorkflowExecutor(setup.executor, new EventBus<AgentEvents>());
+  registerWorkflowRuntime({ getWorkflows: () => [definition], getCachedWorkflows: () => [workflowReleaseEntry(definition, setup.snapshot)], workflowExecutor });
+  const result = await workflowExecutor.runWorkflow(definition, {}, undefined, setup.installation.ownerId);
   expect(result.result).toMatchObject({ success: true, output: { valid: true } });
 });
 
@@ -84,7 +90,9 @@ test("startup preserves a user-owned colliding agent but the factory workflow ca
   publishEzFactoryAgents([]);
   expect(executor.listAgents()).toContain(original);
   const workflow = { name: "ez-factory:collision", source: "extension" as const, description: "Factory provenance", steps: [{ name: "extract", agent: original.name, input: {} }] };
-  const rejected = await new WorkflowExecutor(executor, new EventBus<AgentEvents>()).runWorkflow(workflow, {});
+  const workflowExecutor = new WorkflowExecutor(executor, new EventBus<AgentEvents>());
+  registerWorkflowRuntime({ getWorkflows: () => [workflow], getCachedWorkflows: () => [workflowReleaseEntry(workflow, setup.snapshot)], workflowExecutor });
+  const rejected = await workflowExecutor.runWorkflow(workflow, {}, undefined, setup.installation.ownerId);
   expect(rejected.result?.success).toBe(false);
   expect(JSON.stringify(rejected.result)).toContain("Approved host agent unavailable");
   expect((await executor.runAgent(original.name, {})).result?.success).toBe(true);

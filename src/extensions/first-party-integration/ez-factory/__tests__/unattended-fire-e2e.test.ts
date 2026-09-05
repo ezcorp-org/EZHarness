@@ -51,6 +51,7 @@
  * genuine ownerless fire token through them.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { workflowReleaseFixture } from "../../../../__tests__/helpers/workflow-release";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
@@ -326,7 +327,7 @@ let shippedEntry: ReturnType<typeof systemCachedWorkflow> = ENTRY;
  *  name. Nothing about the delegation row moves. */
 function releaseShips(definition: WorkflowDefinition): void {
   shipped = definition;
-  shippedEntry = systemCachedWorkflow(definition, "extension");
+  shippedEntry = workflowReleaseFixture(definition, OWNER, EXT_ID).entry;
 }
 
 let agentInvocations = 0;
