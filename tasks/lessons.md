@@ -23,3 +23,4 @@
 - Put the pinned Bun directory first in PATH for commit hooks as well as tests. A hook warning under the system Bun is not authoritative evidence.
 - Validate production-image dependencies by importing them inside the built container. Source-string assertions mirror implementation and do not prove runtime packaging.
 - Fully qualify every external Dockerfile image reference so unattended Podman builds cannot stop at a short-name prompt.
+- Prefix an explicit Bun test path with `./`; without it, Bun treats a nested path as a name filter and runs nothing.
