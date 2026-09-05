@@ -67,7 +67,7 @@ import { createWorkflowDelegation } from "../../db/queries/workflow-delegations"
 import { computeDelegationConsentRecord } from "../../runtime/workflow-delegation-record";
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
-  extensions, projects, sdkCapabilityCalls, auditLog,
+  extensions, projects, projectMembers, sdkCapabilityCalls, auditLog,
   workflowDelegations, workflowRuns, workflowStepRuns, messages, errorLogs,
 } from "../../db/schema";
 import type {
@@ -263,6 +263,7 @@ beforeAll(async () => {
   const [proj] = await getTestDb().insert(projects)
     .values({ name: "selfship-proj", path: "/tmp/selfship" }).returning({ id: projects.id });
   projectId = proj!.id;
+  await getTestDb().insert(projectMembers).values({ projectId, userId: ownerUserId, role: "owner" });
   const account = await createServiceAccount({
     name: "selfship-runner",
     description: "",

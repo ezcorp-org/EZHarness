@@ -61,7 +61,7 @@ import * as realRuntime from "@ezcorp/sdk/runtime";
 import * as schema from "../../../../db/schema";
 import { migrate } from "../../../../db/migrate";
 import { EventBus } from "../../../../runtime/events";
-import type { AgentEvents, AgentRun, WorkflowDefinition } from "../../../../types";
+import type { AgentDefinition, AgentEvents, AgentRun, WorkflowDefinition } from "../../../../types";
 import type { AgentExecutor } from "../../../../runtime/executor";
 import type { JsonRpcRequest } from "@ezcorp/sdk";
 
@@ -245,7 +245,7 @@ const { WorkflowExecutor } = await import("../../../../runtime/workflow-executor
 const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
   "../../../../runtime/workflow/runtime-registry"
 );
-const { systemCachedWorkflow } = await import("../../../../runtime/workflow-scope");
+const { systemCachedWorkflow, workflowDelegationReleaseBinding } = await import("../../../../runtime/workflow-scope");
 const { computeDelegationConsentRecord } = await import(
   "../../../../runtime/workflow-delegation-record"
 );
@@ -331,6 +331,7 @@ function releaseShips(definition: WorkflowDefinition): void {
 }
 
 let agentInvocations = 0;
+let availableAgents: AgentDefinition[] = [];
 
 function registerRuntime(): void {
   _resetWorkflowRuntimeForTests();
@@ -363,7 +364,7 @@ function registerRuntime(): void {
     workflowExecutor: new WorkflowExecutor(agentExec, bus, { persist: true }),
     getWorkflows: () => [shipped],
     getCachedWorkflows: () => [shippedEntry],
-    listAgents: () => [],
+    listAgents: () => availableAgents,
   });
 }
 
@@ -442,7 +443,7 @@ async function consent(jobRef: string): Promise<string> {
     trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
     principal: delegationPrincipal("user", OWNER),
     entries: [shippedEntry],
-    agents: [],
+    agents: availableAgents,
   });
   const created = await createWorkflowDelegation({
     extensionId: EXT_ID,
@@ -451,6 +452,7 @@ async function consent(jobRef: string): Promise<string> {
     ownerId: OWNER,
     workflowName: GRAPH.name,
     definitionVersionId: null,
+    extensionReleaseBinding: workflowDelegationReleaseBinding(shippedEntry),
     projectId: PROJECT_ID,
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
@@ -549,6 +551,7 @@ beforeAll(async () => {
   await db.execute(sql`
     INSERT INTO projects (id, name, path) VALUES (${PROJECT_ID}, 'fire-proj', '/tmp/fire')
   `);
+  await db.insert(schema.projectMembers).values({ projectId: PROJECT_ID, userId: OWNER, role: "owner" });
 });
 
 beforeEach(async () => {
@@ -565,6 +568,7 @@ beforeEach(async () => {
   receivers.clear();
   callerOwner = OWNER;
   agentInvocations = 0;
+  availableAgents = [];
   releaseShips(GRAPH);
   delete process.env.EZCORP_DISABLE_CAPABILITY_TOOLS;
   delete process.env.EZCORP_DISABLE_DELEGATED_WORKFLOWS;
@@ -763,12 +767,7 @@ describe("a RELEASE moves the shipped workflow under a live delegation", () => {
     return res.rows[0]!;
   }
 
-  test("a DEFINITION-only release keeps the job running and records why", async () => {
-    // THE DEFECT, end to end. `ez-factory` is bundled, so a release that
-    // edits one of its shipped `*.workflow.yaml` files changes the graph
-    // under every live delegation. That used to park EVERY fire
-    // `consent-stale` and stop unattended execution until a human
-    // re-approved a capability set that had not moved.
+  test("a DEFINITION-only release needs new consent before the job can run", async () => {
     const jobId = await saveCronJob("nightly etl");
     const delegationId = await consent(jobId);
     const before = await consentColumns(delegationId);
@@ -789,7 +788,15 @@ describe("a RELEASE moves the shipped workflow under a live delegation", () => {
     await fire(triggerKeyForJob(jobId)!);
     await drain();
 
-    // It RAN. Nothing is parked and the console reports a good fire.
+    expect(await runsFor(jobId)).toHaveLength(0);
+    expect(agentInvocations).toBe(0);
+    expect((await jobStore().getJob(jobId))?.lastFire).toMatchObject({ ok: false, reason: "DELEGATION_OWNER_LOST_WORKFLOW_ACCESS" });
+    expect(await consentColumns(delegationId)).toEqual(before);
+    const renewedId = await consent(jobId);
+    expect(renewedId).not.toBe(delegationId);
+    await fire(triggerKeyForJob(jobId)!);
+    await drain();
+
     const runs = await runsFor(jobId);
     expect(runs).toHaveLength(1);
     expect(runs[0]?.status).toBe("success");
@@ -800,26 +807,21 @@ describe("a RELEASE moves the shipped workflow under a live delegation", () => {
 
     // The ADVISORY digest followed the release; the SEMANTIC one did not,
     // and the approved capability set is untouched.
-    const after = await consentColumns(delegationId);
+    const after = await consentColumns(renewedId);
     expect(after.definition_hash).not.toBe(before.definition_hash);
     expect(after.consent_hash).toBe(before.consent_hash);
     expect(after.capability_set).toEqual(before.capability_set);
 
-    // And the re-authorization is ON THE RECORD, attributed to the human
-    // who consented. A platform that re-authorizes silently is worse than
-    // one that parks.
     const audit = (await db.execute(sql`
       SELECT user_id, metadata FROM audit_log
       WHERE action = 'ext:workflow-delegation-reauthorized'
     `)) as unknown as {
       rows: Array<{ user_id: string | null; metadata: { reason?: string } }>;
     };
-    expect(audit.rows).toHaveLength(1);
-    expect(audit.rows[0]?.user_id).toBe(OWNER);
-    expect(audit.rows[0]?.metadata?.reason).toBe("re-authorized by release");
+    expect(audit.rows).toHaveLength(0);
   });
 
-  test("a release that WIDENS the closure still parks, and says so in the operator's words", async () => {
+  test("a release that WIDENS the closure cannot use old consent and explains the remedy", async () => {
     // The control that makes the test above about NON-widening rather
     // than about "D6 stopped checking". Same deploy shape, but the new
     // step reaches an agent nobody approved.
@@ -840,13 +842,8 @@ describe("a RELEASE moves the shipped workflow under a live delegation", () => {
     // The record the human approved is NOT re-stamped — a human has to look.
     expect(await consentColumns(delegationId)).toEqual(before);
 
-    // The run row exists and is PARKED, not failed — it is what a
-    // re-consent resumes.
     const runs = await runsFor(jobId);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]?.status).toBe("suspended");
-    expect(runs[0]?.suspended_reason).toBe("consent-stale");
-    expect(runs[0]?.finished_at).toBeNull();
+    expect(runs).toHaveLength(0);
     // Nothing executed.
     expect(agentInvocations).toBe(0);
 
@@ -857,8 +854,28 @@ describe("a RELEASE moves the shipped workflow under a live delegation", () => {
     // service-owned parked run is invisible to every viewer.
     const job = await jobStore().getJob(jobId);
     expect(job?.lastFire?.ok).toBe(false);
-    expect(job?.lastFire?.reason).toBe("DELEGATION_CONSENT_STALE");
+    expect(job?.lastFire?.reason).toBe("DELEGATION_OWNER_LOST_WORKFLOW_ACCESS");
     expect(job?.lastFire?.kind).toBe("consent");
+    expect(job?.lastFire?.remedy).toContain("Consent again");
+  });
+
+  test("wider capabilities on a referenced agent park the same sealed workflow until consent", async () => {
+    const agent: AgentDefinition = { name: "stub", description: "Mutable host agent", capabilities: [], execute: async () => ({ success: true, output: "ok" }) };
+    availableAgents = [agent];
+    const jobId = await saveCronJob("agent capability change");
+    const delegationId = await consent(jobId);
+    const before = await consentColumns(delegationId);
+    const binding = workflowDelegationReleaseBinding(shippedEntry);
+    availableAgents = [{ ...agent, capabilities: ["http"] }];
+    await fire(triggerKeyForJob(jobId)!);
+    expect(workflowDelegationReleaseBinding(shippedEntry)).toBe(binding);
+    expect(await consentColumns(delegationId)).toEqual(before);
+    const runs = await runsFor(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ status: "suspended", suspended_reason: "consent-stale", finished_at: null });
+    expect(agentInvocations).toBe(0);
+    const job = await jobStore().getJob(jobId);
+    expect(job?.lastFire).toMatchObject({ ok: false, reason: "DELEGATION_CONSENT_STALE", kind: "consent" });
     expect(job?.lastFire?.remedy).toContain("consent again");
   });
 
