@@ -33,12 +33,14 @@
  */
 
 import { logger } from "../logger";
+import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
 
 const log = logger.child("ext.call-provenance");
 
 export type CallProvenanceKind = "tool" | "schedule" | "event" | "render";
 
 export interface CallProvenance {
+  serviceInvocation?: ServiceInvocation;
   /** User the call is on behalf of. `null` only when `ownerless` —
    *  capability handlers soft-fail rather than throw in that case. */
   onBehalfOf: string | null;
@@ -154,6 +156,7 @@ export function registerCallProvenance(
   prov: CallProvenance,
   opts?: { expiresAt?: number; now?: number },
 ): string {
+  if (prov.serviceInvocation && (!isServiceInvocation(prov.serviceInvocation) || prov.onBehalfOf !== null || prov.ownerless)) throw new Error("Invalid service invocation provenance");
   const now = opts?.now ?? Date.now();
   sweep(now);
   if (registry.size >= maxEntries) {

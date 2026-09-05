@@ -6,6 +6,7 @@ import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResu
 import { InvocationLocks, type InvocationGuard } from "./runtime-locks";
 import { getRuntimeToolContext, withRuntimeToolContext } from "./runtime-tool-context";
 import type { MigrationDb } from "../db/migrations/types";
+import { isServiceInvocation } from "./service-invocation";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -81,7 +82,7 @@ export class ReleaseProcess extends ExtensionProcess {
   }
 
   private async execute(method: string, params: Record<string, unknown>, invocationId: string, handler: typeof this.releaseHandler, notification: typeof this.releaseNotification, signal?: AbortSignal, invocationGuard?: InvocationGuard): Promise<unknown> {
-    const runtimeContext = getRuntimeToolContext() ?? {};
+    const runtimeContext = { ...(getRuntimeToolContext() ?? {}) };
     const checkCancellation = () => { if (signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled; admitted effects may already have completed"); };
     if (invocationGuard) await invocationGuard();
     checkCancellation();
@@ -92,9 +93,19 @@ export class ReleaseProcess extends ExtensionProcess {
     if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
     const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
     const provenance = token ? resolveCallProvenance(token) : undefined;
-    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || !provenance.onBehalfOf) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
+    const serviceInvocation = provenance?.serviceInvocation;
+    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || (serviceInvocation ? !isServiceInvocation(serviceInvocation) || provenance.onBehalfOf !== null : !provenance.onBehalfOf)) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
+    if (serviceInvocation) {
+      const upstreamGuard = invocationGuard;
+      invocationGuard = async database => {
+        await upstreamGuard?.(database);
+        await serviceInvocation.assertActive(database);
+      };
+      await invocationGuard();
+    }
     const workerId = crypto.randomUUID();
     const metadata: Record<string, JsonValue> = { ezConversationId: provenance.conversationId };
+    if (serviceInvocation) Object.assign(metadata, { principalKind: "service", serviceId: serviceInvocation.serviceId, delegationId: serviceInvocation.delegationId, workflowRunId: serviceInvocation.workflowRunId });
     for (const key of ["ezModel", "ezProvider", "ezPublicUrl", "invocationMetadata"]) {
       if (meta[key] !== undefined) { assertJson(meta[key]); metadata[key] = meta[key]; }
     }
@@ -102,7 +113,7 @@ export class ReleaseProcess extends ExtensionProcess {
       invocationId,
       workerId,
       releaseId: snapshot.release.id,
-      principalId: provenance.onBehalfOf,
+      principalId: serviceInvocation?.serviceId ?? provenance.onBehalfOf!,
       scopeId: provenance.conversationId ?? snapshot.installation.scope,
       token,
       deadline: Date.now() + snapshot.limits.timeoutMs,
@@ -113,7 +124,7 @@ export class ReleaseProcess extends ExtensionProcess {
       checkCancellation();
       if (this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
       const liveProvenance = resolveCallProvenance(token);
-      if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
+      if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || (serviceInvocation ? liveProvenance.serviceInvocation !== serviceInvocation || liveProvenance.onBehalfOf !== null : liveProvenance.onBehalfOf !== context.principalId) || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
     };
     const assertCurrentBinding = async () => {
       assertInvocationActive();
@@ -123,6 +134,7 @@ export class ReleaseProcess extends ExtensionProcess {
       if (releaseBinding(current) !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
     };
     const effectAdmission = { prepare: assertCurrentBinding, assertActive: assertInvocationActive, verifyTransaction: invocationGuard };
+    if (serviceInvocation) runtimeContext.serviceInvocation = serviceInvocation;
     let accepting = false;
     const runner = await this.runtime!.runner();
     checkCancellation();

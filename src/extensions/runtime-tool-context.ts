@@ -34,8 +34,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { CapabilitySet } from "./capability-types";
 import type { InvocationGuard } from "./runtime-locks";
+import type { ServiceInvocation } from "./service-invocation";
 
 export interface RuntimeToolContext {
+  serviceInvocation?: ServiceInvocation;
   signal?: AbortSignal;
   invocationGuard?: InvocationGuard;
   /**

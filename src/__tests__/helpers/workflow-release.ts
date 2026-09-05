@@ -3,7 +3,7 @@ import type { CachedWorkflow } from "../../runtime/workflow-scope";
 import { releaseBinding, type ActiveExtensionRelease } from "../../extensions/release-process";
 import { releaseRuntimeFixture } from "./release-runtime";
 
-export function workflowReleaseFixture(definition: WorkflowDefinition, ownerId: string, installationId: string = crypto.randomUUID()) {
+export function workflowReleaseFixture(definition: WorkflowDefinition, ownerId: string, installationId: string = crypto.randomUUID(), options?: Parameters<typeof releaseRuntimeFixture>[2]) {
   const runtime = releaseRuntimeFixture(installationId, {
     schemaVersion: 4,
     name: definition.name.split(":")[0]!,
@@ -13,7 +13,7 @@ export function workflowReleaseFixture(definition: WorkflowDefinition, ownerId: 
     entrypoint: "extension.ts",
     permissions: {},
     tools: [],
-  }, { ownerId });
+  }, { ...options, ownerId });
   const entry = workflowReleaseEntry(definition, runtime.snapshot);
   runtime.configure();
   return { ...runtime, entry };

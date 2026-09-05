@@ -24,6 +24,7 @@ import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
 import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { isServiceInvocation, type ServiceInvocation } from "../service-invocation";
 import {
   createExtensionPermissionGate,
   type ApprovalResolution,
@@ -248,6 +249,7 @@ export class ToolExecutor {
       expectedReleaseBinding?: string;
       signal?: AbortSignal;
       invocationGuard?: InvocationGuard;
+      serviceInvocation?: ServiceInvocation;
       _callDepth?: number;
       metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
       /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
@@ -257,6 +259,11 @@ export class ToolExecutor {
     },
     invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
+    const serviceInvocation = _opts?.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
+    if (serviceInvocation) {
+      if (!isServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity");
+      await serviceInvocation.assertActive();
+    }
     _opts?.signal?.throwIfAborted();
     if (_opts?.invocationGuard) await _opts.invocationGuard();
     _opts?.signal?.throwIfAborted();
@@ -683,6 +690,7 @@ export class ToolExecutor {
       signal: _opts?.signal,
       invocationGuard: _opts?.invocationGuard,
       currentAuditId: decision.auditId,
+      ...(serviceInvocation ? { serviceInvocation } : {}),
     };
 
     const startTime = Date.now();
@@ -872,7 +880,8 @@ export class ToolExecutor {
           parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
           actorExtensionId: extensionId,
           kind: "tool",
-          ownerless: !this.currentUserId,
+          ownerless: !this.currentUserId && !serviceInvocation,
+          ...(serviceInvocation ? { serviceInvocation, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
         });
         meta.ezCallId = ezCallId;
         if (_opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = _opts.expectedReleaseBinding;
@@ -1076,7 +1085,7 @@ export class ToolExecutor {
    * Create the `tools` object for AgentContext.
    * Code-based agents can call ctx.tools.invoke("tool_name", {input}).
    */
-  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard }) {
+  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard; serviceInvocation?: ServiceInvocation }) {
     return {
       invoke: async (toolName: string, input: Record<string, unknown>): Promise<unknown> => {
         const result = await this.executeToolCall(toolName, input, conversationId, messageId, ...(options ? [options] : []));
