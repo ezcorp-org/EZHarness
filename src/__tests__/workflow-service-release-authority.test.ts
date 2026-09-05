@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
@@ -118,10 +118,10 @@ test("human delegations require a live exact release consent and cannot widen it
   expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(false);
 });
 
-async function nestedFixture() {
+async function nestedFixture(options: { hostChild?: boolean; stepSubstitute?: import("../runtime/workflow-executor").WorkflowExecutorOptions["stepSubstitute"] } = {}) {
   const setup = await fixture();
   const { db, release, authority } = setup;
-  const child = { ...release.entry, definition: { ...release.entry.definition, name: "sealed:child", steps: [{ name: "result", kind: "transform" as const, output: { finished: "yes" } }] } };
+  const child = { ...release.entry, ...(options.hostChild ? { source: "yaml" as const, extensionRelease: undefined } : {}), definition: { ...release.entry.definition, name: options.hostChild ? "host-child" : "sealed:child", steps: [{ name: "result", kind: "transform" as const, output: { finished: "yes" } }] } };
   release.entry.definition.steps = [{ name: "child", kind: "workflow", workflow: child.definition.name, input: {} }];
   await db.update(workflowDelegations).set({ extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry, [release.entry.definition.name, child.definition.name]) }).where(eq(workflowDelegations.id, "delegation"));
   const { WorkflowExecutor } = await import("../runtime/workflow-executor");
@@ -129,7 +129,7 @@ async function nestedFixture() {
   const { EventBus } = await import("../runtime/events");
   const { loadAgentsStatic } = await import("../runtime/loader");
   const bus = new EventBus<import("../types").AgentEvents>();
-  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true });
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, stepSubstitute: options.stepSubstitute });
   const register = () => registerWorkflowRuntime({ getCachedWorkflows: () => [release.entry, child], getWorkflows: () => [release.entry.definition, child.definition], workflowExecutor: executor });
   register();
   await db.insert(workflowRuns).values({ id: "parent", workflowName: release.entry.definition.name, status: "suspended", startedAt: new Date(), input: {}, definitionHash: workflowExecutionHash(release.entry.definition, release.entry.extensionRelease), userId: null, delegationId: authority.delegationId, runAsKind: "service", runAs: authority.runAs });
@@ -158,11 +158,82 @@ test("persisted ancestry rejects scope, principal, hash, missing, cyclic and ter
   const { db, child, childAuthority, release } = await nestedFixture();
   expect(await db.transaction(transaction => workflowReleaseCanExecute(child, childAuthority, transaction))).toBe(true);
   expect(await workflowReleaseCanExecute(child, { ...childAuthority, parentRunId: "missing" })).toBe(false);
-  const patches = [{ status: "cancelled" }, { definitionHash: "changed" }, { parentRunId: "parent" }, { userId: "owner" }, { runAs: "different" }, { delegationId: null }];
+  const patches = [{ status: "cancelled" }, { definitionHash: "changed" }, { parentRunId: "parent" }, { userId: "owner" }, { runAs: "different" }, { delegationId: null }] as const;
   for (const patch of patches) {
     await db.update(workflowRuns).set(patch).where(eq(workflowRuns.id, "parent"));
     expect(await workflowReleaseCanExecute(child, childAuthority)).toBe(false);
     await db.update(workflowRuns).set({ status: "suspended", definitionHash: workflowExecutionHash(release.entry.definition, release.entry.extensionRelease), parentRunId: null, userId: null, runAs: childAuthority.runAs, delegationId: childAuthority.delegationId }).where(eq(workflowRuns.id, "parent"));
   }
   _resetWorkflowRuntimeForTests();
+});
+
+test("a resumed YAML child restores its durable parent guard before the next effect", async () => {
+  const effects: string[] = [];
+  let disableParent: () => void = () => {};
+  const { db, child, executor, release, childAuthority } = await nestedFixture({ hostChild: true, stepSubstitute: step => {
+    effects.push(step.name);
+    if (step.name === "first") disableParent();
+    return { success: true, output: "done" };
+  } });
+  disableParent = () => { release.snapshot.installation.enabled = false; };
+  child.definition.steps = [{ name: "first", kind: "transform", output: {} }, { name: "second", kind: "transform", dependsOn: ["first"], output: {} }];
+  await db.update(workflowRuns).set({ definitionHash: workflowExecutionHash(release.entry.definition, release.entry.extensionRelease) }).where(eq(workflowRuns.id, "parent"));
+  await db.insert(workflowRuns).values({ id: "child", workflowName: child.definition.name, status: "suspended", startedAt: new Date(), input: {}, definitionHash: workflowExecutionHash(child.definition), parentRunId: "parent", userId: null, delegationId: childAuthority.delegationId, runAsKind: "service", runAs: childAuthority.runAs });
+  const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const { resumeArgsFromRow } = await import("../runtime/workflow-executor");
+  const row = await getWorkflowRunRow("child");
+  const resumed = await executor.resumeWorkflow(child.definition, resumeArgsFromRow(row!), undefined, { entry: child });
+  expect(resumed.status).toBe("error");
+  expect(effects).toEqual(["first"]);
+  expect((await getWorkflowRunRow("child"))?.status).toBe("error");
+  _resetWorkflowRuntimeForTests();
+});
+
+test("a host resolver cannot supply an unbound namespaced parent even with an identical body", async () => {
+  const { child, childAuthority, release } = await nestedFixture();
+  _resetWorkflowRuntimeForTests();
+  let resolutions = 0;
+  expect(await workflowReleaseCanExecute(child, childAuthority, undefined, async () => { resolutions++; return release.entry.definition; })).toBe(false);
+  expect(resolutions).toBe(0);
+});
+
+test("local host parent resolution is captured before a SQL effect transaction", async () => {
+  const { db } = await fixture();
+  _resetWorkflowRuntimeForTests();
+  const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const definitions: import("../types").WorkflowDefinition[] = [
+    { name: "local-parent", description: "Parent", steps: [{ name: "child", kind: "workflow", workflow: "local-child" }] },
+    { name: "local-child", description: "Child", steps: [{ name: "write", kind: "tool", tool: "host__write" }] },
+  ];
+  await db.execute(sql`CREATE TABLE local_workflow_effects (value TEXT NOT NULL)`);
+  const bus = new EventBus<import("../types").AgentEvents>();
+  let insideEffect = false;
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, {
+    persist: true,
+    workflowResolver: async name => {
+      expect(insideEffect).toBe(false);
+      await db.execute(sql`SELECT 1`);
+      return definitions.find(definition => definition.name === name);
+    },
+    toolRunnerFactory: () => ({
+      setCurrentUserId() {},
+      async executeToolCall(_name, _input, _conversationId, _messageId, options) {
+        await db.transaction(async transaction => {
+          insideEffect = true;
+          try {
+            expect(options?.invocationGuard).toBeDefined();
+            await options?.invocationGuard?.(transaction);
+            await transaction.execute(sql`INSERT INTO local_workflow_effects VALUES ('committed')`);
+          } finally { insideEffect = false; }
+        });
+        return { content: [{ type: "text", text: "done" }], isError: false };
+      },
+    }),
+  });
+  expect((await executor.runWorkflow(definitions[0]!, {})).status).toBe("success");
+  const { releaseRows } = await import("../db/queries/extension-releases");
+  expect(releaseRows(await db.execute(sql`SELECT value FROM local_workflow_effects`))).toEqual([{ value: "committed" }]);
 });

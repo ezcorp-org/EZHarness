@@ -2,7 +2,8 @@ import { canonicalJson, sha256, validateArtifactFiles } from "@ezcorp/extension-
 import { getReleaseRuntime, releaseBinding, resolveActiveRelease, type ReleaseRuntimeDependencies } from "../extensions/release-process";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { loadExtensionWorkflowFiles } from "./workflow-extension-loader";
-import { workflowDelegationReleaseAllows, type CachedWorkflow } from "./workflow-scope";
+import { systemCachedWorkflow, workflowDelegationReleaseAllows, type CachedWorkflow } from "./workflow-scope";
+import type { WorkflowDefinition } from "../types";
 export { workflowDelegationReleaseBinding } from "./workflow-scope";
 import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership } from "../db/queries/workflow-authority";
 import { getWorkflowDelegation } from "../db/queries/workflow-delegations";
@@ -42,6 +43,8 @@ export interface WorkflowExecutionAuthority {
   parentRunId?: string | null;
 }
 
+export type HostWorkflowParentResolver = (name: string, authority: WorkflowExecutionAuthority, database?: MigrationDb) => WorkflowDefinition | undefined | Promise<WorkflowDefinition | undefined>;
+
 async function canExecuteRelease(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
   const humanAllowed = async () => await workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database) && await canExecuteInProject(authority.userId!, authority.projectId, database) && await workflowReleaseIsCurrent(entry, undefined, database);
@@ -59,7 +62,7 @@ async function canExecuteRelease(entry: CachedWorkflow, authority: WorkflowExecu
   return Boolean(current && matches(current) && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.workflowName === delegation.workflowName && await workflowReleaseIsCurrent(entry, undefined, database));
 }
 
-export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
+export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb, resolveHostParent?: HostWorkflowParentResolver): Promise<boolean> {
   let parentRunId = authority.parentRunId;
   const visited = new Set<string>();
   while (parentRunId) {
@@ -69,7 +72,11 @@ export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority
     if (!parent || (parent.status !== "running" && parent.status !== "suspended")) return false;
     for (const key of ["userId", "projectId", "delegationId", "runAsKind", "runAs"] as const) if ((parent[key] ?? null) !== (authority[key] ?? null)) return false;
     const runtime = getWorkflowRuntime();
-    const parentEntry = runtime && workflowResumeEntry(runtime, parent.workflowName);
+    let parentEntry = runtime && workflowResumeEntry(runtime, parent.workflowName);
+    if (!parentEntry && !parent.workflowName.includes(":")) {
+      const definition = await resolveHostParent?.(parent.workflowName, parent, database);
+      if (definition?.name === parent.workflowName) parentEntry = systemCachedWorkflow(definition, "yaml");
+    }
     if (!parentEntry || workflowExecutionHash(parentEntry.definition, parentEntry.extensionRelease) !== parent.definitionHash || !await canExecuteRelease(parentEntry, parent, database)) return false;
     parentRunId = parent.parentRunId;
   }

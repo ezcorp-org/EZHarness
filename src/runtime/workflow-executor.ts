@@ -44,7 +44,7 @@ import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
-import { workflowReleaseCanExecute, type WorkflowExecutionAuthority } from "./workflow-release-assets";
+import { workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
 import type { InvocationGuard } from "../extensions/runtime-locks";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
@@ -442,6 +442,21 @@ export class WorkflowExecutor {
   private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
   private readonly workflowResolver?: NestedWorkflowResolver;
 
+  private createHostParentResolver(): HostWorkflowParentResolver | undefined {
+    if (!this.workflowResolver) return undefined;
+    const captured = new Map<string, WorkflowDefinition>();
+    return async (name, authority, database) => {
+      const key = JSON.stringify([name, authority.userId, authority.projectId, authority.delegationId, authority.runAsKind, authority.runAs]);
+      if (database) return captured.get(key);
+      if (!captured.has(key) && captured.size >= MAX_WORKFLOW_NESTING_DEPTH) return undefined;
+      const definition = await this.workflowResolver!(name, { userId: authority.userId ?? undefined, projectId: authority.projectId ?? undefined, authority });
+      if (!definition) { captured.delete(key); return undefined; }
+      const snapshot = structuredClone(definition);
+      captured.set(key, snapshot);
+      return snapshot;
+    };
+  }
+
   constructor(
     private agentExecutor: AgentExecutor,
     private bus: EventBus<AgentEvents>,
@@ -797,7 +812,8 @@ export class WorkflowExecutor {
       steps: [],
     };
     const entry = executionEntry(workflow);
-    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }))) {
+    const parentResolver = this.createHostParentResolver();
+    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver))) {
       throw new Error("Workflow release authority is no longer available");
     }
 
@@ -892,7 +908,7 @@ export class WorkflowExecutor {
       return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
     }
 
-    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId })) {
+    if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver)) {
       return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
     }
     return this.executeFrom({
@@ -906,6 +922,7 @@ export class WorkflowExecutor {
       // `$prev` — the same shape a resume supplies from its cursor.
       cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
       releaseEntry: entry,
+      parentResolver,
       releasePrincipal: { ...opts, userId, projectId },
       invocationGuard: opts?.invocationGuard,
       stepResults: new Map(),
@@ -977,6 +994,7 @@ export class WorkflowExecutor {
     opts?: ResumeWorkflowOptions,
   ): Promise<WorkflowRun> {
     const entry = opts?.entry ?? executionEntry(workflow);
+    const parentResolver = this.createHostParentResolver();
     const workflowRun: WorkflowRun = {
       id: row.id,
       workflowName: row.workflowName,
@@ -1119,7 +1137,7 @@ export class WorkflowExecutor {
     // Drift. Until definitions are versioned this hash is the only guard,
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
-    if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row)) {
+    if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
       return refuseTransient("not-resumable", "Workflow release authority is no longer available");
     }
     const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
@@ -1145,7 +1163,7 @@ export class WorkflowExecutor {
     }
 
     const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
-    if (!await workflowReleaseCanExecute(entry, row)) {
+    if (!await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
       return refuseTransient("not-resumable", "Workflow release authority is no longer available");
     }
     return this.executeFrom({
@@ -1157,6 +1175,7 @@ export class WorkflowExecutor {
       signal,
       cursor: row.cursor ?? { batchIndex: 0, completedSteps: [], prevStepName: null },
       releaseEntry: entry,
+      parentResolver,
       releasePrincipal: row,
       stepResults: loaded.stepResults,
       // Rehydrated, not recomputed. A step skipped in an EARLIER batch is
@@ -1185,6 +1204,7 @@ export class WorkflowExecutor {
    * `workflow:start`, which would prepend a second card for one job.
    */
   private async executeFrom(ctx: {
+    parentResolver?: HostWorkflowParentResolver;
     releaseEntry: CachedWorkflow;
     releasePrincipal: WorkflowExecutionAuthority;
     invocationGuard?: InvocationGuard;
@@ -1224,9 +1244,9 @@ export class WorkflowExecutor {
     pendingPermissions?: PendingPermissionGate;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
-    const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard) ? async database => {
+    const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId) ? async database => {
       await ctx.invocationGuard?.(database);
-      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database)) throw new Error("Workflow release authority is no longer available");
+      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error("Workflow release authority is no longer available");
     } : undefined;
     const stepResults = ctx.stepResults;
     const skippedSteps = ctx.skippedSteps;
