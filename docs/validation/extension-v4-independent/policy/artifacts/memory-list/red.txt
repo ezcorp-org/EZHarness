@@ -1,0 +1,29 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/memory-list-derived-owner.integration.test.ts:
+49 |   return response.json();
+50 | }
+51 | 
+52 | test("non-admin memory list includes conversation-derived ownership and excludes other users and orphans", async () => {
+53 |   const rows = await listAs(OWNER);
+54 |   expect(rows.map(row => row.id).sort()).toEqual(["derived-owner", "direct-owner"]);
+                                              ^
+error: expect(received).toEqual(expected)
+
+  [
+-   "derived-owner",
+    "direct-owner",
+  ]
+
+- Expected  - 1
++ Received  + 0
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-audit-policy/src/__tests__/memory-list-derived-owner.integration.test.ts:54:42)
+(fail) non-admin memory list includes conversation-derived ownership and excludes other users and orphans [7.19ms]
+(pass) another user cannot list the conversation-derived memory [2.74ms]
+(pass) admin memory list remains organization-wide [2.31ms]
+
+ 2 pass
+ 1 fail
+ 7 expect() calls
+Ran 3 tests across 1 file. [901.00ms]
