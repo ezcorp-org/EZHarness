@@ -94,7 +94,7 @@ export class ReleaseProcess extends ExtensionProcess {
     const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
     const provenance = token ? resolveCallProvenance(token) : undefined;
     const serviceInvocation = provenance?.serviceInvocation;
-    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || (serviceInvocation ? !isServiceInvocation(serviceInvocation) || provenance.onBehalfOf !== null || typeof provenance.invocationGuard !== "function" : !provenance.onBehalfOf)) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
+    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || (serviceInvocation ? !isServiceInvocation(serviceInvocation) || serviceInvocation.kind !== "sealed" || provenance.onBehalfOf !== null || typeof provenance.invocationGuard !== "function" : !provenance.onBehalfOf)) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
     if (serviceInvocation || provenance.invocationGuard) {
       const upstreamGuard = invocationGuard;
       const tokenGuard = provenance.invocationGuard;

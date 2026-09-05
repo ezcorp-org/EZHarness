@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import type { AgentContext, AgentDefinition, FileProvider, ShellProvider } from "../types";
 
 mockDbConnection();
 const { workflowServiceReleaseFixture } = await import("./helpers/workflow-service-release");
-const { createServiceInvocation } = await import("../extensions/service-invocation");
+const { createHostServiceInvocation, createServiceInvocation } = await import("../extensions/service-invocation");
 const { insertWorkflowRun } = await import("../db/queries/workflow-runs");
 const { workflowExecutionHash } = await import("../runtime/workflow-definition-hash");
 const { AgentExecutor } = await import("../runtime/executor");
@@ -12,6 +13,7 @@ const { EventBus } = await import("../runtime/events");
 const { loadAgentsStatic } = await import("../runtime/loader");
 const helpers = await import("../runtime/executor-helpers");
 const { upsertSetting } = await import("../db/queries/settings");
+const { workflowDelegations, workflowRuns } = await import("../db/schema");
 
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
@@ -22,6 +24,18 @@ async function service() {
   return createServiceInvocation(release.entry, authority, "service-run");
 }
 
+async function hostService() {
+  const { db, authority } = await workflowServiceReleaseFixture();
+  const definition = { name: "legacy-host", description: "Host workflow", steps: [] };
+  const entry: import("../runtime/workflow-scope").CachedWorkflow = { definition, source: "yaml", visibility: "system", id: null, userId: null, projectId: null, forkedFrom: null };
+  await insertWorkflowRun({ id: "service-run", workflowName: definition.name, definitionHash: workflowExecutionHash(definition), startedAt: new Date(), input: {}, userId: null, runAsKind: "service", runAs: "service", delegationId: "delegation" });
+  await db.update(workflowDelegations).set({ workflowName: definition.name, extensionReleaseBinding: null }).where(eq(workflowDelegations.id, "delegation"));
+  await db.update(workflowRuns).set({ workflowName: definition.name, definitionHash: workflowExecutionHash(definition) }).where(eq(workflowRuns.id, "service-run"));
+  return createHostServiceInvocation(entry, authority, "service-run");
+}
+
+const serviceKinds = [["sealed", service], ["host", hostService]] as const;
+
 const calls: Array<[string, (context: AgentContext) => Promise<unknown>]> = [
   ["file.read", context => context.file.read("/host/private")],
   ["file.write", context => context.file.write("/host/private", "overwrite")],
@@ -31,8 +45,8 @@ const calls: Array<[string, (context: AgentContext) => Promise<unknown>]> = [
   ["llm.stream", async context => { for await (const event of context.llm.stream([])) return event; return undefined; }],
 ];
 
-test.each(calls)("actual service AgentExecutor denies direct %s before host adapter access", async (_name, call) => {
-  const proof = await service();
+test.each(serviceKinds.flatMap(([kind, factory]) => calls.map(([name, call]) => [kind, name, factory, call] as const)))("actual %s service AgentExecutor denies direct %s before host adapter access", async (_kind, _name, factory, call) => {
+  const proof = await factory();
   let effects = 0;
   const file: FileProvider = { read: async () => { effects++; return "host-secret"; }, write: async () => { effects++; }, exists: async () => { effects++; return true; } };
   const shell: ShellProvider = { run: async () => { effects++; return { stdout: "host-effect", stderr: "", exitCode: 0 }; } };
@@ -48,8 +62,8 @@ test.each(calls)("actual service AgentExecutor denies direct %s before host adap
   } finally { executor.destroy(); proof.close(); llm.mockRestore(); }
 });
 
-test("service agents receive explicit input, never ambient account defaults", async () => {
-  const proof = await service();
+test.each(serviceKinds)("%s service agents receive explicit input, never ambient account defaults", async (_kind, factory) => {
+  const proof = await factory();
   await upsertSetting("providerCredential", "host-secret");
   const executor = new AgentExecutor(loadAgentsStatic([{ name: "inspect", description: "Inspect input", capabilities: [], execute: async context => ({ success: true, output: context.input }) }]), new EventBus(), { persist: true });
   try {
@@ -83,8 +97,8 @@ test("ordinary user agents retain their direct adapters and account defaults", a
   } finally { executor.destroy(); }
 });
 
-test("nested service agents retain the same proof and cannot regain host adapters", async () => {
-  const proof = await service();
+test.each(serviceKinds)("nested %s service agents retain the same proof and cannot regain host adapters", async (_kind, factory) => {
+  const proof = await factory();
   let hostReads = 0;
   const file: FileProvider = { read: async () => { hostReads++; return "host-secret"; }, write: async () => undefined, exists: async () => true };
   const executor = new AgentExecutor(loadAgentsStatic([

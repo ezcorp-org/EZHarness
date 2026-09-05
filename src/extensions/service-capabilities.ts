@@ -7,10 +7,11 @@ import { firstMissingCapability, grantsToCapabilitySet, type CapabilitySet } fro
 import { requestedReleaseGrants } from "./extension-control";
 import { buildFullGrantFromManifest } from "./install-grant";
 import { getReleaseRuntime, releaseBinding, resolveActiveRelease } from "./release-process";
-import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
+import { isServiceInvocation, isSealedServiceInvocation, type ServiceInvocation } from "./service-invocation";
 
 export async function assertServiceCapabilities(proof: ServiceInvocation, extensionId: string, needed: CapabilitySet, options: { toolName?: string; rbacScope?: string; database?: MigrationDb } = {}): Promise<string> {
   if (!isServiceInvocation(proof)) throw new Error("Service authority must be issued by the host");
+  if (!isSealedServiceInvocation(proof)) throw new Error("Service authority must have a sealed extension origin");
   await proof.assertActive(options.database);
   const database = options.database ?? getDb();
   const target = await resolveActiveRelease(extensionId, getReleaseRuntime(), options.database);

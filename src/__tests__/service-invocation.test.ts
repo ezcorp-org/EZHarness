@@ -4,7 +4,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 const { workflowServiceReleaseFixture } = await import("./helpers/workflow-service-release");
-const { createServiceInvocation, isServiceInvocation } = await import("../extensions/service-invocation");
+const { createHostServiceInvocation, createServiceInvocation, isServiceInvocation } = await import("../extensions/service-invocation");
 const { insertWorkflowRun } = await import("../db/queries/workflow-runs");
 const { workflowDelegations, workflowRuns, extensions } = await import("../db/schema");
 const { registerCallProvenance, releaseCallProvenance } = await import("../extensions/call-provenance");
@@ -132,6 +132,23 @@ test("a host workflow uses its sealed delegation origin without pretending to be
   await db.update(workflowDelegations).set({ extensionReleaseBinding: null }).where(eq(workflowDelegations.id, "delegation"));
   await expect(proof.assertActive()).rejects.toThrow("origin");
   await expect(createServiceInvocation(entry, authority, "run")).rejects.toThrow("sealed service delegation");
+});
+
+test("a legacy host service identity restricts execution but cannot enter an extension release", async () => {
+  const { db, release, authority } = await fixture();
+  const definition = { name: "legacy-host", description: "Host workflow", steps: [] };
+  const entry: import("../runtime/workflow-scope").CachedWorkflow = { definition, source: "yaml", visibility: "system", id: null, userId: null, projectId: null, forkedFrom: null };
+  await db.update(workflowDelegations).set({ workflowName: definition.name, extensionReleaseBinding: null }).where(eq(workflowDelegations.id, "delegation"));
+  await db.update(workflowRuns).set({ workflowName: definition.name, definitionHash: workflowExecutionHash(definition) }).where(eq(workflowRuns.id, "run"));
+  const proof = await createHostServiceInvocation(entry, authority, "run", async () => {});
+  expect(proof).toMatchObject({ kind: "host", serviceId: "service", delegationId: "delegation", workflowRunId: "run" });
+  expect("sourceInstallationId" in proof).toBe(false);
+  await expect(assertServiceCapabilities(proof, "installation", [])).rejects.toThrow("sealed extension origin");
+  const token = registerCallProvenance({ onBehalfOf: null, conversationId: "workflow-run:run", runId: "run", parentCallId: null, actorExtensionId: "installation", kind: "tool", ownerless: false, serviceInvocation: proof, invocationGuard: async () => {} });
+  try {
+    await expect(new ReleaseProcess("installation").callTool("observe", {}, { ezCallId: token })).rejects.toThrow("active call token");
+    expect(release.calls).toEqual([]);
+  } finally { releaseCallProvenance(token); }
 });
 
 test("an awaited check cannot switch the origin of an already issued service proof", async () => {

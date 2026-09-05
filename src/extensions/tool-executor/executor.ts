@@ -24,7 +24,7 @@ import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
 import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
-import { isServiceInvocation, type ServiceInvocation } from "../service-invocation";
+import { isSealedServiceInvocation, type ServiceInvocation } from "../service-invocation";
 import {
   createExtensionPermissionGate,
   type ApprovalResolution,
@@ -261,7 +261,7 @@ export class ToolExecutor {
   ): Promise<ToolCallResult> {
     const serviceInvocation = _opts?.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
     if (serviceInvocation) {
-      if (!isServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity");
+      if (!isSealedServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity or an unsealed host origin");
       await serviceInvocation.assertActive();
     }
     _opts?.signal?.throwIfAborted();

@@ -44,9 +44,9 @@ import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
-import { workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
+import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
 import type { InvocationGuard } from "../extensions/runtime-locks";
-import { createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
+import { createHostServiceInvocation, createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
@@ -443,12 +443,19 @@ export class WorkflowExecutor {
   private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
   private readonly workflowResolver?: NestedWorkflowResolver;
 
-  private createHostParentResolver(): HostWorkflowParentResolver | undefined {
+  private createHostParentResolver(
+    workflow: WorkflowDefinition,
+    authority: WorkflowExecutionAuthority,
+  ): HostWorkflowParentResolver | undefined {
     if (!this.workflowResolver) return undefined;
     const captured = new Map<string, WorkflowDefinition>();
+    const keyFor = (name: string, current: WorkflowExecutionAuthority) => JSON.stringify([name, current.userId ?? null, current.projectId ?? null, current.delegationId ?? null, current.runAsKind ?? null, current.runAs ?? null]);
+    const initialKey = keyFor(workflow.name, authority);
+    captured.set(initialKey, structuredClone(workflow));
     return async (name, authority, database) => {
-      const key = JSON.stringify([name, authority.userId, authority.projectId, authority.delegationId, authority.runAsKind, authority.runAs]);
-      if (database) return captured.get(key);
+      const key = keyFor(name, authority);
+      const existing = captured.get(key);
+      if (existing) return existing;
       if (!captured.has(key) && captured.size >= MAX_WORKFLOW_NESTING_DEPTH) return undefined;
       const definition = await this.workflowResolver!(name, { userId: authority.userId ?? undefined, projectId: authority.projectId ?? undefined, authority });
       if (!definition) { captured.delete(key); return undefined; }
@@ -477,6 +484,18 @@ export class WorkflowExecutor {
       opts?.toolRunnerFactory ?? ((pending) => createWorkflowToolRunner(this.bus, pending));
     if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
     if (opts?.workflowResolver) this.workflowResolver = opts.workflowResolver;
+  }
+
+  async canExecuteReleaseAuthority(
+    entry: CachedWorkflow,
+    authority: WorkflowExecutionAuthority,
+  ): Promise<boolean> {
+    return workflowReleaseCanExecute(
+      entry,
+      authority,
+      undefined,
+      this.createHostParentResolver(entry.definition, authority),
+    );
   }
 
   /**
@@ -802,6 +821,7 @@ export class WorkflowExecutor {
       /** Nesting level; 0 (the default) for a top-level run. Threaded so a
        *  child's OWN nested steps are bounded by the same cap. */
       depth?: number;
+      parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
     const workflowRun: WorkflowRun = {
@@ -813,8 +833,9 @@ export class WorkflowExecutor {
       steps: [],
     };
     const entry = executionEntry(workflow);
-    const parentResolver = this.createHostParentResolver();
-    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver))) {
+    const authority = { ...opts, userId, projectId };
+    const parentResolver = opts?.parentResolver ?? this.createHostParentResolver(workflow, authority);
+    if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, authority, undefined, parentResolver))) {
       throw new Error("Workflow release authority is no longer available");
     }
 
@@ -995,7 +1016,7 @@ export class WorkflowExecutor {
     opts?: ResumeWorkflowOptions,
   ): Promise<WorkflowRun> {
     const entry = opts?.entry ?? executionEntry(workflow);
-    const parentResolver = this.createHostParentResolver();
+    const parentResolver = this.createHostParentResolver(workflow, row);
     const workflowRun: WorkflowRun = {
       id: row.id,
       workflowName: row.workflowName,
@@ -1441,7 +1462,9 @@ export class WorkflowExecutor {
       if (externallyAborted) throw new WorkflowAbortError();
       if (ctx.releasePrincipal.runAsKind === "service") {
         if (!invocationGuard) throw new Error("Service workflow authority guard is unavailable");
-        toolCtx.serviceInvocation = await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard);
+        toolCtx.serviceInvocation = ctx.releaseEntry.source === "extension" || await resolveWorkflowServiceOrigin(ctx.releasePrincipal)
+          ? await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard)
+          : await createHostServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard);
       }
 
       const batches = this.resolveExecutionOrder(workflow.steps);
@@ -1655,7 +1678,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
+              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, parentResolver: ctx.parentResolver, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -2179,7 +2202,7 @@ export class WorkflowExecutor {
       // The parent's signal, so a cancel cascades into the child rather
       // than leaving an orphan run the sweep has to clean up later.
       opts.flow.signal,
-      { parentRunId: this.persist ? opts.parentRunId : undefined, idempotencyKey, depth, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
+      { parentRunId: this.persist ? opts.parentRunId : undefined, idempotencyKey, depth, parentResolver: opts.flow.parentResolver, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
     );
     return nestedOutcome(step, name, child.status, child.result ?? null);
   }
@@ -2512,6 +2535,7 @@ export class WorkflowExecutor {
  * parameters through `runStep` and `runLoop`.
  */
 interface FlowContext {
+  parentResolver?: HostWorkflowParentResolver;
   serviceInvocation?: ServiceInvocation;
   releasePrincipal?: WorkflowExecutionAuthority;
   invocationGuard?: InvocationGuard;
@@ -2991,7 +3015,7 @@ export function resumeArgsFromRow(row: {
  * there is no row left to write to.
  */
 export async function resumeClaimedRun(
-  executor: Pick<WorkflowExecutor, "resumeWorkflow">,
+  executor: Pick<WorkflowExecutor, "resumeWorkflow"> & Partial<Pick<WorkflowExecutor, "canExecuteReleaseAuthority">>,
   workflow: WorkflowDefinition,
   runId: string,
   claimedBy: string,
@@ -3019,8 +3043,10 @@ export async function resumeClaimedRun(
     };
   }
 
-  if (!captured || captured.definition !== workflow ||
-      !await workflowReleaseCanExecute(captured, row)) {
+  const authorityAvailable = captured && (executor.canExecuteReleaseAuthority
+    ? await executor.canExecuteReleaseAuthority(captured, row)
+    : await workflowReleaseCanExecute(captured, row));
+  if (!captured || captured.definition !== workflow || !authorityAvailable) {
     await releaseWorkflowRunClaim(runId, claimedBy);
     return {
       id: runId,
