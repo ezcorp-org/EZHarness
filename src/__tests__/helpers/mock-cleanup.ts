@@ -32,6 +32,7 @@ const MODULE_PATHS = [
   "../../extensions/extension-lifecycle-service",
   "../../extensions/source-import",
   "../../extensions/project-open-pr",
+  "../../search/egress",
   "@ezcorp/extension-runner",
   "../../db/connection",
   "../../auth/middleware",

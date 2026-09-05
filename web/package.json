@@ -41,6 +41,7 @@
 	},
 	"dependencies": {
 		"@electric-sql/pglite": "0.5.7",
+		"@electric-sql/pglite-pgvector": "0.0.8",
 		"ansi_up": "^6.0.6",
 		"diff2html": "^3.4.56",
 		"highlight.js": "^11.12.0",
