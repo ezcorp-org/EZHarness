@@ -50,7 +50,13 @@ export interface BuildResult {
   diagnostics: Diagnostic[];
   evidence: BuildEvidence;
 }
+export interface CandidateVerificationReport {
+  catalog: "verified";
+  smoke: "passed" | "not_declared";
+  capabilities: Array<{ capability: string; state: "tested" | "denied" | "unexercised"; calls: number }>;
+}
 export interface ReleaseRecord {
+  verification?: CandidateVerificationReport;
   id: string;
   installationId: string;
   workspaceId: string;

@@ -286,6 +286,56 @@
       ],
       "type": "object"
     },
+    "CandidateVerificationReport": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "calls": {
+                "type": "number"
+              },
+              "capability": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "tested",
+                  "denied",
+                  "unexercised"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "capability",
+              "state",
+              "calls"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "catalog": {
+          "const": "verified",
+          "type": "string"
+        },
+        "smoke": {
+          "enum": [
+            "passed",
+            "not_declared"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog",
+        "smoke",
+        "capabilities"
+      ],
+      "type": "object"
+    },
     "CapabilityDeclaration": {
       "additionalProperties": false,
       "description": "Per-tool capability declaration (Phase 1, manifest schemaVersion 3).\n\nTools opt into specific runtime capabilities here; the host's PDP intersects the declaration with the extension-wide grant at every tool call. v2 manifests auto-promote via `migrateManifestV2ToV3`: each tool inherits the extension-wide ceiling, and the result is flagged `_inheritedFromV2: true` so the audit log can distinguish authored vs inherited declarations.\n\n`custom` accepts namespaced capability names (e.g. `ezcorp:chat:append`) for caps that don't fit the network/fs/shell/env/storage primitives.",
@@ -1837,6 +1887,9 @@
         },
         "sourceDigest": {
           "type": "string"
+        },
+        "verification": {
+          "$ref": "#/definitions/CandidateVerificationReport"
         },
         "workspaceId": {
           "type": "string"
