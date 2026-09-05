@@ -17,7 +17,7 @@ const cases = [
 for (const fixture of cases) test(`${fixture.tool} crosses framed SDK and production broker with its exact URL`, async () => {
   const urls: string[] = [];
   const requested: unknown[] = [];
-  const session = await release.session({ networkHosts: ["api.github.com"], async handler(request) { if (request.method === "ezcorp/network.fetch") requested.push(request.params?.url); }, fetchImpl: (async (url: string | URL | Request) => { urls.push(String(url)); return new Response(JSON.stringify(fixture.body), { status: 200 }); }) as typeof fetch });
+  const session = await release.session({ networkHosts: ["api.github.com"], async handler(request) { if (request.method === "ezcorp/network.fetch") requested.push(request.params?.url); return undefined; }, fetchImpl: (async (url: string | URL | Request) => { urls.push(String(url)); return new Response(JSON.stringify(fixture.body), { status: 200 }); }) as typeof fetch });
   try {
     const result = await session.tool(fixture.tool, fixture.input);
     expect({ result, failures: session.failures }).toMatchObject({ result: { isError: false } });
@@ -40,7 +40,7 @@ test("credential handle becomes an Authorization header only at the host provide
 
 for (const hosts of [[], ["example.com"]]) test(`${hosts.length ? "unrelated" : "empty"} granted host set denies without a network effect`, async () => {
   let requests = 0;
-  const session = await release.session({ networkHosts: hosts, fetchImpl: (async () => { requests++; return new Response("{}"); }) as typeof fetch });
+  const session = await release.session({ networkHosts: hosts, fetchImpl: Object.assign(async () => { requests++; return new Response("{}"); }, { preconnect: fetch.preconnect }) });
   try {
     const result = await session.tool("repo-stats", { owner: "octocat", repo: "hello-world" });
     expect(result.isError).toBe(true);

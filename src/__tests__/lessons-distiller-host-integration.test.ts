@@ -2,6 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { buildFirstPartyRelease } from "./helpers/first-party-release";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { configureReleaseRuntime } from "../extensions/release-process";
+import { buildFullGrantFromManifest } from "../extensions/install-grant";
 import { getExtensionLifecycle } from "../extensions/extension-lifecycle-service";
 import { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "../extensions/delivery-runtime";
 import { and, eq } from "drizzle-orm";
@@ -235,7 +236,7 @@ beforeAll(async () => {
     // Production lookup — the real `conversation_extensions` query.
     getConversationExtensionIds,
   );
-  dispatcher.registerExtension(EXT_ID, release.manifest.permissions?.eventSubscriptions ?? []);
+  dispatcher.registerExtension(EXT_ID, buildFullGrantFromManifest(release.manifest).eventSubscriptions ?? []);
   dispatcher.start();
 }, 120_000);
 

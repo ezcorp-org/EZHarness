@@ -72,7 +72,7 @@ export async function buildFirstPartyRelease(name: string) {
         registry.setGrantedPermsForTest(id, grants);
         const engine = createStubPermissionEngine(options.denyNetwork ? "deny-all" : "allow-all");
         const authorize = engine.authorize;
-        if (options.networkHosts) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && !options.networkHosts!.includes(capability.value)) ? { decision: "deny", reason: "fixture_network_policy" } : authorize(context, capabilities);
+        if (options.networkHosts) engine.authorize = async (context, capabilities) => capabilities.some(capability => capability.kind === "network" && (!capability.value || !options.networkHosts!.includes(capability.value))) ? { decision: "deny", reason: "fixture_network_policy", auditId: "fixture-network-policy" } : authorize(context, capabilities);
         const deps = { registry, engine, resolveExtensionScopeGrant: async () => true };
         let starts = 0;
         const failures: string[] = [];
