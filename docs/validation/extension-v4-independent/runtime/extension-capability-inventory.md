@@ -8,7 +8,7 @@ Only 4 extensions declared and passed smoke tests; 46 declared no smoke. The ver
 
 Final full run: `artifacts/all-first-party-lifecycle-freeze2.jsonl.gz` (SHA-256 `fbfa262f97509e54441f2a77492398e724d713946f97aabfca89446522a0837b`). It contains one fresh record for each of the 50 extensions on the frozen source.
 
-The report source digest is the lifecycle workspace digest after dependency resolution. The lock records the authored source snapshot. Thirteen dependency-bearing extensions therefore have different values by design; names, final manifests, artifacts, and releases were validated separately. Digest inequality is not presented as lock equality.
+The report source digest is the lifecycle workspace digest after dependency resolution. The lock records the authored source snapshot. Thirteen `package.json`-bearing sources have different values because dependency resolution writes a changed or new `package-lock.json` into the lifecycle workspace; only four of those sources declare dependencies. The fourteenth `package.json` source, graded-card-scanner, already had the resolved lock and therefore matches. See `scripts/verify-first-party-lifecycle-v4.ts` lines 52–61, `packages/@ezcorp/extension-runner/src/dependencies.ts` lines 35–80, and `scripts/regenerate-manifest-lock.ts` lines 23–33. Names, final manifests, artifacts, and releases were validated separately. Digest inequality is not presented as lock equality.
 
 The capability table cites 91 distinct exact test sources. `artifacts/capability-test-sources.txt` is the reproducible sorted list; every listed file exists and was included in both executed backend test pools.
 
