@@ -111,7 +111,7 @@ export async function importExtensionSource(actor: LifecycleActor, input: Extens
       files = (await snapshotExtensionSource(dirname(source), { name: basename(source), directory: basename(source), entrypoint: "extension.ts" })).files;
     }
   }
-  const provenance = input.kind === "local" ? { kind: "local", name: basename(input.path) } : input;
+  const provenance: ExtensionSourceInput | { kind: "local"; name: string } = input.kind === "local" ? { kind: "local", name: basename(input.path) } : input;
   return stageExtensionSourceFiles(actor, files, provenance);
 }
 
