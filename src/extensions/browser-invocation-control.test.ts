@@ -89,8 +89,8 @@ test("deadline and restart quarantine running work while expired unstarted ticke
   now += BROWSER_REQUEST_RETENTION_MS;
   await store.purge();
   await expect(store.cancel(data, unused.requestId)).rejects.toThrow("unavailable");
-  expect((await store.cancel(data, running.requestId)).state).toBe("outcome_unknown");
-  await claim.dispose();
+  await expect(store.cancel(data, running.requestId)).rejects.toThrow("unavailable");
+  await expect(claim.dispose()).rejects.toThrow("unavailable");
 });
 
 test("bounded owner quota is atomic and migration is idempotent", async () => {
@@ -133,4 +133,78 @@ test("failed guarded SQL transaction commits no effect", async () => {
     await transaction.execute(sql`DELETE FROM extension_browser_admission_lock`);
   })).rejects.toThrow("unavailable");
   expect((await store.prepare(data)).requestId).toBeDefined();
+});
+
+test.each(["deadline", "finish", "dispose"] as const)("%s releases guards while a database read remains pending", async (end) => {
+  const data = { ...input(), deadline: Date.now() + 300 };
+  const store = new BrowserInvocationStore(getTestDb());
+  const ticket = await store.prepare(data);
+  const claim = await claimBrowserInvocation(data, ticket.requestId, data.payloadDigest, store);
+  let completeRead!: () => void;
+  const pendingRead = new Promise<void>(resolve => { completeRead = resolve; });
+  const stalled = spyOn(store, "assertActive").mockImplementation(() => pendingRead);
+  let effects = 0;
+  const guarded = claim.assertActive().then(() => { effects += 1; return "admitted"; }, () => "denied");
+  try {
+    await Bun.sleep(150);
+    const terminal = end === "deadline" ? guarded : end === "finish" ? claim.finish("failed") : claim.dispose();
+    const result = await Promise.race([terminal.then(() => "settled"), Bun.sleep(500).then(() => "stalled")]);
+    expect(result).toBe("settled");
+    expect(await guarded).toBe("denied");
+    completeRead();
+    await Bun.sleep(0);
+    expect(effects).toBe(0);
+    expect(claim.signal.aborted).toBe(true);
+  } finally {
+    completeRead();
+    stalled.mockRestore();
+    await claim.dispose();
+  }
+});
+
+test("expired unknown receipts free quota without allowing old claims to execute", async () => {
+  let now = 1000;
+  const store = new BrowserInvocationStore(getTestDb(), () => now);
+  const data = { ...input(), deadline: 2000 };
+  const old = await store.prepare(data);
+  const execution = await store.claim(data, old.requestId, data.payloadDigest);
+  await store.finish(data, old.requestId, execution.executionId, "outcome_unknown");
+  await getTestDb().execute(sql`INSERT INTO extension_browser_requests(id,principal_id,installation_id,release_binding,conversation_id,payload_digest,deadline,retain_until,state) SELECT 'unknown-' || generate_series,${data.principalId},${data.installationId},${data.releaseBinding},${data.conversationId},${data.payloadDigest},${data.deadline},${data.deadline + BROWSER_REQUEST_RETENTION_MS},'outcome_unknown' FROM generate_series(1,511)`);
+  await expect(store.prepare(data)).rejects.toThrow("capacity");
+  now = data.deadline + BROWSER_REQUEST_RETENTION_MS + 1;
+  const fresh = await store.prepare({ ...data, deadline: now + 1000 });
+  expect(fresh.requestId).not.toBe(old.requestId);
+  await expect(store.claim(data, old.requestId, data.payloadDigest)).rejects.toThrow("unavailable");
+  await expect(store.assertActive(data, old.requestId, execution.executionId)).rejects.toThrow("unavailable");
+});
+
+test("a stuck polling query fails closed after cross-store cancel, even before the request deadline", async () => {
+  const data = input();
+  const store = new BrowserInvocationStore(getTestDb());
+  const ticket = await store.prepare(data);
+  const claim = await claimBrowserInvocation(data, ticket.requestId, data.payloadDigest, store);
+  let rejectRead!: (error: Error) => void;
+  const pendingRead = new Promise<void>((_resolve, reject) => { rejectRead = reject; });
+  const stalled = spyOn(store, "assertActive").mockImplementation(() => pendingRead);
+  const queryTimeout = new AbortController();
+  const timeout = spyOn(AbortSignal, "timeout").mockReturnValue(queryTimeout.signal);
+  try {
+    await Bun.sleep(150);
+    expect(stalled).toHaveBeenCalledTimes(1);
+    await cancelBrowserInvocation(data, ticket.requestId);
+    const aborted = new Promise<void>(resolve => claim.signal.addEventListener("abort", () => resolve(), { once: true }));
+    expect(timeout).toHaveBeenCalledWith(1000);
+    queryTimeout.abort(new DOMException("Read deadline exceeded", "TimeoutError"));
+    expect(await Promise.race([aborted.then(() => "aborted"), Bun.sleep(100).then(() => "stalled")])).toBe("aborted");
+    expect(claim.signal.reason.name).toBe("TimeoutError");
+    expect(stalled).toHaveBeenCalledTimes(1);
+    rejectRead(new Error("late transport failure"));
+    await Bun.sleep(0);
+    await expect(claim.assertActive()).rejects.toThrow();
+  } finally {
+    rejectRead(new Error("transport closed"));
+    timeout.mockRestore();
+    stalled.mockRestore();
+    await claim.dispose();
+  }
 });

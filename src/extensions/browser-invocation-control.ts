@@ -1,6 +1,7 @@
 import { getDb } from "../db/connection";
 import type { MigrationDb } from "../db/migrations/types";
 import { BrowserInvocationStore, type BrowserInvocationIdentity, type BrowserInvocationInput, type BrowserInvocationOutcome } from "../db/queries/extension-browser-requests";
+import { awaitMcpSignal as awaitSignal } from "../mcp/cancellation";
 
 export type { BrowserInvocationIdentity, BrowserInvocationInput, BrowserInvocationOutcome } from "../db/queries/extension-browser-requests";
 
@@ -16,7 +17,8 @@ export async function claimBrowserInvocation(identity: BrowserInvocationIdentity
   let polling: Promise<void> | undefined;
   const assertActive = async (transaction?: MigrationDb): Promise<void> => {
     controller.signal.throwIfAborted();
-    try { await store.assertActive(identity, requestId, claim.executionId, transaction); }
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(Math.max(0, Math.min(1000, claim.deadline - store.now())))]);
+    try { await awaitSignal(store.assertActive(identity, requestId, claim.executionId, transaction), signal); }
     catch (error) { controller.abort(error); throw error; }
     controller.signal.throwIfAborted();
   };
@@ -28,23 +30,22 @@ export async function claimBrowserInvocation(identity: BrowserInvocationIdentity
   const deadline = setTimeout(() => controller.abort(new Error("Browser invocation deadline exceeded")), Math.max(0, claim.deadline - store.now()));
   timer.unref();
   deadline.unref();
-  const stop = async (): Promise<void> => {
+  const stop = async (reason: string): Promise<void> => {
     disposed = true;
     clearInterval(timer);
     clearTimeout(deadline);
+    controller.abort(new Error(reason));
     await polling;
   };
   return {
     signal: controller.signal,
     assertActive,
     finish: async (outcome: BrowserInvocationOutcome): Promise<void> => {
-      await stop();
-      controller.abort(new Error("Browser invocation finished"));
+      await stop("Browser invocation finished");
       await store.finish(identity, requestId, claim.executionId, outcome);
     },
     dispose: async (): Promise<void> => {
-      await stop();
-      controller.abort(new Error("Browser invocation disposed"));
+      await stop("Browser invocation disposed");
       await store.finish(identity, requestId, claim.executionId, "outcome_unknown");
     },
   };

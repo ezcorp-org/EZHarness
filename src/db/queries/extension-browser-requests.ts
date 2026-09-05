@@ -97,6 +97,6 @@ export class BrowserInvocationStore {
   async purge(transaction: MigrationDb = this.database): Promise<void> {
     const now = this.now();
     await transaction.execute(sql`UPDATE extension_browser_requests SET state=CASE WHEN state='issued' THEN 'cancelled' ELSE 'outcome_unknown' END WHERE id IN (SELECT id FROM extension_browser_requests WHERE deadline<=${now} AND state IN ('issued','running','cancel_requested') ORDER BY deadline,id LIMIT 1000 FOR UPDATE SKIP LOCKED)`);
-    await transaction.execute(sql`DELETE FROM extension_browser_requests WHERE id IN (SELECT id FROM extension_browser_requests WHERE retain_until<=${now} AND state IN ('cancelled','finished') ORDER BY retain_until,id LIMIT 1000 FOR UPDATE SKIP LOCKED)`);
+    await transaction.execute(sql`DELETE FROM extension_browser_requests WHERE id IN (SELECT id FROM extension_browser_requests WHERE retain_until<=${now} AND state IN ('cancelled','finished','outcome_unknown') ORDER BY retain_until,id LIMIT 1000 FOR UPDATE SKIP LOCKED)`);
   }
 }
