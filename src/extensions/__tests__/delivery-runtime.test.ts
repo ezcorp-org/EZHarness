@@ -1,4 +1,6 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, expect, mock, test } from "bun:test";
+import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
+import type { ExtensionProjectBinding } from "../project-binding";
 import { registerCallProvenance, releaseCallProvenance, resolveCallProvenance } from "../call-provenance";
 import type { ExtensionDelivery } from "../v4/deliveries";
 
@@ -6,6 +8,10 @@ let active = true;
 let userActive = true;
 let conversationOwner = "caller";
 let outcomeError = false;
+let conversationProject: string | null = null;
+let projectMember = true;
+let binding: ExtensionProjectBinding | null = null;
+let beforeDispatch = () => {};
 const jobs: ExtensionDelivery[] = [];
 const invocations: { method: string; params: Record<string, unknown> }[] = [];
 const process = { async call(method: string, params: Record<string, unknown>) { invocations.push({ method, params }); if (outcomeError) throw new Error("unknown effect"); return { jsonrpc: "2.0", id: "response", result: null }; } };
@@ -21,6 +27,7 @@ const queue = {
     const job = jobs.find((candidate) => candidate.state === "queued");
     if (!job) return null;
     job.state = "leased";
+    beforeDispatch();
     try { await handler(job); job.state = "delivered"; } catch { job.state = "outcome_unknown"; }
     return job;
   },
@@ -28,12 +35,15 @@ const queue = {
 };
 mock.module("../extension-lifecycle-service", () => ({ getExtensionDeliveryQueue: async () => queue, getExtensionInstallationState: async () => ({ installation: { id: "installation", ownerId: "owner", scope: "global", generation: 3, activeReleaseId: "release", enabled: active } }) }));
 mock.module("../../db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: userActive ? "active" : "inactive" }) }));
-mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ userId: conversationOwner }) }));
+mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ userId: conversationOwner, projectId: conversationProject }) }));
+mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => binding }));
+mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => projectMember ? undefined : new Response(null, { status: 403 }) }));
 mock.module("../registry", () => ({ ExtensionRegistry: { getInstance: () => ({ getProcess: async () => process }) } }));
 const { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime, drainExtensionDeliveries } = await import("../delivery-runtime");
 
 function token(ownerless = false) { return registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: ownerless ? null : "caller", conversationId: ownerless ? null : "conversation", runId: null, parentCallId: null, kind: "event", ownerless }); }
-afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; });
+afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; });
+afterAll(() => restoreModuleMocks());
 
 test("queues frozen release identity and acknowledges handler completion", async () => {
   const wire = mock(() => {});
@@ -60,11 +70,53 @@ test("revoked users and changed conversation ownership cannot receive effects", 
   startExtensionDeliveryRuntime(() => {});
   for (const revokeUser of [true, false]) {
     userActive = !revokeUser;
-    conversationOwner = revokeUser ? "caller" : "different";
+    beforeDispatch = () => { conversationOwner = revokeUser ? "caller" : "different"; };
     const ezCallId = token();
     try { await expect(enqueueExtensionNotification("installation", "ezcorp/event/test", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_outcome_unknown"); } finally { releaseCallProvenance(ezCallId); }
   }
   expect(invocations).toHaveLength(0);
+});
+
+test("project authority comes from host records, not event parameters or caller hints", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "2026-09-04T00:00:00.000Z" };
+  const ezCallId = token(true);
+  try { await enqueueExtensionNotification("installation", "ezcorp/schedule-fire", { projectId: "attacker", repo_path: "/private", _meta: { ezCallId } }); } finally { releaseCallProvenance(ezCallId); }
+  expect(jobs[0]!.input).toMatchObject({ provenance: { projectId: "project", projectBindingId: "approval", onBehalfOf: "owner" } });
+  conversationProject = "conversation-project";
+  const conversationToken = registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: "caller", conversationId: "conversation", projectId: "attacker", projectBindingId: "forged", runId: null, parentCallId: null, kind: "event", ownerless: false });
+  try { await enqueueExtensionNotification("installation", "event", { _meta: { ezCallId: conversationToken } }); } finally { releaseCallProvenance(conversationToken); }
+  expect(jobs[1]!.input).toMatchObject({ provenance: { projectId: "conversation-project" } });
+  expect((jobs[1]!.input as { provenance: unknown }).provenance).not.toHaveProperty("projectBindingId");
+});
+
+test("queued work cannot retain a revoked or replaced project approval", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  for (const mutation of ["revoke", "rebind", "membership", "project"] as const) {
+    binding = { id: "approval", projectId: "project", ownerId: "owner", releaseId: "release", generation: 3, approvedAt: "same-time" };
+    projectMember = true;
+    beforeDispatch = () => {
+      if (mutation === "revoke") binding = null;
+      else if (mutation === "rebind") binding = { ...binding!, id: "new-approval" };
+      else if (mutation === "membership") projectMember = false;
+      else binding = { ...binding!, projectId: "other-project" };
+    };
+    const ezCallId = token(true);
+    try { await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_outcome_unknown"); } finally { releaseCallProvenance(ezCallId); }
+  }
+  expect(invocations).toHaveLength(0);
+});
+
+test("wrong project owners and missing membership fail before enqueue", async () => {
+  binding = { id: "approval", projectId: "project", ownerId: "other", releaseId: "release", generation: 3, approvedAt: "time" };
+  const ezCallId = token(true);
+  try {
+    await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_revoked");
+    binding = { ...binding, ownerId: "owner" };
+    projectMember = false;
+    await expect(enqueueExtensionNotification("installation", "event", { _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_revoked");
+  } finally { releaseCallProvenance(ezCallId); }
+  expect(jobs).toHaveLength(0);
 });
 
 test("unknown external outcomes are not executed again on duplicate delivery", async () => {

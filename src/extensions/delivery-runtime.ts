@@ -12,6 +12,30 @@ let draining: Promise<void> | undefined;
 
 interface DeliveryInput { method: string; params: Record<string, unknown>; provenance: CallProvenance }
 
+async function resolveDeliveryProject(installationId: string, principalId: string, conversationId: string | null): Promise<Pick<CallProvenance, "projectId" | "projectBindingId">> {
+  let context: Pick<CallProvenance, "projectId" | "projectBindingId"> = {};
+  if (conversationId) {
+    const { getConversation } = await import("../db/queries/conversations");
+    const conversation = await getConversation(conversationId);
+    if (conversation?.userId !== principalId) throw new LifecycleError("delivery_revoked", "Delivery conversation ownership changed.");
+    if (conversation.projectId) context = { projectId: conversation.projectId };
+  } else {
+    const { getExtensionProjectBinding } = await import("./project-binding");
+    const binding = await getExtensionProjectBinding(installationId);
+    if (binding) {
+      if (binding.ownerId !== principalId) throw new LifecycleError("delivery_revoked", "Delivery project owner changed.");
+      context = { projectId: binding.projectId, projectBindingId: binding.id };
+    }
+  }
+  if (context.projectId) {
+    const { getUserById } = await import("../db/queries/users");
+    const { checkProjectRole } = await import("../auth/middleware");
+    const user = await getUserById(principalId);
+    if (user?.status !== "active" || await checkProjectRole({ user }, context.projectId, "member") instanceof Response) throw new LifecycleError("delivery_revoked", "Delivery project membership changed.");
+  }
+  return context;
+}
+
 export function startExtensionDeliveryRuntime(wire: NonNullable<typeof wireProcess>): void {
   wireProcess = wire;
   if (timer) clearInterval(timer);
@@ -33,11 +57,8 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
   const { getUserById } = await import("../db/queries/users");
   const user = await getUserById(input.provenance.onBehalfOf);
   if (user?.status !== "active") throw new LifecycleError("delivery_revoked", "Delivery principal is no longer active.");
-  if (input.provenance.conversationId) {
-    const { getConversation } = await import("../db/queries/conversations");
-    const conversation = await getConversation(input.provenance.conversationId);
-    if (conversation?.userId !== user.id) throw new LifecycleError("delivery_revoked", "Delivery conversation ownership changed.");
-  }
+  const project = await resolveDeliveryProject(delivery.installationId, user.id, input.provenance.conversationId);
+  if (project.projectId !== input.provenance.projectId || project.projectBindingId !== input.provenance.projectBindingId) throw new LifecycleError("delivery_revoked", "Delivery project approval changed.");
   const { ExtensionRegistry } = await import("./registry");
   const process = await ExtensionRegistry.getInstance().getProcess(delivery.installationId);
   wireProcess(delivery.installationId, process);
@@ -68,7 +89,10 @@ export async function enqueueExtensionNotification(extensionId: string, method: 
   const state = await getExtensionInstallationState(extensionId);
   const installation = state?.installation;
   if (!installation?.enabled || !installation.activeReleaseId) throw new LifecycleError("delivery_revoked", "Installation is not active.");
-  const owned = provenance.ownerless ? { ...provenance, onBehalfOf: installation.ownerId, ownerless: false } : provenance;
+  const principalId = provenance.ownerless ? installation.ownerId : provenance.onBehalfOf;
+  if (!principalId) throw new LifecycleError("invalid_delivery", "A delivery principal is required.");
+  const { projectId: _projectId, projectBindingId: _projectBindingId, ...identity } = provenance;
+  const owned = { ...identity, onBehalfOf: principalId, ownerless: false, ...await resolveDeliveryProject(extensionId, principalId, provenance.conversationId) };
   const transientKeys = new Set(["ezcorp/webhook-fire", "ezcorp/schedule-fire", "ezcorp/trigger-fire"].includes(method) ? ["catchUp", "attempt", "retry", "firedAt"] : []);
   const cleanParams = Object.fromEntries(Object.entries(params).filter(([key]) => key !== "_meta" && !transientKeys.has(key)));
   const transportContext = Object.fromEntries(Object.entries(params).filter(([key]) => transientKeys.has(key)));

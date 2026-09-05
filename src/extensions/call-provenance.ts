@@ -44,6 +44,7 @@ export interface CallProvenance {
   onBehalfOf: string | null;
   conversationId: string | null;
   projectId?: string;
+  projectBindingId?: string;
   runId: string | null;
   parentCallId: string | null;
   /** Host-owned — sourced from the registered-tool record, NOT the
