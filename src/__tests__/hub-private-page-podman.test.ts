@@ -157,7 +157,7 @@ test("rootless page rendering never shares a worker result or cache across authe
 }, 120_000);
 
 test("a retired bus cannot block private event replay on a replacement bus", async () => {
-  const { addSink, replayFrom, __resetSseResumeBufferForTests } = await import("../../web/src/lib/server/sse-resume-buffer");
+  const { SSE_RING_CAPACITY, addSink, replayFrom, scopeCursorToGlobalId, scopeSeqFor, __resetSseResumeBufferForTests } = await import("../../web/src/lib/server/sse-resume-buffer");
   __resetSseResumeBufferForTests();
   const previous = new EventBus<Record<string, unknown>>();
   const next = new EventBus<Record<string, unknown>>();
@@ -175,6 +175,12 @@ test("a retired bus cannot block private event replay on a replacement bus", asy
     remove();
     next.emit("run:complete", { source: "disconnected" });
     expect(seen).toHaveLength(1);
-    expect(replayFrom(1).map(event => event.data)).toEqual([{ source: "disconnected" }]);
+    const disconnected = replayFrom(1);
+    expect(disconnected.map(event => event.data)).toEqual([{ source: "disconnected" }]);
+    const disconnectedId = disconnected[0]!.id;
+    expect(scopeSeqFor("replacement", disconnectedId)).toBe(1);
+    for (let index = 0; index < SSE_RING_CAPACITY; index++) next.emit("run:complete", { index });
+    expect(replayFrom(0)).toHaveLength(SSE_RING_CAPACITY);
+    expect(scopeCursorToGlobalId("replacement", 1)).toBe(0);
   } finally { __resetSseResumeBufferForTests(); }
 });
