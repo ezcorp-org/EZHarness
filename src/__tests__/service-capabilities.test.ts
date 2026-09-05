@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -105,7 +105,7 @@ test("storage consent is checked in the exact mutation transaction and failure r
     expect(transaction).not.toBe(db);
     expect(guard).toBeDefined();
     guarded = true;
-    await transaction!.update(workflowDelegations).set({ capabilitySet: [] }).where(eq(workflowDelegations.id, "delegation"));
+    await transaction!.execute(sql`UPDATE workflow_delegations SET capability_set='[]'::jsonb WHERE id='delegation'`);
     await guard!(transaction);
   }) };
   const request = { jsonrpc: "2.0" as const, id: "write", method: "ezcorp/storage", params: { action: "set", key: "revoked", value: "must-not-commit" } };
