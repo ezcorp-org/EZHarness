@@ -92,3 +92,16 @@ Product source is fixed at `362a0aec` (tree `e05dc0a3b7a4b32b346a041401ec21a5a5d
 - Final production image `55ebd3389dbd68439956fd747fb7e3ba1f317d5ff8dd4f6ae2fbc5a1c9acb266` passes all eight actual checks (`/tmp/ez-container-ui-final-verify.log`).
 
 The browser migration preserves test counts and current safety assertions. It does not restore destructive purge, mutable inline grants, generic Git installation, or the retired blanket credential-name rule. The migration document records those distinctions for human review.
+
+## Full CI lane follow-up
+
+The nine extension specifications above are a feature subset, not the complete authenticated CI lane. Running the exact complete lane collected 53 tests: 45 passed, four failed, and four did not run after serial failures (`/tmp/ez-ci-real-entire1.log`). This invalidates any claim that the complete browser lane was already green.
+
+- Search and task-panel tests now explicitly import, build, review and activate their bundled sources. Each real three-test cohort passes. Search still proves provider results and SSRF denial. Task-panel still proves all five writes with real concurrent pairs below the unchanged worker cap.
+- Caller-tool setup now uses a separate real member owner per case. The prior shared owner exhausted the unchanged per-user setup rate limit on fast local runs. Seven real cases and 38 route tests pass without sleeps or weaker limits.
+- The factory form now waits for the actual save response before navigation. That exposed a real HTTP 404 after activation: event discovery was registered only at server boot. The production fix and the full factory flow remain pending.
+- The new fixture's forbidden direct assertion import is corrected. The unchanged hydration gate passes six tests and 17 assertions. Unused optional Landlock probe helpers are removed; missing rootless isolation cannot become a conditional browser skip.
+- The Ubuntu memory diagnostic failure is reproduced with Podman 4.9.3 and conmon 2.1.10. Changing only conmon to the verified upstream 2.2.1 binary makes the unchanged kernel test pass. The CI installer now pins its checksum and selected path. Hosted verification remains pending; see `gates/runner-ci-oom-monitor.md`.
+- Two additional isolated browser repeats timed out before the preview server listened. Their earlier passing cases do not prove repeatability. Startup diagnosis and a complete final-lane rerun remain required.
+
+Types 48 pass all four lanes. Lint 23 has no errors, 105 warnings and 11 informational findings. These checks precede the pending event-registration fix. PR 246 remains a draft; no failing gate is waived.
