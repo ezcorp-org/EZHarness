@@ -1048,221 +1048,155 @@ test.describe("Extension Detail Page", () => {
 test.describe("Extensions Install + Activate Flow", () => {
 	const proj = makeProject({ id: "proj-1" });
 
-	/**
-	 * Install stateful handlers that model the full POST-install →
-	 * GET-list → POST-activate → GET-list round-trip. Registered AFTER
-	 * mockApi so they win route matching. Returns records the test can
-	 * inspect to assert exact request bodies.
-	 */
-	async function installInstallFlowMock(
-		page: import("@playwright/test").Page,
-		opts: {
-			installResponse?: ReturnType<typeof makeExtension>;
-			installStatus?: number;
-			installError?: string;
-		} = {},
-	) {
-		const installCalls: Array<{ body: any }> = [];
-		const activateCalls: Array<{ id: string; body: any }> = [];
-		const patchCalls: Array<{ id: string; body: any }> = [];
-		let state: ReturnType<typeof makeExtension> | null = null;
-
-		await page.route("**/api/extensions", async (route) => {
-			const method = route.request().method();
-			if (method === "GET") {
-				await route.fulfill({
-					json: state ? [state] : [],
-					headers: { "Content-Type": "application/json", "Cache-Control": "private, max-age=60" },
-				});
-				return;
-			}
-			if (method === "POST") {
-				const body = route.request().postDataJSON();
-				installCalls.push({ body });
-				if (opts.installStatus && opts.installStatus >= 400) {
-					await route.fulfill({
-						status: opts.installStatus,
-						json: { error: opts.installError ?? "Install failed" },
-					});
-					return;
-				}
-				state = opts.installResponse ?? makeExtension({ id: "ext-new", enabled: false });
-				await route.fulfill({ status: 201, json: state });
-				return;
-			}
-			return route.fallback();
-		});
-
-		// Activate + PATCH live on /api/extensions/<id>...
-		await page.route(/\/api\/extensions\/[^/]+\/activate$/, async (route) => {
-			const url = new URL(route.request().url());
-			const parts = url.pathname.split("/");
-			const id = parts[parts.length - 2]!;
-			const body = route.request().postDataJSON();
-			activateCalls.push({ id, body });
-			if (state && state.id === id) {
-				state = { ...state, enabled: true };
-			}
-			await route.fulfill({ json: state });
-		});
-
-		await page.route(/\/api\/extensions\/[^/]+$/, async (route) => {
-			const method = route.request().method();
-			if (method !== "PATCH") return route.fallback();
-			const url = new URL(route.request().url());
-			const id = url.pathname.split("/").pop()!;
-			const body = route.request().postDataJSON();
-			patchCalls.push({ id, body });
-			if (state && state.id === id) {
-				state = { ...state, enabled: body.enabled };
-			}
-			await route.fulfill({ json: state });
-		});
-
-		return {
-			installCalls,
-			activateCalls,
-			patchCalls,
-			currentState: () => state,
-			setState: (s: ReturnType<typeof makeExtension> | null) => {
-				state = s;
-			},
+	async function installReviewFlow(page: import("@playwright/test").Page, options: { status?: number; message?: string } = {}) {
+		const { setupSourceImportMock } = await import("./fixtures/extension-source-import.js");
+		const installationId = "imported-installation";
+		const workspaceId = "candidate-workspace";
+		const releaseId = "verified-release";
+		const createdAt = "2026-01-01T00:00:00.000Z";
+		const releaseDigest = "a".repeat(64);
+		const grants = [JSON.stringify(["network", ["api.example.com"]])];
+		const workspace = { id: workspaceId, installationId, revision: 1, sourceDigest: "b".repeat(64), createdAt };
+		const state: import("../../src/extensions/v4/types").InstallationState = {
+			installation: { id: installationId, ownerId: "test-user", scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled", grants: [], acknowledgedGeneration: 0 },
+			workspaces: { [workspaceId]: workspace },
+			revisions: {},
+			releases: { [releaseId]: {
+				id: releaseId, installationId, workspaceId, workspaceRevision: 1,
+				releaseDigest, sourceDigest: workspace.sourceDigest, artifactDigest: "c".repeat(64), imageDigest: "d".repeat(64),
+				runnerProfile: "isolated-test", policyDigest: "e".repeat(64), createdAt,
+				manifest: { schemaVersion: 4, name: "gh-ext", version: "1.0.0", description: "Candidate source", author: { name: "Test" }, tools: [], permissions: { network: ["api.example.com"] } },
+				evidence: { protocolVersion: 4, validatorVersion: "test", discoveryDigest: "f".repeat(64), tests: [{ name: "candidate feature test", passed: true }] },
+			} },
+			approvals: {},
+			operations: {},
 		};
+		const actions: Array<{ tool: string; input: Record<string, unknown> }> = [];
+		const decisions: Array<{ approvalId: string; decision: boolean }> = [];
+		const fixture = await setupSourceImportMock(page, {
+			...options, installationId, workspaceId,
+			reviewData: () => ({ installations: [state.installation], state, workspace, files: { "index.ts": "export const candidate = true;" }, canApprove: true, canBindProject: false, projects: [], projectBinding: null }),
+		});
+		await page.route("**/api/extensions/control", async route => {
+			const request = route.request().postDataJSON();
+			if (request.tool === "extensions_inspect") return route.fulfill({ json: state });
+			actions.push(request);
+			expect(request.tool).toBe("extensions_release");
+			expect(request.input.installationId).toBe(installationId);
+			if (request.input.action === "requestApproval") {
+				expect(request.input).toEqual({ installationId, action: "requestApproval", releaseId, expectedActiveReleaseId: null });
+				state.approvals["pending-review"] = { id: "pending-review", installationId, releaseId, releaseDigest, principalId: state.installation.ownerId, scope: "global", grants, runnerProfile: "isolated-test", expectedActiveReleaseId: null, expectedGeneration: 0, status: "pending", createdAt };
+			} else {
+				expect(request.input.action).toBe("activate");
+				expect(request.input.approvalId).toBe("pending-review");
+				expect(request.input.idempotencyKey).toEqual(expect.any(String));
+				expect(state.approvals["pending-review"]?.status).toBe("approved");
+				state.approvals["pending-review"]!.status = "consumed";
+				Object.assign(state.installation, { enabled: true, activeReleaseId: releaseId, generation: 1, status: "active", grants });
+			}
+			return route.fulfill({ json: state });
+		});
+		await page.route(`**/api/extensions/releases/${installationId}/approve`, async route => {
+			const decision = route.request().postDataJSON();
+			decisions.push(decision);
+			expect(decision.approvalId).toBe("pending-review");
+			state.approvals["pending-review"]!.status = decision.decision ? "approved" : "rejected";
+			return route.fulfill({ json: state.approvals["pending-review"] });
+		});
+		return { ...fixture, state, actions, decisions, releaseDigest };
 	}
 
-	test("github install → Disabled badge → review dialog clamps shell → activate without shell", async ({ page, mockApi }) => {
+	async function importGithub(page: import("@playwright/test").Page, fixture: Awaited<ReturnType<typeof installReviewFlow>>, repository = "test-owner/test-repo") {
+		await fixture.open();
+		await page.getByLabel("GitHub repository", { exact: true }).fill(repository);
+		await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
+	}
+
+	test("GitHub candidate requires exact review and separate activation", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
-		const ctrl = await installInstallFlowMock(page, {
-			installResponse: makeExtension({
-				id: "ext-new",
-				name: "gh-ext",
-				enabled: false,
-				manifest: {
-					tools: [{ name: "scan", description: "scan code" }],
-					permissions: { network: ["api.example.com"], shell: true },
-				},
-			}),
-		});
-
-		await page.goto("/extensions");
-
-		// Scenario 1: switch to GitHub tab, enter repo, click Install
-		await page.getByRole("button", { name: "GitHub" }).click();
-		await page.getByPlaceholder("user/repo or user/repo@v1.0.0").fill("test-owner/test-repo@v1.0.0");
-		await page.getByRole("button", { name: "Install from GitHub" }).click();
-
-		// Card appears after refetch. Badge confirms the install landed disabled.
-		await expect(page.getByText("gh-ext")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Disabled")).toBeVisible();
-		expect(ctrl.installCalls).toHaveLength(1);
-		expect(ctrl.installCalls[0]!.body.source).toBe("github");
-		expect(ctrl.installCalls[0]!.body.repo).toBe("test-owner/test-repo@v1.0.0");
-
-		// Scenario 2: click toggle — permission-review dialog opens with both
-		// shell (red warning) and network entries visible.
-		await page.locator("button[title='Enable']").click();
-		await expect(page.getByText("Review permissions: gh-ext")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByText("Shell access")).toBeVisible();
-		await expect(page.getByText("api.example.com")).toBeVisible();
-
-		// Scenario 3: uncheck shell (it starts checked), keep network, confirm.
-		const shellCheckbox = page.locator("input[type='checkbox']").nth(0);
-		// Shell checkbox is the first one rendered (when shell perm is present).
-		// Verify it starts checked before unchecking.
-		await expect(shellCheckbox).toBeChecked();
-		await shellCheckbox.uncheck();
-
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		// Activate call body must carry network ONLY — shell was unchecked.
-		await expect.poll(() => ctrl.activateCalls.length).toBe(1);
-		const activate = ctrl.activateCalls[0]!;
-		expect(activate.id).toBe("ext-new");
-		expect(activate.body.grantedPermissions.network).toEqual(["api.example.com"]);
-		expect(activate.body.grantedPermissions.shell).toBeUndefined();
-
-		// Scenario 4: badge flips. Disabled badge gone; Disable toggle visible.
-		await expect(page.getByText("Disabled")).toBeHidden({ timeout: 5000 });
-		await expect(page.locator("button[title='Disable']")).toBeVisible();
+		const fixture = await installReviewFlow(page);
+		await importGithub(page, fixture);
+		await fixture.expectReview();
+		await expect(page.getByRole("heading", { name: "Extension workspace", exact: true })).toBeVisible();
+		expect(fixture.submitted).toEqual([{ kind: "github", repository: "test-owner/test-repo" }]);
+		await page.getByText("Permissions and test evidence", { exact: true }).click();
+		await expect(page.getByText("candidate feature test", { exact: false })).toBeVisible();
+		await expect(page.getByText("api.example.com", { exact: false })).toBeVisible();
+		expect(fixture.state.installation).toMatchObject({ enabled: false, activeReleaseId: null, grants: [] });
+		await expect(page.getByRole("button", { name: "Activate approved release", exact: true })).toHaveCount(0);
+		await page.getByRole("button", { name: "Request approval", exact: true }).click();
+		await expect(page.getByRole("heading", { name: "Human approval required", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Approve exact release", exact: true })).toBeDisabled();
+		await expect(page.locator(".approval code")).toHaveText(fixture.releaseDigest);
+		await page.getByLabel("I reviewed this release and its permissions.", { exact: true }).check();
+		await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+		await expect(page.getByRole("button", { name: "Activate approved release", exact: true })).toBeVisible();
+		expect(fixture.decisions).toEqual([{ approvalId: "pending-review", decision: true }]);
+		expect(fixture.state.approvals["pending-review"]?.grants).toEqual([JSON.stringify(["network", ["api.example.com"]])]);
+		expect(fixture.state.installation.enabled).toBe(false);
+		expect(fixture.actions.map(action => action.input.action)).toEqual(["requestApproval"]);
+		await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+		await expect(page.locator(".state-badge")).toHaveText("active · generation 1");
+		expect(fixture.actions.map(action => action.input.action)).toEqual(["requestApproval", "activate"]);
+		expect(fixture.state.installation.activeReleaseId).toBe("verified-release");
+		expect(fixture.unexpectedMutations).toEqual([]);
+		await fixture.close();
 	});
 
-	test("cancel path: dialog cancel makes NO activate call", async ({ page, mockApi }) => {
+	test("cancel path: leaving pending review makes no approval or activation call", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
-		const ctrl = await installInstallFlowMock(page);
-		ctrl.setState(makeExtension({
-			id: "ext-cancel",
-			name: "cancel-ext",
-			enabled: true,
-			manifest: {
-				tools: [],
-				permissions: { network: ["api.example.com"], shell: true },
-			},
-		}));
-
+		const fixture = await installReviewFlow(page);
+		await importGithub(page, fixture);
+		await page.getByRole("button", { name: "Request approval", exact: true }).click();
+		const reviewed = page.getByLabel("I reviewed this release and its permissions.", { exact: true });
+		await reviewed.check();
+		await expect(page.getByRole("button", { name: "Approve exact release", exact: true })).toBeEnabled();
+		await reviewed.uncheck();
+		await expect(page.getByRole("button", { name: "Approve exact release", exact: true })).toBeDisabled();
 		await page.goto("/extensions");
-		await expect(page.getByText("cancel-ext")).toBeVisible({ timeout: 5000 });
-
-		// Disable first (toggle on enabled ext → PATCH enabled:false).
-		await page.locator("button[title='Disable']").click();
-		await expect.poll(() => ctrl.patchCalls.length).toBe(1);
-		expect(ctrl.patchCalls[0]!.body).toEqual({ enabled: false });
-
-		// Now click toggle again to start the enable flow, then Cancel.
-		await page.locator("button[title='Enable']").click();
-		await expect(page.getByText("Review permissions: cancel-ext")).toBeVisible({ timeout: 3000 });
-
-		await page.getByRole("button", { name: "Cancel" }).click();
-
-		// Dialog must be gone and /activate must never have fired.
-		await expect(page.getByText("Review permissions: cancel-ext")).toBeHidden({ timeout: 3000 });
-		expect(ctrl.activateCalls).toHaveLength(0);
-		// Extension is still disabled.
-		await expect(page.locator("button[title='Enable']")).toBeVisible();
+		await expect(page.getByRole("link", { name: "Choose source", exact: true })).toBeVisible();
+		expect(fixture.decisions).toEqual([]);
+		expect(fixture.actions.map(action => action.input.action)).toEqual(["requestApproval"]);
+		expect(fixture.state.installation).toMatchObject({ enabled: false, activeReleaseId: null, grants: [] });
+		expect(fixture.unexpectedMutations).toEqual([]);
+		await fixture.close();
 	});
 
-	test("non-admin install: server 403 → error toast, extension not added", async ({ page, mockApi }) => {
+	test("source import denial is visible and adds no active extension", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
-		const ctrl = await installInstallFlowMock(page, {
-			installStatus: 403,
-			installError: "Insufficient permissions",
-		});
-
-		await page.goto("/extensions");
-
-		await page.getByPlaceholder("/path/to/extension").fill("/tmp/some-ext");
-		await page.getByRole("button", { name: "Install" }).click();
-
-		// Error toast surfaces the 403. List stays empty (no card rendered).
-		await expect(page.getByText(/Insufficient permissions|Install failed/)).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("No extensions installed")).toBeVisible();
-		// Install was attempted but the server rejected it; no activate ever followed.
-		expect(ctrl.installCalls).toHaveLength(1);
-		expect(ctrl.activateCalls).toHaveLength(0);
+		const fixture = await installReviewFlow(page, { status: 403, message: "Administrator session required for new imports" });
+		await importGithub(page, fixture);
+		await expect(page.getByRole("alert")).toHaveText("Administrator session required for new imports");
+		await expect(page).toHaveURL(/\/extensions\/import-source$/);
+		await expect(page.getByLabel("GitHub repository", { exact: true })).toHaveValue("test-owner/test-repo");
+		await expect(page.getByRole("button", { name: "Import and build candidate", exact: true })).toBeEnabled();
+		expect(fixture.submitted).toHaveLength(1);
+		expect(fixture.decisions).toEqual([]);
+		expect(fixture.actions).toEqual([]);
+		await page.getByRole("link", { name: "← Extensions", exact: true }).click();
+		await expect(page.getByText("gh-ext", { exact: true })).toHaveCount(0);
+		expect(fixture.state.installation.enabled).toBe(false);
+		expect(fixture.unexpectedMutations).toEqual([]);
+		await fixture.close();
 	});
 
-	test("git source tab: clones any branch and extension appears in list", async ({ page, mockApi }) => {
+	test("GitHub branch and subdirectory import prepares source without activation", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], extensions: [] });
-		const ctrl = await installInstallFlowMock(page, {
-			installResponse: makeExtension({
-				id: "ext-git",
-				name: "git-ext",
-				enabled: false,
-				source: "git",
-				manifest: { tools: [], permissions: {} },
-			}),
-		});
-
-		await page.goto("/extensions");
-
-		await page.getByRole("button", { name: "Git URL" }).click();
-		await page
-			.getByPlaceholder("https://github.com/owner/repo.git or git@host:owner/repo.git")
-			.fill("https://github.com/foo/bar.git");
-		await page.getByRole("button", { name: "Install from Git" }).click();
-
-		await expect(page.getByText("git-ext")).toBeVisible({ timeout: 5000 });
-		expect(ctrl.installCalls).toHaveLength(1);
-		expect(ctrl.installCalls[0]!.body.source).toBe("git");
-		expect(ctrl.installCalls[0]!.body.url).toBe("https://github.com/foo/bar.git");
+		const fixture = await installReviewFlow(page);
+		await fixture.open();
+		await expect(page.getByRole("option", { name: "Git URL", exact: true })).toHaveCount(0);
+		await page.getByLabel("GitHub repository", { exact: true }).fill("foo/bar");
+		await page.getByLabel("Branch, tag, or commit", { exact: false }).fill("feature/review");
+		await page.getByLabel("Subdirectory", { exact: false }).fill("extensions/nested");
+		await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
+		await fixture.expectReview();
+		await expect(page.getByRole("heading", { name: "Extension workspace", exact: true })).toBeVisible();
+		await expect(page.getByRole("textbox", { name: "Source: index.ts", exact: true })).toHaveValue("export const candidate = true;");
+		expect(fixture.submitted).toEqual([{ kind: "github", repository: "foo/bar", ref: "feature/review", directory: "extensions/nested" }]);
+		expect(fixture.state.installation).toMatchObject({ enabled: false, activeReleaseId: null, grants: [] });
+		expect(fixture.actions).toEqual([]);
+		expect(fixture.decisions).toEqual([]);
+		expect(fixture.unexpectedMutations).toEqual([]);
+		await fixture.close();
 	});
 });

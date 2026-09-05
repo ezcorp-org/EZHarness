@@ -1,7 +1,8 @@
 import type { Page, Route } from "@playwright/test";
 import { expect } from "@playwright/test";
+import { stringify } from "devalue";
 
-export async function setupSourceImportMock(page: Page, options: { status?: number; message?: string; installationId?: string; workspaceId?: string } = {}) {
+export async function setupSourceImportMock(page: Page, options: { status?: number; message?: string; installationId?: string; workspaceId?: string; reviewData?: () => Record<string, unknown> } = {}) {
   const installationId = options.installationId ?? "imported-installation";
   const workspaceId = options.workspaceId ?? "candidate-workspace";
   const submitted: Record<string, unknown>[] = [];
@@ -23,7 +24,10 @@ export async function setupSourceImportMock(page: Page, options: { status?: numb
       workspace: { id: workspaceId, revision: 1 }, operation: { id: "candidate-build", state: "queued" },
     } });
   });
-  await page.route("**/extensions/author**", route => { reviewRequests.push(route); });
+  await page.route("**/extensions/author**", async route => {
+    reviewRequests.push(route);
+    if (options.reviewData) await route.fulfill({ json: { type: "data", nodes: [null, null, { type: "data", data: JSON.parse(stringify(options.reviewData())), uses: {} }] } });
+  });
   return {
     submitted, unexpectedMutations,
     async open() {
@@ -38,6 +42,6 @@ export async function setupSourceImportMock(page: Page, options: { status?: numb
       expect(target.searchParams.get("workspace")).toBe(workspaceId);
       expect(unexpectedMutations).toEqual([]);
     },
-    async close() { for (const route of reviewRequests) await route.abort(); },
+    async close() { if (!options.reviewData) for (const route of reviewRequests) await route.abort(); },
   };
 }
