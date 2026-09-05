@@ -37,12 +37,18 @@ test("containment intact: the worker cannot read a host data canary", async () =
   const manifest = { schemaVersion: 4, name: "read-canary", version: "1.0.0", description: "Containment", author: { name: "Test" }, permissions: {}, methods: [{ name: "read", inputSchema: {}, outputSchema: { type: "boolean" } }] };
   const files = {
     "manifest.json": JSON.stringify(manifest),
+    "ezcorp.browser.json": JSON.stringify({ schemaVersion: 1, entrypoint: "app/index.js", html: "app/index.html", styles: [], tools: [] }),
+    "app/index.html": "<main>Browser SDK containment</main>",
+    "app/index.js": "import {createCanvasBridge} from '@ezcorp/sdk/browser'; const bridge=createCanvasBridge(window); window.addEventListener('pagehide',()=>bridge.close());",
     "extension.ts": `import {defineExtension,serve,validateManifest} from '@ezcorp/sdk/v4';import manifest from './manifest.json';await serve(defineExtension({manifest:validateManifest(manifest),methods:{read:{inputSchema:{},outputSchema:{type:'boolean'},handle:async()=>Bun.file(${JSON.stringify(secret)}).exists()}}}));`,
     "canary.test.ts": `import {test,expect} from 'bun:test';import manifest from './manifest.json';test('build cannot read host data',async()=>{expect(manifest.permissions).toEqual({});expect(await Bun.file(${JSON.stringify(secret)}).exists()).toBe(false);});`,
   };
   const result = await runner.build({ operationId: crypto.randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(result.diagnostics).toEqual([]);
   expect(result.state).toBe("succeeded");
+  const artifacts = await runner.collectArtifacts(result.artifactDigest!);
+  expect(artifacts[".runner/browser.html"]).toContain("ezcorp.canvas.connect");
+  expect(artifacts[".runner/browser.html"]).not.toContain("process.stdin");
   const context = { invocationId: crypto.randomUUID(), workerId: crypto.randomUUID(), releaseId: crypto.randomUUID(), principalId: "owner", scopeId: "global", token: crypto.randomUUID(), deadline: Date.now() + 10_000 };
   const worker = await runner.start({ workerId: context.workerId, artifactDigest: result.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("Host filesystem access denied"); });
   try { expect(await worker.request("extension/dispatch", { method: "read", input: {}, context })).toBe(false); }

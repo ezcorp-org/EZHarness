@@ -247,7 +247,7 @@ run_legs() {
   (
     set +e
     bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
-      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ \
+      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ ./packages/@ezcorp/sdk/src/browser/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
   ) &

@@ -314,7 +314,7 @@ suggest_leg_files() {
 sdk_leg_files() {
   {
     set +e
-    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 -name "*.test.ts"
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 
