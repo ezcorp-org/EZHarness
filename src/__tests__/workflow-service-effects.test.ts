@@ -23,6 +23,7 @@ test.each([
   { kind: "tool", state: "revoked" }, { kind: "agent", state: "revoked" },
 ] as const)("service workflow %j retains its real principal and fails closed", async ({ kind, state }) => {
   const { db, release } = await workflowServiceReleaseFixture({ invoke: async () => ({ content: [{ type: "text", text: "{}" }], isError: false }) });
+  await db.update(workflowDelegations).set({ capabilitySet: [{ kind: "tool", value: "observe" }] }).where(eq(workflowDelegations.id, "delegation"));
   if (state === "revoked") await db.update(workflowDelegations).set({ revokedAt: new Date() }).where(eq(workflowDelegations.id, "delegation"));
   release.entry.definition.steps = kind === "tool" ? [{ name: "observe", kind: "tool", tool: "observe" }] : [{ name: "observe", kind: "agent", agent: "service-agent", input: { agentConfigId: "config" } }];
   const tool = { name: "observe", description: "Observe principal", inputSchema: { type: "object" as const }, outputSchema: { type: "object" as const } };
