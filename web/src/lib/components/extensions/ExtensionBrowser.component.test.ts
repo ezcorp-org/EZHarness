@@ -49,7 +49,7 @@ test("camera requires host confirmation and cancellation releases pending reques
   const rejected = expect(pending).rejects.toThrow("cancelled");
   await waitFor(() => expect(rendered.getByRole("dialog")).toBeTruthy());
   await expect(fixture.dispatch("camera.start", {}, controller.signal)).rejects.toThrow("pending");
-  await fireEvent.click(rendered.getByRole("button", { name: "Cancel", exact: true }));
+  await fireEvent.click(rendered.getByRole("button", { name: "Cancel" }));
   await rejected;
   expect(await fixture.dispatch("camera.stop", { sessionId: crypto.randomUUID() }, controller.signal)).toEqual({ stopped: true });
   await expect(fixture.dispatch("camera.stop", {}, controller.signal)).rejects.toThrow("mismatch");
@@ -72,7 +72,7 @@ test("trusted camera emits bounded frames only after live checks and stops every
   const pending = fixture.dispatch("camera.start", {}, new AbortController().signal);
   await waitFor(() => expect(rendered.getByRole("dialog")).toBeTruthy());
   expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
-  await fireEvent.click(rendered.getByRole("button", { name: "Start camera", exact: true }));
+  await fireEvent.click(rendered.getByRole("button", { name: "Start camera" }));
   const result = await pending;
   expect(result.sessionId).toMatch(/^[a-f0-9-]{36}$/);
   expect(await fixture.dispatch("camera.start", {}, new AbortController().signal)).toEqual(result);
@@ -91,7 +91,7 @@ test("camera denial rejects pending requests without reporting success", async (
   const pending = fixture.dispatch("camera.start", {}, new AbortController().signal);
   const rejection = expect(pending).rejects.toThrow("cancelled");
   await waitFor(() => expect(rendered.getByRole("dialog")).toBeTruthy());
-  await fireEvent.click(rendered.getByRole("button", { name: "Start camera", exact: true }));
+  await fireEvent.click(rendered.getByRole("button", { name: "Start camera" }));
   await rejection;
   await waitFor(() => expect(rendered.getByRole("status").textContent).toContain("Camera unavailable"));
   const controller = new AbortController();
