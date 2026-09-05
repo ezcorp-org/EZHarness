@@ -163,6 +163,7 @@ const MODULE_PATHS = [
   // routes' call shape; it is a pure module with no heavy import graph, so
   // snapshotting it is free.
   "../../extensions/mcp-audit",
+  "../../extensions/mcp-workspace-credentials",
   "../../extensions/secrets-store",
   // "../../extensions/storage-handler" trimmed (wave 3): zero mockers.
   "../../extensions/security",
@@ -323,6 +324,7 @@ const MODULE_PATHS = [
   // time; list the resolved web paths so preload can snapshot them. The
   // `$lib/...` form is also restored below via `LIB_ALIAS_PREFIXES`.
   "../../../web/src/lib/server/security/api-keys",
+  "../../../web/src/lib/server/extensions/mcp-request",
   "../../../web/src/lib/server/security/validation",
   "../../../web/src/lib/server/security/resource-quotas",
   "../../../web/src/lib/server/security/rate-limiter",

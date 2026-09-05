@@ -31,7 +31,7 @@ describe("registry immutable release boundary", () => {
   });
 
   test("unregistered extensions cannot run", async () => {
-    await expect(prepare().getProcess("missing")).rejects.toThrow("approved v4 release");
+    await expect(prepare().getProcess("missing")).rejects.toThrow("not found in registry");
   });
 
   test("v4 creates a runner adapter without a host path and reuses its dispatcher", async () => {
