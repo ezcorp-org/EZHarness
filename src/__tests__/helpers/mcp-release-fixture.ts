@@ -7,7 +7,7 @@ import { registerCallProvenance, releaseCallProvenance } from "../../extensions/
 import { _setPermissionEngineForTests } from "../../extensions/permission-engine";
 import { createStubPermissionEngine } from "./permission-engine-stub";
 
-export function mcpReleaseFixture(options: { id?: string; name?: string; tools?: ToolDefinitionV4[] } = {}) {
+export function mcpReleaseFixture(options: { id?: string; name?: string; tools?: ToolDefinitionV4[]; runner?: Runner } = {}) {
   const id = options.id ?? "mcp-release";
   const manifest = validateManifest({ schemaVersion: 4, name: options.name ?? "mcp-release", version: "1.0.0", description: "MCP release fixture", author: { name: "Tests" }, kind: "mcp", mcpServers: [{ name: "packaged", transport: "stdio", command: "/packaged/mcp" }], permissions: {}, tools: options.tools ?? normalizeMcpCatalog([{ name: "echo", description: "Echo", inputSchema: { type: "object" } }]) });
   const snapshot: ActiveExtensionRelease = {
@@ -29,7 +29,7 @@ export function mcpReleaseFixture(options: { id?: string; name?: string; tools?:
       return { workerId: input.workerId, request: async (method, params) => method === "extension/discover" ? discover() : invoke(params as Record<string, unknown>), close: async () => { closed++; }, onNotification: () => () => {} };
     },
   };
-  configureReleaseRuntime({ runner: async () => runner, resolve: async installationId => installationId === id ? structuredClone(snapshot) : null });
+  configureReleaseRuntime({ runner: async () => options.runner ?? runner, resolve: async installationId => installationId === id ? structuredClone(snapshot) : null });
   const registry = ExtensionRegistry.getInstance();
   registry.setManifestForTest(id, manifest);
   const token = registerCallProvenance({ actorExtensionId: id, onBehalfOf: "owner", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });

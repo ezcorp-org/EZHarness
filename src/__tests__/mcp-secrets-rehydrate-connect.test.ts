@@ -1,137 +1,57 @@
-/**
- * MCP credential isolation — connect-path rehydration (db-audit/mcp-secrets
- * integration follow-up).
- *
- * The manifest is value-blanked at rest, so the runtime connect path must
- * rehydrate the real transport auth from the encrypted store before opening
- * the live MCP connection. `registry.getMcpClient()` now calls
- * `rehydrateMcpServerSecrets`; this test proves the definition handed to the
- * sandbox/connect layer carries the REAL header, not the blank.
- */
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { mockDbConnection, setupTestDb, closeTestDb } from "./helpers/test-pglite";
+import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
+import { ReleaseMcpClient } from "../extensions/release-mcp-client";
+import { getReleaseRuntime } from "../extensions/release-process";
+import { persistMcpWorkspaceCredentials } from "../extensions/mcp-workspace-credentials";
 mockDbConnection();
+beforeAll(setupTestDb);
+afterAll(closeTestDb);
 
-// Capture the (rehydrated) server definition handed to the connect path.
-let capturedServer: {
-  headers?: Record<string, string>;
-  env?: Record<string, string>;
-  url?: string;
-  command?: string;
-  args?: string[];
-} | null = null;
-mock.module("../extensions/mcp-sandbox", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  buildSandboxedMcpSpec: async (server: any) => {
-    capturedServer = server;
-    return { spec: { ...server }, proxyHandle: null };
-  },
-  runMcpSeccompSoakReader: () => {},
-}));
+async function connection(workspaceId: string) {
+  const fixture = mcpReleaseFixture();
+  const server = { name: "remote", transport: "http" as const, url: "https://example.com/mcp", headers: { Authorization: "" } };
+  fixture.manifest.mcpServers = [server];
+  fixture.manifest.permissions.network = ["example.com"];
+  fixture.snapshot.release.workspaceId = workspaceId;
+  fixture.snapshot.installation.grants.push(canonicalJson(["network", ["example.com"]]));
+  const headers: Headers[] = [];
+  const messages: unknown[] = [];
+  const client = new ReleaseMcpClient(fixture.id, async () => { throw new Error("Host spawn forbidden"); }, getReleaseRuntime(), { fetch: async (url, init, options) => {
+    await options.authorizeUrl!(new URL(url));
+    headers.push(new Headers(init.headers));
+    if (init.method !== "POST") return new Response(null, { status: 405 });
+    const message = JSON.parse(typeof init.body === "string" ? init.body : await new Response(init.body).text());
+    messages.push(message);
+    if (!Object.hasOwn(message, "id")) return new Response(null, { status: 202 });
+    const result = message.method === "initialize" ? { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } } : message.method === "tools/list" ? { tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }] } : { content: [{ type: "text", text: "ok" }], isError: false };
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }), { headers: { "content-type": "application/json" } });
+  } });
+  await client.connect();
+  return { fixture, server, client, headers, messages, close: async () => { await client.close(); fixture.cleanup(); } };
+}
 
-const { ExtensionRegistry } = await import("../extensions/registry");
-const { installMcpExtension } = await import("../db/queries/extensions");
+test("the active release rehydrates only its immutable workspace authentication at connect", async () => {
+  const value = await connection("credentials-active");
+  try {
+    await persistMcpWorkspaceCredentials(value.fixture.id, "credentials-active", { ...value.server, headers: { Authorization: "Bearer active-secret" } });
+    expect(await value.client.callTool("echo", {}, value.fixture.meta)).toMatchObject({ isError: false });
+    expect(value.headers.some(headers => headers.get("authorization") === "Bearer active-secret")).toBe(true);
+    expect(JSON.stringify(value.fixture.manifest)).not.toContain("active-secret");
+    expect(JSON.stringify(value.messages)).not.toContain("active-secret");
+    expect(JSON.stringify(value.messages)).not.toContain(value.fixture.token);
+  } finally { await value.close(); }
+});
 
-describe("getMcpClient rehydrates blanked MCP secrets before connecting", () => {
-  beforeEach(async () => await setupTestDb());
-  afterAll(async () => {
-    await closeTestDb();
-    mock.restore();
-  });
-
-  test("the connect path receives the REAL header, not the blanked manifest value", async () => {
-    capturedServer = null;
-    // install redacts-at-rest + stores the real secret in extension_secrets.
-    const ext = await installMcpExtension({
-      name: "rehydrate-mcp",
-      server: {
-        transport: "http",
-        name: "rehydrate-mcp",
-        url: "https://x/mcp",
-        headers: { Authorization: "Bearer REAL-TOKEN" },
-      },
-      cachedTools: [],
-    });
-
-    const registry = ExtensionRegistry.getInstance();
-    await registry.loadFromDb();
-
-    // Pre-inject a fake (unconnected) client so no real subprocess/socket is
-    // opened — getMcpClient still runs the rehydrate + buildSandboxedMcpSpec path.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fakeClient: any = {
-      isConnected: false,
-      connect: async function () { this.isConnected = true; },
-      close: async () => {},
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (registry as any).mcpClients.set(ext.id, fakeClient);
-
-    await registry.getMcpClient(ext.id);
-
-    expect(capturedServer).not.toBeNull();
-    expect(capturedServer!.headers?.Authorization).toBe("Bearer REAL-TOKEN");
-  });
-
-  test("issue #205 — the URL it DIALS carries the real query secret", async () => {
-    capturedServer = null;
-    const ext = await installMcpExtension({
-      name: "rehydrate-url",
-      server: {
-        transport: "http",
-        name: "rehydrate-url",
-        url: "https://mcp.vendor.com/mcp?api_key=REAL-URL-SECRET",
-      },
-      cachedTools: [],
-    });
-    // The manifest the registry loads is value-blanked; if rehydration were
-    // wired AFTER the connect (or not at all) the client would dial
-    // `?api_key=` and the server would answer 401.
-    expect(JSON.stringify(ext.manifest)).not.toContain("REAL-URL-SECRET");
-
-    const registry = ExtensionRegistry.getInstance();
-    await registry.loadFromDb();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fakeClient: any = {
-      isConnected: false,
-      connect: async function () { this.isConnected = true; },
-      close: async () => {},
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (registry as any).mcpClients.set(ext.id, fakeClient);
-    await registry.getMcpClient(ext.id);
-
-    expect(capturedServer!.url).toBe("https://mcp.vendor.com/mcp?api_key=REAL-URL-SECRET");
-  });
-
-  test("issue #205 — the ARGV it SPAWNS carries the real flag value", async () => {
-    capturedServer = null;
-    const ext = await installMcpExtension({
-      name: "rehydrate-argv",
-      server: {
-        transport: "stdio",
-        name: "rehydrate-argv",
-        command: "npx",
-        args: ["-y", "srv", "--token=REAL-ARGV-SECRET"],
-      },
-      cachedTools: [],
-    });
-    expect(JSON.stringify(ext.manifest)).not.toContain("REAL-ARGV-SECRET");
-
-    const registry = ExtensionRegistry.getInstance();
-    await registry.loadFromDb();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fakeClient: any = {
-      isConnected: false,
-      connect: async function () { this.isConnected = true; },
-      close: async () => {},
-    };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (registry as any).mcpClients.set(ext.id, fakeClient);
-    await registry.getMcpClient(ext.id);
-
-    expect(capturedServer!.args).toEqual(["-y", "srv", "--token=REAL-ARGV-SECRET"]);
-    expect(capturedServer!.command).toBe("npx");
-  });
+test("a candidate workspace credential never replaces the active release credential", async () => {
+  const value = await connection("credentials-stable");
+  try {
+    await persistMcpWorkspaceCredentials(value.fixture.id, "credentials-stable", { ...value.server, headers: { Authorization: "Bearer stable-secret" } });
+    await persistMcpWorkspaceCredentials(value.fixture.id, "credentials-candidate", { ...value.server, headers: { Authorization: "Bearer candidate-secret" } });
+    await value.client.callTool("echo", {}, value.fixture.meta);
+    expect(value.headers.some(headers => headers.get("authorization") === "Bearer stable-secret")).toBe(true);
+    expect(value.headers.some(headers => headers.get("authorization") === "Bearer candidate-secret")).toBe(false);
+    expect(value.fixture.snapshot.installation.activeReleaseId).toBe("release");
+  } finally { await value.close(); }
 });
