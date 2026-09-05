@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { MCP_CATALOG_PROBE_FAILED_MESSAGE } from "../mcp/connect-failure";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { readMcpCatalog } from "@ezcorp/sdk/v4";
@@ -51,7 +52,7 @@ export async function stageMcpExtension(actor: LifecycleActor, input: { name: st
     try {
       const tools = await probeRemoteMcp(input.server, () => requireAdministrator(actor));
       manifest = validateManifest({ ...manifest, tools: withMcpToolCapabilities(tools, permissions) });
-    } catch { throw new LifecycleError("mcp_probe_failed", "MCP catalog probe failed. Check the public endpoint and credentials; no release was activated."); }
+    } catch { throw new LifecycleError("mcp_probe_failed", MCP_CATALOG_PROBE_FAILED_MESSAGE); }
   }
   const files = {
     "mcp.manifest.json": JSON.stringify(manifest, null, 2),
