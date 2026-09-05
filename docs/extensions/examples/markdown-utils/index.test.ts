@@ -2,45 +2,9 @@ import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { resolve } from "node:path";
 import { _internals, main } from "./index";
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { getChannel } from "@ezcorp/sdk/runtime";
 
-// Test format-table logic
-function formatTable(headers: string[], rows: string[][]): string {
-  const colWidths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
-  );
-
-  const headerRow = "| " + headers.map((h, i) => h.padEnd(colWidths[i] ?? 0)).join(" | ") + " |";
-  const separator = "| " + colWidths.map((w) => "-".repeat(w)).join(" | ") + " |";
-  const dataRows = rows.map(
-    (row) => "| " + headers.map((_, i) => (row[i] ?? "").padEnd(colWidths[i] ?? 0)).join(" | ") + " |"
-  );
-
-  return [headerRow, separator, ...dataRows].join("\n");
-}
-
-interface Heading {
-  level: number;
-  text: string;
-  line: number;
-}
-
-function extractHeadings(markdown: string): Heading[] {
-  const headings: Heading[] = [];
-  const lines = markdown.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) continue;
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    const hashes = match?.[1];
-    const text = match?.[2];
-    if (hashes !== undefined && text !== undefined) {
-      headings.push({ level: hashes.length, text: text.trim(), line: i + 1 });
-    }
-  }
-
-  return headings;
-}
+const { formatTable, extractHeadings } = _internals;
 
 test("format-table creates aligned markdown table", () => {
   const result = formatTable(["Name", "Age"], [["Alice", "30"], ["Bob", "25"]]);
@@ -137,6 +101,10 @@ describe("dispatch: extract-headings", () => {
 });
 
 describe("dispatch: format-table validation", () => {
+  test("formats through the production tool dispatcher", () => {
+    const response = _internals.handleRequest({ jsonrpc: "2.0", id: "table", method: "tools/call", params: { name: "format-table", arguments: { headers: ["Name", "Age"], rows: [["Alice", "30"], ["Bob"]] } } });
+    expect(response.result).toEqual({ content: [{ type: "text", text: formatTable(["Name", "Age"], [["Alice", "30"], ["Bob"]]) }], isError: false });
+  });
   test("missing headers or rows is -32602", () => {
     const res = _internals.handleRequest({
       jsonrpc: "2.0",
@@ -150,6 +118,16 @@ describe("dispatch: format-table validation", () => {
 });
 
 describe("registration", () => {
+  test("registered transport unwraps tool results and keeps protocol errors", async () => {
+    let handle!: (params: unknown) => unknown;
+    const register = spyOn(getChannel(), "onRequest").mockImplementation((_method, handler) => { handle = handler; });
+    try {
+      main();
+      expect(await handle({ name: "format-table", arguments: { headers: ["Name"], rows: [["Alice"]] } })).toMatchObject({ isError: false });
+      await expect(Promise.resolve().then(() => handle({ name: "missing" }))).rejects.toThrow("Tool request failed");
+      expect(_internals.handleRequest({ jsonrpc: "2.0", id: "unknown", method: "unknown" }).error).toMatchObject({ code: -32601 });
+    } finally { register.mockRestore(); }
+  });
   test("registers handlers without opening stdin", () => {
     const input = spyOn(Bun.stdin, "stream");
     try {

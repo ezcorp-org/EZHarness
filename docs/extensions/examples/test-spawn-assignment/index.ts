@@ -20,10 +20,6 @@ import {
 // delivery for a Phase 2d-initiated spawn.
 const updates: unknown[] = [];
 
-registerEventHandler("task:assignment_update", (payload) => {
-  updates.push(payload);
-});
-
 const spawn: ToolHandler = async (args) => {
   const a = args as {
     agentConfigId?: unknown;
@@ -73,6 +69,9 @@ export const tools: Record<string, ToolHandler> = {
 
 export function start(): void {
   const ch = getChannel();
+  registerEventHandler("task:assignment_update", (payload) => {
+    updates.push(payload);
+  });
   createToolDispatcher(tools);
   ch.start();
 }

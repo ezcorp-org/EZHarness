@@ -110,8 +110,8 @@
       "directory": "docs/extensions/examples/github-stats",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 11960,
-      "sourceDigest": "947945d7f7a5785bfd96d8ac951bb1208b49926372a21f7899082ddfd636d532"
+      "bytes": 11187,
+      "sourceDigest": "67e35966f403cc1745315aeabbc659fa41d930a35decb4bb1e14d7173325ff55"
     },
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",
@@ -145,8 +145,8 @@
       "directory": "docs/extensions/examples/markdown-utils",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 14822,
-      "sourceDigest": "313e7f7544341fb99d9010ce1fd0375a7179d6d1e686839b4ee40e8e9d5800a8"
+      "bytes": 14907,
+      "sourceDigest": "1ed7953e53e0f394f2033923ac6966d7766265534fe74272ce3d3aee99ba27c5"
     },
     "multi-agent-orchestrator": {
       "directory": "docs/extensions/examples/multi-agent-orchestrator",
@@ -270,30 +270,30 @@
     "test-agent-configs": {
       "directory": "docs/extensions/examples/test-agent-configs",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 2802,
-      "sourceDigest": "28b910a6eb4fd1a43d70b2ec0914b0b5f89813ef1db47e697d390e18569f0fb6"
+      "files": 5,
+      "bytes": 4837,
+      "sourceDigest": "1de7c15f1e28c4af294211dd46227523952135d4e083d7dfed6dca0bea025a60"
     },
     "test-event-subscriber": {
       "directory": "docs/extensions/examples/test-event-subscriber",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 2486,
-      "sourceDigest": "0accb4eaa610d9cdeeaf0d1e12c6c8ff2ed1653d756d8d278f05467991bedfc9"
+      "files": 5,
+      "bytes": 3665,
+      "sourceDigest": "deaa29ed9ffa07905de6e5246e342953f04ecc92ad883cda69034ccb46706bb5"
     },
     "test-spawn-assignment": {
       "directory": "docs/extensions/examples/test-spawn-assignment",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 4749,
-      "sourceDigest": "53af4eb0f2a736ce56ec2dcac9828c578f04314b01877dd8c393152ee83cb0a1"
+      "files": 5,
+      "bytes": 7471,
+      "sourceDigest": "f320a43b58fc5fefe243d9e2c1839f14dfe953e010ce17fe677893e48bad6bc6"
     },
     "test-task-events": {
       "directory": "docs/extensions/examples/test-task-events",
       "entrypoint": "extension.ts",
-      "files": 4,
-      "bytes": 3509,
-      "sourceDigest": "63ed9e9b651d9018b8a9eca73b2154e1ae0d15af703b489064557be99d5c29b3"
+      "files": 5,
+      "bytes": 5029,
+      "sourceDigest": "d474e28401f1dcb9456be1034b791b98d9c00e2bb3da365e9d9219a06708f635"
     },
     "todo-tracker": {
       "directory": "docs/extensions/examples/todo-tracker",

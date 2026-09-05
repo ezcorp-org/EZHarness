@@ -14,10 +14,6 @@ import {
 
 const received: unknown[] = [];
 
-registerEventHandler("task:snapshot", (payload) => {
-  received.push(payload);
-});
-
 const drain: ToolHandler = async () => {
   const copy = received.slice();
   received.length = 0;
@@ -30,6 +26,9 @@ export const tools: Record<string, ToolHandler> = {
 
 export function start(): void {
   const ch = getChannel();
+  registerEventHandler("task:snapshot", (payload) => {
+    received.push(payload);
+  });
   createToolDispatcher(tools);
   ch.start();
 }
