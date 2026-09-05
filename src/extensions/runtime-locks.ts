@@ -28,9 +28,10 @@ async function verify(database: MigrationDb, fences: readonly Fence[], deadline 
   }
 }
 
-export async function verifyInvocationLocks(database: MigrationDb): Promise<void> {
+export async function verifyInvocationLocks(database: MigrationDb, invocationGuard?: InvocationGuard): Promise<void> {
   const effect = activeEffects.getStore();
   await effect?.verifyTransaction?.(database);
+  if (invocationGuard && invocationGuard !== effect?.verifyTransaction) await invocationGuard(database);
   await verify(database, effect?.fences ?? []);
 }
 

@@ -1,6 +1,6 @@
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionProcess } from "../subprocess";
-import type { InvocationGuard } from "../runtime-locks";
+import { verifyInvocationLocks, type InvocationGuard } from "../runtime-locks";
 import type { ToolCallResult, JsonRpcRequest, JsonRpcResponse } from "../types";
 import type { ExtensionStateMediator } from "../state-mediator";
 import { getStateMediator } from "../state-mediator";
@@ -11,6 +11,8 @@ import type { PendingPermissionInfo } from "../../runtime/stream-chat/host";
 import { resolveSharedVariables } from "../shared-variables";
 import type { FsRpcResponse } from "../fs-handler";
 import { getUserById } from "../../db/queries/users";
+import { getDb, type DbTransaction } from "../../db/connection";
+import type { StorageDatabase } from "../../db/queries/extension-storage";
 import { hasExtensionScope } from "../../auth/extension-rbac";
 import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
@@ -733,14 +735,18 @@ export class ToolExecutor {
             `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
           );
         }
-        const store = createHostEntityStore({
-          extensionId,
-          scope,
-          scopeId,
+        const executeEntity = async (database?: StorageDatabase) => {
+          _opts?.signal?.throwIfAborted();
+          const store = createHostEntityStore({ extensionId, scope, scopeId, ...(database ? { database } : {}) });
+          const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
+          const result = await handler(resolvedInput);
+          _opts?.signal?.throwIfAborted();
+          return result;
+        };
+        const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
+          await verifyInvocationLocks(transaction, _opts?.invocationGuard);
+          return executeEntity(transaction);
         });
-        const handlers = buildEntityToolHandlers(decl, store);
-        const handler = handlers[registered.entityKind];
-        const entityResult = await handler(resolvedInput);
         const duration = Date.now() - startTime;
         const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
           conversationId,
