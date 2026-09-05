@@ -1085,7 +1085,7 @@ export class ToolExecutor {
    * Create the `tools` object for AgentContext.
    * Code-based agents can call ctx.tools.invoke("tool_name", {input}).
    */
-  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard; serviceInvocation?: ServiceInvocation }) {
+  createToolsContext(conversationId: string, messageId: string | null, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard; serviceInvocation?: ServiceInvocation }) {
     return {
       invoke: async (toolName: string, input: Record<string, unknown>): Promise<unknown> => {
         const result = await this.executeToolCall(toolName, input, conversationId, messageId, ...(options ? [options] : []));
