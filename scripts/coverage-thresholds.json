@@ -1,4 +1,11 @@
 {
+  "packages/@ezcorp/sdk/src/test/filesystem.ts": 100,
+  "src/extensions/project-access.ts": 100,
+  "src/extensions/project-binding.ts": 100,
+  "src/extensions/project-git-broker.ts": 100,
+  "src/extensions/runner-connection.ts": 100,
+  "web/src/lib/server/extensions/mcp-request.ts": 100,
+  "web/src/routes/api/extensions/releases/[installationId]/project/+server.ts": 100,
   "docs/extensions/examples/ask-user/extension.ts": 100,
   "docs/extensions/examples/auto-note/extension.ts": 100,
   "docs/extensions/examples/cash-recovery-agent/extension.ts": 100,

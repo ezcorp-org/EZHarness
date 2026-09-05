@@ -298,6 +298,7 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     "api/extensions/import-source/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
+    "api/import/commit/+server.ts",
     "api/marketplace/[id]/install/+server.ts",
   ];
 
@@ -750,11 +751,16 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/workflows/delegations/:id",
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
+      "POST /api/extensions/releases/:installationId/project",
+      "POST /api/import/commit",
       "POST /api/marketplace/:id/install",
+      "POST /api/mcp-servers",
+      "POST /api/mcp-servers/:id/refresh",
       "POST /api/service-accounts",
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
+      "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];
     const declared = apiRegistry

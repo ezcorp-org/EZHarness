@@ -28,6 +28,7 @@ import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 const HANDLER_NAMES = [
   "handlePiHostApi",
   "handlePiProjectPullRequest",
+  "handlePiProjectGit",
   "handlePiNetworkBroker",
   "handlePiCredentialBroker",
   "handlePiInvoke",

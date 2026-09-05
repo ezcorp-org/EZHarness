@@ -58,6 +58,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/import-source", description: "Import bounded extension source into an isolated lifecycle build", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/control", description: "Manage versioned extension workspaces, builds and releases", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "POST", path: "/api/extensions/releases/:installationId/approve", description: "Approve or reject an exact extension release from a human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/extensions/releases/:installationId/project", description: "Bind or revoke project access for the exact active release from its owner's human session", category: "extensions", scope: "session" },
   // Auth
   { method: "POST", path: "/api/auth/login", description: "Authenticate user and create session", category: "auth", scope: "public", schemaKey: "loginSchema" },
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
@@ -740,7 +741,7 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // ── Import (commands + skill bundles) ─────────────────────────────────
   { method: "POST", path: "/api/import/preview", description: "Stage a directory upload or archive under <projectRoot>/.ezcorp/import-staging/<id> and return the command + skill checklist, scanned with the same scanners commit uses. Re-scoped `read` → `write` in 2026-08 (it writes staging dirs)", category: "extensions", scope: "write" },
-  { method: "POST", path: "/api/import/commit", description: "Import the selected items: commands via createUserCommand, skills synthesized into a tool extension and handed to installFromLocal INSTALLED DISABLED for the normal permission review. Staging is always removed in `finally`", category: "extensions", scope: "extensions" },
+  { method: "POST", path: "/api/import/commit", description: "Import commands or stage bounded UTF-8 skill source for an isolated build and human release review. Requires an administrator session; staging is removed in finally", category: "extensions", scope: "session" },
 
   // ── Marketplace ───────────────────────────────────────────────────────
   { method: "GET", path: "/api/marketplace/categories", description: "Marketplace tag taxonomy aggregated over ACTIVE listings, for the category filter chips. Same auth posture as GET /api/marketplace: any authenticated caller, no API-key scope gate (hooks still refuses anonymous /api/* callers, so this is not `public`)", category: "marketplace", responseDescription: "{ categories: [{ tag, count }] }" },
