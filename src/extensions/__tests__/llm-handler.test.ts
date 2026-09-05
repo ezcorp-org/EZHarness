@@ -205,6 +205,32 @@ describe("handlePiLlmComplete — happy path", () => {
     expect(auditRows[0]!.tokensUsed).toBe(30);
     expect(auditRows[0]!.provider).toBe("anthropic");
   });
+
+  test("omits non-finite provider cost so the reverse-RPC result remains JSON-safe", async () => {
+    const ctx = makeMockedHandlerCtx({
+      mockComplete: async () => ({
+        content: [{ type: "text", text: "local result" }],
+        usage: { input: 10, output: 20, cost: Number.NaN },
+        stopReason: "stop",
+        model: "gemma4:e2b",
+      }),
+    });
+    const resp = await handlePiLlmComplete(
+      {
+        jsonrpc: "2.0", id: 101, method: "ezcorp/llm-complete",
+        params: {
+          provider: "anthropic", model: "gemma4:e2b",
+          messages: [{ role: "user", content: "hello" }],
+        },
+      },
+      ctx,
+      makeRpcMeta(),
+    );
+
+    expect(resp.error).toBeUndefined();
+    expect((resp.result as { usage: Record<string, number> }).usage.estCostCents).toBeUndefined();
+    expect(JSON.stringify(resp)).toContain("local result");
+  });
 });
 
 describe("handlePiLlmComplete — soft-fail ladder", () => {

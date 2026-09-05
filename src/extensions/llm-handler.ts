@@ -365,7 +365,10 @@ export async function handlePiLlmComplete(
     .join("");
   const inputTokens = upstream.usage?.input ?? 0;
   const outputTokens = upstream.usage?.output ?? 0;
-  const estCostCents = upstream.usage?.cost !== undefined ? Math.round(upstream.usage.cost * 100) : undefined;
+  const upstreamCost = upstream.usage?.cost;
+  const estCostCents = upstreamCost !== undefined && Number.isFinite(upstreamCost)
+    ? Math.round(upstreamCost * 100)
+    : undefined;
 
   // Reconcile the day-token counter from the speculative max-tokens
   // pre-booking to the ACTUAL total (input + output). Input tokens were
