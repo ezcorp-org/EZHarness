@@ -194,16 +194,15 @@ test("direct execution rechecks release authority after durable reads and never 
   try {
     await expect(executor.runWorkflow(structuredClone(entry!.definition), {}, undefined, "owner")).rejects.toThrow("release authority");
     const failedInsertId = crypto.randomUUID();
-    expect((await executor.runWorkflow(entry!.definition, {}, "missing-project", "owner", undefined, { runId: failedInsertId })).result?.error).toMatchObject({ code: "run-persistence-failed" });
+    expect((await executor.runWorkflow(entry!.definition, {}, undefined, "owner", undefined, { runId: failedInsertId, delegationId: "missing-delegation" })).result?.error).toMatchObject({ code: "run-persistence-failed" });
     expect(errors).toEqual([failedInsertId]);
     expect(await getWorkflowRunRow(failedInsertId)).toBeUndefined();
     expect(activeRuns.size).toBe(0);
-    let reads = 0;
+    const revokedRunId = crypto.randomUUID();
     setup.runtime.resolve = async () => {
-      if (++reads === 3) setup.snapshot.installation.enabled = false;
+      if (await getWorkflowRunRow(revokedRunId)) setup.snapshot.installation.enabled = false;
       return setup.snapshot;
     };
-    const revokedRunId = crypto.randomUUID();
     expect((await executor.runWorkflow(entry!.definition, {}, undefined, "owner", undefined, { runId: revokedRunId })).status).toBe("error");
     expect((await getWorkflowRunRow(revokedRunId))?.status).toBe("error");
     expect(errors).toEqual([failedInsertId, revokedRunId]);
@@ -213,7 +212,6 @@ test("direct execution rechecks release authority after durable reads and never 
     const row = await getWorkflowRunRow(id);
     expect((await executor.resumeWorkflow(entry!.definition, resumeArgsFromRow(row!), undefined, { resumedBy: "release-test", entry })).result?.error).toMatchObject({ code: "not-resumable" });
     setup.snapshot.installation.enabled = true;
-    reads = 0;
     expect((await executor.resumeWorkflow(entry!.definition, resumeArgsFromRow(row!), undefined, { resumedBy: "release-test", entry })).result?.error).toMatchObject({ code: "not-resumable" });
     expect(effects).toBe(0);
     registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [{ ...entry!, source: "yaml", extensionRelease: undefined }], workflowExecutor: executor });

@@ -11,6 +11,12 @@ import type { MigrationDb } from "../db/migrations/types";
 import { sql } from "drizzle-orm";
 import { releaseRows } from "../db/queries/extension-releases";
 
+async function canExecuteInProject(principalId: string, projectId: string | null | undefined, database?: MigrationDb): Promise<boolean> {
+  if (!projectId) return true;
+  const user = await readWorkflowAuthorityUser(principalId, database);
+  return user?.status === "active" && (user.role === "admin" || await readWorkflowAuthorityMembership(user.id, projectId, database));
+}
+
 export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
   if (!entry.extensionRelease || consenterId !== entry.extensionRelease.ownerId) return false;
@@ -18,6 +24,7 @@ export async function workflowReleaseCanConsentService(entry: CachedWorkflow, se
   const service = await readService();
   if (!service || (service.projectId !== null && service.projectId !== projectId)) return false;
   if (!await workflowReleaseCanAccess(entry, consenterId, projectId, database)) return false;
+  if (!await canExecuteInProject(consenterId, projectId, database)) return false;
   const current = await readService();
   return Boolean(current && current.projectId === service.projectId && await workflowReleaseIsCurrent(entry, undefined, database));
 }
@@ -32,7 +39,7 @@ export interface WorkflowExecutionAuthority {
 
 export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
-  if (authority.runAsKind !== "service") return workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database);
+  if (authority.runAsKind !== "service") return await workflowReleaseCanAccess(entry, authority.userId ?? null, authority.projectId, database) && await canExecuteInProject(authority.userId!, authority.projectId, database) && await workflowReleaseIsCurrent(entry, undefined, database);
   if (!entry.extensionRelease || authority.userId || !authority.delegationId || !authority.runAs) return false;
   const readDelegation = async () => database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowDelegation>>>, "id" | "enabled" | "revokedAt" | "ownerKind" | "ownerServiceAccountId" | "workflowName" | "projectId" | "extensionId" | "extensionReleaseBinding" | "consentedByUserId">>(await database.execute(sql`SELECT id, enabled, revoked_at AS "revokedAt", owner_kind AS "ownerKind", owner_service_account_id AS "ownerServiceAccountId", workflow_name AS "workflowName", project_id AS "projectId", extension_id AS "extensionId", extension_release_binding AS "extensionReleaseBinding", consented_by_user_id AS "consentedByUserId" FROM workflow_delegations WHERE id=${authority.delegationId} FOR SHARE`))[0] : await getWorkflowDelegation(authority.delegationId!);
   const delegation = await readDelegation();

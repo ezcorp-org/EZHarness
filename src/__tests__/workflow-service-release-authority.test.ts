@@ -4,7 +4,7 @@ import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers
 import { workflowReleaseFixture } from "./helpers/workflow-release";
 
 mockDbConnection();
-const { users, extensions, serviceAccounts, workflowDelegations } = await import("../db/schema");
+const { users, projects, projectMembers, extensions, serviceAccounts, workflowDelegations } = await import("../db/schema");
 const { workflowReleaseCanExecute, workflowDelegationReleaseBinding } = await import("../runtime/workflow-release-assets");
 const { up } = await import("../db/migrations/add-workflow-delegation-release");
 const { workflowDelegationReleaseAllows } = await import("../runtime/workflow-scope");
@@ -96,4 +96,21 @@ test("nested service lookup uses the persisted consented closure rather than a h
   expect(await resolver(child.definition.name, {})).toBeUndefined();
   await db.update(workflowDelegations).set({ enabled: false }).where(eq(workflowDelegations.id, "delegation"));
   expect(await resolver(child.definition.name, { authority })).toBeUndefined();
+});
+
+test("a project service requires current consenting owner membership even for a global release", async () => {
+  const { db, release, authority } = await fixture();
+  await db.insert(projects).values({ id: "project", name: "Project", path: "/project" });
+  await db.update(serviceAccounts).set({ projectId: "project" }).where(eq(serviceAccounts.id, "service"));
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(false);
+  await db.update(workflowDelegations).set({ projectId: "project" }).where(eq(workflowDelegations.id, "delegation"));
+  const scoped = { ...authority, projectId: "project" };
+  expect(await workflowReleaseCanExecute(release.entry, scoped)).toBe(false);
+  await db.insert(projectMembers).values({ userId: "owner", projectId: "project", role: "member" });
+  expect(await workflowReleaseCanExecute(release.entry, scoped)).toBe(true);
+  await db.delete(projectMembers).where(eq(projectMembers.userId, "owner"));
+  expect(await workflowReleaseCanExecute(release.entry, scoped)).toBe(false);
+  expect(await workflowReleaseCanExecute(release.entry, { userId: "owner", projectId: "project" })).toBe(false);
+  await db.insert(projectMembers).values({ userId: "owner", projectId: "project", role: "member" });
+  expect(await workflowReleaseCanExecute(release.entry, { userId: "owner", projectId: "project" })).toBe(true);
 });
