@@ -5,57 +5,39 @@ shared manifest types, a `defineExtension` helper, and the runtime helpers used
 by published extensions (fs, lock, rpc, channel, plus the Phase 2 wrappers for
 http, invoke, panel, lifecycle, and storage).
 
-## Install
+## Version 4 authoring
 
-```sh
-bun add @ezcorp/sdk
-```
-
-Bun is the only supported runtime. The package ships `"type": "module"` and a
-`"bun"` export condition so in-repo development resolves source directly; npm
-consumers import from the compiled `dist/` output.
-
-## Quick start
-
-Create `index.ts` in your extension directory:
+Generate a complete tool, skill, agent, or combined extension:
 
 ```ts
-#!/usr/bin/env bun
-import { defineExtension } from "@ezcorp/sdk";
-import {
-  createToolDispatcher,
-  getChannel,
-  toolResult,
-  type ToolHandler,
-} from "@ezcorp/sdk/runtime";
+import { scaffoldExtension } from "@ezcorp/sdk";
 
-const greet: ToolHandler = async ({ name }) =>
-  toolResult(`Hello, ${name ?? "world"}.`);
-
-getChannel().start();
-createToolDispatcher({ greet });
-
-export default defineExtension({
-  schemaVersion: 2,
-  name: "hello",
-  version: "0.1.0",
-  description: "Minimal extension showing tool dispatch.",
-  author: { name: "Your Name" },
-  tools: [
-    {
-      name: "greet",
-      description: "Greet someone by name.",
-      inputSchema: {
-        type: "object",
-        properties: { name: { type: "string" } },
-      },
-    },
-  ],
+const { files } = scaffoldExtension({
+  name: "my-extension",
+  type: "tool",
+  description: "My extension",
 });
 ```
 
-Run the extension host with your extension registered. Every request routed to
-`greet` will land in the dispatcher and reply via `toolResult` / `toolError`.
+Write the returned files into a new directory. Every template includes a data-only
+`ezcorp.config.ts`, an `extension.ts` SDK transport entrypoint, and executable
+`extension.test.ts` tests. Tools declare input and output schemas and a smoke test.
+Skills and agents also provide isolated metadata discovery.
+
+The generated package has an exact SDK peer dependency for local editing. The
+harness supplies its trusted SDK inside the build runner; do not add SDK or
+contract packages to runtime dependencies. Use the matching SDK version locally
+and run `bun test`.
+
+Import the directory through **Extensions → Import Source**. The runner compiles,
+type-checks, tests, and discovers the candidate in isolation. Review the results
+and exact permissions, then obtain human approval before activation. A successful
+local test does not approve a release.
+
+Version 2/3 host-loaded configuration and manual stdin transports are not supported
+by the active lifecycle. The legacy root `defineExtension` metadata helper is not
+the version 4 runtime API: new entrypoints use `defineExtension` and `serve` from
+`@ezcorp/sdk/v4`, as shown in the generated source.
 
 ## Exports map
 
