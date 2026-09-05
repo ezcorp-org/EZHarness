@@ -25,7 +25,7 @@
 </main>
 
 <style>
-  .browser-page{padding:1.5rem;max-width:96rem;margin:auto;color:var(--color-text-primary)}
+  .browser-page{max-width:96rem;margin:auto;color:var(--color-text-primary)}
   header{display:flex;align-items:start;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}
   h1{font-size:1.5rem;font-weight:600;margin:0 0 .5rem}p{color:var(--color-text-muted)}
   .context-selector{display:flex;align-items:end;gap:1rem;flex-wrap:wrap;margin:1rem 0}
