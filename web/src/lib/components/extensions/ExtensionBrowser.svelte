@@ -3,6 +3,7 @@
   import { CanvasBridge, type CanvasMethod } from "$lib/extensions/canvas-bridge";
   import { SANDBOX_FLAGS_STRICT } from "$lib/components/tool-cards/iframe-card-logic";
   import { userFetch } from "$lib/utils/fetch-policy";
+  import { BrowserAuthorityChanged, BrowserCancellationUnconfirmed, invokeBrowserTool } from "$lib/extensions/browser-invocation";
 
   let { name, binding, nonce, conversationId, tools }: { name: string; binding: string; nonce: string; conversationId: string; tools: string[] } = $props();
   const context = untrack(() => ({ name, binding, nonce, conversationId, tools: [...tools] }));
@@ -93,7 +94,13 @@
   async function dispatch(method: CanvasMethod, params: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
     if (method === "tool.invoke") {
       if (Object.keys(params).some(key => !["toolName", "input"].includes(key)) || typeof params.toolName !== "string" || !context.tools.includes(params.toolName) || !params.input || typeof params.input !== "object" || Array.isArray(params.input)) throw new Error("Tool not exposed");
-      return request({ method, toolName: params.toolName, input: params.input }, signal);
+      try {
+        return await invokeBrowserTool(userFetch, endpoint, { binding: context.binding, conversationId: context.conversationId }, { toolName: params.toolName, input: params.input as Record<string, unknown> }, signal);
+      } catch (error) {
+        if (error instanceof BrowserAuthorityChanged) bridge.close();
+        if (error instanceof BrowserCancellationUnconfirmed) cameraError = error.message;
+        throw error;
+      }
     }
     if (method === "camera.stop") {
       if (Object.keys(params).length !== 1 || typeof params.sessionId !== "string" || (camera && params.sessionId !== camera.id)) throw new Error("Camera session mismatch");

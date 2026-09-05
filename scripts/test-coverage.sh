@@ -839,6 +839,7 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
       --coverage.include='src/lib/extensions/canvas-bridge.ts' \
+      --coverage.include='src/lib/extensions/browser-invocation.ts' \
       --coverage.include='src/lib/server/extension-browser.ts' \
       --coverage.include='src/lib/server/extension-document.ts' \
       --coverage.include='src/lib/components/extensions/ExtensionBrowser.svelte' \

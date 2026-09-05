@@ -15,7 +15,7 @@ vi.mock("$lib/extensions/canvas-bridge", () => ({ CanvasBridge: class {
 } }));
 
 beforeEach(() => {
-  fixture.fetch.mockReset().mockImplementation(async () => Response.json({ success: true, output: "safe" }));
+  fixture.fetch.mockReset().mockImplementation(async (_url, init) => Response.json(JSON.parse(init.body).method === "prepare" ? { requestId: crypto.randomUUID(), installationId: "installation" } : { success: true, output: "safe" }));
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   HTMLDialogElement.prototype.close = function () { this.open = false; };
 });
@@ -30,7 +30,7 @@ test("renders opaque frame and forwards only exact sealed tool and context", asy
   expect(iframe.getAttribute("src")).toContain("conversationId=owned");
   const signal = new AbortController().signal;
   expect(await fixture.dispatch("tool.invoke", { toolName: "allowed", input: { value: 1 } }, signal)).toEqual({ success: true, output: "safe" });
-  expect(JSON.parse(fixture.fetch.mock.calls[0]![1].body)).toEqual({ method: "tool.invoke", toolName: "allowed", input: { value: 1 }, binding: "a".repeat(64), conversationId: "owned" });
+  expect(JSON.parse(fixture.fetch.mock.calls[0]![1].body)).toEqual({ method: "prepare", toolName: "allowed", input: { value: 1 }, binding: "a".repeat(64), conversationId: "owned" });
   await expect(fixture.dispatch("tool.invoke", { toolName: "other", input: {} }, signal)).rejects.toThrow("not exposed");
   await fireEvent.load(iframe);
   expect(fixture.bridge.loaded).toHaveBeenCalled();

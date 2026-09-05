@@ -1,4 +1,5 @@
 {
+  "web/src/lib/extensions/browser-invocation.ts": 100,
   "src/db/migrations/add-extension-browser-requests.ts": 100,
   "src/db/queries/extension-browser-requests.ts": 100,
   "src/extensions/browser-invocation-control.ts": 100,

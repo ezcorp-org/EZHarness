@@ -211,6 +211,7 @@ web_host_files() {
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/canvas-bridge.test.ts \
+      web/src/__tests__/browser-invocation.test.ts \
       web/src/__tests__/extension-browser-authority.test.ts \
       web/src/__tests__/extension-browser-preview.test.ts \
       web/src/__tests__/extension-browser-page.test.ts \
