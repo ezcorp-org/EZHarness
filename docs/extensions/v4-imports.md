@@ -20,7 +20,7 @@ An active administrator in a human session can call
 For private GitHub source, add `projectId` to the GitHub request. The selected
 project must have the exact repository as its Git origin and a host-stored
 GitHub credential. Each source request checks the active human,
-project membership, origin, and current credential again. Use a read-only
+project access (administrator or member), origin, and current credential again. Use a read-only
 repository-scoped credential. No global Git identity or child-supplied token is used.
 
 Source snapshots preserve UTF-8 text as strings. Compiled source and configuration

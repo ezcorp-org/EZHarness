@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), approve: vi.fn() }));
+vi.mock("$lib/server/extensions/control-actor", () => ({ resolveControlActor: async (user: { id: string }, kind: string, installationId?: string) => ({ principalId: user.id, scope: installationId === "project-installation" ? "project:owned" : "global", kind }) }));
 vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionControl: async () => mocks, getExtensionLifecycle: async () => mocks }));
 vi.mock("$server/auth/middleware", () => ({
   requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; },
@@ -22,6 +23,11 @@ test("API keys can drive control only with the extensions scope", async () => {
   expect(mocks.execute).not.toHaveBeenCalled();
   expect((await control(event({ tool: "extensions_describe", input: {} }))).status).toBe(200);
   expect(mocks.execute.mock.calls[0]![0]).toEqual({ principalId: "user", scope: "global", kind: "agent" });
+});
+
+test("project installation requests use the server-resolved scope", async () => {
+  expect((await control(event({ tool: "extensions_inspect", input: { installationId: "project-installation" } }, "session"))).status).toBe(200);
+  expect(mocks.execute.mock.calls[0]![0]).toEqual({ principalId: "user", scope: "project:owned", kind: "human" });
 });
 
 test("unknown tools and malformed input cannot reach lifecycle", async () => {

@@ -144,6 +144,7 @@ vi.mock("$server/db/queries/workflows", () => ({
 }));
 vi.mock("$server/runtime/executor", () => ({
 	AgentExecutor: class {
+    listAgents() { return []; }
 		setStateMediator = vi.fn();
 		destroy = vi.fn();
 	},

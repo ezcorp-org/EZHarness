@@ -295,7 +295,6 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
   // deletion is invisible to every other guard in this file.
   const KNOWN_INLINE_ADMIN_GATES: readonly string[] = [
     "api/extensions/[id]/violations/+server.ts",
-    "api/extensions/import-source/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
     "api/import/commit/+server.ts",
@@ -338,6 +337,17 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     // inside `callerOwnsRun`. Rule half (2) is the only thing separating this
     // from a gate — half (1) alone would misclassify it.
     expect(bypass).toContain("api/runs/[id]/+server.ts");
+    expect(bypass).toContain("api/extensions/import-source/+server.ts");
+  });
+
+  test("source imports retain the explicit target-owner policy instead of a blanket administrator gate", () => {
+    const route = readFileSync(`${routesDir}/api/extensions/import-source/+server.ts`, "utf8");
+    expect(route).toContain("requireSessionAuth(locals)");
+    expect(route).toContain("parseExtensionSourceInput");
+    expect(route).toContain("!source.targetInstallationId");
+    expect(route).toContain('source.kind === "local"');
+    expect(route).toContain('source.kind === "bundled"');
+    expect(route).toContain("importExtensionSource");
   });
 
   test("the rule's two halves are each necessary (self-check)", () => {
@@ -749,6 +759,7 @@ describe("registry ⇄ filesystem parity", () => {
       "PATCH /api/service-accounts/:id",
       "PATCH /api/service-accounts/:id/daily-cap",
       "PATCH /api/workflows/delegations/:id",
+      "POST /api/__test/marketplace-release",
       "POST /api/__test/project-proposal",
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",

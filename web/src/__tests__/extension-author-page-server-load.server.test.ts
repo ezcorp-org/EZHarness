@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn() }));
+vi.mock("$lib/server/extensions/control-actor", () => ({ resolveControlActor: async (user: { id: string }, kind: string) => ({ principalId: user.id, scope: "global", kind }) }));
 vi.mock("$server/db/queries/projects", () => mocks);
 vi.mock("$server/extensions/project-binding", () => mocks);
 vi.mock("$server/auth/middleware", () => ({ checkProjectRole: mocks.checkProjectRole, requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
@@ -8,7 +9,7 @@ vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionL
 import { load } from "../routes/(app)/extensions/author/+page.server";
 
 function event(query = "", authenticated = true) {
-  return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
+  return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner", role: "admin" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
 }
 
 beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); });
@@ -21,6 +22,11 @@ test("requires authentication before listing workspaces", async () => {
 test("empty route lists only the current actor's workspaces", async () => {
   expect(await load(event())).toMatchObject({ state: null, files: {}, canApprove: true });
   expect(mocks.list).toHaveBeenCalledWith({ principalId: "owner", scope: "global", kind: "human" });
+});
+
+test("member sessions cannot approve releases", async () => {
+  const member = event(); member.locals.user!.role = "member";
+  expect(await load(member)).toMatchObject({ canApprove: false });
 });
 
 test("legacy draft URLs do not execute or install source", async () => {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
-import { users, extensions } from "../../db/schema";
+import { users, extensions, projects, projectMembers } from "../../db/schema";
 import { getUserById } from "../../db/queries/users";
 import { getExtension, getExtensionByName } from "../../db/queries/extensions";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
@@ -14,6 +14,9 @@ import { importExtensionSource, stageExtensionSourceFiles } from "../source-impo
 import { resolveSourceTarget } from "../source-adoption";
 import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
 import * as egress from "../../search/egress";
+import { getProjectMembership } from "../../db/queries/project-members";
+import { resolveControlActor } from "../../../web/src/lib/server/extensions/control-actor";
+import { load as loadAuthorPage } from "../../../web/src/routes/(app)/extensions/author/+page.server";
 
 mockDbConnection();
 const owner: LifecycleActor = { principalId: "owner", scope: "global", kind: "human" };
@@ -32,7 +35,7 @@ beforeEach(async () => {
   const database = getTestDb();
   for (const id of ["owner", "stranger", "admin"]) await database.insert(users).values({ id, email: `${id}@fixture.test`, passwordHash: "fixture", name: id, status: "active", role: id === "admin" ? "admin" : "member" });
   repository = new DatabaseLifecycleRepository(database);
-  lifecycle = new ExtensionLifecycle({ repository, blobs: new FileBlobStore(root), runnerProfile: "test", runnerImageDigest: `sha256:${"a".repeat(64)}`, validatorVersion: "test", buildLimits: { memoryBytes: 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024, outputBytes: 1024, timeoutMs: 1000 }, runner: { async build() { throw new Error("Fixture runner unavailable; no source executed"); }, async cancel() {}, async collectArtifacts() { throw new Error("No artifacts"); } }, async verifyCandidate() { throw new Error("No candidate"); }, async publish() { throw new Error("Import must never publish"); }, ...service.createLifecycleAuthorization({ user: getUserById, installation: async (id) => (await repository.read(id))?.installation ?? null, projectionById: getExtension, projectionByName: getExtensionByName, projectMember: async () => false }) });
+  lifecycle = new ExtensionLifecycle({ repository, blobs: new FileBlobStore(root), runnerProfile: "test", runnerImageDigest: `sha256:${"a".repeat(64)}`, validatorVersion: "test", buildLimits: { memoryBytes: 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024, outputBytes: 1024, timeoutMs: 1000 }, runner: { async build() { throw new Error("Fixture runner unavailable; no source executed"); }, async cancel() {}, async collectArtifacts() { throw new Error("No artifacts"); } }, async verifyCandidate() { throw new Error("No candidate"); }, async publish() { throw new Error("Import must never publish"); }, ...service.createLifecycleAuthorization({ user: getUserById, installation: async (id) => (await repository.read(id))?.installation ?? null, projectionById: getExtension, projectionByName: getExtensionByName, projectMember: async (userId, projectId) => Boolean(await getProjectMembership(userId, projectId)) }) });
   const runBuild = lifecycle.runBuild.bind(lifecycle);
   spyOn(lifecycle, "runBuild").mockImplementation((...args) => { const running = runBuild(...args); pending.push(running); return running; });
   restoreService = spyOn(service, "getExtensionLifecycle").mockResolvedValue(lifecycle);
@@ -135,4 +138,22 @@ test("lost project membership denies target imports before collecting source", a
     await expect(importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: projectInstallation.installation.id })).rejects.toThrow("membership");
     expect(fetcher).not.toHaveBeenCalled();
   } finally { fetcher.mockRestore(); }
+});
+
+test("a project member imports and opens the real scoped review loader without disclosing foreign source", async () => {
+  const database = getTestDb();
+  await database.insert(projects).values({ id: "owned-project", name: "Owned project", path: root });
+  await database.insert(projectMembers).values({ projectId: "owned-project", userId: owner.principalId, role: "member" });
+  const scopedOwner = { ...owner, scope: "project:owned-project" };
+  const created = await lifecycle.createWorkspace(scopedOwner, { files });
+  const imported = await stageExtensionSourceFiles(owner, files, { kind: "marketplace", versionId: "version" }, { targetInstallationId: created.installation.id });
+  const user = (await getUserById(owner.principalId))!;
+  expect(await resolveControlActor(user, "human", created.installation.id)).toEqual(scopedOwner);
+  const event = { url: new URL(`http://localhost${imported.openUrl}`), locals: { user, authMethod: "session" } } as unknown as Parameters<typeof loadAuthorPage>[0];
+  const loaded = await loadAuthorPage(event);
+  expect(loaded).toMatchObject({ state: { installation: { scope: scopedOwner.scope, ownerId: owner.principalId } }, workspace: { id: imported.workspace.id }, files });
+  const stranger = (await getUserById("stranger"))!;
+  await expect(loadAuthorPage({ ...event, locals: { ...event.locals, user: stranger } })).rejects.toMatchObject({ status: 404 });
+  await database.delete(projectMembers).where(eq(projectMembers.projectId, "owned-project"));
+  await expect(loadAuthorPage(event)).rejects.toMatchObject({ status: 404 });
 });

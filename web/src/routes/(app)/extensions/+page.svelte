@@ -470,6 +470,7 @@
 	<div class="flex items-center justify-between">
 		<h2 class="text-xl font-semibold text-[var(--color-text-primary)]">Extensions</h2>
 		<div class="flex items-center gap-3">
+			<a href="/extensions/import-source" class="text-sm text-blue-400 hover:text-blue-300 transition-colors">Import source</a>
 			<a
 				href="/import"
 				class="text-sm text-blue-400 hover:text-blue-300 transition-colors"
