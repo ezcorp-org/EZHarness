@@ -110,7 +110,7 @@ describe("host-owned bundled source staging", () => {
     });
   }
 
-  for (const permission of ["custom.drafts", "eventSubscriptions", "network", "shell", "env", "storage"]) test(`${permission}: source declarations never backfill or widen existing grants`, async () => {
+  for (const permission of ["custom.drafts", "eventSubscriptions", "network", "shell", "env", "storage", "search"]) test(`${permission}: source declarations never backfill or widen existing grants`, async () => {
     legacy.set("candidate", { id: "legacy-id", enabled: false, grantedPermissions: { grantedAt: {} } });
     const state = await stage();
     state.installation.activeReleaseId = "approved-release";

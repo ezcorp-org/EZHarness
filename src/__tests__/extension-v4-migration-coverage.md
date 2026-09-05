@@ -92,3 +92,10 @@ critical-source failure cases in bundled-v4-bootstrap. An actual collector
 exception must occur, legacy execution and grants must be revoked, and no
 workspace, build, or approval may be created. There is no critical auto-approval
 branch or third host config evaluation to reach in v4.
+
+The web-search grant-reconcile suite keeps both real search-handler boundary
+cases: absent grant denies and an explicit search grant permits the injected
+provider. Its automatic-backfill cases move to the web-search revocation and
+idempotency cases above, plus a source-change case that proves search cannot
+widen a current release's grants. No boot path may restore search, network,
+or credential permissions without exact human release approval.
