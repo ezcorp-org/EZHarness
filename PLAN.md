@@ -40,3 +40,29 @@ Every leaf runs in its own worktree. No edits to primary checkout. Do not revert
 - All 50 first-party candidates were built through the lifecycle: 32 passed, 18 failed, none untested. Dependency archive, strict type checking, and source fixes are under retest. Log: `/tmp/extension-candidate-current-all.jsonl`.
 - Container build passed. First production boot exposed a missing bundled pgvector asset; externalizing its package fixes the asset path. The rebuilt image is under boot validation.
 - Security review found legacy grant-write routes, stale Bun environment caching, missing transactional lifecycle audit, and caller overrides that could outlive a grant. Each has an explicit owner and regression test work. No push or PR until the final gates pass.
+
+### Integration review, 2026-09-04 evening
+
+- Production publication now commits catalog, entity seeds, webhook secrets and schedules under one generation fence. Cache invalidation runs only after commit. Exact durable grants are checked again before publication.
+- Workspace editing, inspection and empty delivery polling work without a runner. Execution still fails closed if the authenticated runner is absent.
+- Queued work snapshots the host project and approval ID. Revocation, rebind, owner change or membership loss prevents dispatch. The project broker checks authority again before an effect.
+- Library and detail pages no longer submit legacy permission changes. They open the exact installation's release review. Uninstall retains history and data; the UI no longer offers an unsupported destructive choice.
+- Backend run 3: 23,416 passed, 469 failed, 1,497 files. This was an integration run while commits changed, not final-head evidence. Several failures came from the temporary SDK merge conflict; many legacy installer suites still require migration. Log: `/tmp/ez-extension-v4-backend3.log`.
+- Web Vitest run 2: 526 files passed, four failed; 6,918 tests passed and 42 failed. Remaining files test old MCP mutation behavior. Log: `/tmp/ez-extension-v4-web-vitest2.log`.
+- The real auto-note subprocess suite now passes all 13 tests, with 40 assertions. Production framing replaces the obsolete custom transport that left failed requests pending.
+- A second security review reproduced host config execution through six legacy loader, author-route and draft-RPC paths. The root-cause removal and regression tests are in progress. The earlier install rejection did not close these paths. Do not report the security gate complete.
+- Full coverage is running on frozen commit `a8c4a9af`. Do not edit its executing script or merge source changes until it finishes. Later commits require another final-head validation.
+- The real UI test reached release approval, activation, detail review and disable. Its new uninstall step used the wrong button name; correct the locator and rerun. No product success is inferred from that failed test.
+- No branch push or PR has occurred. All root gates remain open.
+
+### Integration review, 2026-09-04 late evening
+
+- Coverage run 2 completed: coverage failed in 21 files and 62 backend pass/fail files still failed their isolated retry. Freeze lifted after completion. Log: `/tmp/ez-extension-v4-coverage2.log`.
+- All 50 first-party lifecycle candidates now pass actual rootless compilation, tests and discovery; none were approved or activated by that sweep. Evidence: `/tmp/extension-candidate-final-sealed.jsonl`.
+- Legacy host config evaluation is removed from loaders, author install/validate and draft RPC. Six real owned-draft regression paths pass. Reopen now forks exact immutable release source, not host files.
+- Actual production image verification passes boot, file-based runner credentials, isolated build, human approval, activation, tool invocation, disable denial and retained history. The Compose namespace mismatch is fixed. Repeat with `bash scripts/verify-extension-container.sh <local-image>`.
+- The production runner test found a declaration-only package export regression after the SDK change. Provisioning now distinguishes runtime exports from type declarations and includes their declaration closure. Actual runner startup and authenticated build pass.
+- Real editor, external harness and chat build tests pass: three specs, no failures. Desktop/mobile review and uninstall-retention screenshots inspected. Log: `/tmp/ez-real-fifth.log`.
+- Full web Vitest run 3 found two remaining old-author suites (42 failed tests). Both are now migrated: 29 focused tests pass; the legacy settings mock also now passes all 42 tests. Another full run is in progress.
+- Backend typecheck run 11 passed. Later changes require another full run. Lint passed with 119 warnings and 13 informational findings; this is not a warning-free result.
+- Origin was fetched again and the branch is not behind main. No push or PR. Remaining gates include host integration, metadata/test migration, coverage, project review integration and final frozen validation.

@@ -19,7 +19,6 @@
     "src/__tests__/host-maintenance-gin-sweep.test.ts",
     "src/__tests__/hub-api.test.ts",
     "src/__tests__/hub-render-pull.test.ts",
-    "src/__tests__/installer-coverage.test.ts",
     "src/__tests__/json-rpc-streaming.test.ts",
     "src/__tests__/mcp-install-query.test.ts",
     "src/__tests__/mcp-netns-integration.test.ts",
