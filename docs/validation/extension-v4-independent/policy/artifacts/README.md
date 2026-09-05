@@ -6,6 +6,7 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 
 ## Receipt identity
 
+- Final frozen candidate: `9ccce310facd28f0ad2898318fe081ef9f70e433`; tree `f4b0174bac5b121464d381da24b21022ac0f4c36`.
 - Merged policy audit head used for portable reruns: `e24dc218a831bf1e3c2d0a9e86bd644110282ea7`.
 - Tree: `d9bd9d7b3170deedd4eec04446010abb5bc2447b`.
 - Current base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`.
@@ -21,6 +22,8 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 - Exact unified diff for each deliberate mutation.
 - Exact temporary six-case falsy-error/concurrent-isolation test source and raw stdout/stderr.
 - Gate integrity stdout/stderr at the merged audit head: exit 1 with exactly 84 findings and no approval override.
+- Final freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
+- Final freeze visual-evidence runner test stdout/stderr: 7 passed, 0 failed, 23 assertions.
 
 Each raw run records the head, tree, command or mutation, and actual exit. Restored logs record a zero `git diff --exit-code` before their passing test. The temporary source was removed after execution. A final source check confirmed no diff in `lifecycle.ts`, `blobs.ts`, `invocation-channel.ts`, or `test-coverage.sh`.
 

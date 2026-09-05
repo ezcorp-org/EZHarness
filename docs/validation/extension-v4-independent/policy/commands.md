@@ -2,11 +2,11 @@
 
 Date: 2026-09-05 (America/New_York)
 
-Candidate: `3093a3a5e327b5ca6fb585b9f1271817553804e8`
+Final frozen candidate: `9ccce310facd28f0ad2898318fe081ef9f70e433`
 
-Candidate tree: `e7d774a0d81983060dc60c2b92b9393ba464b05c`
+Final frozen tree: `f4b0174bac5b121464d381da24b21022ac0f4c36`
 
-Audit documentation commit: `c760e1e2ab4e4a4aef87b8612d47df1399f50838` (tree `dc34ac5a74e9c1968e26d89a894e61195204b1b8`). This commit changes only the canonical migration ledger. Product and test receipts apply to its parent candidate because the commit changes no executable source or test assertion.
+Audit ledger commit: `c760e1e2ab4e4a4aef87b8612d47df1399f50838`. Portable policy evidence commit: `4f9bc0af`. The final freeze includes both plus the runtime and web repairs.
 
 Base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`
 
@@ -19,7 +19,7 @@ Tools: Git 2.53.0; audit Bun 1.3.14 at `/tmp/ez-extension-bun-1.3.14/bun-linux-x
 | Revision | `git rev-parse HEAD HEAD^{tree} <base> <base>^{tree}` | 0 | Exact hashes above. |
 | Gate integrity | `env -u GATE_CHANGE_APPROVED BASE_REF=<base> <bun-1.3.14> scripts/gate-integrity.ts` | 1 | Expected policy failure: exactly 84 findings. No approval override was set. |
 | Ledger numbering | Parse numbered table rows in `src/__tests__/extension-v4-migration-coverage.md` | 0 | Every integer 1 through 84 occurs once. |
-| Current pools | Source `scripts/lib/test-file-sets.sh`; count `passfail_files`, `coverage_host_files`, and `web_bunleg_files` | 0 | Pass/fail pool: 1,560 files. Host coverage pool: 1,546 files. Web Bun pool: 221 files. |
+| Final pools | Source `scripts/lib/test-file-sets.sh`; count `passfail_files`, `coverage_host_files`, `web_bunleg_files`, `residual_passfail_files`, and `critical_backend_files` | 0 | P: 1,561; C: 1,547; W: 221; residual: 14; critical: 38. |
 | Moved discovery | Compare all 25 rename destinations with both current pools | 0 | No moved destination is absent from either pool. |
 | Moved skip scan | Scan 25 destinations for `.skip`, `.todo`, `.only`, `testIf`, and `describeIf` | 0 | No match. |
 | Moved assertions | Scan 25 destinations for `expect(` or `assert(` | 0 | 708 direct assertion call sites. This count is a review aid, not proof of assertion quality. |
@@ -29,6 +29,10 @@ Tools: Git 2.53.0; audit Bun 1.3.14 at `/tmp/ez-extension-bun-1.3.14/bun-linux-x
 The complete Gate integrity output is deterministic from the pinned hashes and the command above. It reported 1 removed threshold, 27 deleted tests, 25 renamed tests, and 31 condensed tests. It ended with the required maintainer-label notice. No label was applied.
 
 The original `2c73e6ba` checkpoint against base `65edc5bc` produced the same 84-finding split. Its candidate tree was `4a5c5c7a`; its P/C counts were 1,559/1,545. The latest-main fast-forward adds one discovered test to each pool and does not change any extension migration finding.
+
+Final freeze `9ccce310` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The full raw gate output is in the policy artifact bundle.
+
+The final focused visual-evidence runner check passed 7 tests with 23 assertions. It covered tier partitioning, the `__ALL__` fallback, failure aggregation, spawn failure, invalid selections, distinct report retention, stale-output removal, config selection, and the real-auth environment.
 
 ## Targeted security sensitivity
 
