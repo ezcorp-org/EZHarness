@@ -46,6 +46,7 @@ import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
 import { workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
 import type { InvocationGuard } from "../extensions/runtime-locks";
+import { createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
@@ -1438,6 +1439,10 @@ export class WorkflowExecutor {
 
     try {
       if (externallyAborted) throw new WorkflowAbortError();
+      if (ctx.releasePrincipal.runAsKind === "service") {
+        if (!invocationGuard) throw new Error("Service workflow authority guard is unavailable");
+        toolCtx.serviceInvocation = await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard);
+      }
 
       const batches = this.resolveExecutionOrder(workflow.steps);
 
@@ -1650,7 +1655,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal, invocationGuard, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
+              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -1933,6 +1938,7 @@ export class WorkflowExecutor {
         this.bus.emit("workflow:error", { workflowRun, error, userId });
       }
     } finally {
+      toolCtx.serviceInvocation?.close();
       if (signal) signal.removeEventListener("abort", onAbort);
       for (const unsub of unsubs) unsub();
       // Deregister the non-interactive scope and reject anything still
@@ -2076,7 +2082,7 @@ export class WorkflowExecutor {
       inputSink,
       flow.skippedSteps,
       flow.requireManagedFactoryAgent,
-      flow.signal || flow.invocationGuard ? { signal: flow.signal, invocationGuard: flow.invocationGuard } : undefined,
+      flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
     );
   }
 
@@ -2397,7 +2403,7 @@ export class WorkflowExecutor {
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
           flow.requireManagedFactoryAgent,
-          flow.signal || flow.invocationGuard ? { signal: flow.signal, invocationGuard: flow.invocationGuard } : undefined,
+          flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
         );
         // Written BEFORE the failure check, so a loop that dies on
         // iteration 3 still records that iterations 1 and 2 happened and
@@ -2506,6 +2512,7 @@ export class WorkflowExecutor {
  * parameters through `runStep` and `runLoop`.
  */
 interface FlowContext {
+  serviceInvocation?: ServiceInvocation;
   releasePrincipal?: WorkflowExecutionAuthority;
   invocationGuard?: InvocationGuard;
   requireManagedFactoryAgent?: boolean;
@@ -2622,6 +2629,7 @@ function nestedOutcome(
 
 /** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
 interface ToolStepContext {
+  serviceInvocation?: ServiceInvocation;
   invocationGuard?: InvocationGuard;
   signal?: AbortSignal;
   /** The synthetic `conversationId` every tool call of this run uses —
@@ -2678,7 +2686,7 @@ async function runToolStep(
     result = await toolCtx.scope.run(() =>
       toolCtx
         .getRunner()
-        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal, ...(toolCtx.invocationGuard ? { invocationGuard: toolCtx.invocationGuard } : {}) }),
+        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal, ...(toolCtx.invocationGuard ? { invocationGuard: toolCtx.invocationGuard } : {}), ...(toolCtx.serviceInvocation ? { serviceInvocation: toolCtx.serviceInvocation } : {}) }),
     );
   } catch (err) {
     // A deliberate park is not a dispatch failure and must reach the

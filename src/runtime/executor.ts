@@ -56,6 +56,7 @@ const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
 import { WatchdogManager } from "./executor-watchdog";
 import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt } from "./executor-helpers";
+import { workflowScopeKey } from "./workflow-scope-key";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -64,6 +65,7 @@ export interface ExecutorOptions {
 }
 
 export interface AgentExecutionControl {
+  serviceInvocation?: import("../extensions/service-invocation").ServiceInvocation;
   signal?: AbortSignal;
   invocationGuard?: InvocationGuard;
 }
@@ -557,7 +559,8 @@ export class AgentExecutor {
           const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
           if (userId) toolExec.setCurrentUserId(userId);
           if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
-          ctx.tools = toolExec.createToolsContext(run.id, run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}) });
+          const conversationId = control?.serviceInvocation ? workflowScopeKey(control.serviceInvocation.workflowRunId) : run.id;
+          ctx.tools = toolExec.createToolsContext(conversationId, run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(control?.serviceInvocation ? { serviceInvocation: control.serviceInvocation } : {}) });
         }
       } catch {
         // Extension loading failure is non-fatal for code-based agents
