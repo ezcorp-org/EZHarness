@@ -15,6 +15,31 @@ const EXAMPLES = [
   "web-search",
 ] as const;
 
+describe("service workflow authoring boundary", () => {
+  test("separates human consent from service identity and broker support", async () => {
+    const security = await Bun.file(join(DOCS_DIR, "security.md")).text();
+    expect(security).toContain("Release approval and job consent are separate human decisions");
+    expect(security).toContain("keeps the human `userId` null");
+    expect(security).toContain("Not every broker is service-enabled");
+    expect(security).toContain("Direct host `ctx.file`, `ctx.shell` and `ctx.llm` adapters are denied");
+  });
+
+  test("requires real service effects and revocation rather than acceptance alone", async () => {
+    const authoring = await Bun.file(join(DOCS_DIR, "AUTHORING.md")).text();
+    expect(authoring).toContain("`Workflows.runFor({ jobRef, input })`");
+    expect(authoring).toContain("acceptance, not completion");
+    expect(authoring).toContain("revoke consent and prove another fire cannot create a run");
+    expect(authoring).toContain("A changed release requires new consent");
+  });
+
+  test("keeps trusted-local separate from automatic runner recovery", async () => {
+    const security = await Bun.file(join(DOCS_DIR, "security.md")).text();
+    expect(security).toContain("there is no automatic host-process fallback");
+    expect(security).toContain("`trusted-local` adapter is an explicit exception");
+    expect(security).toContain("must never be described as isolated");
+  });
+});
+
 async function readText(path: string): Promise<string> {
   return Bun.file(path).text();
 }

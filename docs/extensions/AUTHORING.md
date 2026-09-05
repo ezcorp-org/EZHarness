@@ -40,3 +40,13 @@ Use [host storage and virtual filesystem paths](data-storage.md). Do not discove
 The host supplies principal, conversation, project, release, and invocation identity. Payload fields cannot grant authority. Request only the capabilities the feature needs. Project writes require the exact approved project binding and, where required, a reviewed proposal.
 
 Import, update, rollback, and uninstall use the same lifecycle. [Source imports](v4-imports.md) stage candidates; they never grant approval. Uninstall retains history and data. Do not add a hidden direct-install or unisolated fallback.
+
+## Service workflows
+
+1. Ship the workflow in the sealed release and declare delegated execution with `permissions.workflows.allowDelegated`. Do not add broad workflow names to replace job consent.
+2. Build, review and activate the exact release. Separately, an authorized human previews and consents to the job for a live service account, project and limits. The host creates the consent binding; never send an `extensionReleaseBinding` field yourself.
+3. Fire the job with the SDK `Workflows.runFor({ jobRef, input })`. A `started: true` reply means acceptance, not completion. Inspect the delegated run and its step results.
+4. Keep the service account's identity. Do not supply the owner's user ID, create a substitute user conversation or obtain host paths from input. Service code agents receive explicit input only; direct `ctx.file`, `ctx.shell` and `ctx.llm` providers are unavailable. Use explicitly service-enabled, approved extension tools through `ctx.tools` instead.
+5. Test the actual required tools and brokers, not just a transform. Verify the service principal, null human `userId`, project and capability denial, then revoke consent and prove another fire cannot create a run. A changed release requires new consent. Missing broker support must remain denied.
+
+The [service security contract](security.md#service-workflows) explains the boundary. Pure-tool identity and revocation tests do not establish support for every storage, filesystem, network or credential operation. Do not replace a denied service broker with an unconfined host call.

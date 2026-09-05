@@ -6,6 +6,8 @@ Treat all extension source, build steps, dependencies, assets, and runtime outpu
 
 Build, test, discovery, and execution use the authenticated rootless Podman runner. Source, dependency closure, and artifacts are immutable and digest-bound. The runner applies resource, process, filesystem, and network restrictions. Missing controls fail closed; there is no automatic host-process fallback.
 
+The separately configured `trusted-local` adapter is an explicit exception, not recovery from a runner failure. It requires approval for the exact build or execution digest, an expiry, an audit record and acknowledgement of omitted controls. It runs under a dedicated non-root account and must never be described as isolated. The historical [trusted fallback decision](../extension-system-v4-plan.md#trusted-fallback) does not authorize automatic fallback in the normal host lifecycle.
+
 A fresh runtime worker receives one host-owned invocation context. It cannot choose another principal, release, project, or conversation. Host calls must match that context and the current approved installation. Cancellation, expiry, disable, and revocation prevent further authorized calls.
 
 Rootless containers share the host kernel. They are not a defense against a compromised host administrator or every kernel defect. Keep the host and runner patched; do not expose the runner socket or token to extensions.
@@ -17,6 +19,16 @@ Only an authenticated human administrator can approve the exact tested release. 
 Changing source, dependencies, tests, permissions, or scope requires another build and review. First-party source is not exempt. `manifest.lock.json` records host-approved first-party source identity; it does not enable an installation or grant permissions.
 
 Project access is host-resolved and checked again before effects. A project path in a payload is not authority. Project writes and pull-request operations must satisfy their additional proposal and revision checks.
+
+## Service workflows
+
+Release approval and job consent are separate human decisions. A service job needs a live service account and human consent bound to the exact sealed release, workflow closure, project and limits. The host records this binding; an extension or API key cannot supply it. A changed release requires new consent, even if the workflow body is unchanged.
+
+A service run uses the service account ID as its principal and keeps the human `userId` null. It must not borrow the consenting person's identity or invent a user conversation. The host checks the persisted running workflow, release binding, delegation, account and project authority again before effects. Revocation, cancellation and run cleanup end further authority; they do not undo effects already admitted.
+
+Service code agents receive explicit input only, not ambient account settings, project variables, host working directories or provider credentials. Direct host `ctx.file`, `ctx.shell` and `ctx.llm` adapters are denied. Use approved extension tools through `ctx.tools`, with the service's own capability limits. Nested agents retain these restrictions.
+
+Not every broker is service-enabled. Missing service support must fail closed, not substitute a human principal or use a raw host provider. Verify each required broker with a real service invocation before deployment. A passing pure-tool identity test does not prove storage, filesystem, network or credential access. See [service authoring](AUTHORING.md#service-workflows).
 
 ## Network and credentials
 
