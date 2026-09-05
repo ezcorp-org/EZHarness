@@ -22,4 +22,8 @@ The frame has an opaque origin. It cannot read host cookies, use direct network 
 
 For camera access, call `camera.start`. The trusted host asks for consent and owns Start and Stop controls. It sends bounded frames through the port. Device access does not become an extension permission.
 
-Cancellation stops new capability calls and closes the invocation worker. It does not undo effects already admitted or committed. Do not retry a cancelled operation unless its outcome is known to be safe.
+The trusted host prepares a single-use request receipt before dispatch. Its identity binds the user, installation, release, conversation, tool, and input. A second host cannot claim it again. Shared PostgreSQL is required when hosts serve the same installation.
+
+Cancellation uses an explicit authenticated request, not only a disconnected HTTP connection. Once recorded, cancellation stops new capability calls and closes the invocation worker. Database effects check the receipt inside their transaction. A failed cancellation request produces a warning; the invocation deadline remains the final bound. Cancellation does not undo effects already admitted or committed. Do not retry unless the outcome is known to be safe.
+
+Request storage has per-user and global limits. Old receipts become eligible for deletion after 24 hours; preparation performs bounded cleanup. This is not a scheduled deletion guarantee. An absent receipt cannot be claimed or replayed.
