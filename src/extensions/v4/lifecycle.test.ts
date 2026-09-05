@@ -98,6 +98,27 @@ async function approved(setup: Awaited<ReturnType<typeof releaseFixture>>, key =
 }
 
 describe("durable extension lifecycle", () => {
+  test("release forks create independent revisions without replacing existing workspaces", async () => {
+    const setup = await releaseFixture();
+    const fork = await setup.lifecycle.createWorkspace(actor, { installationId: setup.installation.id, releaseId: setup.releaseId });
+    expect(fork.workspace.id).not.toBe(setup.workspace.id);
+    expect((await setup.lifecycle.readWorkspace(actor, setup.installation.id, fork.workspace.id)).files).toEqual({ "extension.ts": "export default 1", "src/nested.ts": "nested" });
+    await setup.lifecycle.editWorkspace(actor, { installationId: setup.installation.id, workspaceId: fork.workspace.id, expectedRevision: 1, writes: { "extension.ts": "fork only" } });
+    expect((await setup.lifecycle.readWorkspace(actor, setup.installation.id, setup.workspace.id)).files["extension.ts"]).toBe("export default 1");
+    await setup.lifecycle.uninstall(human, setup.installation.id);
+    await expect(setup.lifecycle.createWorkspace(actor, { installationId: setup.installation.id, releaseId: setup.releaseId })).rejects.toMatchObject({ code: "uninstalled" });
+  });
+
+  test("only human approval revocation stops a candidate and consumed consent requires disable", async () => {
+    const setup = await releaseFixture();
+    const activation = await approved(setup);
+    await expect(setup.lifecycle.revokeApproval(actor, setup.installation.id, activation.approvalId)).rejects.toMatchObject({ code: "human_approval_required" });
+    expect((await setup.lifecycle.revokeApproval(human, setup.installation.id, activation.approvalId)).status).toBe("revoked");
+    await expect(setup.lifecycle.activate(actor, activation)).rejects.toMatchObject({ code: "stale_approval" });
+    const replacement = await approved(setup, "replacement");
+    expect((await setup.lifecycle.activate(actor, replacement)).state).toBe("active");
+    await expect(setup.lifecycle.revokeApproval(human, setup.installation.id, replacement.approvalId)).rejects.toMatchObject({ code: "operation_committed" });
+  });
   test("approval and lifecycle mutations audit atomically once with the real actor and retained release binding", async () => {
     const setup = await releaseFixture();
     const input = await approved(setup);
