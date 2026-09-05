@@ -16,3 +16,7 @@
   CHECK: `podman build --format docker --layers -t localhost/ezcorp-extension-v4:service-final .` then `bash scripts/verify-extension-container.sh localhost/ezcorp-extension-v4:service-final`
   EXPECT: `"passed":true` with all eight named checks
   EVIDENCE: Source tree `e162e8e87900ea25092d9db6b49c1f43e0af5974` built image `142dbaf3d60cb09a3b5ba709d5a340e76dcecb46e21c0872667db4759811205d`. Build log: `/tmp/ez-service-final-79c404b4-image-build.log`. Verification log: `/tmp/ez-service-final-79c404b4-container-verify.log`. All eight G3 checks pass again.
+- [x] G5: The second dependency-refresh image passes the same final gate.
+  CHECK: `podman build --format docker --layers -t localhost/ezcorp-extension-v4:service-final .` then `bash scripts/verify-extension-container.sh localhost/ezcorp-extension-v4:service-final`
+  EXPECT: `"passed":true` with all eight named checks
+  EVIDENCE: Source tree `faa5d8acfa594c151144100e2a351211b9161854` built image `3bad2e792ff398721abc159b9b26b76350cc491040346f525d51b51c0d94a1c1`. Build log: `/tmp/ez-service-final-181b7512-image-build.log`. Verification log: `/tmp/ez-service-final-181b7512-container-verify.log`. All eight G3 checks pass again.

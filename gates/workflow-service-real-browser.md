@@ -68,3 +68,5 @@ The exact service test still verifies global storage set/get, bounded `/data` wr
 ## Dependency refresh rerun
 
 After the Pi 0.84.3 and Bun type dependency refresh, both forced frozen installs completed and the unchanged complete lane passed all 54 tests in 4.3 minutes. The task-panel durability test passed in 1.5 seconds, the exact service workflow passed in 11.4 seconds, and the scanner passed in 29.0 seconds. Source tree: `e162e8e87900ea25092d9db6b49c1f43e0af5974`. Log: `/tmp/ez-real-auth54-79c404b4.log`. The command and limits are the same as the final frozen browser lane above.
+
+After the second dependency refresh, both forced frozen installs completed and the unchanged lane passed all 54 tests in 3.7 minutes. The task-panel durability test passed in 1.4 seconds, the exact service workflow passed in 11.3 seconds, and the scanner passed in 28.7 seconds. Source tree: `faa5d8acfa594c151144100e2a351211b9161854`. Log: `/tmp/ez-real-auth54-181b7512.log`. No timeout, retry, skip, or assertion changed.

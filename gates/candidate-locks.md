@@ -16,3 +16,7 @@
   CHECK: `EXTENSION_VERIFY_ALL=1 bun scripts/verify-first-party-lifecycle-v4.ts > /tmp/ez-all50-79c404b4.jsonl 2>/tmp/ez-all50-79c404b4.stderr`
   EXPECT: 50 passed, 0 failed, 0 untested
   EVIDENCE: Source tree `e162e8e87900ea25092d9db6b49c1f43e0af5974` produced 50 verified candidate records and the exact summary `{"total":50,"passed":50,"failed":0,"untested":0}`. Stderr is empty. The per-candidate `not_declared` smoke and `unexercised` capability labels remain authoritative; this result does not claim those integrations ran.
+- [x] G6: The second dependency-refresh source passes the same strong lifecycle sweep.
+  CHECK: `EXTENSION_VERIFY_ALL=1 bun scripts/verify-first-party-lifecycle-v4.ts > /tmp/ez-all50-181b7512.jsonl 2>/tmp/ez-all50-181b7512.stderr`
+  EXPECT: 50 passed, 0 failed, 0 untested
+  EVIDENCE: Source tree `faa5d8acfa594c151144100e2a351211b9161854` produced 50 verified candidate records and the exact summary `{"total":50,"passed":50,"failed":0,"untested":0}`. Stderr is empty. The per-candidate `not_declared` smoke and `unexercised` capability labels remain authoritative; this result does not claim those integrations ran.
