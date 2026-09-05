@@ -60,9 +60,14 @@ describe("production lifecycle authorization", () => {
     await expect(rename.authorize(actor, "activate", release, [])).rejects.toMatchObject({ code: "extension_name_changed" });
   });
 
-  test("owner modification and project membership must remain authorized", async () => {
+  test("legacy modifiable does not block owner candidates, while scope and approval remain enforced", async () => {
     const fixed = createLifecycleAuthorization(lookup({ async projectionById() { return { id: installation.id, name: "fixture", creatorUserId: "owner", modifiable: false }; } }));
-    await expect(fixed.authorize(actor, "activate", release, [])).rejects.toMatchObject({ code: "modification_denied" });
+    await fixed.authorize(actor, "activate", release, []);
+    await fixed.authorize({ principalId: "admin", scope: "global", kind: "human" }, "approve", release, []);
+    await expect(fixed.authorize({ ...actor, principalId: "stranger" }, "activate", release, [])).rejects.toMatchObject({ code: "not_found" });
+    await expect(fixed.authorize(actor, "approve", release, [])).rejects.toMatchObject({ code: "human_admin_required" });
+    const mismatchedOwner = createLifecycleAuthorization(lookup({ async projectionById() { return { id: installation.id, name: "fixture", creatorUserId: "stranger", modifiable: true }; } }));
+    await expect(mismatchedOwner.authorize(actor, "activate", release, [])).rejects.toMatchObject({ code: "ownership_mismatch" });
     const scoped = createLifecycleAuthorization(lookup());
     await expect(scoped.authorize({ ...actor, scope: "project:private" }, "workspace")).rejects.toMatchObject({ code: "forbidden" });
     await expect(scoped.authorize({ ...actor, scope: "caller-forged-scope" }, "workspace")).rejects.toMatchObject({ code: "invalid_scope" });

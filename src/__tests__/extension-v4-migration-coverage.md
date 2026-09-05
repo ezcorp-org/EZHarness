@@ -99,3 +99,10 @@ provider. Its automatic-backfill cases move to the web-search revocation and
 idempotency cases above, plus a source-change case that proves search cannot
 widen a current release's grants. No boot path may restore search, network,
 or credential permissions without exact human release approval.
+
+Authored-install-auto-modifiable moves to real immutable reopen tests. Unset,
+false, true, and string-valued old settings all permit the owner to fork, edit,
+and queue a candidate while preserving active code, grants, release history,
+and the stored false flag. Bundled owners can also prepare a candidate; foreign
+actors, mismatched lifecycle owners, and uninstall remain opaque refusals.
+Production authorization tests retain human-admin approval and scope checks.

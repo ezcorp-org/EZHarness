@@ -58,9 +58,9 @@ export function createLifecycleAuthorization(lookup: LifecyclePolicyLookup): Pic
       if (grants && canonicalJson([...new Set(grants)].sort()) !== canonicalJson(requested)) throw new LifecycleError("grant_mismatch", "Approval must match the exact declared permissions.");
       const existing = await lookup.projectionById(installation.id);
       if (existing && existing.name !== release.manifest.name) throw new LifecycleError("extension_name_changed", "A release cannot rename its installation or data namespace.");
+      if (existing?.creatorUserId && existing.creatorUserId !== owner.id) throw new LifecycleError("ownership_mismatch", "Installed source ownership does not match its release installation.");
       const named = await lookup.projectionByName(release.manifest.name);
       if (named && named.id !== installation.id) throw new LifecycleError("extension_name_in_use", "Another installation owns this extension name.");
-      if (existing && owner.role !== "admin" && (existing.creatorUserId !== owner.id || !existing.modifiable)) throw new LifecycleError("modification_denied", "An administrator must allow changes to this installation.");
     },
   };
 }

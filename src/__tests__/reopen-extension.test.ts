@@ -81,11 +81,34 @@ describe("immutable release reopen", () => {
     expect(first.workspaceId).not.toBe(second.workspaceId);
     expect(Object.keys((await repository.read(extension.id))!.workspaces)).toHaveLength(2);
   });
-  test("owner, modifiable, bundled, lifecycle ownership and uninstall gates are opaque", async () => {
+  for (const [label, setting] of [["unset", undefined], ["disabled", false], ["enabled", true], ["string", "true"]] as const) test(`retired auto-modifiable setting ${label} cannot grant authority or prevent owner candidate preparation`, async () => {
+    const { upsertSetting, deleteSetting } = await import("../db/queries/settings");
+    if (setting === undefined) await deleteSetting("extensions:authorAutoModifiable");
+    else await upsertSetting("extensions:authorAutoModifiable", setting);
+    const { extension, state } = await seed(`reopen-setting-${label}`, { modifiable: false });
+    const result = await reopenInstalledAsDraft(extension.id, OWNER);
+    const { getExtensionLifecycle } = await import("../extensions/extension-lifecycle-service");
+    const lifecycle = await getExtensionLifecycle();
+    const actor = { principalId: OWNER, scope: "global", kind: "agent" as const };
+    const edited = await lifecycle.editWorkspace(actor, { installationId: extension.id, workspaceId: result.workspaceId, expectedRevision: 1, writes: { "src/candidate.ts": "export const proposed = true" } });
+    const operation = await lifecycle.build(actor, { installationId: extension.id, workspaceId: result.workspaceId, expectedRevision: edited.revision, idempotencyKey: `candidate-${label}` });
+    expect(operation.state).toBe("queued");
+    const after = (await repository.read(extension.id))!;
+    expect(after.installation).toEqual(state.installation);
+    expect(after.releases).toEqual(state.releases);
+    expect(after.approvals).toEqual({});
+    const { getExtension } = await import("../db/queries/extensions");
+    expect((await getExtension(extension.id))?.modifiable).toBe(false);
+  });
+  test("a bundled source owner can prepare an independent candidate without changing active code", async () => {
+    const { extension, state } = await seed("reopen-bundled", { bundled: true, modifiable: false });
+    const result = await reopenInstalledAsDraft(extension.id, OWNER);
+    expect(result.workspaceId).toBeTruthy();
+    expect((await repository.read(extension.id))?.installation).toEqual(state.installation);
+  });
+  test("owner, lifecycle ownership and uninstall gates are opaque", async () => {
     const cases = [
       { name: "reopen-stranger", user: STRANGER, options: {} },
-      { name: "reopen-locked", user: OWNER, options: { modifiable: false } },
-      { name: "reopen-bundled", user: OWNER, options: { bundled: true } },
       { name: "reopen-wrong-owner", user: OWNER, options: { lifecycleOwner: STRANGER } },
       { name: "reopen-removed", user: OWNER, options: { uninstalled: true } },
     ];

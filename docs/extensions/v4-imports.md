@@ -50,3 +50,9 @@ Historical first-party source attestation is not yet retained across host
 upgrades. If a previous host build's ez-factory source digest is no longer in the
 current lock, its workflow agents do not load automatically. Build and approve
 the current bundled source. An extension name alone is never proof of trust.
+
+The old `extensions:authorAutoModifiable` setting and per-install `modifiable`
+flag do not authorize v4 execution. An owner can fork and edit an immutable
+workspace candidate within their permitted scope. This does not change active
+code or grants. The exact verified release still requires separate human
+administrator approval. Other users cannot use this change to access its source.

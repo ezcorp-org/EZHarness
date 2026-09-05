@@ -1,5 +1,5 @@
 import { getDb } from "../db/connection";
-import { getUserModifiableExtension } from "../db/queries/extensions";
+import { getExtensionByRef } from "../db/queries/extensions";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { LifecycleError } from "./v4";
 
@@ -13,8 +13,8 @@ export class ReopenError extends Error {
 }
 
 export async function reopenInstalledAsDraft(nameOrId: string, userId: string): Promise<{ installationId: string; workspaceId: string; revision: number; name: string; openUrl: string }> {
-  const extension = await getUserModifiableExtension(nameOrId, userId);
-  if (!extension) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or not modifiable.");
+  const extension = await getExtensionByRef(nameOrId);
+  if (!extension || extension.creatorUserId !== userId) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or source access denied.");
   const repository = new DatabaseLifecycleRepository(getDb());
   const state = await repository.read(extension.id);
   if (state && (state.installation.ownerId !== userId || state.installation.uninstalled)) throw new ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "Extension not found or not modifiable.");
