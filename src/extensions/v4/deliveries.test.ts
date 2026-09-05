@@ -32,18 +32,27 @@ describe("durable extension deliveries", () => {
     await queue.settle(claimed!, "delivered");
   });
 
-  test("claim is exclusive and expired leases fence late acknowledgements", async () => {
+  test("claim is exclusive and expired leases never replay uncertain effects", async () => {
     const input = await installationFixture();
     await queue.enqueue(input);
     const claims = await Promise.all([queue.claim(100), queue.claim(100)]);
     expect(claims.filter(Boolean)).toHaveLength(1);
     const original = claims.find(Boolean)!;
     now += 101;
-    const reclaimed = await queue.claim(100);
-    expect(reclaimed?.id).toBe(original.id);
-    expect(reclaimed?.leaseToken).not.toBe(original.leaseToken);
+    expect(await queue.claim(100)).toBeNull();
+    expect((await queue.inspect(input.installationId, original.id))?.state).toBe("outcome_unknown");
     await expect(queue.settle(original, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
-    await queue.settle(reclaimed!, "delivered");
+    expect(await queue.claim(100)).toBeNull();
+  });
+
+  test("transport retries preserve first context without weakening immutable payload identity", async () => {
+    const input = await installationFixture();
+    const first = await queue.enqueue({ ...input, transportContext: { attempt: 1, firedAt: 10 } });
+    const retry = await queue.enqueue({ ...input, transportContext: { attempt: 2, firedAt: 20 } });
+    expect(retry.id).toBe(first.id);
+    expect(retry.transportContext).toEqual({ attempt: 1, firedAt: 10 });
+    await expect(queue.enqueue({ ...input, input: { event: "different" }, transportContext: { attempt: 2 } })).rejects.toMatchObject({ code: "delivery_conflict" });
+    await queue.settle((await queue.claim())!, "delivered");
   });
 
   test("unknown external effects are visible and are never automatically repeated", async () => {

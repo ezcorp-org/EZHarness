@@ -15,6 +15,7 @@ export interface ExtensionDelivery {
   deduplicationId: string;
   kind: "event" | "webhook" | "schedule";
   input: unknown;
+  transportContext?: Record<string, unknown>;
   state: "queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown";
   attempts: number;
   maxAttempts: number;
@@ -40,8 +41,9 @@ export class RetryableDeliveryError extends Error {
 export class ExtensionDeliveryQueue {
   constructor(private readonly database: ReleaseDatabase, private readonly now: () => number = Date.now) {}
 
-  async enqueue(input: Pick<ExtensionDelivery, "installationId" | "releaseId" | "generation" | "principalId" | "scope" | "deduplicationId" | "kind" | "input">): Promise<ExtensionDelivery> {
+  async enqueue(input: Pick<ExtensionDelivery, "installationId" | "releaseId" | "generation" | "principalId" | "scope" | "deduplicationId" | "kind" | "input" | "transportContext">): Promise<ExtensionDelivery> {
     assertJson(input.input);
+    if (input.transportContext !== undefined) assertJson(input.transportContext);
     for (const value of [input.installationId, input.releaseId, input.principalId, input.scope, input.deduplicationId]) if (!value || value.length > 512) throw new LifecycleError("invalid_delivery", "Delivery identity fields are required and bounded.");
     if (!["event", "webhook", "schedule"].includes(input.kind)) throw new LifecycleError("invalid_delivery", "Unsupported delivery kind.");
     return this.database.transaction(async (transaction) => {
@@ -51,8 +53,8 @@ export class ExtensionDeliveryQueue {
       const existing = resultRows<DeliveryRow>(await transaction.execute(sql`SELECT payload, state FROM extension_release_deliveries WHERE installation_id = ${input.installationId} AND deduplication_id = ${input.deduplicationId}`));
       if (existing[0]) {
         const previous = decode(existing[0]);
-        const identity = ({ installationId, releaseId, generation, principalId, scope, deduplicationId, kind, input: data }: ExtensionDelivery) => ({ installationId, releaseId, generation, principalId, scope, deduplicationId, kind, input: data });
-        if (canonicalJson(identity(previous)) !== canonicalJson(input)) throw new LifecycleError("delivery_conflict", "Deduplication ID already identifies another delivery.");
+        const identity = ({ installationId, releaseId, generation, principalId, scope, deduplicationId, kind, input: data }: typeof input) => ({ installationId, releaseId, generation, principalId, scope, deduplicationId, kind, input: data });
+        if (canonicalJson(identity(previous)) !== canonicalJson(identity(input))) throw new LifecycleError("delivery_conflict", "Deduplication ID already identifies another delivery.");
         return previous;
       }
       const delivery: ExtensionDelivery = { ...input, id: randomUUID(), state: "queued", attempts: 0, maxAttempts: 3, availableAt: this.now(), leaseUntil: 0, createdAt: this.now() };
@@ -67,6 +69,7 @@ export class ExtensionDeliveryQueue {
       const rows = resultRows<DeliveryRow>(await transaction.execute(sql`SELECT payload, state FROM extension_release_deliveries WHERE (state = 'queued' AND available_at <= ${this.now()}) OR (state = 'leased' AND lease_until <= ${this.now()}) ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`));
       if (!rows[0]) return null;
       const delivery = decode(rows[0]);
+      if (delivery.state === "leased") { delivery.state = "outcome_unknown"; delivery.failureCode = "worker_lease_expired"; delivery.leaseUntil = 0; await write(transaction, delivery); return null; }
       if (delivery.attempts >= delivery.maxAttempts) { delivery.state = "dead_letter"; delivery.failureCode = "attempts_exhausted"; await write(transaction, delivery); return null; }
       delivery.state = "leased";
       delivery.attempts += 1;
