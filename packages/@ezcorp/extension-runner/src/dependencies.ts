@@ -53,6 +53,7 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
     const metadata = JSON.parse(new TextDecoder().decode(await registryBytes(`${registry}${encodeURIComponent(next.name)}`, maximumArchive)));
     const versions = Object.keys(metadata.versions ?? {});
     const version = exactVersion.test(next.version) ? next.version : versions.filter(version => Bun.semver.satisfies(version, next.version)).sort((left, right) => Bun.semver.order(right, left))[0];
+    if (!version) throw new RunnerError("dependency_unavailable", "Dependency version is missing", "dependencies");
     const release = metadata.versions?.[version];
     if (!release || !exactVersion.test(version) || typeof release.dist?.integrity !== "string" || !release.dist.integrity.startsWith("sha512-")) throw new RunnerError("dependency_unavailable", "Dependency version or integrity is missing", "dependencies");
     const locked: LockedPackage = { version, resolved: release.dist.tarball, integrity: release.dist.integrity, ...(release.dependencies ? { dependencies: release.dependencies } : {}) };

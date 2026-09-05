@@ -89,6 +89,8 @@ export type OnBlocked = (info: {
 
 export interface GuardedFetchOptions {
   authorizeUrl?: (url: URL) => Promise<void>;
+  retryConnectionFailures?: boolean;
+  streamResponse?: boolean;
   mode: EgressMode;
   /** For `mode:"backend"`: the exact set of hostnames the configured
    *  provider chain may reach (SearXNG URL host ∪ DDG hosts ∪ selected
@@ -321,7 +323,7 @@ export async function guardedFetch(
   const maxBodyBytes = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImpl = opts.fetchImpl ?? (globalThis.fetch as FetchLike);
-  const resolve = opts.resolveHost ?? defaultResolveHost;
+  const resolveHost = opts.resolveHost ?? defaultResolveHost;
   const allowed = new Set((opts.allowedHosts ?? []).map(normalizeHost));
 
   const block = (reason: EgressBlockReason, target: string, message?: string): never => {
@@ -331,6 +333,7 @@ export async function guardedFetch(
 
   const deadline = Date.now() + timeoutMs;
   let currentUrl = rawUrl;
+  const resolve: ResolveHost = hostname => withinDeadline(resolveHost(hostname), deadline, () => block("timeout", currentUrl, "DNS resolution exceeded deadline"));
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     let parsed: URL;
@@ -346,7 +349,7 @@ export async function guardedFetch(
     }
 
     const host = normalizeHost(parsed.hostname);
-    await opts.authorizeUrl?.(parsed);
+    await withinDeadline(opts.authorizeUrl?.(parsed) ?? Promise.resolve(), deadline, () => block("timeout", currentUrl, "Network authorization exceeded deadline"));
 
     // `mode:"backend"` — allowlist the host. The configured SearXNG
     // internal host is sanctioned here (it's in `allowedHosts`), but the
@@ -406,6 +409,7 @@ export async function guardedFetch(
         headers,
         fetchImpl,
         deadline,
+        retryConnectionFailures: opts.retryConnectionFailures,
       });
     } catch (err) {
       if (err instanceof EgressTimeoutError) {
@@ -421,19 +425,15 @@ export async function guardedFetch(
       }
       const location = res.headers.get("location")!;
       currentUrl = new URL(location, currentUrl).toString();
-      // Drain the redirect body so the transport can be reused.
-      try {
-        await res.arrayBuffer();
-      } catch {
-        /* best-effort */
-      }
+      void res.body?.cancel().catch(() => {});
       continue;
     }
 
     // Terminal response — enforce body-size cap.
-    return await enforceBodyCap(res, maxBodyBytes, () =>
-      block("body-too-large", currentUrl, `Response body exceeds ${maxBodyBytes} bytes`),
-    );
+    const tooLarge = () => block("body-too-large", currentUrl, `Response body exceeds ${maxBodyBytes} bytes`);
+    const tooSlow = () => block("timeout", currentUrl, "Response body exceeded deadline");
+    if (opts.streamResponse) return boundedBodyStream(res, maxBodyBytes, deadline, tooLarge, tooSlow);
+    return await enforceBodyCap(res, maxBodyBytes, tooLarge, deadline, tooSlow);
   }
 
   // Unreachable: the loop either returns or blocks on redirect-limit.
@@ -485,9 +485,10 @@ async function connectPinned(args: {
   headers: Headers;
   fetchImpl: FetchLike;
   deadline: number;
+  retryConnectionFailures?: boolean;
 }): Promise<Response> {
   const { parsed, pinnedIps, init, headers, fetchImpl, deadline } = args;
-  const candidates = isReplayableBody(init.body)
+  const candidates = args.retryConnectionFailures !== false && isReplayableBody(init.body)
     ? pinnedIps
     : pinnedIps.slice(0, 1);
 
@@ -507,10 +508,11 @@ async function connectPinned(args: {
         ...init,
         headers,
         redirect: "manual",
-        signal: controller.signal,
+        signal: init.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal,
       });
     } catch (err) {
       if (controller.signal.aborted) throw new EgressTimeoutError();
+      if (init.signal?.aborted) throw err;
       lastErr = err;
       // Connection failure — try the next resolved address, if any.
     } finally {
@@ -531,6 +533,8 @@ async function enforceBodyCap(
   res: Response,
   maxBytes: number,
   onTooLarge: () => never,
+  deadline: number,
+  onTimeout: () => never,
 ): Promise<Response> {
   // Fast reject via Content-Length when present + trustworthy.
   const cl = res.headers.get("content-length");
@@ -545,7 +549,10 @@ async function enforceBodyCap(
     const chunks: Uint8Array[] = [];
     let total = 0;
     for (;;) {
-      const { done, value } = await reader.read();
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try { next = await withinDeadline(reader.read(), deadline, onTimeout); }
+      catch (error) { void reader.cancel().catch(() => {}); throw error; }
+      const { done, value } = next;
       if (done) break;
       if (value) {
         total += value.byteLength;
@@ -570,11 +577,43 @@ async function enforceBodyCap(
   }
 
   // No streamable body (mocked Response) — buffer + check.
-  const buf = await res.arrayBuffer();
+  const buf = await withinDeadline(res.arrayBuffer(), deadline, onTimeout);
   if (buf.byteLength > maxBytes) onTooLarge();
-  return new Response(buf, {
+  return new Response([101, 204, 205, 304].includes(res.status) ? null : buf, {
     status: res.status,
     statusText: res.statusText,
     headers: res.headers,
   });
+}
+
+async function withinDeadline<Value>(pending: Promise<Value>, deadline: number, onTimeout: () => never): Promise<Value> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([pending, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { try { onTimeout(); } catch (error) { reject(error); } }, Math.max(1, deadline - Date.now())); })]);
+  } finally { clearTimeout(timer); }
+}
+
+export function guardedStreamingFetch(rawUrl: string, init: RequestInit, options: GuardedFetchOptions): Promise<Response> {
+  return guardedFetch(rawUrl, init, { ...options, streamResponse: true });
+}
+
+function boundedBodyStream(response: Response, maximumBytes: number, deadline: number, tooLarge: () => never, tooSlow: () => never): Response {
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  let total = 0;
+  let timer: ReturnType<typeof setTimeout>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) { timer = setTimeout(() => { try { tooSlow(); } catch (error) { controller.error(error); } void reader.cancel().catch(() => {}); }, Math.max(1, deadline - Date.now())); },
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) { clearTimeout(timer); controller.close(); return; }
+        total += next.value.byteLength;
+        if (total > maximumBytes) tooLarge();
+        controller.enqueue(next.value);
+      } catch (error) { clearTimeout(timer); controller.error(error); await reader.cancel().catch(() => {}); }
+    },
+    async cancel(reason) { clearTimeout(timer); await reader.cancel(reason); },
+  });
+  return new Response(stream, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
