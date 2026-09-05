@@ -80,7 +80,7 @@ export class InvocationLocks {
     return { released: true };
   }
 
-  async effect<Result>(method: string, action: () => Promise<Result>, beforeEffect?: () => void): Promise<Result> {
+  async effect<Result>(method: string, action: () => Promise<Result>, admission?: { prepare?: () => Promise<void>; assertActive: () => void }): Promise<Result> {
     this.check();
     if (this.pending.size >= maxEffects) throw new ContractError("LOCK_CAPACITY", "Too many concurrent host effects");
     const fences = [...this.held.values()];
@@ -91,7 +91,8 @@ export class InvocationLocks {
       });
       let admitted = false;
       try {
-        beforeEffect?.();
+        if (admission?.prepare) await admission.prepare();
+        admission?.assertActive();
         admitted = true;
         const result = await activeEffects.run(fences, action);
         if (result && typeof result === "object" && "error" in result && JSON.stringify(result.error).includes("outcome_unknown")) this.uncertain = true;

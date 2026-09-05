@@ -4,6 +4,52 @@ import { sha256 } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
+import { spyOn } from "bun:test";
+
+for (const invalidation of ["token", "deadline", "kill"] as const) {
+  for (const channel of ["broker", "page"] as const) test(`${invalidation} during binding read prevents later ${channel} effects`, async () => {
+    const fixture = harness();
+    const reading = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const stopped = Promise.withResolvers<void>();
+    const reverseResult = Promise.withResolvers<unknown>();
+    let suspend = false;
+    let effects = 0;
+    const now = Date.now();
+    let restoreClock: (() => void) | undefined;
+    const runner: Runner = {
+      build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+      start: async (input, rpc) => ({ workerId: input.workerId, close: async () => stopped.promise, onNotification: () => () => {}, request: async method => {
+        if (method === "extension/discover") return fixture.snapshot().release.manifest;
+        suspend = true;
+        try { reverseResult.resolve(await rpc(channel === "broker" ? "ezcorp/storage" : "ezcorp/page-state", { context: input.context, input: channel === "broker" ? { key: "late" } : { pageId: "home", page: {} } })); }
+        catch (error) { reverseResult.resolve(error); }
+        return { content: [], isError: false };
+      } }),
+    };
+    const process = new ReleaseProcess("installation", { runner: async () => runner, resolve: async () => {
+      const snapshot = structuredClone(fixture.snapshot());
+      if (suspend) { reading.resolve(); await resume.promise; }
+      return snapshot;
+    } });
+    process.setRequestHandler(async request => { effects++; return { jsonrpc: "2.0", id: request.id, result: {} }; });
+    process.setNotificationHandler(() => { effects++; });
+    try {
+      const call = process.callTool("read", {}, { ezCallId: fixture.token });
+      const completion = call.then(() => null, error => error);
+      await reading.promise;
+      if (invalidation === "token") releaseCallProvenance(fixture.token);
+      else if (invalidation === "kill") process.kill();
+      else { const clock = spyOn(Date, "now").mockReturnValue(now + 120_000); restoreClock = () => clock.mockRestore(); }
+      resume.resolve();
+      const response = await reverseResult.promise;
+      expect(effects).toBe(0);
+      expect(response).toBeInstanceOf(Error);
+      stopped.resolve();
+      expect(await completion).toBeInstanceOf(Error);
+    } finally { restoreClock?.(); resume.resolve(); stopped.resolve(); process.kill(); fixture.cleanup(); }
+  });
+}
 
 test("abort during a reverse RPC binding read prevents host effect admission", async () => {
   const fixture = harness();

@@ -120,10 +120,10 @@ test("host cancellation before effect admission releases accounted fences withou
   let checked = false;
   const controller = new AbortController();
   controller.abort(new Error("caller stopped before admission"));
-  await expect(session.effect("ezcorp/fs.write", async () => { effects++; }, () => {
+  await expect(session.effect("ezcorp/fs.write", async () => { effects++; }, { assertActive: () => {
     checked = true;
     controller.signal.throwIfAborted();
-  })).rejects.toThrow("caller stopped before admission");
+  } })).rejects.toThrow("caller stopped before admission");
   expect(checked).toBe(true);
   expect(effects).toBe(0);
   expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ state: "held", effects: 0 });
@@ -140,7 +140,7 @@ test("a cancellation-shaped error after admission cannot clear an uncertain writ
   await expect(session.effect("ezcorp/fs.write", async () => {
     admitted = true;
     throw Object.assign(new Error("cancelled after write began"), { code: "CANCELLED" });
-  }, () => {})).rejects.toThrow("cancelled after write began");
+  }, { assertActive: () => {} })).rejects.toThrow("cancelled after write began");
   expect(admitted).toBe(true);
   await session.close();
   expect((await inspectRuntimeLocks(data.installationId))[0]).toMatchObject({ state: "quarantined", effects: 0 });
