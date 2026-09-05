@@ -1,280 +1,121 @@
-/**
- * Integration tests for phase 28: TypeScript manifest migration.
- *
- * Covers:
- * 1. Installer + loadManifest integration (installFromLocal roundtrip)
- * 2. Init + Template + loadManifest roundtrip (all 4 template types)
- * 3. Production code no longer references manifest.json
- */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { scaffoldExtension, type ExtType } from "@ezcorp/sdk/scaffold";
+import { assertJson, sealPublishedRelease, validatePublishedRelease, type BuildResult, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { PodmanRunner, buildLimits, executionLimits, filesDigest, provisionToolchain } from "@ezcorp/extension-runner";
+import { snapshotExtensionSource } from "../../scripts/migrate-extension-v4";
+import { initExtension } from "../extensions/sdk/init";
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { writeConfig } from "./helpers/write-config";
-import { join } from "path";
-import { tmpdir } from "os";
-import { mkdtemp } from "fs/promises";
+let root: string;
+let runner: PodmanRunner;
+const builds = new Map<ExtType, Promise<{ build: BuildResult; files: WorkspaceFiles }>>();
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "manifest-integration-"));
+  runner = new PodmanRunner({ root: join(root, "runner"), ...await provisionToolchain() });
+  await runner.initialize();
+}, 60000);
+afterAll(async () => { await runner?.close(); if (root) await rm(root, { recursive: true, force: true }); });
 
-// ── Mock DB layer ────────────────────────────────────────────────────
-
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
-const mockExtensions = extStore.store;
-let lastCreateCall: any = null;
-
-mock.module("../db/queries/extensions", () => ({
-  createExtension: async (data: any) => {
-    const ext = await extStore.createExtension(data);
-    lastCreateCall = ext;
-    return ext;
-  },
-  getExtension: extStore.getExtension,
-  getExtensionByName: extStore.getExtensionByName,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  listExtensions: extStore.listExtensions,
-  incrementFailures: async () => 0,
-  resetFailures: async () => {},
-  disableExtension: async () => {},
-}));
-
-afterAll(() => restoreModuleMocks());
-
-const { installFromLocal } = await import("../extensions/installer");
-
-const defaultPerms = { network: ["api.example.com"], grantedAt: { network: Date.now() } };
-
-async function setupExtDir(manifest: Record<string, unknown>, entryContent = 'console.log("ext");') {
-  const dir = await mkdtemp(join(tmpdir(), "ts-manifest-integ-"));
-  await writeConfig(dir, manifest);
-  if (manifest.entrypoint) {
-    const ep = (manifest.entrypoint as string).replace(/^\.\//, "");
-    await Bun.write(join(dir, ep), entryContent);
+function candidate(type: ExtType) {
+  let promise = builds.get(type);
+  if (!promise) {
+    promise = (async () => {
+      const name = `manifest-${type}`;
+      await initExtension({ extName: name, type, description: "Roundtrip metadata", cwd: root });
+      const { files } = await snapshotExtensionSource(root, { name, directory: name, entrypoint: "extension.ts" });
+      expect(files).toEqual(scaffoldExtension({ name, type, description: "Roundtrip metadata" }).files);
+      const build = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
+      expect(build.diagnostics).toEqual([]);
+      expect(build.state).toBe("succeeded");
+      return { build, files };
+    })();
+    builds.set(type, promise);
   }
-  return dir;
+  return promise;
 }
 
-function validManifest(overrides: Record<string, unknown> = {}) {
-  return {
-    schemaVersion: 2,
-    name: "integ-test-ext",
-    version: "1.0.0",
-    description: "Integration test extension",
-    author: { name: "Tester" },
-    entrypoint: "index.ts",
-    tools: [{ name: "greet", description: "Say hi", inputSchema: { type: "object" } }],
-    permissions: {},
-    ...overrides,
-  };
-}
-
-// ── 1. Installer + loadManifest integration ──────────────────────────
-
-describe("installer + loadManifest integration", () => {
-  beforeEach(() => {
-    lastCreateCall = null;
-    mockExtensions.clear();
+describe("source import and immutable artifact roundtrip", () => {
+  test("local source builds without producing installation authority", async () => {
+    const { build } = await candidate("tool");
+    expect(build.manifest?.name).toBe("manifest-tool");
+    expect(build.manifest?.schemaVersion).toBe(4);
+    expect(Object.hasOwn(build, "approvalId")).toBe(false);
+  }, 120000);
+  test("missing entrypoint fails source collection before a build", async () => {
+    await expect(snapshotExtensionSource(root, { name: "missing", directory: "missing", entrypoint: "extension.ts" })).rejects.toThrow();
   });
-
-  test("installFromLocal reads ezcorp.config.ts and stores in DB", async () => {
-    const dir = await setupExtDir(validManifest());
-    const result = await installFromLocal(dir, defaultPerms);
-
-    expect(result.name).toBe("integ-test-ext");
-    expect(result.version).toBe("1.0.0");
-    // Phase 1: loadManifest auto-promotes v2 to v3 with _inheritedFromV2.
-    expect(lastCreateCall.manifest.schemaVersion).toBe(3);
-    expect(lastCreateCall.manifest._inheritedFromV2).toBe(true);
-  });
-
-  test("installFromLocal fails when ezcorp.config.ts is missing", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ts-manifest-integ-empty-"));
-
-    await expect(installFromLocal(dir, defaultPerms)).rejects.toThrow(/No ezcorp\.config\.ts found/);
-  });
-
-  test("installFromLocal strips handler functions before storing in DB", async () => {
-    // writeConfig serializes to JSON which drops functions automatically,
-    // but loadManifest's stripFunctions handles the case where the config
-    // is a real TS module with function props. We verify no function props in stored manifest.
-    const dir = await setupExtDir(validManifest());
-    await installFromLocal(dir, defaultPerms);
-
-    const stored = lastCreateCall.manifest;
-
-    // Walk stored manifest recursively — no value should be a function
-    function assertNoFunctions(obj: any, path = "manifest") {
-      for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === "function") {
-          throw new Error(`Found function at ${path}.${k}`);
-        }
-        if (v && typeof v === "object" && !Array.isArray(v)) {
-          assertNoFunctions(v, `${path}.${k}`);
-        }
-        if (Array.isArray(v)) {
-          v.forEach((item, i) => {
-            if (typeof item === "object" && item !== null) {
-              assertNoFunctions(item, `${path}.${k}[${i}]`);
-            }
-            expect(typeof item).not.toBe("function");
-          });
-        }
-      }
-    }
-
-    assertNoFunctions(stored);
-  });
-
-  test("stored manifest includes checksum from entrypoint", async () => {
-    const dir = await setupExtDir(validManifest());
-    await installFromLocal(dir, defaultPerms);
-
-    expect(lastCreateCall.manifest.checksum).toMatch(/^[a-f0-9]{64}$/);
+  test("isolated discovery contains data only, never handler functions", async () => {
+    const { build } = await candidate("multi");
+    expect(() => assertJson(build.manifest)).not.toThrow();
+    expect(build.manifest?.tools).toHaveLength(1);
+    expect(build.manifest?.skills).toHaveLength(1);
+    expect(build.manifest?.agent).toBeDefined();
+  }, 120000);
+  test("sealed publication binds source and artifact checksums", async () => {
+    const { build, files } = await candidate("tool");
+    const artifacts = await runner.collectArtifacts(build.artifactDigest!);
+    const published = await sealPublishedRelease(build, artifacts);
+    expect(build.sourceDigest).toBe(filesDigest(files));
+    expect(build.artifactDigest).toBe(filesDigest(artifacts));
+    expect(await validatePublishedRelease(JSON.parse(JSON.stringify(published)))).toEqual(published);
+    const changed = { ...files, "README.md": "changed after build" };
+    expect(filesDigest(changed)).not.toBe(build.sourceDigest);
   });
 });
 
-// ── 2. Init + Template + loadManifest roundtrip ──────────────────────
-
-describe("template generates valid ezcorp.config.ts", () => {
-  const templateTypes = ["tool", "skill", "agent", "multi"] as const;
-
-  for (const type of templateTypes) {
-    describe(`${type} template`, () => {
-      test("generates source containing defineExtension import", async () => {
-        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
-        const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
-        const source = manifestFn("test-ext", "A test extension");
-
-        expect(source).toContain("defineExtension");
-        expect(source).toContain('from "@ezcorp/sdk"');
-      });
-
-      test("generated source is syntactically valid TypeScript", async () => {
-        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
-        const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
-        const source = manifestFn("test-ext", "A test extension");
-        // Non-empty precondition — an empty template would make the
-        // Function() eval below vacuously "valid". (Also keeps this
-        // block visibly asserted for the gate-integrity scanner, whose
-        // brace matcher stops early on the regex literals below.)
-        expect(source.length).toBeGreaterThan(0);
-
-        // Strip imports and export default, eval with shims to check syntax
-        const transformed = source
-          .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*["'];?\n?/g, "")
-          .replace(/import\s+\w+\s+from\s*["'][^"']*["'];?\n?/g, "")
-          .replace("export default", "return");
-        const noop = () => {};
-
-        // Should not throw — valid JS/TS after transform
-        const result = new Function("defineExtension", "handleRequest", transformed)(
-          (x: any) => x,
-          noop,
-        );
-        expect(result).toBeDefined();
-        expect(result.schemaVersion).toBe(2);
-      });
-
-      test("generated config references correct entrypoint pattern", async () => {
-        const mod = await import(`../../packages/@ezcorp/sdk/src/scaffold/templates/${type}`);
-        const manifestFn = mod[`${type}Manifest`] as (name: string, desc: string) => string;
-        const source = manifestFn("test-ext", "A test extension");
-
-        if (type === "tool" || type === "multi") {
-          // Tool and multi templates have entrypoints
-          expect(source).toContain('entrypoint: "./index.ts"');
-          expect(source).toContain('import { handleRequest } from "./index"');
-        } else {
-          // Skill and agent templates should NOT have an entrypoint
-          expect(source).not.toContain("entrypoint");
+for (const type of ["tool", "skill", "agent", "multi"] as const) {
+  describe(`${type} template`, () => {
+    test("generated config uses the v4 validator and preserves contribution shape", async () => {
+      const { files, build } = await candidate(type);
+      expect(files["ezcorp.config.ts"]).toContain('from "@ezcorp/sdk/v4"');
+      expect(files["ezcorp.config.ts"]).toContain("validateManifest");
+      expect(build.manifest?.tools?.length ?? 0).toBe(type === "tool" || type === "multi" ? 1 : 0);
+      expect(build.manifest?.skills?.length ?? 0).toBe(type === "skill" || type === "multi" ? 1 : 0);
+      expect(Boolean(build.manifest?.agent)).toBe(type === "agent" || type === "multi");
+    }, 120000);
+    test("generated TypeScript and feature tests pass the actual isolated compiler", async () => {
+      const { build } = await candidate(type);
+      expect(build.evidence.tests.map(check => check.name)).toEqual(["typecheck", "compile", "feature:extension.test.ts", "metadata-discovery"]);
+      expect(build.evidence.tests.every(check => check.passed)).toBe(true);
+    }, 120000);
+    test("its entrypoint serves sealed metadata and declared tool behavior", async () => {
+      const { build } = await candidate(type);
+      expect(build.manifest?.entrypoint).toBe("./extension.ts");
+      const workerId = crypto.randomUUID();
+      const context = { workerId, invocationId: crypto.randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "test", token: "roundtrip", deadline: Date.now() + 30000 };
+      const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("Undeclared host call"); });
+      try {
+        expect(await worker.request("extension/discover", {})).toEqual(build.manifest);
+        if (build.manifest?.smokeTest) {
+          const smoke = build.manifest.smokeTest;
+          expect(await worker.request("extension/invoke", { name: smoke.tool, input: smoke.input, context })).toEqual({ content: [{ type: "text", text: "Received: smoke" }], isError: false });
         }
-      });
-    });
-  }
-});
-
-// ── 3. Production code no longer references manifest.json ────────────
-
-describe("no manifest.json references in production code", () => {
-  test("src/extensions/ has zero manifest.json references in non-test, non-comment code", async () => {
-    const proc = Bun.spawnSync(
-      [
-        "grep",
-        "-rn",
-        "manifest\\.json",
-        "--include=*.ts",
-        "--include=*.tsx",
-        // Exclude test files and comments
-        "--exclude=*.test.ts",
-        "--exclude=*.test.tsx",
-        "--exclude-dir=__tests__",
-        "--exclude-dir=node_modules",
-      ],
-      { cwd: join(import.meta.dir, "..", "extensions") },
-    );
-    const stdout = proc.stdout.toString().trim();
-
-    // Filter out comment-only lines (// or /* or *)
-    const codeLines = stdout
-      .split("\n")
-      .filter(Boolean)
-      .filter((line) => {
-        const content = line.split(":").slice(2).join(":").trim();
-        return !content.startsWith("//") && !content.startsWith("*") && !content.startsWith("/*");
-      })
-      // The file-organizer's QUARANTINE bookkeeping file is `.trash/manifest.json`
-      // — a per-folder trash index built from `trashRoot`, categorically distinct
-      // from the deprecated *extension* manifest.json this phase-28 gate guards
-      // against. Allow those references (always under `.trash/` / `trashRoot`);
-      // any OTHER `manifest.json` reference still fails the gate.
-      .filter((line) => {
-        const content = line.split(":").slice(2).join(":");
-        return !/(?:trashRoot|\.trash)/.test(content);
-      });
-
-    expect(codeLines).toEqual([]);
+      } finally { await worker.close(); }
+    }, 120000);
   });
+}
 
-  test("all loader call sites use loadManifest or loadManifestFresh", async () => {
-    // Verify installer.ts imports from loader
-    const installerSrc = await Bun.file(
-      join(import.meta.dir, "..", "extensions", "installer.ts"),
-    ).text();
-    expect(installerSrc).toContain('import { loadManifest } from "./loader"');
-
-    // Verify sdk/dev.ts uses loadManifestFresh
-    const devSrc = await Bun.file(
-      join(import.meta.dir, "..", "extensions", "sdk", "dev.ts"),
-    ).text();
-    expect(devSrc).toMatch(/loadManifestFresh|loadManifest/);
-
-    // Verify sdk/publish.ts uses loadManifest
-    const publishSrc = await Bun.file(
-      join(import.meta.dir, "..", "extensions", "sdk", "publish.ts"),
-    ).text();
-    expect(publishSrc).toMatch(/loadManifest/);
-
-    // Verify sdk/test-runner.ts uses loadManifest
-    const testRunnerSrc = await Bun.file(
-      join(import.meta.dir, "..", "extensions", "sdk", "test-runner.ts"),
-    ).text();
-    expect(testRunnerSrc).toMatch(/loadManifest/);
+describe("host entrypoints never evaluate extension configuration", () => {
+  test("the central loader rejects all paths before filesystem evaluation", async () => {
+    const { loadManifest } = await import("../extensions/loader");
+    const directory = join(root, "blocked");
+    const marker = join(root, "host-executed");
+    await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); export default {};`);
+    await expect(loadManifest(directory)).rejects.toThrow("Host configuration evaluation is disabled");
+    expect(await Bun.file(marker).exists()).toBe(false);
   });
-
-  test("no direct JSON.parse of manifest.json in extensions/", async () => {
-    const proc = Bun.spawnSync(
-      [
-        "grep",
-        "-rn",
-        "JSON\\.parse.*manifest",
-        "--include=*.ts",
-        "--exclude=*.test.ts",
-        "--exclude-dir=__tests__",
-        "--exclude-dir=node_modules",
-      ],
-      { cwd: join(import.meta.dir, "..", "extensions") },
-    );
-    const stdout = proc.stdout.toString().trim();
-    expect(stdout).toBe("");
+  test("publication builds through the isolated runner rather than a host loader", async () => {
+    const source = await Bun.file(join(import.meta.dir, "../extensions/sdk/publish.ts")).text();
+    expect(source).toContain("verifyCliExtension");
+    expect(source).toContain("sealPublishedRelease");
+    expect(source).not.toContain("loadManifest");
+  });
+  test("deprecated host execution helpers cannot bypass the required lifecycle", async () => {
+    const { runExtensionTests } = await import("../extensions/sdk/test-runner");
+    const { createTestExtension } = await import("../extensions/sdk/test-helpers");
+    await expect(runExtensionTests({ extDir: root })).rejects.toThrow("Host configuration evaluation is disabled");
+    await expect(createTestExtension(root, { sandbox: false })).rejects.toThrow("Host configuration evaluation is disabled");
   });
 });
