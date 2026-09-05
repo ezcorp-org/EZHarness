@@ -22,6 +22,7 @@ test("authoring scaffold builds with private service umask", async () => {
   const previous = process.umask(0o077);
   try {
     const files = createExtensionFiles("private-scaffold");
+    files["src/union.ts"] = "type Outcome={ok:true;value:string}|{ok:false;error:string};export function read(outcome:Outcome){if(!outcome.ok)return outcome.error;return outcome.value}";
     const result = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");

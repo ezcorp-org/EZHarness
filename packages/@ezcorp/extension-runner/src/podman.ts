@@ -152,7 +152,7 @@ export class PodmanRunner implements Runner {
       this.requireBuilding(input.operationId);
       const typescriptFiles = Object.keys(input.files).filter(path => /\.[cm]?tsx?$/.test(path));
       if (typescriptFiles.length) {
-        await this.run(input.operationId, limits, staged, ["node_modules/typescript/bin/tsc", "--noEmit", "--module", "preserve", "--moduleResolution", "bundler", "--target", "ESNext", "--skipLibCheck", "--allowJs", "--types", "bun", ...typescriptFiles.map(path => `./${path}`)]);
+        await this.run(input.operationId, limits, staged, ["node_modules/typescript/bin/tsc", "--noEmit", "--strictNullChecks", "--module", "preserve", "--moduleResolution", "bundler", "--target", "ESNext", "--skipLibCheck", "--allowJs", "--types", "bun", ...typescriptFiles.map(path => `./${path}`)]);
         await this.remove(input.operationId);
       }
       result.evidence.tests.push({ name: "typecheck", passed: true });
