@@ -1120,7 +1120,7 @@
 			{/each}
 		{/if}
 
-		<section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" aria-labelledby="release-permissions-title" data-testid="release-permissions">
+		<section class="release-permissions min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" aria-labelledby="release-permissions-title" data-testid="release-permissions">
 			<h3 id="release-permissions-title" class="text-sm font-medium text-[var(--color-text-secondary)]">Release permissions</h3>
 			<p class="mt-2 text-sm text-[var(--color-text-muted)]">Permissions belong to an exact built release. Changes require a new review and human approval. Disable the extension to stop access.</p>
 			<div class="mt-4 min-w-0 space-y-3">
@@ -1220,3 +1220,12 @@
 		/>
 	{/if}
 </div>
+
+<style>
+	.release-permissions :global(pre),
+	.release-permissions :global(code) {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		word-break: break-word;
+	}
+</style>

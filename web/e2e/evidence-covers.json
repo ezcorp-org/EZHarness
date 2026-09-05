@@ -1,4 +1,8 @@
 {
+  "web/e2e/real-auth/extension-project-authority.spec.ts": [
+    "web/src/routes/(app)/extensions/author/**",
+    "web/src/routes/(app)/extensions/project-proposals/**"
+  ],
   "web/e2e/real-auth/extension-author-flow.spec.ts": [
     "web/src/routes/(app)/extensions/author/+page.svelte"
   ],
