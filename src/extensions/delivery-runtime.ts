@@ -3,7 +3,7 @@ import { registerCallProvenance, releaseCallProvenance, resolveCallProvenance, t
 import type { ExtensionProcess } from "./subprocess";
 import { extensionLogger } from "../logger";
 import { LifecycleError } from "./v4/types";
-import type { ExtensionDelivery } from "./v4/deliveries";
+import { ExtensionDeliveryQueue, type ExtensionDelivery } from "./v4/deliveries";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 
@@ -12,15 +12,21 @@ let wireProcess: ((extensionId: string, process: ExtensionProcess) => void | Pro
 let timer: ReturnType<typeof setInterval> | undefined;
 let draining: Promise<void> | undefined;
 
-interface DeliveryInput { method: string; params: Record<string, unknown>; provenance: CallProvenance }
+interface DeliveryInput { method: string; params: Record<string, unknown>; provenance: CallProvenance; origin?: "hub" }
 
-async function resolveDeliveryProject(installationId: string, principalId: string, conversationId: string | null): Promise<Pick<CallProvenance, "projectId" | "projectBindingId">> {
+async function resolveDeliveryProject(installationId: string, principalId: string, conversationId: string | null, hub = false): Promise<Pick<CallProvenance, "projectId" | "projectBindingId">> {
   let context: Pick<CallProvenance, "projectId" | "projectBindingId"> = {};
   if (conversationId) {
     const { getConversation } = await import("../db/queries/conversations");
     const conversation = await getConversation(conversationId);
     if (conversation?.userId !== principalId) throw new LifecycleError("delivery_revoked", "Delivery conversation ownership changed.");
     if (conversation.projectId) context = { projectId: conversation.projectId };
+    if (hub && context.projectId) {
+      const { getExtensionProjectBinding } = await import("./project-binding");
+      const binding = await getExtensionProjectBinding(installationId);
+      if (!binding || binding.ownerId !== principalId || binding.projectId !== context.projectId) throw new LifecycleError("delivery_revoked", "Hub project approval changed.");
+      context.projectBindingId = binding.id;
+    }
   } else {
     const { getExtensionProjectBinding } = await import("./project-binding");
     const binding = await getExtensionProjectBinding(installationId);
@@ -66,9 +72,12 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
     const wired = input.provenance.conversationId ? await getConversationExtensionIds(input.provenance.conversationId) : [];
     const effective = input.provenance.conversationId ? await getConversationExtensionEffectiveGrants(input.provenance.conversationId, delivery.installationId) : null;
     const eventType = input.method.slice("ezcorp/event/".length);
-    if (!extension?.enabled || !wired.includes(delivery.installationId) || !extension.grantedPermissions.eventSubscriptions?.includes(eventType) || (effective && !effective.eventSubscriptions?.includes(eventType))) throw new LifecycleError("delivery_revoked", "Event subscription or conversation wiring was revoked.");
+    const hub = input.origin === "hub" && eventType.startsWith(`${extension?.name}:`) && input.params.userId === user.id && extension?.manifest.pages?.some(page => page.id === input.params.pageId);
+    const scoped = input.provenance.conversationId ? wired.includes(delivery.installationId) : hub;
+    if (!extension?.enabled || !scoped || !extension.grantedPermissions.eventSubscriptions?.includes(eventType) || (effective && !effective.eventSubscriptions?.includes(eventType))) throw new LifecycleError("delivery_revoked", "Event subscription or conversation wiring was revoked.");
+    if (input.origin === "hub" && !hub) throw new LifecycleError("delivery_revoked", "Hub event declaration or user binding changed.");
   }
-  const project = await resolveDeliveryProject(delivery.installationId, user.id, input.provenance.conversationId);
+  const project = await resolveDeliveryProject(delivery.installationId, user.id, input.provenance.conversationId, input.origin === "hub");
   if (project.projectId !== input.provenance.projectId || project.projectBindingId !== input.provenance.projectBindingId) throw new LifecycleError("delivery_revoked", "Delivery project approval changed.");
   const { ExtensionRegistry } = await import("./registry");
   const process = await ExtensionRegistry.getInstance().getProcess(delivery.installationId);
@@ -106,15 +115,27 @@ export async function enqueueExtensionNotification(extensionId: string, method: 
   if (!installation?.enabled || !installation.activeReleaseId) throw new LifecycleError("delivery_revoked", "Installation is not active.");
   const principalId = provenance.ownerless ? installation.ownerId : provenance.onBehalfOf;
   if (!principalId) throw new LifecycleError("invalid_delivery", "A delivery principal is required.");
+  const hub = provenance.kind === "event" && method.startsWith("ezcorp/event/") && params.source === "hub";
   const { projectId: _projectId, projectBindingId: _projectBindingId, ...identity } = provenance;
-  const owned = { ...identity, onBehalfOf: principalId, ownerless: false, ...await resolveDeliveryProject(extensionId, principalId, provenance.conversationId) };
+  const owned = { ...identity, onBehalfOf: principalId, ownerless: false, ...await resolveDeliveryProject(extensionId, principalId, provenance.conversationId, hub) };
   const transientKeys = new Set(["ezcorp/webhook-fire", "ezcorp/schedule-fire", "ezcorp/trigger-fire"].includes(method) ? ["catchUp", "attempt", "retry", "firedAt"] : []);
   const cleanParams = Object.fromEntries(Object.entries(params).filter(([key]) => key !== "_meta" && !transientKeys.has(key)));
   const transportContext = Object.fromEntries(Object.entries(params).filter(([key]) => transientKeys.has(key)));
   const sourceId = meta?.deliveryId ?? params.deliveryId ?? params.fireId ?? params.id;
   const deduplicationId = typeof sourceId === "string" ? await sha256(canonicalJson([method, sourceId, owned.onBehalfOf])) : crypto.randomUUID();
   const queue = await getExtensionDeliveryQueue();
-  const delivery = await queue.enqueue({ installationId: extensionId, releaseId: installation.activeReleaseId, generation: installation.generation, principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: method.includes("webhook") ? "webhook" : method.includes("schedule") || method.includes("trigger-fire") ? "schedule" : "event", input: { method, params: cleanParams, provenance: owned } satisfies DeliveryInput, transportContext });
+  const input = { installationId: extensionId, releaseId: installation.activeReleaseId, generation: installation.generation, principalId: installation.ownerId, scope: installation.scope, deduplicationId, kind: method.includes("webhook") ? "webhook" as const : method.includes("schedule") || method.includes("trigger-fire") ? "schedule" as const : "event" as const, input: { method, params: cleanParams, provenance: owned, ...(hub ? { origin: "hub" as const } : {}) } satisfies DeliveryInput, transportContext };
+  let delivery: ExtensionDelivery;
+  if (hub) {
+    const { getDb } = await import("../db/connection");
+    const { admitEventInTransaction } = await import("../db/queries/extension-event-receipts");
+    if (typeof meta?.idempotencyKey !== "string") throw new LifecycleError("invalid_event_key", "Hub actions require an idempotency key.");
+    const key = meta.idempotencyKey;
+    const result = await getDb().transaction((transaction: import("../db/migrations/types").MigrationDb) => admitEventInTransaction(transaction, { principalId, namespace: method.slice("ezcorp/event/".length), key, scope: extensionId, payload: input.input }, async id => [await ExtensionDeliveryQueue.enqueueInTransaction(transaction, { ...input, deduplicationId: id })]));
+    const queued = await queue.inspect(extensionId, result.receipt.deliveryIds[0]!);
+    if (!queued) throw new LifecycleError("delivery_unavailable", "The admitted action delivery is unavailable.");
+    delivery = queued;
+  } else delivery = await queue.enqueue(input);
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
     await drainExtensionDeliveries();

@@ -26,19 +26,22 @@ const h = vi.hoisted(() => {
       inProcessEvents: new Set<string>(["accept", "select-segment", "reject", "set-mode"]),
     },
     invalidate: vi.fn((..._a: unknown[]) => {}),
-    // `sendNotification` REPORTS DELIVERY (`subprocess.ts`). A mock that
-    // returned undefined would model a dropped frame, which the route now
-    // (correctly) turns into a 503 — so the happy path has to say `true`.
     notificationDelivered: true,
     getProcess: vi.fn(async function (this: void, _id: string) {
-      return { sendNotification: vi.fn(() => h.notificationDelivered) };
+      return { sendNotification: vi.fn(async () => {
+        if (!h.notificationDelivered) {
+          const { LifecycleError } = await import("$server/extensions/v4/types");
+          throw new LifecycleError("delivery_unavailable", "Delivery unavailable");
+        }
+      }) };
     }),
     ensureWired: vi.fn(async (..._a: unknown[]) => {}),
   };
 });
 
 vi.mock("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
-vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown }) => l.user }));
+vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown }) => l.user, checkProjectRole: async () => undefined }));
+vi.mock("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
 vi.mock("$lib/server/context", () => ({ getBus: () => ({ emit: () => {} }) }));
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
@@ -98,7 +101,7 @@ function hubReq(event: string, payload: Record<string, unknown>, pageId = "revie
   return {
     request: new Request(`http://localhost/api/extensions/file-organizer/events/${event}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ source: "hub", pageId, payload }),
     }),
     locals: { user: { id: "session-user", email: "t@t.com", name: "T", role: "member" } },

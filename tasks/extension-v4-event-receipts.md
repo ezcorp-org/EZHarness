@@ -37,6 +37,25 @@ Actual PostgreSQL 16 proof: `/tmp/lifecycle-postgres-receipts.log`. `scripts/ver
 
 ## Ask-user Admission
 
+## Hub Action Gates
+
+- [x] Real HTTP actions reach a fresh isolated worker, with no conversation required for a declared global page action.
+  CHECK: cd web && bun test ./src/__tests__/hub-isolated-action.integration.test.ts
+  EXPECT: 4 tests pass.
+  EVIDENCE: /tmp/lifecycle-hub-real4.log: 4 tests, 28 assertions pass with real PGlite, Podman, production route and broker.
+- [x] Equal retries return the existing result; changed payloads conflict; rejected or uncertain worker execution is not HTTP success and does not repeat.
+  EVIDENCE: The same real HTTP test checks worker counts, retained receipts, HTTP 409 and failed worker responses.
+- [x] Caller payload paths do not grant project access. Only a current human-approved host binding supplies project scope; revocation prevents queued execution.
+  EVIDENCE: The real test checks global provenance has no project fields, and binding revocation prevents another worker start.
+- [x] Runtime failure paths have full line coverage.
+  CHECK: bun test ./src/extensions/__tests__/delivery-runtime.test.ts --coverage
+  EXPECT: 14 tests pass; delivery-runtime.ts line coverage is 100%.
+  EVIDENCE: /tmp/lifecycle-hub-runtime-coverage2.log: 14 tests, 51 assertions; 100% runtime lines.
+
+The browser adds one bounded `Idempotency-Key` per logical extension action. An explicit key survives transport wrappers. The route requires the key for Hub actions, validates the declared page and own event namespace, and waits for durable delivery completion. Current grants and host project approval are checked again before the worker starts. Receipts use the same owner quota and retention rules as other admitted actions.
+
+This leaf does not yet add receipts to specialized host-rendered file-organizer actions or the generic conversation event branch. Their source transactions are separate follow-up leaves. These Hub tests use a trusted sealed release fixture; the separate author control-flow E2E proves the human approval UI.
+
 The answer route now calls `acceptAskUserAnswer`, which binds the question to the current active conversation owner and current project membership. Receipt admission and extension delivery insertion commit before the host bus event. A repeated equal answer does not emit again. A changed answer returns HTTP 409, including after the in-memory pending question entry is removed. Invalid bodies return 400; foreign, inactive, or revoked owners return 404; persistence failures are not acknowledged as success.
 
 The pending question map and its waiting process remain transient. Unknown collapsed questions still return an optimistic no-op; these receipts do not restart an interrupted question after server loss. The new guarantee applies to accepted answer event delivery, not to resuming an entire LLM turn.

@@ -33,6 +33,7 @@ mock.module("$lib/server/security/api-keys", () => ({
 }));
 
 mock.module("$server/auth/middleware", () => ({
+  checkProjectRole: async () => undefined,
   requireAuth: () => ({
     id: "user-1",
     email: "t@t.com",
@@ -40,6 +41,7 @@ mock.module("$server/auth/middleware", () => ({
     role: "member",
   }),
 }));
+mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
 
 // ── Mock bus via $lib/server/context ───────────────────────────────
 
@@ -89,6 +91,7 @@ const mockGetConversation = mock(
 );
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
+  getOrCreateExtServiceConversation: async () => { throw new Error("Unexpected service conversation in route unit fixture"); },
 }));
 
 // ── Mock tool-call lookup (F2 cross-binding) ──────────────────────
@@ -205,6 +208,7 @@ mock.module("$server/extensions/finalize-tool-call-handler", () => ({
 }));
 
 mock.module("$server/logger", () => ({
+  extensionLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
   logger: {
     child: () => ({
       info: (..._a: unknown[]) => {},

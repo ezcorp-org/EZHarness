@@ -27,8 +27,14 @@ export interface EventReceipt {
   deliveryIds: string[];
 }
 
+export function validateEventActionKey(key: unknown): string {
+  if (typeof key !== "string" || !/^[\x21-\x7e]{1,128}$/.test(key)) throw new LifecycleError("invalid_event_key", "A bounded Idempotency-Key is required.");
+  return key;
+}
+
 async function receiptId(identity: EventAdmissionIdentity): Promise<string> {
-  if (typeof identity.principalId !== "string" || !identity.principalId || identity.principalId.length > 256 || typeof identity.namespace !== "string" || !/^[a-zA-Z0-9:_-]{1,128}$/.test(identity.namespace) || typeof identity.key !== "string" || !/^[\x21-\x7e]{1,128}$/.test(identity.key)) throw new LifecycleError("invalid_event_key", "A bounded owner-scoped event key is required.");
+  validateEventActionKey(identity.key);
+  if (typeof identity.principalId !== "string" || !identity.principalId || identity.principalId.length > 256 || typeof identity.namespace !== "string" || !/^[a-zA-Z0-9:_.-]{1,256}$/.test(identity.namespace)) throw new LifecycleError("invalid_event_key", "A bounded owner-scoped event key is required.");
   return sha256(canonicalJson([identity.principalId, identity.namespace, identity.key]));
 }
 

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { PodmanRunner, provisionToolchain, buildLimits } from "@ezcorp/extension-runner";
-import type { Runner } from "@ezcorp/extension-contract";
+import type { Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { snapshotFirstPartyExtension } from "../../../scripts/migrate-extension-v4";
 import { digestObject } from "../../extensions/v4/blobs";
 import { releaseRuntimeFixture } from "./release-runtime";
@@ -35,16 +35,21 @@ export async function seedFirstPartyGit(directory: string): Promise<void> {
 }
 
 export async function buildFirstPartyRelease(name: string) {
+  const source = await snapshotFirstPartyExtension(resolve(import.meta.dir, "../../.."), name);
+  return buildIsolatedRelease(source.files, source.source.entrypoint);
+}
+
+export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: string) {
   const root = await mkdtemp(join(tmpdir(), "first-party-release-"));
   const projectRoot = resolve(import.meta.dir, "../../..");
   const toolchain = await provisionToolchain({ sdkEntrypoint: join(projectRoot, "packages/@ezcorp/sdk/src/v4/index.ts") });
   const runner = new PodmanRunner({ root: join(root, "runner"), ...toolchain });
   try {
     await runner.initialize();
-    const source = await snapshotFirstPartyExtension(projectRoot, name);
-    const build = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: digestObject(source.files), files: source.files, entrypoint: source.source.entrypoint, limits: buildLimits });
+    const build = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: digestObject(files), files, entrypoint, limits: buildLimits });
     if (build.state !== "succeeded" || !build.manifest || !build.artifactDigest) throw new Error(JSON.stringify(build.diagnostics));
     const manifest = build.manifest;
+    const name = manifest.name;
     const artifactDigest = build.artifactDigest;
     return {
       async close() { await runner.close(); await rm(root, { recursive: true, force: true }); },

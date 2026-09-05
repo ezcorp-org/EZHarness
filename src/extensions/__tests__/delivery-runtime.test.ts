@@ -3,6 +3,8 @@ import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { ExtensionProjectBinding } from "../project-binding";
 import { registerCallProvenance, releaseCallProvenance, resolveCallProvenance } from "../call-provenance";
 import type { ExtensionDelivery } from "../v4/deliveries";
+import { ExtensionDeliveryQueue } from "../v4/deliveries";
+import type { MigrationDb } from "../../db/migrations/types";
 
 let active = true;
 let userActive = true;
@@ -16,6 +18,7 @@ let eventWired = true;
 let eventGranted = true;
 let scopedGranted: boolean | null = null;
 let paused = false;
+let hideAdmittedDelivery = false;
 const jobs: ExtensionDelivery[] = [];
 const invocations: { method: string; params: Record<string, unknown> }[] = [];
 const process = { async call(method: string, params: Record<string, unknown>) { invocations.push({ method, params }); if (outcomeError) throw new Error("unknown effect"); return { jsonrpc: "2.0", id: "response", result: null }; } };
@@ -35,13 +38,19 @@ const queue = {
     try { await handler(job); job.state = "delivered"; } catch { job.state = "outcome_unknown"; }
     return job;
   },
-  async inspect(_installationId: string, id: string) { return jobs.find((job) => job.id === id) ?? null; },
+  async inspect(_installationId: string, id: string) { return hideAdmittedDelivery ? null : jobs.find((job) => job.id === id) ?? null; },
 };
+const admissionTransaction: MigrationDb = { execute: async () => { throw new Error("The unit admission port must not execute SQL."); } };
+mock.module("../../db/connection", () => ({ getDb: () => ({ transaction: async (handler: (transaction: MigrationDb) => Promise<unknown>) => handler(admissionTransaction) }) }));
+mock.module("../../db/queries/extension-event-receipts", () => ({ admitEventInTransaction: async (transaction: MigrationDb, _input: unknown, publish: (id: string) => Promise<{ id: string }[]>) => {
+  expect(transaction).toBe(admissionTransaction);
+  return { receipt: { deliveryIds: (await publish("admission-id")).map(delivery => delivery.id) } };
+} }));
 mock.module("../extension-lifecycle-service", () => ({ getExtensionDeliveryQueue: async () => queue, getExtensionInstallationState: async () => ({ installation: { id: "installation", ownerId: "owner", scope: "global", generation: 3, activeReleaseId: "release", enabled: active } }) }));
 mock.module("../../db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: userActive ? "active" : "inactive" }) }));
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ userId: conversationOwner, projectId: conversationProject }) }));
 mock.module("../../db/queries/conversation-extensions", () => ({ getConversationExtensionIds: async () => eventWired ? ["installation"] : [], getConversationExtensionEffectiveGrants: async () => scopedGranted === null ? null : { grantedAt: {}, eventSubscriptions: scopedGranted ? ["test"] : [] } }));
-mock.module("../../db/queries/extensions", () => ({ getExtension: async () => ({ enabled: active, grantedPermissions: { eventSubscriptions: eventGranted ? ["test"] : [] } }) }));
+mock.module("../../db/queries/extensions", () => ({ getExtension: async () => ({ name: "extension", manifest: { pages: [{ id: "control" }] }, enabled: active, grantedPermissions: { eventSubscriptions: eventGranted ? ["test", "extension:save"] : [] } }) }));
 mock.module("../loops-kill-switch", () => ({ loopsKillSwitchEngaged: async () => paused }));
 mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => binding }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => projectMember ? undefined : new Response(null, { status: 403 }) }));
@@ -49,8 +58,29 @@ mock.module("../registry", () => ({ ExtensionRegistry: { getInstance: () => ({ g
 const { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime, drainExtensionDeliveries } = await import("../delivery-runtime");
 
 function token(ownerless = false) { return registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: ownerless ? null : "caller", conversationId: ownerless ? null : "conversation", runId: null, parentCallId: null, kind: "event", ownerless }); }
-afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; eventWired = true; eventGranted = true; paused = false; });
+afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; eventWired = true; eventGranted = true; paused = false; hideAdmittedDelivery = false; });
 afterAll(() => restoreModuleMocks());
+
+test("Hub delivery requires durable admission and a current declared page binding", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  const enqueue = spyOn(ExtensionDeliveryQueue, "enqueueInTransaction").mockImplementation(async (_transaction, input) => queue.enqueue(input));
+  const ezCallId = token();
+  try {
+    await expect(enqueueExtensionNotification("installation", "ezcorp/event/extension:save", { source: "hub", _meta: { ezCallId } })).rejects.toHaveProperty("code", "invalid_event_key");
+    hideAdmittedDelivery = true;
+    await expect(enqueueExtensionNotification("installation", "ezcorp/event/extension:save", { source: "hub", _meta: { ezCallId, idempotencyKey: "missing" } })).rejects.toHaveProperty("code", "delivery_unavailable");
+    jobs.length = 0;
+    hideAdmittedDelivery = false;
+    await expect(enqueueExtensionNotification("installation", "ezcorp/event/extension:save", { source: "hub", userId: "caller", pageId: "unknown", _meta: { ezCallId, idempotencyKey: "invalid-page" } })).rejects.toHaveProperty("code", "delivery_outcome_unknown");
+    expect(invocations).toHaveLength(0);
+    jobs.length = 0;
+    conversationProject = "project";
+    await expect(enqueueExtensionNotification("installation", "ezcorp/event/extension:save", { source: "hub", _meta: { ezCallId, idempotencyKey: "no-project-approval" } })).rejects.toHaveProperty("code", "delivery_revoked");
+    binding = { id: "approval", projectId: "project", ownerId: "caller", releaseId: "release", generation: 3, approvedAt: "time", writePaths: [] };
+    await enqueueExtensionNotification("installation", "ezcorp/event/extension:save", { source: "hub", userId: "caller", pageId: "control", _meta: { ezCallId, idempotencyKey: "approved-project" } });
+    expect(invocations).toHaveLength(1);
+  } finally { enqueue.mockRestore(); releaseCallProvenance(ezCallId); }
+});
 
 test("worker cannot start until asynchronous host RPC wiring completes", async () => {
   let complete: (() => void) | undefined;
