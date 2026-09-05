@@ -244,11 +244,15 @@ export async function getExtension(id: string): Promise<Extension | null> {
   return rows[0] ?? null;
 }
 
+function installedExtensionPredicate() {
+  return sql`NOT EXISTS (SELECT 1 FROM extension_release_installations AS lifecycle_installation WHERE lifecycle_installation.id = ${extensions.id} AND lifecycle_installation.payload::jsonb->>'uninstalled' = 'true')`;
+}
+
 export async function getExtensionByName(name: string): Promise<Extension | null> {
   const rows = await getDb()
     .select()
     .from(extensions)
-    .where(eq(extensions.name, name));
+    .where(and(eq(extensions.name, name), installedExtensionPredicate()));
   return rows[0] ?? null;
 }
 
@@ -278,7 +282,7 @@ export async function getExtensionByRef(ref: string): Promise<Extension | null> 
   const rows = (await getDb()
     .select()
     .from(extensions)
-    .where(or(eq(extensions.id, ref), eq(extensions.name, ref)))) as Extension[];
+    .where(and(or(eq(extensions.id, ref), eq(extensions.name, ref)), installedExtensionPredicate()))) as Extension[];
   return rows.find((r) => r.id === ref) ?? rows[0] ?? null;
 }
 
@@ -296,7 +300,7 @@ export async function getExtensionsByNames(names: string[]): Promise<Map<string,
   const rows = await getDb()
     .select()
     .from(extensions)
-    .where(inArray(extensions.name, unique));
+    .where(and(inArray(extensions.name, unique), installedExtensionPredicate()));
   for (const row of rows) out.set(row.name, row);
   return out;
 }
@@ -323,6 +327,7 @@ export async function getUserModifiableExtension(
         eq(extensions.creatorUserId, userId),
         eq(extensions.modifiable, true),
         eq(extensions.isBundled, false),
+        installedExtensionPredicate(),
       ),
     )) as Extension[];
   // Same id-wins tiebreak as `getExtensionByRef`, and for the same reason:
@@ -361,12 +366,11 @@ export async function listExtensions(
     ? { enabledOnly: enabledOnlyOrOpts }
     : (enabledOnlyOrOpts ?? {});
 
-  const conds = [];
+  const conds = [installedExtensionPredicate()];
   if (opts.enabledOnly) conds.push(eq(extensions.enabled, true));
   if (opts.bundled !== undefined) conds.push(eq(extensions.isBundled, opts.bundled));
 
   const q = getDb().select().from(extensions);
-  if (conds.length === 0) return q;
   if (conds.length === 1) return q.where(conds[0]!);
   return q.where(and(...conds));
 }

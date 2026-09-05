@@ -7,7 +7,7 @@ import { users, extensionStorage } from "../db/schema";
 import { up } from "../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { publishExtensionGeneration } from "./extension-lifecycle-service";
-import { createExtension, getExtension } from "../db/queries/extensions";
+import { createExtension, getExtension, getExtensionByName, getExtensionByRef, getExtensionsByNames, listExtensions } from "../db/queries/extensions";
 import { resolveFilePlaceholders } from "./entities/seed";
 import { ExtensionRegistry } from "./registry";
 
@@ -58,4 +58,25 @@ test("superseded generations cannot seed or publish any projection", async () =>
 test("immutable placeholder resolution never falls back to host paths", () => {
   expect(resolveFilePlaceholders({ values: ["{file:./present.txt}"] }, "/", { "present.txt": "bound source" })).toEqual({ values: ["bound source"] });
   for (const path of ["../etc/passwd", "/etc/passwd", "missing.txt"]) expect(() => resolveFilePlaceholders(`{file:${path}}`, "/", {})).toThrow();
+});
+
+test("uninstall removes installed catalog visibility but retains projection, release history and user data", async () => {
+  const { installation, release, repository, database } = await fixture();
+  await publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" });
+  await repository.transact(installation.id, (state) => { state.installation.generation++; state.installation.enabled = false; });
+  const disabled = (await repository.read(installation.id))!.installation;
+  await publishExtensionGeneration(disabled, null);
+  expect((await listExtensions()).some((row) => row.id === installation.id)).toBe(true);
+  expect((await listExtensions(true)).some((row) => row.id === installation.id)).toBe(false);
+  await repository.transact(installation.id, (state) => { state.installation.generation++; state.installation.uninstalled = true; });
+  const removed = (await repository.read(installation.id))!.installation;
+  await publishExtensionGeneration(removed, null);
+  for (const options of [undefined, false, true, { bundled: false }]) expect((await listExtensions(options)).some((row) => row.id === installation.id)).toBe(false);
+  expect(await getExtensionByName(release.manifest.name)).toBeNull();
+  expect(await getExtensionByRef(release.manifest.name)).toBeNull();
+  expect(await getExtensionByRef(installation.id)).toBeNull();
+  expect((await getExtensionsByNames([release.manifest.name])).size).toBe(0);
+  expect(await getExtension(installation.id)).not.toBeNull();
+  expect((await repository.read(installation.id))!.releases[release.id]).toEqual(release);
+  expect(await database.select().from(extensionStorage).where(eq(extensionStorage.extensionId, installation.id))).toHaveLength(3);
 });
