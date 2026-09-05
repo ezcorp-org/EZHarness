@@ -14,7 +14,7 @@
  * are the ones that could not be written before the fix.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -52,10 +52,17 @@ const REMOTE_DECL = {
   custom: { "ezcorp:mcp:invoke": true },
 };
 
+import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
+import { normalizeMcpCatalog } from "@ezcorp/extension-contract";
+import { createUser } from "../db/queries/users";
+let releaseFixture: ReturnType<typeof mcpReleaseFixture> | undefined;
+afterEach(() => releaseFixture?.cleanup());
+let ownerId: string;
 let projectId: string;
 
 beforeAll(async () => {
   await setupTestDb();
+  ownerId = (await createUser({ email: "mcp-pdp@test.local", name: "MCP PDP", passwordHash: "hash", role: "admin", status: "active" })).id;
   const [p] = await getDb()
     .insert(projects)
     .values({ name: "mcp-pdp-proj", path: "/tmp/mcp-pdp" })
@@ -74,13 +81,23 @@ beforeEach(() => {
 });
 
 /** Boot the registry off the DB and stub the wire client for `extId`. */
-async function bootRegistry(extId: string): Promise<{
+async function bootRegistry(extId: string, approved = false): Promise<{
   registry: ExtensionRegistry;
   calls: string[];
 }> {
   const registry = ExtensionRegistry.getInstance();
   await registry.loadFromDb();
   const calls: string[] = [];
+  if (approved) {
+    const row = (await getExtension(extId))!;
+    releaseFixture = mcpReleaseFixture({ id: extId, name: row.name, tools: normalizeMcpCatalog(row.manifest.tools ?? []).map((tool, index) => ({ ...tool, capabilities: row.manifest.tools![index]!.capabilities })) });
+    releaseFixture.snapshot.installation.ownerId = ownerId;
+    releaseFixture.manifest.permissions = { ...row.manifest.permissions, mcpInvoke: true };
+    releaseFixture.invoke(async params => { calls.push(String(params.name)); return { content: [{ type: "text", text: "ok" }], isError: false }; });
+    await updateExtension(extId, { manifest: releaseFixture.manifest, source: "release-v4" });
+    await registry.loadFromDb();
+    return { registry, calls };
+  }
   (registry as unknown as { mcpClients: Map<string, unknown> }).mcpClients.set(extId, {
     isConnected: true,
     connect: async () => {},
@@ -100,7 +117,9 @@ function makeExecutor(registry: ExtensionRegistry): ToolExecutor {
     bus: new EventBus<AgentEvents>(),
     db: {},
   });
-  return new ToolExecutor(registry, engine);
+  const executor = new ToolExecutor(registry, engine);
+  executor.setCurrentUserId(ownerId);
+  return executor;
 }
 
 async function auditRows(extId: string, action: string) {
@@ -141,7 +160,7 @@ describe("MCP tool dispatch is gated by the PDP", () => {
       server: { transport: "http", name: "pdp-allow", url: REMOTE_URL },
       cachedTools: [{ name: "probe", description: "p", inputSchema: { type: "object" } }],
     });
-    const { registry, calls } = await bootRegistry(ext.id);
+    const { registry, calls } = await bootRegistry(ext.id, true);
     const conv = await createConversation(projectId, { title: "allow" });
 
     const result = await makeExecutor(registry).executeToolCall(
@@ -186,7 +205,7 @@ describe("MCP tool dispatch is gated by the PDP", () => {
     await deleteExtension(ext.id);
   });
 
-  test("a stdio server's command-line host is derived, granted and enforced", async () => {
+  test("legacy stdio network declarations cannot authorize execution without a release", async () => {
     const server: McpServerDefinition = {
       transport: "stdio",
       name: "pdp-stdio",
@@ -206,7 +225,8 @@ describe("MCP tool dispatch is gated by the PDP", () => {
     const { registry } = await bootRegistry(ext.id);
     const conv = await createConversation(projectId, { title: "stdio" });
     const ok = await makeExecutor(registry).executeToolCall("pdp-stdio__probe", {}, conv.id, null);
-    expect(ok.isError).toBe(false);
+    expect(ok.isError).toBe(true);
+    expect(ok.content[0]?.text).toContain("approved v4 release");
 
     await updateExtension(ext.id, { grantedPermissions: { grantedAt: {} } });
     ExtensionRegistry.resetInstance();
@@ -284,7 +304,7 @@ describe("MCP tool dispatch is gated by the PDP", () => {
 });
 
 describe("refresh does not silently un-declare the tools", () => {
-  test("refreshMcpTools re-derives the declaration for the fresh tools/list", async () => {
+  test("legacy refresh cannot replace the stored capability declaration", async () => {
     const ext = await installMcpExtension({
       name: "pdp-refresh",
       server: { transport: "http", name: "pdp-refresh", url: REMOTE_URL },
@@ -302,7 +322,7 @@ describe("refresh does not silently un-declare the tools", () => {
       close: async () => {},
     });
 
-    await registry.refreshMcpTools(ext.id);
+    await expect(registry.refreshMcpTools(ext.id)).rejects.toThrow("approved v4 release");
 
     // In memory AND at rest, the refreshed tool still declares the host.
     expect(registry.getManifest(ext.id)!.tools![0]!.capabilities).toEqual(REMOTE_DECL);
@@ -316,7 +336,7 @@ describe("refresh does not silently un-declare the tools", () => {
     const rebooted = await bootRegistry(ext.id);
     await expect(
       makeExecutor(rebooted.registry).executeToolCall(
-        "pdp-refresh__fresh",
+        "pdp-refresh__old",
         {},
         (await createConversation(projectId, { title: "refresh" })).id,
         null,
@@ -488,7 +508,7 @@ describe("legacy MCP rows (permissions: {})", () => {
     await deleteExtension(ext.id);
   });
 
-  test("(c) the one-shot backfill heals the row's ceiling AND its grant", async () => {
+  test("(c) backfilled grants still cannot authorize legacy code execution", async () => {
     const ext = await insertLegacyRow("pdp-legacy-healed");
 
     const result = await backfillMcpManifestCapabilities();
@@ -512,8 +532,9 @@ describe("legacy MCP rows (permissions: {})", () => {
       conv.id,
       null,
     );
-    expect(ok.isError).toBe(false);
-    expect(calls).toEqual(["probe"]);
+    expect(ok.isError).toBe(true);
+    expect(ok.content[0]?.text).toContain("approved v4 release");
+    expect(calls).toEqual([]);
 
     await deleteExtension(ext.id);
   });
