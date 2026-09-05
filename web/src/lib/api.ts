@@ -21,7 +21,7 @@ async function checkResponse(res: Response): Promise<void> {
 		}).catch(() => {});
 	}
 	const data = await res.json().catch(() => ({}));
-	throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	throw new Error(data.error ?? data.message ?? `${res.status} ${res.statusText}`);
 }
 
 export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
