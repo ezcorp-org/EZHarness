@@ -12,11 +12,8 @@ import { getProjectRoot } from "./project-root";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
 import { guardedFetch, type ResolveHost } from "../search/egress";
 
-export type ExtensionSourceInput =
-  | { kind: "marketplace"; versionId: string }
-  | { kind: "bundled"; name: string }
-  | { kind: "local"; path: string }
-  | { kind: "github"; repository: string; ref?: string; directory?: string; projectId?: string };
+import { parseExtensionSourceInput, type ExtensionSourceInput } from "./source-input";
+export { parseExtensionSourceInput, type ExtensionSourceInput } from "./source-input";
 
 const EXCLUDED = new Set(["node_modules", ".git", ".ezcorp", "dist", "coverage", "test-results", "playwright-report"]);
 type GitHubSourceCredentialResolver = (actor: LifecycleActor, repository: string, projectId?: string) => Promise<string | null>;
@@ -25,7 +22,9 @@ let sourceCredentialResolver: GitHubSourceCredentialResolver = resolveProjectSou
 export async function resolveProjectSourceCredential(actor: LifecycleActor, repository: string, projectId?: string): Promise<string | null> {
   if (projectId === undefined) return null;
   if (typeof projectId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(projectId)) throw new LifecycleError("invalid_source", "Select a valid project for private source access.");
-  await requireSourceAdministrator(actor);
+  const currentUser = await getUserById(actor.principalId);
+  if (currentUser?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
+  if (actor.kind !== "human") throw new LifecycleError("forbidden", "An active human must request source credentials.");
   const { getProject } = await import("../db/queries/projects");
   const { checkProjectRole } = await import("../auth/middleware");
   const { readProjectGit } = await import("./project-git-broker");
@@ -110,14 +109,20 @@ export async function collectGitHubSource(input: Extract<ExtensionSourceInput, {
   return files;
 }
 
-async function requireSourceAdministrator(actor: LifecycleActor): Promise<void> {
+async function authorizeSource(actor: LifecycleActor, targetInstallationId?: string, hostLocal = false): Promise<LifecycleActor> {
   const user = await getUserById(actor.principalId);
   if (user?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
-  if (user.role !== "admin" || actor.kind !== "human") throw new LifecycleError("forbidden", "A human administrator must import source");
+  if (actor.kind !== "human" || ((hostLocal || !targetInstallationId) && user.role !== "admin")) throw new LifecycleError("forbidden", "A human administrator must import source");
+  if (!targetInstallationId) return actor;
+  const { resolveSourceTarget } = await import("./source-adoption");
+  const target = await resolveSourceTarget(actor, targetInstallationId);
+  if (target.state) await (await getExtensionLifecycle()).inspect(target.actor, targetInstallationId);
+  return target.actor;
 }
 
-export async function importExtensionSource(actor: LifecycleActor, input: ExtensionSourceInput) {
-  await requireSourceAdministrator(actor);
+export async function importExtensionSource(actor: LifecycleActor, source: ExtensionSourceInput) {
+  const { targetInstallationId, ...input } = parseExtensionSourceInput(source);
+  actor = await authorizeSource(actor, targetInstallationId, input.kind === "local" || input.kind === "bundled");
   let files: WorkspaceFiles;
   if (input.kind === "marketplace") files = await collectMarketplaceSource(input.versionId);
   else if (input.kind === "github") files = await collectGitHubSource(input, { resolveCredential: () => sourceCredentialResolver(actor, input.repository, input.projectId) });
@@ -132,15 +137,31 @@ export async function importExtensionSource(actor: LifecycleActor, input: Extens
     }
   }
   const provenance: ExtensionSourceInput | { kind: "local"; name: string } = input.kind === "local" ? { kind: "local", name: basename(input.path) } : input;
-  return stageExtensionSourceFiles(actor, files, provenance);
+  return stageExtensionSourceFiles(actor, files, provenance, { targetInstallationId });
 }
 
-export async function stageExtensionSourceFiles(actor: LifecycleActor, sourceFiles: WorkspaceFiles, provenance: ExtensionSourceInput | { kind: "local" | "skill"; name: string }) {
-  await requireSourceAdministrator(actor);
-  const files = { ...validateWorkspaceFiles(sourceFiles), "extension-source.json": JSON.stringify({ schemaVersion: 4, source: provenance }, null, 2) };
+export async function stageExtensionSourceFiles(actor: LifecycleActor, sourceFiles: WorkspaceFiles, provenance: ExtensionSourceInput | { kind: "local" | "skill"; name: string }, options: { targetInstallationId?: string } = {}) {
+  const identity = (provenance.kind === "local" && "name" in provenance) || provenance.kind === "skill"
+    ? parseNamedSource(provenance) : parseExtensionSourceInput(provenance);
+  if ("targetInstallationId" in identity) throw new LifecycleError("invalid_input", "Target identity is not source metadata");
+  actor = await authorizeSource(actor, options.targetInstallationId, identity.kind === "local" || identity.kind === "bundled");
+  const files = { ...validateWorkspaceFiles(sourceFiles), "extension-source.json": JSON.stringify({ schemaVersion: 4, source: identity }, null, 2) };
   const lifecycle = await getExtensionLifecycle();
-  const result = await lifecycle.createWorkspace(actor, { files });
-  const operation = await lifecycle.build(actor, { installationId: result.installation.id, workspaceId: result.workspace.id, expectedRevision: result.workspace.revision, idempotencyKey: `source-import:${result.workspace.sourceDigest}` });
-  void lifecycle.runBuild(actor, result.installation.id, operation.id).catch(() => undefined);
-  return { ...result, operation, source: provenance, openUrl: `/extensions/author?installation=${encodeURIComponent(result.installation.id)}&workspace=${encodeURIComponent(result.workspace.id)}` };
+  let result: Awaited<ReturnType<typeof lifecycle.createWorkspace>>;
+  if (options.targetInstallationId) {
+    const { resolveSourceTarget } = await import("./source-adoption");
+    const target = await resolveSourceTarget(actor, options.targetInstallationId, true);
+    actor = target.actor;
+    const { digestObject } = await import("./v4/blobs");
+    const existing = Object.values(target.state?.workspaces ?? {}).find((workspace) => workspace.sourceDigest === digestObject(files));
+    result = existing && target.state ? { installation: target.state.installation, workspace: existing } : await lifecycle.createWorkspace(actor, { installationId: options.targetInstallationId, files });
+  } else result = await lifecycle.createWorkspace(actor, { files });
+  const operation = await lifecycle.build(actor, { installationId: result.installation.id, workspaceId: result.workspace.id, expectedRevision: result.workspace.revision, idempotencyKey: `source-import:${result.workspace.sourceDigest}${options.targetInstallationId ? `:${result.workspace.id}` : ""}` });
+  void lifecycle.runBuild(actor, result.installation.id, operation.id).catch((error) => { console.error("Imported extension build requires attention", { installationId: result.installation.id, operationId: operation.id, error: String(error) }); });
+  return { ...result, operation, source: identity, openUrl: `/extensions/author?installation=${encodeURIComponent(result.installation.id)}&workspace=${encodeURIComponent(result.workspace.id)}` };
+}
+
+function parseNamedSource(value: { kind: "local" | "skill"; name: string }): { kind: "local" | "skill"; name: string } {
+  if (Object.keys(value).some((key) => key !== "kind" && key !== "name") || typeof value.name !== "string" || !value.name || value.name.length > 4096) throw new LifecycleError("invalid_input", "Invalid source metadata");
+  return { kind: value.kind, name: value.name };
 }

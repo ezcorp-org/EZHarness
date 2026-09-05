@@ -19,9 +19,10 @@ An active administrator in a human session can call
 
 For private GitHub source, add `projectId` to the GitHub request. The selected
 project must have the exact repository as its Git origin and a host-stored
-GitHub credential. Each source request checks the active administrator,
+GitHub credential. Each source request checks the active human,
 project membership, origin, and current credential again. Use a read-only
 repository-scoped credential. No global Git identity or child-supplied token is used.
+
 Source snapshots preserve UTF-8 text as strings. Compiled source and configuration
 files are text-only; collectors remove their executable bit. Shell scripts and
 other executable assets retain that bit. Binary and executable assets use
@@ -38,6 +39,16 @@ content cannot be edited as text. Set a nested destination in the file path
 field before uploading. Edits create a new revision and require a new build and
 approval. The production server admits at most 128 MiB of serialized request
 data; workspace validation still enforces the smaller decoded source limit.
+
+To replace an existing installation, add `targetInstallationId` with its exact
+identifier. An active human owner can import GitHub or marketplace source into
+that installation, even without the administrator role. New installations and
+host-local source still require an administrator. Target ownership is checked
+before collection; an administrator cannot take another user's installation.
+Adoption preserves its identifier, owner, data namespace, and existing links.
+Legacy grants are removed. An active v4 release remains unchanged while the new
+candidate is built. Source names never cause an automatic match or takeover.
+Unknown request fields, including raw credentials, are rejected rather than saved.
 
 Uploaded skills use the same lifecycle through the import wizard. See
 `src/runtime/import/README.md` for script limits and interpreter requirements.

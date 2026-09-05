@@ -9,6 +9,7 @@ import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 const root = await mkdtemp(join(tmpdir(), "ez-private-source-"));
 const actor: LifecycleActor = { principalId: "owner", scope: "global", kind: "human" };
 let active = true;
+let role = "admin";
 let member = true;
 let token: string | null = "private-source-fixture-token";
 let projectExists = true;
@@ -17,7 +18,7 @@ const requests: string[] = [];
 const originalFetch = globalThis.fetch;
 const originalEgress = { ...egress };
 mock.module("../../search/egress", () => ({ ...originalEgress, guardedFetch: (url: string, init: RequestInit, options: egress.GuardedFetchOptions) => originalEgress.guardedFetch(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }) }));
-mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "owner", role: "admin", status: active ? "active" : "disabled" }) }));
+mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "owner", role, status: active ? "active" : "disabled" }) }));
 mock.module("../../db/queries/projects", () => ({ listProjects: async () => [], getProject: async (id: string) => projectExists && id === "project" ? { id, path: root } : undefined }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => member ? undefined : new Response(null, { status: 403 }) }));
 mock.module("../secrets-store", () => ({ getSecret: async (extension: string, project: string, name: string) => { expect([extension, project, name]).toEqual(["github-projects", "project", "apiToken"]); return token; } }));
@@ -33,7 +34,7 @@ async function git(...args: string[]) {
 }
 beforeAll(async () => { await git("init"); await git("remote", "add", "origin", "https://github.com/owner/private.git"); });
 beforeEach(() => {
-  active = true; member = true; projectExists = true; token = "private-source-fixture-token";
+  active = true; role = "admin"; member = true; projectExists = true; token = "private-source-fixture-token";
   staged.length = 0; requests.length = 0;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
@@ -85,9 +86,17 @@ test("invalid project IDs and non-human or disabled actors cannot obtain source 
   for (const projectId of ["", "../project", "a".repeat(129)]) {
     await expect(resolveProjectSourceCredential(actor, "owner/private", projectId)).rejects.toThrow("valid project");
   }
-  await expect(resolveProjectSourceCredential({ ...actor, kind: "agent" }, "owner/private", "project")).rejects.toThrow("human administrator");
+  await expect(resolveProjectSourceCredential({ ...actor, kind: "agent" }, "owner/private", "project")).rejects.toThrow("active human");
   active = false;
   await expect(resolveProjectSourceCredential(actor, "owner/private", "project")).rejects.toThrow("active user");
   expect(requests).toHaveLength(0);
   expect(staged).toHaveLength(0);
+});
+
+test("active human project members can resolve credentials for their authorized targeted imports", async () => {
+  role = "member";
+  expect(await resolveProjectSourceCredential(actor, "owner/private", "project")).toBe(token);
+  member = false;
+  await expect(resolveProjectSourceCredential(actor, "owner/private", "project")).rejects.toThrow("membership");
+  expect(requests).toHaveLength(0);
 });

@@ -59,7 +59,7 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
 test("create strips caller-supplied managed provenance before writing or registering", async () => {
   vi.clearAllMocks();
-  vi.mocked(createAgentConfig).mockResolvedValue({ id: "user-agent", name: "user-agent", description: "", capabilities: [], prompt: "User", managedByExtensionId: null } as Awaited<ReturnType<typeof createAgentConfig>>);
+  vi.mocked(createAgentConfig).mockResolvedValue({ id: "user-agent", name: "user-agent", description: "", capabilities: [], prompt: "User", managedByExtensionId: null } as unknown as Awaited<ReturnType<typeof createAgentConfig>>);
   const response = await POST(makeEvent({ locals: { user }, body: { name: "user-agent", prompt: "User", managedByExtensionId: "forged-installation" } }));
   expect(response.status).toBe(201);
   expect(createAgentConfig).toHaveBeenCalledTimes(1);

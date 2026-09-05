@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ importSource: vi.fn() }));
-vi.mock("$server/extensions/source-import", () => ({ importExtensionSource: mocks.importSource }));
+vi.mock("$server/extensions/source-import", async () => ({ importExtensionSource: mocks.importSource, parseExtensionSourceInput: (await import("$server/extensions/source-input")).parseExtensionSourceInput }));
 vi.mock("$server/auth/middleware", () => ({ requireSessionAuth: (locals: { user?: unknown; authMethod?: string }) => locals.user && locals.authMethod === "session" ? locals.user : new Response("Session required", { status: 403 }) }));
 import { POST } from "../routes/api/extensions/import-source/+server";
 
@@ -44,4 +44,21 @@ test("reports source collection failure without granting or activating a release
   const response = await POST(event({ kind: "bundled", name: "ask-user" }));
   expect(response.status).toBe(500);
   expect(mocks.importSource).toHaveBeenCalledTimes(1);
+});
+
+test("members can submit an explicit target for shared owner authorization but cannot create installations", async () => {
+  const targeted = { kind: "github", repository: "owner/repo", targetInstallationId: "existing" };
+  expect((await POST(event(targeted, "session", "member"))).status).toBe(200);
+  expect(mocks.importSource).toHaveBeenCalledWith({ principalId: "admin", scope: "global", kind: "human" }, targeted);
+  mocks.importSource.mockClear();
+  expect((await POST(event({ kind: "github", repository: "owner/repo" }, "session", "member"))).status).toBe(403);
+  expect(mocks.importSource).not.toHaveBeenCalled();
+});
+
+test("rejects credential injection and malformed JSON before source effects", async () => {
+  expect((await POST(event({ kind: "github", repository: "owner/repo", token: "secret" }))).status).toBe(400);
+  const malformed = event({});
+  malformed.request = new Request("http://localhost/api/extensions/import-source", { method: "POST", body: "{" });
+  expect((await POST(malformed)).status).toBe(400);
+  expect(mocks.importSource).not.toHaveBeenCalled();
 });

@@ -42,6 +42,14 @@ beforeEach(() => {
   configureGitHubSourceCredentials(async () => null);
   globalThis.fetch = originalFetch;
 });
+
+test("unknown caller metadata cannot persist secrets or grant authority during source staging", async () => {
+  for (const input of [{ kind: "github", repository: "owner/repo", token: "secret" }, { kind: "skill", name: "example", headers: { authorization: "secret" } }, { kind: "skill", name: "" }, { kind: "github", repository: "owner/repo", targetInstallationId: "unexpected" }]) {
+    await expect(stageExtensionSourceFiles(actor, { "extension.ts": "source" }, input as Parameters<typeof stageExtensionSourceFiles>[2])).rejects.toThrow();
+  }
+  expect(workspace).not.toHaveBeenCalled();
+  expect(build).not.toHaveBeenCalled();
+});
 afterAll(async () => { globalThis.fetch = originalFetch; mock.restore(); mock.module("../../search/egress", () => originalEgress); await rm(root, { recursive: true, force: true }); });
 
 for (const kind of ["local", "bundled"] as const) test(`${kind}: preserves complete source without evaluating metadata or enabling execution`, async () => {
