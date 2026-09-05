@@ -462,6 +462,8 @@ export interface ExtensionManifestV2 {
   permissions: {
     hostApi?: HostApiPermission;
     network?: string[];
+    networkTcp?: string[];
+    secretRead?: string[];
     filesystem?: string[];
     shell?: boolean;
     env?: string[];
@@ -730,6 +732,8 @@ export interface ExtensionManifestV2 {
 export interface ExtensionPermissions {
   hostApi?: HostApiPermission;
   network?: string[];
+  networkTcp?: string[];
+  secretRead?: string[];
   filesystem?: string[];
   shell?: boolean;
   env?: string[];
