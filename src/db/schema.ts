@@ -2850,6 +2850,19 @@ export const savedContexts = pgTable("saved_contexts", {
 export type SavedContext = typeof savedContexts.$inferSelect;
 export type NewSavedContext = typeof savedContexts.$inferInsert;
 
+export const extensionBrowserRequests = pgTable("extension_browser_requests", {
+  id: text("id").primaryKey(),
+  principalId: text("principal_id").notNull(),
+  installationId: text("installation_id").notNull(),
+  releaseBinding: text("release_binding").notNull(),
+  conversationId: text("conversation_id"),
+  payloadDigest: text("payload_digest").notNull(),
+  deadline: bigint("deadline", { mode: "number" }).notNull(),
+  retainUntil: bigint("retain_until", { mode: "number" }).notNull(),
+  state: text("state").notNull(),
+  executionId: text("execution_id"),
+});
+
 export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
   installationId: text("installation_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
   key: text("lock_key").notNull(),
