@@ -39,7 +39,7 @@
  * and the read is a single indexed query.
  */
 import { listProjectIdsForUser } from "../db/queries/project-members";
-import { workflowReleaseCanAccess } from "./workflow-release-assets";
+import { workflowReleaseCanAccess, workflowReleaseCanExecute } from "./workflow-release-assets";
 import {
   NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
@@ -93,8 +93,13 @@ export function makeNestedWorkflowResolver(
 ): NestedWorkflowResolver {
   return async (name, ctx) => {
     const userId = ctx.userId ?? null;
+    const entries = getEntries();
+    if (ctx.authority?.runAsKind === "service") {
+      const entry = entries.find(entry => entry.definition.name === name);
+      if (entry?.source === "extension") return await workflowReleaseCanExecute(entry, { ...ctx.authority, userId, projectId: ctx.projectId }) ? entry.definition : undefined;
+    }
     const resolved = resolveWorkflowForCaller(
-      getEntries(),
+      entries,
       name,
       {
         userId,

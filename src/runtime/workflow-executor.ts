@@ -287,7 +287,7 @@ export interface ResumeWorkflowOptions {
  */
 export type NestedWorkflowResolver = (
   name: string,
-  ctx: { userId?: string; projectId?: string },
+  ctx: { userId?: string; projectId?: string; authority?: WorkflowExecutionAuthority },
 ) => WorkflowDefinition | undefined | Promise<WorkflowDefinition | undefined>;
 
 /**

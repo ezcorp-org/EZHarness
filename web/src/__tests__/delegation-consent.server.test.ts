@@ -22,6 +22,8 @@ import { workflowDefinitionHash } from "$server/runtime/workflow-definition-hash
 import { releaseRuntimeFixture } from "$server/__tests__/helpers/release-runtime";
 import { releaseBinding } from "$server/extensions/release-process";
 vi.mock("$server/db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: "active", role: "member" }) }));
+const service = vi.hoisted(() => ({ enabled: true }));
+vi.mock("$server/db/queries/service-accounts", () => ({ findLiveServiceAccount: async (id: string) => service.enabled ? { id, projectId: null } : undefined }));
 
 const cache = vi.hoisted(() => ({ getCachedWorkflows: vi.fn(), getExecutor: vi.fn() }));
 vi.mock("$lib/server/context", () => ({
@@ -99,12 +101,31 @@ function request(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  service.enabled = true;
   cache.getCachedWorkflows.mockReset().mockReturnValue([ROOT]);
   cache.getExecutor.mockReset().mockReturnValue({ listAgents: () => [] });
   registry.getRegisteredTool.mockReset().mockReturnValue(null);
   registry.getGrantedPermissions.mockReset().mockReturnValue(null);
   db.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   db.getLatestWorkflowVersion.mockReset().mockResolvedValue(undefined);
+});
+
+test("service consent binds only the exact referenced release closure and requires its human owner", async () => {
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  const release = { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) };
+  const boundEntry = (name: string, child?: string) => ({ ...entry(name, "private", child), source: "extension", id: null, extensionRelease: release });
+  const root = boundEntry("sealed:root", "sealed:child");
+  cache.getCachedWorkflows.mockReturnValue([root, boundEntry("sealed:child"), boundEntry("sealed:unrelated")]);
+  const input = { entry: root, workflowName: "sealed:root", ownerKind: "service", ownerId: "svc", consenterId: "u1" };
+  const result = await buildDelegationConsent(request(input));
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) throw new Error("Expected service consent");
+  expect(JSON.parse(result.extensionReleaseBinding!)).toEqual({ version: 1, release, workflows: ["sealed:child", "sealed:root"] });
+  expect(result.material.graph.map(graph => graph.name).sort()).toEqual(["sealed:child", "sealed:root"]);
+  for (const consenterId of [undefined, "other"]) expect(await buildDelegationConsent(request({ ...input, consenterId }))).toBeInstanceOf(Response);
+  service.enabled = false;
+  expect(await buildDelegationConsent(request(input))).toBeInstanceOf(Response);
 });
 
 test("consent assembly rejects an unbound extension root and omits an unbound nested graph", async () => {

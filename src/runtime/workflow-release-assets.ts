@@ -14,9 +14,12 @@ import { releaseRows } from "../db/queries/extension-releases";
 export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
   if (entry.source !== "extension") return true;
   if (!entry.extensionRelease || consenterId !== entry.extensionRelease.ownerId) return false;
-  const service = database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : await findLiveServiceAccount(serviceId);
+  const readService = async () => database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : await findLiveServiceAccount(serviceId);
+  const service = await readService();
   if (!service || (service.projectId !== null && service.projectId !== projectId)) return false;
-  return workflowReleaseCanAccess(entry, consenterId, projectId, database);
+  if (!await workflowReleaseCanAccess(entry, consenterId, projectId, database)) return false;
+  const current = await readService();
+  return Boolean(current && current.projectId === service.projectId && await workflowReleaseIsCurrent(entry, undefined, database));
 }
 
 export interface WorkflowExecutionAuthority {
@@ -33,10 +36,11 @@ export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority
   if (!entry.extensionRelease || authority.userId || !authority.delegationId || !authority.runAs) return false;
   const readDelegation = async () => database ? releaseRows<Pick<NonNullable<Awaited<ReturnType<typeof getWorkflowDelegation>>>, "id" | "enabled" | "revokedAt" | "ownerKind" | "ownerServiceAccountId" | "workflowName" | "projectId" | "extensionId" | "extensionReleaseBinding" | "consentedByUserId">>(await database.execute(sql`SELECT id, enabled, revoked_at AS "revokedAt", owner_kind AS "ownerKind", owner_service_account_id AS "ownerServiceAccountId", workflow_name AS "workflowName", project_id AS "projectId", extension_id AS "extensionId", extension_release_binding AS "extensionReleaseBinding", consented_by_user_id AS "consentedByUserId" FROM workflow_delegations WHERE id=${authority.delegationId} FOR SHARE`))[0] : await getWorkflowDelegation(authority.delegationId!);
   const delegation = await readDelegation();
-  if (!delegation || !delegation.enabled || delegation.revokedAt || delegation.ownerKind !== "service" || delegation.ownerServiceAccountId !== authority.runAs || delegation.projectId !== (authority.projectId ?? null) || delegation.extensionId !== entry.extensionRelease.installationId || !workflowDelegationReleaseAllows(entry, delegation.extensionReleaseBinding)) return false;
+  const matches = (row: Awaited<ReturnType<typeof readDelegation>>) => row?.enabled && !row.revokedAt && row.ownerKind === "service" && row.ownerServiceAccountId === authority.runAs && row.projectId === (authority.projectId ?? null) && row.extensionId === entry.extensionRelease!.installationId && workflowDelegationReleaseAllows(entry, row.extensionReleaseBinding);
+  if (!delegation || !matches(delegation)) return false;
   if (!await workflowReleaseCanConsentService(entry, authority.runAs, delegation.consentedByUserId, authority.projectId, database)) return false;
   const current = await readDelegation();
-  return Boolean(current?.enabled && !current.revokedAt && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.ownerServiceAccountId === delegation.ownerServiceAccountId && await workflowReleaseIsCurrent(entry, undefined, database));
+  return Boolean(current && matches(current) && current.extensionReleaseBinding === delegation.extensionReleaseBinding && current.consentedByUserId === delegation.consentedByUserId && current.workflowName === delegation.workflowName && await workflowReleaseIsCurrent(entry, undefined, database));
 }
 
 async function readReleaseArtifacts(installationId: string, releaseId: string) {

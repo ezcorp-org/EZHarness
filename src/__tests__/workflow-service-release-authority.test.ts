@@ -8,6 +8,7 @@ const { users, extensions, serviceAccounts, workflowDelegations } = await import
 const { workflowReleaseCanExecute, workflowDelegationReleaseBinding } = await import("../runtime/workflow-release-assets");
 const { up } = await import("../db/migrations/add-workflow-delegation-release");
 const { workflowDelegationReleaseAllows } = await import("../runtime/workflow-scope");
+const { makeNestedWorkflowResolver } = await import("../runtime/nested-workflow-resolver");
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
@@ -81,4 +82,18 @@ test("consented closure accepts only canonical exact release names", async () =>
   expect(workflowDelegationReleaseAllows({ ...child, source: "db" }, binding)).toBe(false);
   expect(workflowDelegationReleaseAllows({ ...child, extensionRelease: undefined }, binding)).toBe(false);
   expect(workflowDelegationReleaseBinding({ ...child, extensionRelease: undefined })).toBeNull();
+});
+
+test("nested service lookup uses the persisted consented closure rather than a human identity", async () => {
+  const { db, release, authority } = await fixture();
+  const child = { ...release.entry, definition: { ...release.entry.definition, name: "sealed:child" } };
+  const unrelated = { ...child, definition: { ...child.definition, name: "sealed:unrelated" } };
+  const resolver = makeNestedWorkflowResolver(() => [release.entry, child, unrelated]);
+  expect(await resolver(child.definition.name, { authority })).toBeUndefined();
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: workflowDelegationReleaseBinding(release.entry, [release.entry.definition.name, child.definition.name]) }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await resolver(child.definition.name, { authority })).toBe(child.definition);
+  expect(await resolver(unrelated.definition.name, { authority })).toBeUndefined();
+  expect(await resolver(child.definition.name, {})).toBeUndefined();
+  await db.update(workflowDelegations).set({ enabled: false }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await resolver(child.definition.name, { authority })).toBeUndefined();
 });

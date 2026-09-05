@@ -240,16 +240,23 @@ describe("the whole surface is session-only", () => {
 // ── §6.1 — authorize as the principal the delegation will carry ─────
 
 describe("consent-time authorization", () => {
+  test("release authority is stamped by the server and cannot be supplied by the caller", async () => {
+    expect((await POST(postEvent(member, { ...BODY, extensionReleaseBinding: "forged" }))).status).toBe(400);
+    expect(db.createWorkflowDelegation).not.toHaveBeenCalled();
+    consent.buildDelegationConsent.mockResolvedValue({ ...RECORD, extensionReleaseBinding: "server-binding" });
+    expect((await POST(postEvent(member, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }))).status).toBe(201);
+    expect(db.createWorkflowDelegation).toHaveBeenCalledWith(expect.objectContaining({ ownerKind: "service", ownerId: "svc-1", consentedByUserId: "u1", extensionReleaseBinding: "server-binding" }));
+  });
   test("a user delegation is authorized as the SESSION's user, never the wire's", async () => {
     await POST(postEvent(member, { ...BODY, ownerKind: "user" }));
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1", null);
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "user", "u1", null, "u1");
   });
 
   test("a service delegation is authorized as the SERVICE ACCOUNT", async () => {
     await POST(
       postEvent(member, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }),
     );
-    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1", null);
+    expect(access.resolveDelegationConsentOr).toHaveBeenCalledWith("ship-it", "service", "svc-1", null, "u1");
   });
 
   test("a refusal is returned verbatim and NOTHING is written (T15)", async () => {

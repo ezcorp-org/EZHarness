@@ -93,6 +93,7 @@ export async function buildDelegationConsent(
   const includedNames = new Set(record.material.graph.map(entry => entry.name));
   const usedEntries = new Set([request.entry, ...entries.filter(entry => includedNames.has(entry.definition.name))]);
   for (const entry of usedEntries) if (!await workflowReleaseCanAccess(entry, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
+  if (request.ownerKind === "service" && !await workflowReleaseCanConsentService(request.entry, request.ownerId, principalId, request.projectId)) return errorJson(404, "Workflow is not available to this principal.");
   if (!record.pin.ok) return errorJson(409, record.pin.message);
   return {
     extensionReleaseBinding: request.ownerKind === "service" ? workflowDelegationReleaseBinding(request.entry, sameReleaseNames.filter(name => includedNames.has(name))) : null,
