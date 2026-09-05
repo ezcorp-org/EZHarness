@@ -32,9 +32,9 @@
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
-      "files": 25,
-      "bytes": 318911,
-      "sourceDigest": "fc79e219dcbb64fda7b41d9b8373f68537db102d6c27d262d7639c6990162234"
+      "files": 27,
+      "bytes": 603245,
+      "sourceDigest": "92849711dea305e788d15a00bb0adc664e70285fb38559625c1fdf165dc8817b"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
@@ -299,8 +299,8 @@
       "directory": "docs/extensions/examples/todo-tracker",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 31022,
-      "sourceDigest": "575a974e161211275b213211d46de311b881a7289f5f43f33e7895ea9209224e"
+      "bytes": 31539,
+      "sourceDigest": "af27631574fbf26c6d21d112e04a30d3db6a4cb03e633770089cb36a59e48833"
     },
     "weather": {
       "directory": "docs/extensions/examples/weather",

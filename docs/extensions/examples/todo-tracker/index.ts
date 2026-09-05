@@ -93,17 +93,19 @@ export function parseTodoLine(line: string, file: string, lineNum: number): Todo
  * pre-migration `find` would have logged a non-fatal warning to stderr;
  * we just skip the entry. The host's grant-prefix check + per-tool
  * `capabilities.filesystem.mode` gating filters paths the extension
- * shouldn't see; from the extension's POV, any error from `fsList`
- * means "skip and continue" so a single inaccessible subtree doesn't
- * tank the whole scan.
+ * shouldn't see. A denied descendant means "skip this subtree" so one
+ * inaccessible directory does not stop the scan. A denied root is returned
+ * as a tool error because reporting an empty project would hide an authority
+ * failure from the user.
  */
 async function findSourceFiles(root: string = cwd): Promise<string[]> {
   const out: string[] = [];
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string, isRoot = false): Promise<void> {
     let entries: Awaited<ReturnType<typeof fsList>>;
     try {
       entries = await fsList(dir);
-    } catch {
+    } catch (error) {
+      if (isRoot) throw error;
       return; // skip dirs we can't list (permission, gone, etc.)
     }
     for (const entry of entries) {
@@ -118,7 +120,7 @@ async function findSourceFiles(root: string = cwd): Promise<string[]> {
       }
     }
   }
-  await walk(root);
+  await walk(root, true);
   return out;
 }
 

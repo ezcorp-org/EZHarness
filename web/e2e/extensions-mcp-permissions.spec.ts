@@ -1,5 +1,5 @@
 /**
- * B5 — an MCP extension's network permission is visible and grantable.
+ * B5 — an MCP extension's network permission is visible in release review.
  *
  * Before the fix, `installMcpExtension` synthesized `permissions: {}` for
  * every MCP row. The detail page renders its "Network Access" checkbox row
@@ -119,42 +119,24 @@ test.describe("Extensions — MCP network permission", () => {
 
 		// The host the operator put on the command line is what the manifest
 		// declares — the ceiling an admin's grant is clamped to.
-		const row = page.getByText("Network Access");
+		const row = page.getByTestId("release-permissions");
 		await expect(row).toBeVisible();
-		const hostBox = page.locator(`label:has-text("${HOST}") input[type="checkbox"]`);
-		await expect(hostBox).toBeVisible();
-		// Pre-granted at install, so it renders checked.
-		await expect(hostBox).toBeChecked();
+		await expect(row).toContainText(HOST);
+		await expect(row).toContainText("Current grants");
 
 		// Bring the Permissions card INTO FRAME before the shot. Without this the
 		// capture was of the fold — header / Details / Connection / Tools — and
 		// contained none of the thing it is evidence of. The gate makes you
 		// produce a screenshot; it cannot make it show the right pixels, so this
 		// scroll (plus `fullPage`) is the part that has to be deliberate.
-		await page.getByText("Network Access").scrollIntoViewIfNeeded();
+		await row.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "mcp-network-permission-granted", {
 			fullPage: true,
 		});
-
-		// Revoking it is a real action: the PUT carries an empty host list, and
-		// the PDP then denies both the tool dispatch and every proxy CONNECT.
-		const put = page.waitForRequest(
-			(r) => r.url().includes(`/api/extensions/${EXT_ID}/permissions`) && r.method() === "PUT",
-		);
-		await hostBox.uncheck();
-		await page.getByRole("button", { name: "Save Permissions" }).click();
-		const body = (await put).postDataJSON() as {
-			permissions: { network: string[]; mcpInvoke?: boolean };
-		};
-		expect(body.permissions.network).toEqual([]);
-
-		// The reason `clampExtensionPermissions` treats an ABSENT `mcpInvoke` as
-		// "keep the ceiling" rather than "revoke": this Save posts a FIXED
-		// six-key body and cannot express the dispatch sentinel at all. Under
-		// the usual omitted-key-revokes default, revoking one host here would
-		// also strip `ezcorp:mcp:invoke` and deny EVERY tool on this server.
-		// Only an explicit `mcpInvoke: false` revokes.
-		expect(body.permissions).not.toHaveProperty("mcpInvoke");
+		// The real-auth release-gate spec proves the live approval submission.
+		// This mock visual proof also pins the supported route into that flow.
+		await page.getByTestId("review-extension-release").click();
+		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
 	});
 
 	test("a stdio server naming no host shows the deny-by-default state", async ({
