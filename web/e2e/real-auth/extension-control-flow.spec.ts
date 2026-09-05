@@ -38,4 +38,12 @@ test("external harness builds and invokes real code; failed updates retain the a
   await expect(client.invokeExtensionTool(conversationId, name, "echo", { text: marker })).rejects.toBeDefined();
   await client.extensionControl("extensions_release", { action: "uninstall", installationId: created.installation.id });
   expect((await client.listExtensions()).some((extension) => extension.name === name)).toBe(false);
+  const exact = await request.get(`/api/extensions?name=${encodeURIComponent(name)}`);
+  expect(exact.status()).toBe(200);
+  expect(await exact.json()).toEqual([]);
+  for (const reference of [created.installation.id, name]) expect((await request.get(`/api/extensions/${encodeURIComponent(reference)}`)).status()).toBe(404);
+  const history = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
+  expect(history.installation.uninstalled).toBe(true);
+  expect(Object.keys(history.releases)).toEqual(Object.keys(state.releases));
+  expect(history.workspaces[created.workspace.id]!.revision).toBe(changed.revision);
 });
