@@ -243,6 +243,7 @@ export class ToolExecutor {
     _opts?: {
       callerExtensionId?: string;
       expectedReleaseBinding?: string;
+      signal?: AbortSignal;
       _callDepth?: number;
       metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
       /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
@@ -252,6 +253,7 @@ export class ToolExecutor {
     },
     invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
+    _opts?.signal?.throwIfAborted();
     const registered = this.registry.getRegisteredTool(toolName);
     if (!registered) {
       return {
@@ -571,6 +573,7 @@ export class ToolExecutor {
       let resolution: ApprovalResolution;
       try {
         resolution = await createExtensionPermissionGate({
+          ...(_opts?.signal ? { signal: _opts.signal } : {}),
           promptId: decision.promptId,
           conversationId,
           userId: this.currentUserId ?? "",
@@ -681,6 +684,7 @@ export class ToolExecutor {
 
     return withRuntimeToolContext(runtimeCtxForCall, async () => {
     try {
+      _opts?.signal?.throwIfAborted();
       // Resolve shared variables (x-shared) before dispatching to either
       // subprocess or MCP client.
       const resolvedInput = resolveSharedVariables(
@@ -884,10 +888,12 @@ export class ToolExecutor {
           (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
             this.registry.isBundled?.(extensionId) === true);
         try {
+          _opts?.signal?.throwIfAborted();
+          const callOptions = _opts?.signal ? { skipTimeout: skipCallTimeout, signal: _opts.signal } : skipCallTimeout ? { skipTimeout: true } : undefined;
           result = isMcp
-            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta)
-            : skipCallTimeout
-            ? await proc!.callTool(originalName, callArgs, meta, { skipTimeout: true })
+            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(_opts?.signal ? [{ signal: _opts.signal }] : []))
+            : callOptions
+            ? await proc!.callTool(originalName, callArgs, meta, callOptions)
             : await proc!.callTool(originalName, callArgs, meta);
         } finally {
           releaseCallProvenance(ezCallId);
@@ -1052,10 +1058,10 @@ export class ToolExecutor {
    * Create the `tools` object for AgentContext.
    * Code-based agents can call ctx.tools.invoke("tool_name", {input}).
    */
-  createToolsContext(conversationId: string, messageId: string) {
+  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal }) {
     return {
       invoke: async (toolName: string, input: Record<string, unknown>): Promise<unknown> => {
-        const result = await this.executeToolCall(toolName, input, conversationId, messageId);
+        const result = await this.executeToolCall(toolName, input, conversationId, messageId, ...(options ? [options] : []));
         if (result.isError) {
           throw new Error(result.content.map((c) => c.text).join("\n"));
         }

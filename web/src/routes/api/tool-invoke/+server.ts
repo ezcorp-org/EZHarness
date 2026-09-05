@@ -162,13 +162,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const metadata = { invocationId, source: 'inline' as const };
   let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };
   let retryCount = 0;
+  const maxRetries = expectedReleaseBinding ? 0 : MAX_RETRIES;
 
-  for (let attempt = 0; attempt <= (expectedReleaseBinding ? 0 : MAX_RETRIES); attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
+      request.signal.throwIfAborted();
       const result = await toolExecutor.executeToolCall(
         namespacedTool, input ?? {}, conversationId, messageId ?? null,
-        { metadata, ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
+        { metadata, signal: request.signal, ...(expectedReleaseBinding ? { expectedReleaseBinding } : {}) },
       );
+      request.signal.throwIfAborted();
 
       if (!result.isError) {
         return json({
@@ -183,6 +186,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       lastResult = result;
       retryCount = attempt;
     } catch (err) {
+      if (request.signal.aborted) return json({ success: false, error: "Invocation cancelled; admitted effects may already have completed", retryCount: attempt, durationMs: Date.now() - startTime, toolCallId: invocationId }, { status: 499 });
       // An authorization denial is DETERMINISTIC — retrying it cannot change
       // the answer. Two things went wrong when it fell through to the generic
       // handler below:
@@ -212,7 +216,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }, { status: 403 });
       }
       // Retry on process/registry errors (extension may have crashed and needs restart)
-      if (attempt < MAX_RETRIES) {
+      if (attempt < maxRetries) {
         continue;
       }
       return json({

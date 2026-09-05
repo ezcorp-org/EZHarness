@@ -90,8 +90,9 @@ function makeEvent(opts: {
   body?: unknown;
   locals?: Record<string, unknown>;
   bodyRaw?: string;
+  signal?: AbortSignal;
 }) {
-  const init: RequestInit = { method: "POST" };
+  const init: RequestInit = { method: "POST", signal: opts.signal };
   if (opts.bodyRaw !== undefined) {
     init.body = opts.bodyRaw;
     init.headers = { "content-type": "application/json" };
@@ -106,6 +107,31 @@ function makeEvent(opts: {
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
+
+for (const outcome of ["throw", "success", "error"] as const) test(`cancelled ${outcome} returns 499 without retry`, async () => {
+  const controller = new AbortController();
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockImplementation(async (...args: unknown[]) => {
+    expect((args[4] as { signal: AbortSignal }).signal.aborted).toBe(false);
+    controller.abort();
+    expect((args[4] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    if (outcome === "throw") throw new Error("Worker closed");
+    return { isError: outcome === "error", content: [{ type: "text", text: "result" }] };
+  });
+  const response = await POST(makeEvent({ locals: authedUser, signal: controller.signal, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1" } }));
+  expect(response.status).toBe(499);
+  expect(await response.json()).toMatchObject({ success: false, retryCount: 0 });
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
+
+test("release-bound failures retain their error without retry", async () => {
+  registryGetTool.mockReturnValue({ name: "ext__ok" });
+  executeToolCall.mockRejectedValue(new Error("Release changed"));
+  const response = await POST(makeEvent({ locals: authedUser, body: { extensionName: "ext", toolName: "ok", conversationId: "c1", invocationId: "i1", expectedReleaseBinding: "a".repeat(64) } }));
+  expect(response.status).toBe(500);
+  expect(await response.json()).toMatchObject({ error: "Release changed", retryCount: 0 });
+  expect(executeToolCall).toHaveBeenCalledTimes(1);
+});
 
 // FILE-level, not inside a describe: the mutable `ownershipResult` /
 // `extensionRow` / `wireAllowed` seams are read by every describe in this

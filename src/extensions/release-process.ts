@@ -33,6 +33,7 @@ export function releaseBinding(snapshot: ActiveExtensionRelease): string {
 }
 
 const outputMethods = new Set(["ezcorp/state", "ezcorp/page-state"]);
+interface ReleaseCallOptions { skipTimeout?: boolean; signal?: AbortSignal }
 
 export class ReleaseProcess extends ExtensionProcess {
   private releaseClosed = false;
@@ -64,10 +65,11 @@ export class ReleaseProcess extends ExtensionProcess {
     return resolveActiveRelease(this.extensionId, this.runtime!);
   }
 
-  override async call(method: string, params: Record<string, unknown> = {}, _options?: { skipTimeout?: boolean }): Promise<JsonRpcResponse> {
+  override async call(method: string, params: Record<string, unknown> = {}, options?: ReleaseCallOptions): Promise<JsonRpcResponse> {
+    if (options?.signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled");
     this.ensureRunning();
     const invocationId = crypto.randomUUID();
-    const operation = this.execute(method, params, invocationId, this.releaseHandler, this.releaseNotification);
+    const operation = this.execute(method, params, invocationId, this.releaseHandler, this.releaseNotification, options?.signal);
     this.releaseCalls.set(invocationId, operation);
     try {
       return { jsonrpc: "2.0", id: invocationId, result: await operation };
@@ -76,8 +78,10 @@ export class ReleaseProcess extends ExtensionProcess {
     }
   }
 
-  private async execute(method: string, params: Record<string, unknown>, invocationId: string, handler: typeof this.releaseHandler, notification: typeof this.releaseNotification): Promise<unknown> {
+  private async execute(method: string, params: Record<string, unknown>, invocationId: string, handler: typeof this.releaseHandler, notification: typeof this.releaseNotification, signal?: AbortSignal): Promise<unknown> {
+    const checkCancellation = () => { if (signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled; admitted effects may already have completed"); };
     const snapshot = await this.active();
+    checkCancellation();
     if (method === "tools/list") return { tools: snapshot.release.manifest.tools ?? [] };
     const meta = params._meta && typeof params._meta === "object" && !Array.isArray(params._meta) ? params._meta as Record<string, unknown> : {};
     if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
@@ -101,15 +105,32 @@ export class ReleaseProcess extends ExtensionProcess {
     };
     const binding = releaseBinding(snapshot);
     const assertCurrentBinding = async () => {
+      checkCancellation();
       if (Date.now() >= context.deadline || !resolveCallProvenance(token)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
-      if (releaseBinding(await this.active()) !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
+      const current = await this.active();
+      checkCancellation();
+      if (releaseBinding(current) !== binding) throw new ContractError("RELEASE_CHANGED", "Extension release or grants changed during invocation");
     };
     let accepting = false;
     const runner = await this.runtime!.runner();
+    checkCancellation();
     let worker: RunnerExecution | undefined;
+    let closing: Promise<void> | undefined;
+    const closeWorker = () => worker ? closing ??= worker.close() : Promise.resolve();
+    const cancellation = Promise.withResolvers<never>();
+    void cancellation.promise.catch(() => undefined);
+    const onAbort = () => {
+      accepting = false;
+      cancellation.reject(new ContractError("CANCELLED", "Extension invocation cancelled; admitted effects may already have completed"));
+      void closeWorker().catch(() => undefined);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const request = (method: string, input: unknown) => Promise.race([worker!.request(method, input), cancellation.promise]);
     const locks = new InvocationLocks(this.extensionId, context, snapshot.installation.generation);
     try {
+      checkCancellation();
       worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, async (rpcMethod, raw) => {
+        checkCancellation();
         if (!accepting || this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
         assertJson(raw);
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_CONTEXT", "Invalid capability envelope");
@@ -127,19 +148,20 @@ export class ReleaseProcess extends ExtensionProcess {
           if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
           if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
           if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
-          await locks.effect(rpcMethod, async () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input }));
+          await locks.effect(rpcMethod, async () => { checkCancellation(); return notification({ jsonrpc: "2.0", method: rpcMethod, params: input }); });
           return { ok: true };
         }
         if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
-        const response = await locks.effect(rpcMethod, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }));
+        const response = await locks.effect(rpcMethod, () => { checkCancellation(); return handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }); });
         if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
         if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
         assertJson(response.result);
         return response.result;
       });
       this.releaseWorkers.set(workerId, worker);
+      checkCancellation();
       if (this.releaseClosed) throw new ContractError("CLOSED", "Runtime closed during startup");
-      const discovered = validateManifest(await worker.request("extension/discover", {}));
+      const discovered = validateManifest(await request("extension/discover", {}));
       if (canonicalJson(discovered) !== canonicalJson(snapshot.release.manifest)) throw new ContractError("CATALOG_MISMATCH", "Runtime metadata does not match approved release");
       await assertCurrentBinding();
       if (method === "tools/call") {
@@ -148,7 +170,7 @@ export class ReleaseProcess extends ExtensionProcess {
         const input = params.arguments ?? {};
         compileValueSchema(tool.inputSchema)(input);
         accepting = true;
-        const result = await worker.request("extension/invoke", { name: tool.name, input, context });
+        const result = await request("extension/invoke", { name: tool.name, input, context });
         await assertCurrentBinding();
         compileValueSchema(tool.outputSchema)(result);
         return result;
@@ -158,18 +180,22 @@ export class ReleaseProcess extends ExtensionProcess {
       const input = Object.fromEntries(Object.entries(params).filter(([key]) => key !== "_meta"));
       compileValueSchema(contribution.inputSchema)(input);
       accepting = true;
-      const result = await worker.request("extension/dispatch", { method, input, context });
+      const result = await request("extension/dispatch", { method, input, context });
       await assertCurrentBinding();
       compileValueSchema(contribution.outputSchema)(result);
       return result;
+    } catch (error) {
+      checkCancellation();
+      throw error;
     } finally {
+      signal?.removeEventListener("abort", onAbort);
       accepting = false;
       this.releaseWorkers.delete(workerId);
-      try { if (worker) await worker.close(); } finally { await locks.close(); }
+      try { await closeWorker(); } finally { await locks.close(); }
     }
   }
 
-  override async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>, options?: { skipTimeout?: boolean }): Promise<ToolCallResult> {
+  override async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>, options?: ReleaseCallOptions): Promise<ToolCallResult> {
     const response = await this.call("tools/call", { name, arguments: args, ...(meta ? { _meta: meta } : {}) }, options);
     const result = response.result;
     if (result && typeof result === "object" && !Array.isArray(result) && Array.isArray((result as Record<string, unknown>).content)) return result as ToolCallResult;

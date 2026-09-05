@@ -16,18 +16,56 @@ function harness() {
   let closed = 0;
   let onInvoke: (params: Record<string, unknown>, rpc: ReverseRpc) => Promise<unknown> = async () => ({ content: [{ type: "text", text: "done" }], isError: false });
   let onDiscover: (() => unknown) | undefined;
+  let onStart: (() => Promise<void>) | undefined;
   const runner: Runner = {
     build: async () => { throw new Error("not used"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
     start: async (input, rpc) => {
       starts.push(input); reverse.push(rpc);
+      await onStart?.();
       return { workerId: input.workerId, request: async (method, params) => method === "extension/discover" ? (onDiscover ? onDiscover() : structuredClone(snapshot.release.manifest)) : onInvoke(params as Record<string, unknown>, rpc), close: async () => { closed++; }, onNotification: () => () => {} };
     },
   };
   const runtime: ReleaseRuntimeDependencies = { runner: async () => runner, resolve: async () => structuredClone(snapshot) };
   const process = new ReleaseProcess("installation", runtime);
   const token = registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: "alice", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });
-  return { process, token, starts, reverse, snapshot: () => snapshot, mutate: (change: (value: ActiveExtensionRelease) => void) => change(snapshot), setSnapshot: (value: ActiveExtensionRelease) => { snapshot = value; }, invoke: (callback: typeof onInvoke) => { onInvoke = callback; }, discover: (callback: typeof onDiscover) => { onDiscover = callback; }, closed: () => closed, cleanup: () => { process.kill(); releaseCallProvenance(token); } };
+  return { process, token, starts, reverse, start: (callback: typeof onStart) => { onStart = callback; }, snapshot: () => snapshot, mutate: (change: (value: ActiveExtensionRelease) => void) => change(snapshot), setSnapshot: (value: ActiveExtensionRelease) => { snapshot = value; }, invoke: (callback: typeof onInvoke) => { onInvoke = callback; }, discover: (callback: typeof onDiscover) => { onDiscover = callback; }, closed: () => closed, cleanup: () => { process.kill(); releaseCallProvenance(token); } };
 }
+
+test("pre-cancelled calls do not start workers", async () => {
+  const fixture = harness();
+  try {
+    await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token }, { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(fixture.starts).toHaveLength(0);
+    expect(fixture.process.inFlightCallCount).toBe(0);
+  } finally { fixture.cleanup(); }
+});
+
+for (const phase of ["startup", "invocation"] as const) test(`cancellation during ${phase} closes only its worker and rejects late effects`, async () => {
+  const fixture = harness();
+  const controller = new AbortController();
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  let effects = 0;
+  fixture.process.setRequestHandler(async request => { effects++; return { jsonrpc: "2.0", id: request.id, result: {} }; });
+  if (phase === "startup") fixture.start(async () => { entered.resolve(); await resume.promise; });
+  else fixture.invoke(async () => { entered.resolve(); await resume.promise; return { content: [], isError: false }; });
+  try {
+    const call = fixture.process.callTool("read", {}, { ezCallId: fixture.token }, { signal: controller.signal });
+    void call.catch(() => undefined);
+    await entered.promise;
+    controller.abort();
+    resume.resolve();
+    await expect(call).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(fixture.reverse[0]!("ezcorp/storage", { context: fixture.starts[0]!.context, input: {} })).rejects.toMatchObject({ code: "CANCELLED" });
+    expect(effects).toBe(0);
+    expect(fixture.closed()).toBe(1);
+    expect(fixture.process.inFlightCallCount).toBe(0);
+    fixture.start(undefined);
+    fixture.invoke(async () => ({ content: [], isError: false }));
+    expect((await fixture.process.callTool("read", {}, { ezCallId: fixture.token })).isError).toBe(false);
+    expect(fixture.closed()).toBe(2);
+  } finally { resume.resolve(); fixture.cleanup(); }
+});
 
 test("release runtime configuration exposes the configured runner without starting it", () => {
   const runtime: ReleaseRuntimeDependencies = { runner: async () => { throw new Error("No worker requested"); }, resolve: async () => null };
