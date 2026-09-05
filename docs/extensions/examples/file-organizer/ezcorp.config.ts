@@ -237,7 +237,7 @@ export default defineExtension({
   permissions: {
     // Subprocess: data dir only. Host folders (Desktop/Downloads/…) are
     // outside this jail and are touched ONLY by the host daemon/applier.
-    filesystem: ["$CWD"],
+    filesystem: ["/data"],
     // No network ⇒ no calls home, enforced by the sandbox.
     shell: false,
     // File-based state so the host daemon (no per-user context) can

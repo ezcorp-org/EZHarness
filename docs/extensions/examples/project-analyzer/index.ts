@@ -2,13 +2,13 @@
 // project-analyzer - Read and list project files
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
-import { getChannel } from "@ezcorp/sdk/runtime";
+import { getChannel, getToolContext } from "@ezcorp/sdk/runtime";
 import { unwrapToolResponse } from "@ezcorp/sdk/v4";
 import { fsList, fsRead } from "@ezcorp/sdk/runtime";
 import { resolve, normalize } from "node:path";
 
 
-const cwd = process.cwd();
+function projectRoot(): string { return getToolContext()?.projectRoot ?? process.cwd(); }
 
 // `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
 // WriteStream constructor for stdio init. Phase 3 sandbox-preload
@@ -20,6 +20,7 @@ const cwd = process.cwd();
 
 // Path validation
 function isUnderCwd(filePath: string): boolean {
+  const cwd = projectRoot();
   const resolved = resolve(cwd, normalize(filePath));
   return resolved.startsWith(cwd + "/") || resolved === cwd;
 }
@@ -36,7 +37,7 @@ function successResponse(id: number | string, text: string): JsonRpcResponse {
 async function handleListFiles(id: number | string, args: Record<string, unknown>): Promise<JsonRpcResponse> {
   const pattern = (args.pattern as string) ?? "*";
   try {
-    const directory = typeof args.path === "string" ? resolve(cwd, args.path) : cwd;
+    const directory = typeof args.path === "string" ? resolve(projectRoot(), args.path) : projectRoot();
     if (!isUnderCwd(directory)) return errorResponse(id, -32000, "Path is outside project directory");
     const matcher = new Bun.Glob(pattern);
     const entries = await fsList(directory);
@@ -52,7 +53,7 @@ async function handleReadFile(id: number | string, args: Record<string, unknown>
   if (!isUnderCwd(filePath)) return errorResponse(id, -32000, "Path is outside project directory");
 
   try {
-    const resolved = resolve(cwd, normalize(filePath));
+    const resolved = resolve(projectRoot(), normalize(filePath));
     const content = (await fsRead(resolved)) as string;
     return successResponse(id, content);
   } catch (err) {
@@ -93,6 +94,6 @@ export const main = start;
 
 /** Exported for `index.test.ts` — driven directly with a stubbed host
  *  channel, mirroring file-refactor's `_internals` convention. */
-export const _internals = { handleRequest, handleListFiles, handleReadFile, isUnderCwd, cwd };
+export const _internals = { handleRequest, handleListFiles, handleReadFile, isUnderCwd, get cwd() { return projectRoot(); } };
 
 if (import.meta.main) void main();

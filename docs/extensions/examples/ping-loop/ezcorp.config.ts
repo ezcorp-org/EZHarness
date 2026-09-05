@@ -43,7 +43,7 @@ export default defineExtension({
     // The run store (one key per run + an index) lives in Storage.
     storage: true,
     // The artifact mirror lands under .ezcorp/extension-data/ping/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // The dashboard button dispatches the `ping-loop:run` page action; the
     // page-tree validator drops any action node naming an undeclared event,
     // so the button's action.event must be listed here. The event is prefixed

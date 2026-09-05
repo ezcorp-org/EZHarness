@@ -53,7 +53,7 @@ export default defineExtension({
     eventSubscriptions: ["run:complete"],
     storage: true,
     // The artifact mirror lands under .ezcorp/extension-data/summarize/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
   },
 
   resources: { memory: "128MB" },

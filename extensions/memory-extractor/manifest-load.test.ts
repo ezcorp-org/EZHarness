@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
+import { validateManifest } from "@ezcorp/extension-contract";
 import memory from "./ezcorp.config";
 import lessons from "../lessons-distiller/ezcorp.config";
 
 test("memory and lessons metadata satisfy the v4 contract", () => {
-  expect(() => defineRuntimeManifest(memory)).not.toThrow();
-  expect(() => defineRuntimeManifest(lessons)).not.toThrow();
+  expect(() => validateManifest(memory)).not.toThrow();
+  expect(() => validateManifest(lessons)).not.toThrow();
 });
 
 test("the memory settings retain their stored snake_case keys", () => {

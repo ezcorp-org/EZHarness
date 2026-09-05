@@ -28,15 +28,15 @@ import {
   registerTeardown,
 } from "$lib/server/shutdown";
 import {
-  bootSpawnFlaggedBundledExtensions,
   ensureBundledExtensions,
 } from "$server/extensions/bundled";
-import { assertBundledNotStranded } from "$server/startup/assert-bundled-not-stranded";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
-import { bootstrapBundledCredentials } from "$lib/server/security/bundled-creds";
-import { wireOpenAIExtensionCredentials } from "$lib/server/security/openai-extension-creds";
+import { recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
+import { initializeHostApiTransport } from "$lib/server/extensions/host-api-transport";
+import { initializeExtensionCredentials } from "$lib/server/extensions/credential-resolver";
+import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
 import {
   ExtensionStateMediator,
   setStateMediator as setStateMediatorSingleton,
@@ -133,27 +133,14 @@ export async function ensureInitialized(): Promise<void> {
     stopBackups();
   });
   const registry = ExtensionRegistry.getInstance();
-  // Provision internal (loopback-only) credentials for allowlisted bundled
-  // extensions BEFORE they install + spawn. The registry injects these at
-  // subprocess spawn time; the extension uses them to call back into this
-  // same server without ever touching process.env or the DB. See
-  // lib/server/security/bundled-creds.ts for the security contract.
-  await bootstrapBundledCredentials(registry);
-  // Wire a per-spawn resolver so the `openai-image-gen-2` extension gets
-  // the user's configured OpenAI credential (BYOK key or OAuth token,
-  // refreshed on the fly) injected into its subprocess. No host env var
-  // required — it reads whatever the user has already set via admin
-  // settings or the OpenAI OAuth sign-in flow.
-  wireOpenAIExtensionCredentials(registry);
-  await ensureBundledExtensions();
-  // Boot health signal: report any bundled extension left DISABLED by the
-  // S9 / tamper gate. That state is permanent without an admin (the
-  // disable exit skips both the manifest refresh and the re-enable
-  // branch) and silent — the extension registers no tools, so agents just
-  // never see them. `web-search` sat like that for days. Reports only;
-  // auto-enabling would defeat a fail-closed gate awaiting human consent.
-  // Never throws, but keep boot non-fatal regardless.
-  await assertBundledNotStranded().catch(() => {});
+  initializeHostApiTransport();
+  initializeExtensionCredentials();
+  await recoverExtensionLifecycle().catch((error) => {
+    console.error("Extension runner recovery unavailable; extension execution remains disabled", { error: String(error) });
+  });
+  await ensureBundledExtensions().catch((error) => {
+    console.error("Bundled source staging unavailable; configure the runner and retry", { error: String(error) });
+  });
   await registry.loadFromDb();
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
@@ -392,10 +379,8 @@ export async function ensureInitialized(): Promise<void> {
       bus,
       eventDriven: true,
     });
-    await bootSpawnFlaggedBundledExtensions(
-      registry,
-      (extId, proc) => bootExecutor.ensureSubprocessRpcWired(extId, proc),
-    );
+    startExtensionDeliveryRuntime((extId, proc) => bootExecutor.ensureSubprocessRpcWired(extId, proc));
+    registerTeardown("extension-delivery-runtime", stopExtensionDeliveryRuntime);
   } catch (bootSpawnErr) {
     // Boot-spawn failures are individually logged inside the helper.
     // Anything escaping here is a wiring-bootstrap failure (engine /

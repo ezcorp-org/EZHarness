@@ -145,7 +145,7 @@ export default defineExtension({
     // Serving them via a short URL instead of embedding base64 in the
     // tool result keeps image bytes out of the model's context window
     // (base64 of a 1024×1024 PNG is ~2 MB — easily overruns it).
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
   },
   resources: {
     memory: "512MB",

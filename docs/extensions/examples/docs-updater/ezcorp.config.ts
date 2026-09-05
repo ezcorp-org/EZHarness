@@ -108,7 +108,7 @@ export default defineExtension({
     spawnAgents: { maxPerHour: 12, maxConcurrent: 2 },
     // The artifact mirror lands under .ezcorp/extension-data/docs-updater/;
     // the `gh` pipeline reads the repo's `.git` to resolve the PR ($CWD).
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // `gh` reaches the GitHub API (and git push over https).
     network: ["api.github.com"],
     // The content-free approval nudges (loops:approval_pending / _resolved).

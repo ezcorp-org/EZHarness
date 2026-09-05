@@ -1,0 +1,103 @@
+import { basename, dirname, isAbsolute, relative, sep } from "node:path";
+import { realpath, lstat } from "node:fs/promises";
+import { snapshotExtensionSource, snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
+import { validateWorkspaceFiles, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { getExtensionLifecycle } from "./extension-lifecycle-service";
+import { getUserById } from "../db/queries/users";
+import { listProjects } from "../db/queries/projects";
+import { allowedInstallRoots } from "./install-roots";
+import { getProjectRoot } from "./project-root";
+import { LifecycleError, type LifecycleActor } from "./v4/types";
+
+export type ExtensionSourceInput =
+  | { kind: "bundled"; name: string }
+  | { kind: "local"; path: string }
+  | { kind: "github"; repository: string; ref?: string; directory?: string };
+
+const EXCLUDED = new Set(["node_modules", ".git", ".ezcorp", "dist", "coverage", "test-results", "playwright-report"]);
+type GitHubSourceCredentialResolver = (actor: LifecycleActor, repository: string) => Promise<string | null>;
+let sourceCredentialResolver: GitHubSourceCredentialResolver = async () => null;
+
+export function configureGitHubSourceCredentials(resolver: GitHubSourceCredentialResolver): void { sourceCredentialResolver = resolver; }
+
+async function readBounded(response: Response, limit: number): Promise<Uint8Array> {
+  if (!response.ok || !response.body) throw new LifecycleError("source_fetch_failed", `Source server returned ${response.status}`);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) { await reader.cancel(); throw new LifecycleError("source_limit", "Source response exceeded its size limit"); }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks);
+  } finally { reader.releaseLock(); }
+}
+
+export async function collectGitHubSource(input: Extract<ExtensionSourceInput, { kind: "github" }>, options: { token?: string; fetch?: typeof fetch; signal?: AbortSignal } = {}): Promise<WorkspaceFiles> {
+  if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(input.repository)) throw new LifecycleError("invalid_source", "Use an owner/repository GitHub identifier");
+  const ref = input.ref ?? "HEAD";
+  if (!ref || ref.length > 200 || [...ref].some((character) => character.charCodeAt(0) <= 32)) throw new LifecycleError("invalid_ref", "Use a bounded Git branch, tag, or commit");
+  const prefix = input.directory ? `${input.directory.replace(/\/$/, "")}/` : "";
+  if (prefix.startsWith("/") || prefix.split("/").some((part) => part === ".." || part === ".") || prefix.includes("\\")) throw new LifecycleError("invalid_source", "Use a relative source directory without traversal");
+  const fetcher = options.fetch ?? fetch;
+  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000);
+  async function request(path: string, limit: number): Promise<unknown> {
+    const response = await fetcher(`https://api.github.com/repos/${input.repository}/${path}`, { redirect: "error", signal, headers: { accept: "application/vnd.github+json", "user-agent": "ezcorp-extension-import", ...(options.token ? { authorization: `Bearer ${options.token}` } : {}) } });
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBounded(response, limit)));
+  }
+  const commit = await request(`commits/${encodeURIComponent(ref)}`, 1024 * 1024) as { commit?: { tree?: { sha?: unknown } } };
+  const treeId = commit.commit?.tree?.sha;
+  if (typeof treeId !== "string" || !/^[a-f0-9]{40,64}$/.test(treeId)) throw new LifecycleError("invalid_source", "Source server did not return an immutable Git tree");
+  const tree = await request(`git/trees/${treeId}?recursive=1`, 8 * 1024 * 1024) as { truncated?: unknown; tree?: unknown };
+  if (tree.truncated || !Array.isArray(tree.tree)) throw new LifecycleError("source_limit", "Source tree is incomplete or exceeds its size limit");
+  const files: WorkspaceFiles = Object.create(null);
+  let total = 0;
+  for (const raw of tree.tree) {
+    if (!raw || typeof raw !== "object") throw new LifecycleError("invalid_source", "Invalid source tree entry");
+    const entry = raw as Record<string, unknown>;
+    if (typeof entry.path !== "string" || !entry.path.startsWith(prefix)) continue;
+    const path = entry.path.slice(prefix.length);
+    if (!path || path.split("/").some((part) => EXCLUDED.has(part) || part === ".env" || part.startsWith(".env."))) continue;
+    if (entry.type === "tree") continue;
+    if (entry.type !== "blob" || !["100644", "100755"].includes(String(entry.mode))) throw new LifecycleError("invalid_source", "Source links and submodules are not allowed");
+    if (typeof entry.sha !== "string" || !/^[a-f0-9]{40,64}$/.test(entry.sha) || typeof entry.size !== "number" || entry.size > 4 * 1024 * 1024 || Object.keys(files).length >= 4096) throw new LifecycleError("source_limit", "Invalid or oversized source blob");
+    const blob = await request(`git/blobs/${entry.sha}`, 6 * 1024 * 1024) as { encoding?: unknown; content?: unknown };
+    if (blob.encoding !== "base64" || typeof blob.content !== "string" || !/^[A-Za-z0-9+/=\r\n]*$/.test(blob.content)) throw new LifecycleError("invalid_source", "Source blob encoding is invalid");
+    const bytes = Buffer.from(blob.content, "base64");
+    total += bytes.byteLength;
+    if (bytes.byteLength > 4 * 1024 * 1024 || total > 64 * 1024 * 1024) throw new LifecycleError("source_limit", "Source size limit exceeded");
+    files[path] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+  validateWorkspaceFiles(files);
+  if (!files["extension.ts"]) throw new LifecycleError("migration_required", "Source needs a v4 extension.ts entrypoint before it can be built");
+  return files;
+}
+
+export async function importExtensionSource(actor: LifecycleActor, input: ExtensionSourceInput) {
+  const user = await getUserById(actor.principalId);
+  if (user?.status !== "active") throw new LifecycleError("forbidden", "An active user is required");
+  if (user.role !== "admin" || actor.kind !== "human") throw new LifecycleError("forbidden", "A human administrator must import source");
+  let files: WorkspaceFiles;
+  if (input.kind === "github") files = await collectGitHubSource(input, { token: await sourceCredentialResolver(actor, input.repository) ?? undefined });
+  else {
+    if (input.kind === "bundled") files = (await snapshotFirstPartyExtension(getProjectRoot(), input.name)).files;
+    else {
+      if (!isAbsolute(input.path) || !(await lstat(input.path)).isDirectory()) throw new LifecycleError("invalid_source", "Use a regular source directory in an allowed installation root");
+      const source = await realpath(input.path);
+      const roots = await Promise.all(allowedInstallRoots((await listProjects()).map((project) => project.path)).map((root) => realpath(root).catch(() => null)));
+      if (!roots.some((root) => root && source.startsWith(root + sep) && !relative(root, source).startsWith(".."))) throw new LifecycleError("forbidden", "Local source is outside the allowed installation roots");
+      files = (await snapshotExtensionSource(dirname(source), { name: basename(source), directory: basename(source), entrypoint: "extension.ts" })).files;
+    }
+  }
+  const provenance = input.kind === "local" ? { kind: "local", name: basename(input.path) } : input;
+  files["extension-source.json"] = JSON.stringify({ schemaVersion: 4, source: provenance }, null, 2);
+  const lifecycle = await getExtensionLifecycle();
+  const result = await lifecycle.createWorkspace(actor, { files });
+  const operation = await lifecycle.build(actor, { installationId: result.installation.id, workspaceId: result.workspace.id, expectedRevision: result.workspace.revision, idempotencyKey: `source-import:${result.workspace.sourceDigest}` });
+  void lifecycle.runBuild(actor, result.installation.id, operation.id).catch(() => undefined);
+  return { ...result, operation, source: provenance, openUrl: `/extensions/author?installation=${encodeURIComponent(result.installation.id)}&workspace=${encodeURIComponent(result.workspace.id)}` };
+}

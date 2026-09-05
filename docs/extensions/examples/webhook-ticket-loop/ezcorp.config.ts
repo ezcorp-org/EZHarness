@@ -50,7 +50,7 @@ export default defineExtension({
     webhooks: ["tickets"],
     storage: true,
     // The artifact mirror lands under .ezcorp/extension-data/ticket-webhook/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
   },
 
   resources: { memory: "128MB" },

@@ -158,7 +158,7 @@ export default defineExtension({
     // `.git` (a SIBLING of `.ezcorp`) — the repo ROOT is never granted, so
     // `.ezcorp/data` (PGlite DB + JWT secret) is never in the allowlist.
     // Scoped to the active project (no multi-repo cloning).
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // open_pr shells out to git + gh against the active project's repo (via a
     // throwaway worktree carrying the run's changes; never the repo root).
     shell: true,

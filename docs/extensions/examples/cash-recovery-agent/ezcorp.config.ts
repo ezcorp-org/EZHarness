@@ -318,7 +318,7 @@ export default defineExtension({
   },
   permissions: {
     // Read + write to the extension's own directory for CSV regeneration.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
   },
 });

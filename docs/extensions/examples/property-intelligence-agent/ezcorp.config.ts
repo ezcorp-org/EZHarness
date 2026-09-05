@@ -505,7 +505,7 @@ export default defineExtension({
   },
   permissions: {
     // Read the bundled CSVs in ./data and allow regenerate-data to write back.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
   },
 });

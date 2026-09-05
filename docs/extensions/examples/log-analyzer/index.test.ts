@@ -182,7 +182,7 @@ describe("manifest", () => {
     expect(manifest.entrypoint).toBe("./extension.ts");
     expect(manifest.tools).toHaveLength(1);
     expect(manifest.tools[0].name).toBe("search-logs");
-    expect(manifest.permissions.filesystem).toEqual(["$CWD"]);
+    expect(manifest.permissions.filesystem).toEqual(["/project", "/data"]);
     expect(manifest.permissions.shell).toBe(false);
   });
 });

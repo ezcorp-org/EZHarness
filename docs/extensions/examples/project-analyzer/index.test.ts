@@ -34,7 +34,7 @@ test("manifest has required fields", async () => {
   expect(manifest.author.name).toBe("EZCorp");
   expect(manifest.entrypoint).toBe("./extension.ts");
   expect(manifest.tools).toHaveLength(2);
-  expect(manifest.permissions.filesystem).toEqual(["$CWD"]);
+  expect(manifest.permissions.filesystem).toEqual(["/project", "/data"]);
   expect(manifest.permissions.shell).toBe(false);
   expect(manifest.scripts.postinstall).toBe("./scripts/postinstall.ts");
 });

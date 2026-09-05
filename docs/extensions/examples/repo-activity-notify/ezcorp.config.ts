@@ -60,7 +60,7 @@ export default defineExtension({
     // The notice is an excluded role:extension turn (host forces excluded).
     appendMessages: { excludedDefault: true },
     // The artifact mirror lands under .ezcorp/extension-data/repo-activity-notify/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // The hourly sweep.
     schedule: { crons: ["0 * * * *"] },
   },

@@ -166,7 +166,7 @@ describe("ez-factory manifest — the exact permission key set", () => {
     // partition by. Workflow tool steps run under a synthetic
     // `workflow-run:<uuid>` key with none, so a `$USER` grant would
     // fail-closed on every write inside a workflow.
-    expect(perms.filesystem).toEqual(["$CWD"]);
+    expect(perms.filesystem).toEqual(["/project", "/data"]);
     for (const prefix of perms.filesystem as string[]) {
       expect(prefix).not.toContain("$USER");
     }

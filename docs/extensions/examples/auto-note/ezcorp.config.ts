@@ -350,7 +350,7 @@ export default defineExtension({
   },
 
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
     storage: true,
   },

@@ -73,7 +73,7 @@ fi
 NEED_MANIFEST_CHECK=0
 for f in "${STAGED[@]}"; do
   case "$f" in
-    */ezcorp.config.ts | ezcorp.config.ts | manifest.lock.json)
+    extensions/* | docs/extensions/examples/* | packages/@ezcorp/ai-kit/* | manifest.lock.json)
       NEED_MANIFEST_CHECK=1
       break
       ;;

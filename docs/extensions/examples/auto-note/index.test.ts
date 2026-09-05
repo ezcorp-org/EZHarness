@@ -1357,7 +1357,7 @@ describe("manifest", () => {
 
   test("declares permissions", async () => {
     const manifest = (await import("./ezcorp.config")).default;
-    expect(manifest.permissions.filesystem).toContain("$CWD");
+    expect(manifest.permissions.filesystem).toContain("/project");
     expect(manifest.permissions.storage).toBe(true);
     expect(manifest.permissions.shell).toBe(false);
   });

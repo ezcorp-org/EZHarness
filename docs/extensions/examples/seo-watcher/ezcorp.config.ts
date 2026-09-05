@@ -150,7 +150,7 @@ export default defineExtension({
     },
     // The recommendation artifact mirror lands under
     // .ezcorp/extension-data/seo-watcher/.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // The content-free approval nudges (loops:approval_pending / _resolved).
     loopEvents: true,
     // The dashboard's per-run approve/decline buttons. The page-tree validator

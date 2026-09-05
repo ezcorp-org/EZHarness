@@ -48,7 +48,7 @@ export default defineExtension({
     },
   ],
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     // Phase post-perm-cleanup: shell dropped — the post-migration
     // implementation walks via `fsList` and reads via `fsRead`. The
     // pre-migration `Bun.$` find shell-out is gone, so the manifest

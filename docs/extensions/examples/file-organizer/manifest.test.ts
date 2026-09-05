@@ -31,7 +31,7 @@ describe("file-organizer manifest", () => {
     expect((perms as { network?: unknown }).network).toBeUndefined();
     expect(perms.shell).toBe(false);
     expect(perms.storage).toBe(false);
-    expect(perms.filesystem).toEqual(["$CWD"]);
+    expect(perms.filesystem).toEqual(["/data"]);
   });
 
   test("declares the persistent host-side daemon entrypoint", () => {

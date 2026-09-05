@@ -53,11 +53,16 @@ function createRunner(githubToken?: string): ProjectCommandRunner {
     async function bounded(stream: ReadableStream<Uint8Array>): Promise<string> {
       const chunks: Uint8Array[] = [];
       let bytes = 0;
-      for await (const chunk of stream) {
-        bytes += chunk.byteLength;
-        if (bytes > MAX_OUTPUT) { child.kill("SIGKILL"); throw new Error("Project command output limit exceeded"); }
-        chunks.push(chunk);
-      }
+      const reader = stream.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > MAX_OUTPUT) { child.kill("SIGKILL"); throw new Error("Project command output limit exceeded"); }
+          chunks.push(value);
+        }
+      } finally { reader.releaseLock(); }
       return Buffer.concat(chunks).toString("utf8");
     }
     try {

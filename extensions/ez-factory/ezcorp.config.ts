@@ -251,7 +251,7 @@ export default defineExtension({
 
     // Read sources and write artifacts inside the active project. `$CWD`
     // only — see rider 1 in the header.
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
 
     // ── THE HUB PAGE ACTION (8.6) ────────────────────────────────────
     //

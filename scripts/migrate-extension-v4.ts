@@ -44,6 +44,10 @@ export async function snapshotFirstPartyExtension(projectRoot: string, sourceNam
   const matches = sources.filter((source) => source.name === sourceName);
   if (matches.length !== 1) throw new Error(`Unknown or ambiguous first-party extension: ${sourceName}`);
   const source = matches[0]!;
+  return snapshotExtensionSource(projectRoot, source);
+}
+
+export async function snapshotExtensionSource(projectRoot: string, source: FirstPartyExtensionSource): Promise<SourceSnapshot> {
   const root = await realpath(projectRoot);
   const sourceRoot = await realpath(join(root, source.directory));
   if (!sourceRoot.startsWith(root + sep)) throw new Error("Extension source escaped project root");
