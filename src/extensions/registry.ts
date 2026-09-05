@@ -657,7 +657,12 @@ export class ExtensionRegistry {
   /** Get an existing process ONLY if it is already running. Never starts a new process. */
   getProcessIfRunning(extensionId: string): ExtensionProcess | null {
     const proc = this.processes.get(extensionId);
-    return proc?.isRunning ? proc : null;
+    if (proc?.isRunning) return proc;
+    if ((this.manifests.get(extensionId)?.schemaVersion as number | undefined) !== 4) return null;
+    const process = new ReleaseProcess(extensionId);
+    process.ensureRunning();
+    this.processes.set(extensionId, process);
+    return process;
   }
 
   /** Get the manifest for an extension by ID. */
@@ -688,12 +693,7 @@ export class ExtensionRegistry {
     if ((manifest?.schemaVersion as number | undefined) !== 4) {
       throw new Error("Extension requires migration to an approved v4 release");
     }
-    const existing = this.processes.get(extensionId);
-    if (existing?.isRunning) return existing;
-    const process = new ReleaseProcess(extensionId);
-    process.ensureRunning();
-    this.processes.set(extensionId, process);
-    return process;
+    return this.getProcessIfRunning(extensionId)!;
   }
 
   /** Get all registered tool definitions. */

@@ -904,7 +904,7 @@ export class ExtensionProcess {
    *   drop this method used to hide; callers that can tell a human
    *   (the events route) MUST surface it rather than reporting success.
    */
-  sendNotification(method: string, params?: Record<string, unknown>): boolean {
+  sendNotification(method: string, params?: Record<string, unknown>): boolean | Promise<void> {
     try {
       this.ensureRunning();
     } catch (err) {

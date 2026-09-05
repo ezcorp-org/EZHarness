@@ -3,7 +3,6 @@ import type { InstallationRecord, InvocationContext, JsonValue, ReleaseRecord, R
 import { resolveCallProvenance } from "./call-provenance";
 import { ExtensionProcess } from "./subprocess";
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "./types";
-import { logger } from "../logger";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -13,11 +12,11 @@ export interface ActiveExtensionRelease {
 export interface ReleaseRuntimeDependencies {
   runner(): Promise<Runner>;
   resolve(installationId: string): Promise<ActiveExtensionRelease | null>;
+  dispatchNotification?(extensionId: string, method: string, params?: Record<string, unknown>): Promise<void>;
 }
 let dependencies: ReleaseRuntimeDependencies | undefined;
 export function configureReleaseRuntime(value: ReleaseRuntimeDependencies): void { dependencies = value; }
 
-const log = logger.child("extensions/release-process");
 const outputMethods = new Set(["ezcorp/state", "ezcorp/page-state"]);
 
 export class ReleaseProcess extends ExtensionProcess {
@@ -156,10 +155,10 @@ export class ReleaseProcess extends ExtensionProcess {
     return { content: [{ type: "text", text: typeof result === "string" ? result : canonicalJson(result) }], isError: false };
   }
 
-  override sendNotification(method: string, params?: Record<string, unknown>): boolean {
-    try { this.ensureRunning(); } catch { return false; }
-    void this.call(method, params).catch(error => log.error("Extension delivery failed", { extensionId: this.extensionId, method, code: error instanceof ContractError ? error.code : "DELIVERY_FAILED" }));
-    return true;
+  override async sendNotification(method: string, params?: Record<string, unknown>): Promise<void> {
+    this.ensureRunning();
+    if (!this.runtime?.dispatchNotification) throw new ContractError("DELIVERY_UNAVAILABLE", "Durable extension delivery is not configured");
+    await this.runtime.dispatchNotification(this.extensionId, method, params);
   }
 
   override kill(): void {

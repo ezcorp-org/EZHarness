@@ -29,6 +29,16 @@ function harness() {
 }
 
 describe("release runtime", () => {
+  test("notifications require an acknowledged durable delivery hook", async () => {
+    const missing = new ReleaseProcess("installation", { runner: async () => { throw new Error("unused"); }, resolve: async () => null });
+    await expect(missing.sendNotification("event", {})).rejects.toThrow("not configured");
+    const calls: unknown[] = [];
+    const process = new ReleaseProcess("installation", { runner: async () => { throw new Error("unused"); }, resolve: async () => null, dispatchNotification: async (...args) => { calls.push(args); } });
+    await process.sendNotification("event", { id: "delivery" });
+    expect(calls).toEqual([["installation", "event", { id: "delivery" }]]);
+    missing.kill();
+    process.kill();
+  });
   test("executes immutable release with host-bound broker context and fresh workers", async () => {
     const fixture = harness();
     const requests: unknown[] = [];
@@ -103,7 +113,7 @@ describe("release runtime", () => {
       expect(fixture.process.getSpawnCwd()).toBeUndefined();
       fixture.process.kill();
       expect(fixture.process.isRunning).toBe(false);
-      expect(fixture.process.sendNotification("page/render", {})).toBe(false);
+      await expect(fixture.process.sendNotification("page/render", {})).rejects.toThrow("retired");
     } finally { fixture.cleanup(); }
   });
 
@@ -121,6 +131,16 @@ describe("release runtime", () => {
       const response = await fixture.process.call("page/render", { _meta: { ezCallId: fixture.token } });
       expect(response.result).toEqual({ title: "Home" });
       expect(notifications).toHaveLength(1);
+    } finally { fixture.cleanup(); }
+  });
+
+  test("typed outputs adapt to tool cards and queued generation mismatches refuse dispatch", async () => {
+    const fixture = harness();
+    try {
+      await expect(fixture.process.call("page/render", { _meta: { ezCallId: fixture.token, releaseId: "old-release", expectedGeneration: 1 } })).rejects.toThrow("Queued delivery");
+      fixture.mutate(value => { value.release.manifest.tools![0]!.outputSchema = { type: "string" }; });
+      fixture.invoke(async () => "typed output");
+      expect(await fixture.process.callTool("read", {}, { ezCallId: fixture.token })).toEqual({ content: [{ type: "text", text: "typed output" }], isError: false });
     } finally { fixture.cleanup(); }
   });
 });
