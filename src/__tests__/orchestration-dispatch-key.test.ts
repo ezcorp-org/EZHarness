@@ -203,16 +203,17 @@ describe("long-blocking subprocess skipTimeout (F2)", () => {
   test("SELF-GRANT PROTECTION: a NON-bundled ext with the same tool name does NOT get skipTimeout", async () => {
     const { registry, callToolOptions } = seedRegistry({ originalName: "invoke_agent", bundled: false });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
-    await wire(exec, "invoke_agent").execute("c1", {}, new AbortController().signal);
-    // Normal 3-arg dispatch → no options object → subject to the 30s kill.
-    expect(callToolOptions[0]).toBeUndefined();
+    const signal = new AbortController().signal;
+    await wire(exec, "invoke_agent").execute("c1", {}, signal);
+    expect(callToolOptions[0]).toEqual({ skipTimeout: false, signal });
   });
 
   test("a BUNDLED tool NOT in the long-blocking set → no skipTimeout", async () => {
     const { registry, callToolOptions } = seedRegistry({ originalName: "some_other_tool", bundled: true });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
-    await wire(exec, "some_other_tool").execute("c1", {}, new AbortController().signal);
-    expect(callToolOptions[0]).toBeUndefined();
+    const signal = new AbortController().signal;
+    await wire(exec, "some_other_tool").execute("c1", {}, signal);
+    expect(callToolOptions[0]).toEqual({ skipTimeout: false, signal });
   });
 });
 import { mockToolEventPersistence } from "./helpers/tool-event-persistence";

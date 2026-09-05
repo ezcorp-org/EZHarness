@@ -19,6 +19,7 @@ export type ExecuteToolCall = (
   conversationId: string,
   messageId: string | null,
   _opts?: {
+    signal?: AbortSignal;
     callerExtensionId?: string;
     _callDepth?: number;
     metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
