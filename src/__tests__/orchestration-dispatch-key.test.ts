@@ -53,7 +53,7 @@ function seedRegistry(opts: { originalName?: string; bundled?: boolean } = {}): 
   // `InstanceType<typeof ExtensionRegistry>` is rejected under the full tsconfig.
   registry: ReturnType<typeof ExtensionRegistry.getInstance>;
   callToolNames: string[];
-  callToolOptions: Array<{ skipTimeout?: boolean } | undefined>;
+  callToolOptions: Array<{ skipTimeout?: boolean; signal?: AbortSignal } | undefined>;
 } {
   const originalName = opts.originalName ?? BARE_NAME;
   const nsName = `orchestration__${originalName}`;
@@ -84,13 +84,13 @@ function seedRegistry(opts: { originalName?: string; bundled?: boolean } = {}): 
   // Mock ONLY the subprocess boundary: a fake process that records the tool
   // name + the per-call options ({ skipTimeout }) it was dispatched with.
   const callToolNames: string[] = [];
-  const callToolOptions: Array<{ skipTimeout?: boolean } | undefined> = [];
+  const callToolOptions: Array<{ skipTimeout?: boolean; signal?: AbortSignal } | undefined> = [];
   const fakeProc = {
     callTool: async (
       name: string,
       _args: Record<string, unknown>,
       _meta?: Record<string, unknown>,
-      options?: { skipTimeout?: boolean },
+      options?: { skipTimeout?: boolean; signal?: AbortSignal },
     ): Promise<ToolCallResult> => {
       callToolNames.push(name);
       callToolOptions.push(options);

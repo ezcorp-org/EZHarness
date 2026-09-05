@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { intersect, grantsToCapabilitySet } from "../extensions/capability-types";
+import { withRuntimeToolContext } from "../extensions/runtime-tool-context";
 import type { Capability, CapabilitySet } from "../extensions/capability-types";
 import type {
   ExtensionManifestV2,
@@ -161,6 +162,34 @@ beforeEach(() => {
 
 afterEach(() => {
   ExtensionRegistry.resetInstance();
+});
+
+test("nested invocation inherits host cancellation and guard, never child-supplied controls", async () => {
+  setupTwoExtensions(registry, { grantedAt: {} }, { grantedAt: {} }, false);
+  const controller = new AbortController();
+  let allowed = true;
+  const guard = async () => { if (!allowed) throw new Error("parent claim cancelled"); };
+  const observed: Array<Parameters<ToolExecutor["executeToolCall"]>[4]> = [];
+  executor.executeToolCall = async (_tool, _input, _conversation, _message, options) => {
+    observed.push(options);
+    options?.signal?.throwIfAborted();
+    await options?.invocationGuard?.();
+    return { content: [], isError: false };
+  };
+  const request = makeInvoke(901);
+  request.params = { ...request.params, signal: "child signal", invocationGuard: "child guard" };
+  await withRuntimeToolContext({ signal: controller.signal, invocationGuard: guard }, async () => {
+    expect((await executor.handlePiInvoke("caller-id", request)).error).toBeUndefined();
+    expect(observed[0]?.signal).toBe(controller.signal);
+    expect(observed[0]?.invocationGuard).toBe(guard);
+    allowed = false;
+    expect((await executor.handlePiInvoke("caller-id", request)).error?.message).toBe("parent claim cancelled");
+    controller.abort(new Error("parent signal cancelled"));
+    expect((await executor.handlePiInvoke("caller-id", request)).error?.message).toBe("parent signal cancelled");
+  });
+  expect((await executor.handlePiInvoke("caller-id", request)).error).toBeUndefined();
+  expect(observed.at(-1)?.signal).toBeUndefined();
+  expect(observed.at(-1)?.invocationGuard).toBeUndefined();
 });
 
 // ── Matrix items (a) - (b): Default behavior, acceptsCallerCaps absent ──

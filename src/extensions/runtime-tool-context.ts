@@ -33,8 +33,11 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { CapabilitySet } from "./capability-types";
+import type { InvocationGuard } from "./runtime-locks";
 
 export interface RuntimeToolContext {
+  signal?: AbortSignal;
+  invocationGuard?: InvocationGuard;
   /**
    * Effective capability set the upstream engine authorized this call
    * with. When the next `handlePiInvoke` runs inside this scope, it
