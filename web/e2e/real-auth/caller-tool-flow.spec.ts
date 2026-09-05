@@ -14,8 +14,8 @@
  * `page.route()` interception; between them nothing is left to a fixture.
  */
 import { test, expect } from "../fixtures/hydration.js";
-import { request as playwrightRequest } from "@playwright/test";
-import { acceptMemberInvitation } from "../fixtures/member-session";
+import type { APIRequestContext } from "@playwright/test";
+import { createMemberSession } from "../fixtures/member-session";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
@@ -85,31 +85,34 @@ function drainOneCallerTool(ez: HarnessClient, conversationId: string) {
 }
 
 /** Mint a member key and seed a conversation for it. */
-async function companion(request: import("@playwright/test").APIRequestContext, baseURL: string) {
-  const member = await playwrightRequest.newContext({ baseURL });
-  try {
-    await acceptMemberInvitation(request, member, "Caller Tool Owner");
-    const keyRes = await member.post("/api/settings/developer/api-keys", {
-      data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
-    });
-    expect(keyRes.status(), await keyRes.text()).toBe(201);
-    const { key, role } = (await keyRes.json()) as { key: string; role: string };
-    expect(role).toBe("member");
+async function companion(member: APIRequestContext, baseURL: string) {
+  const keyRes = await member.post("/api/settings/developer/api-keys", {
+    data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
+  });
+  expect(keyRes.status(), await keyRes.text()).toBe(201);
+  const { key, role } = (await keyRes.json()) as { key: string; role: string };
+  expect(role).toBe("member");
 
-    const seedRes = await member.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
-    expect(seedRes.status(), await seedRes.text()).toBe(201);
-    const { conversationId } = (await seedRes.json()) as { conversationId: string };
+  const seedRes = await member.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
+  expect(seedRes.status(), await seedRes.text()).toBe(201);
+  const { conversationId } = (await seedRes.json()) as { conversationId: string };
 
-    return { ez: new HarnessClient({ baseUrl: baseURL, apiKey: key }), conversationId };
-  } finally { await member.dispose(); }
+  return { ez: new HarnessClient({ baseUrl: baseURL, apiKey: key }), conversationId };
+}
+
+function memberOwner(name: string): () => APIRequestContext {
+  let member: APIRequestContext;
+  test.beforeAll(async ({ request, baseURL }) => { member = await createMemberSession(request, baseURL!, name); });
+  test.afterAll(async () => { await member?.dispose(); });
+  return () => member;
 }
 
 test.describe("caller-executed tools — declaration API", () => {
+  const owner = memberOwner("Caller Declaration Owner");
   test("declare → read back → clear, through the real HTTP surface", async ({
-    request,
     baseURL,
   }) => {
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
 
     const declared = await ez.declareCallerTools(conversationId, [OPEN_APP]);
     expect(declared.tools).toEqual([OPEN_APP]);
@@ -128,10 +131,9 @@ test.describe("caller-executed tools — declaration API", () => {
   });
 
   test("declarations the runtime could not honour are refused at declare time", async ({
-    request,
     baseURL,
   }) => {
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
 
     // `_caller__invoke_agent` strips to a spawn primitive's name, so it would
     // answer namespace-stripping deny rules meant for the real one.
@@ -158,7 +160,11 @@ test.describe("caller-executed tools — declaration API", () => {
   });
 
   test("another user's conversation is a 404, never a 403", async ({ request, baseURL }) => {
-    const { ez } = await companion(request, baseURL!);
+    const { ez } = await companion(owner(), baseURL!);
+    const foreign = await request.post("/api/__test/seed", { data: { title: "caller-foreign-owner" } });
+    expect(foreign.status(), await foreign.text()).toBe(201);
+    const { conversationId } = await foreign.json();
+    await expect(ez.getCallerTools(conversationId)).rejects.toMatchObject({ status: 404 });
     // A 403 would confirm the id names a real conversation; 404 does not.
     await expect(ez.getCallerTools("00000000-0000-4000-8000-000000000000")).rejects.toMatchObject({
       status: 404,
@@ -167,11 +173,11 @@ test.describe("caller-executed tools — declaration API", () => {
 });
 
 test.describe("caller-executed tools — the round trip", () => {
+  const owner = memberOwner("Caller Runtime Owner");
   test("the LLM calls a declared tool, the device executes it, the run resumes", async ({
-    request,
     baseURL,
   }) => {
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     // The connected device. `serveCallerTools` drains anything already
@@ -213,7 +219,6 @@ test.describe("caller-executed tools — the round trip", () => {
   });
 
   test("a client with NO stream recovers the call from the drain alone", async ({
-    request,
     baseURL,
   }) => {
     // The disconnected client, reproduced exactly: this test never opens an
@@ -226,7 +231,7 @@ test.describe("caller-executed tools — the round trip", () => {
     // Before the drain reported caller tools, a client in this position read
     // `undefined` on every connect and the call was unrecoverable — it stood
     // until its 120 s gate expired and the turn failed.
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     const run = ez.runScripted(
@@ -268,14 +273,13 @@ test.describe("caller-executed tools — the round trip", () => {
   });
 
   test("revoking the declarations tears down a call already in flight", async ({
-    request,
     baseURL,
   }) => {
     // Revoking is the client saying it has stopped serving, so a call already
     // on the wire has nobody left to answer it. Before this it stood for the
     // rest of its 120 s gate: the run sat idle, the user watched a spinner,
     // and the model was eventually told only that something had timed out.
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     const run = ez.runScripted(
@@ -306,10 +310,9 @@ test.describe("caller-executed tools — the round trip", () => {
   });
 
   test("a tool the device cannot run fails the call, not the turn", async ({
-    request,
     baseURL,
   }) => {
-    const { ez, conversationId } = await companion(request, baseURL!);
+    const { ez, conversationId } = await companion(owner(), baseURL!);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
     const submitted: unknown[] = [];
     const submitResult = ez.submitToolResult.bind(ez);
