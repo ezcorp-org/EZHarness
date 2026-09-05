@@ -14,6 +14,26 @@ const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
+test("legacy host consent retains its principal model without granting sealed workflows", async () => {
+  const { db, release, authority } = await fixture();
+  const host: CachedWorkflow = { ...release.entry, source: "yaml", extensionRelease: undefined };
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: null }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(host, authority)).toBe(true);
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(false);
+  await db.update(serviceAccounts).set({ enabled: false }).where(eq(serviceAccounts.id, "service"));
+  expect(await workflowReleaseCanExecute(host, authority)).toBe(false);
+  await db.update(workflowDelegations).set({ ownerKind: "user", ownerServiceAccountId: null, ownerUserId: "admin", consentedByUserId: "owner" }).where(eq(workflowDelegations.id, "delegation"));
+  const human = { ...authority, userId: "admin", runAsKind: "user", runAs: "admin" };
+  expect(await workflowReleaseCanExecute(host, human)).toBe(true);
+  await db.update(users).set({ status: "inactive" }).where(eq(users.id, "admin"));
+  expect(await workflowReleaseCanExecute(host, human)).toBe(false);
+  await db.update(users).set({ status: "active" }).where(eq(users.id, "admin"));
+  await db.update(workflowDelegations).set({ extensionReleaseBinding: "malformed" }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(host, human)).toBe(false);
+  await db.delete(workflowDelegations).where(eq(workflowDelegations.id, "delegation"));
+  expect(await workflowReleaseCanExecute(host, human)).toBe(false);
+});
+
 test("service consent validates current human ownership and service project scope", async () => {
   const { db, release } = await fixture();
   const { workflowReleaseCanConsentService, captureWorkflowConsentOrigin } = await import("../runtime/workflow-release-assets");
