@@ -28,7 +28,7 @@ const $ = (/** @type {string} */ sel) => /** @type {HTMLElement} */ (document.qu
 
 const gate = createScanGate();
 let sessionCount = 0;
-let paused = false;
+let paused = true;
 
 // ── Feedback ─────────────────────────────────────────────────────────
 
@@ -70,8 +70,8 @@ function setMockMode(on) {
 
 // ── Capture pipeline ─────────────────────────────────────────────────
 
-/** @param {string} text decoded barcode/QR text or manual input */
-async function handleDecoded(text) {
+/** @param {string} text @param {boolean} [demo] */
+async function handleDecoded(text, demo = false) {
   const cert = parseCertInput(text);
   if (!cert) {
     setStatus("Not a PSA cert — scan the barcode or QR on the slab.", true);
@@ -107,16 +107,22 @@ async function handleDecoded(text) {
     await db.putCard(row);
     setStatus(`Cert ${cert} — looking up…`);
     await renderList();
-    await runLookup(cert, false);
+    if (demo) {
+      row.record = mockCard(cert);
+      row.status = "done";
+      await db.putCard(row);
+      setMockMode(true);
+      setStatus(`Sample card ${cert} — not a live lookup.`);
+      await renderList();
+    } else await runLookup(cert, false);
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), true);
   } finally {
     gate.settle(cert);
   }
 }
 
 /**
- * Fetch data for a saved cert and update its row. Unreachable backend →
- * mock mode (sample data, clearly labeled). Tool-level failure → error
- * status; the row keeps any data it already had.
  * @param {string} cert
  * @param {boolean} fresh
  */
@@ -131,19 +137,9 @@ async function runLookup(cert, fresh) {
     setStatus(`Cert ${cert} — done.`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!row.record) {
-      // Nothing fetched yet → mock mode keeps the demo flow alive.
-      row.record = mockCard(cert);
-      row.status = "done";
-      row.error = undefined;
-      setMockMode(true);
-      setStatus(`Backend unreachable — showing sample data for ${cert}.`);
-    } else {
-      // Fresh re-pull failed: keep the existing data, surface the error.
-      row.status = "error";
-      row.error = msg;
-      setStatus(`Refresh failed for ${cert}: ${msg}`, true);
-    }
+    row.status = "error";
+    row.error = msg;
+    setStatus(`Lookup failed for ${cert}: ${msg}`, true);
   }
   row.updatedAt = new Date().toISOString();
   await db.putCard(row);
@@ -288,13 +284,14 @@ async function fetchFresh() {
 // ── Camera lifecycle ────────────────────────────────────────────────
 
 const scanner = createScanner({
-  videoEl: /** @type {HTMLVideoElement} */ ($('[data-testid="gcs-video"]')),
+  videoEl: /** @type {HTMLImageElement} */ ($('[data-testid="gcs-video"]')),
   onText: (text) => {
     if (!paused) void handleDecoded(text);
   },
   onError: (err) => {
     setStatus(`Camera unavailable (${err.message}) — use upload or manual entry.`, true);
-    $('[data-testid="gcs-pause"]').hidden = true;
+    paused = true;
+    $('[data-testid="gcs-pause"]').textContent = "Start scanning";
   },
 });
 
@@ -302,15 +299,15 @@ const scanner = createScanner({
 function setPaused(on) {
   paused = on;
   const btn = $('[data-testid="gcs-pause"]');
-  btn.textContent = on ? "Resume" : "Pause";
+  btn.textContent = on ? "Start scanning" : "Stop scanning";
   if (on) scanner.stop();
   else void scanner.start();
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) scanner.stop();
-  else if (!paused) void scanner.start();
+  if (document.hidden) setPaused(true);
 });
+window.addEventListener("pagehide", () => scanner.dispose(), { once: true });
 
 // ── Wiring ───────────────────────────────────────────────────────────
 
@@ -341,29 +338,38 @@ $('[data-testid="gcs-simulate"]').addEventListener("click", () => {
   // Zero-network demo: a fresh pseudo-cert each press so repeated demos
   // add distinct cards (mock data fills in when the backend is absent).
   const cert = String(60000000 + Math.floor(Math.random() * 9_999_999));
-  void handleDecoded(cert);
+  void handleDecoded(cert, true);
 });
 
 $('[data-testid="gcs-search"]').addEventListener("input", () => void renderList());
 $('[data-testid="gcs-detail-close"]').addEventListener("click", closeDetail);
 $('[data-testid="gcs-fetch-fresh"]').addEventListener("click", () => void fetchFresh());
 
-$('[data-testid="gcs-clear-all"]').addEventListener("click", async () => {
-  if (!confirm("Delete ALL scanned cards? This cannot be undone.")) return;
-  await db.clearCards();
-  gate.reset();
-  closeDetail();
-  await renderList();
+const clearDialog = /** @type {HTMLDialogElement} */ ($('[data-testid="gcs-clear-dialog"]'));
+$('[data-testid="gcs-clear-all"]').addEventListener("click", () => clearDialog.showModal());
+$('[data-testid="gcs-clear-cancel"]').addEventListener("click", () => clearDialog.close());
+$('[data-testid="gcs-clear-confirm"]').addEventListener("click", async () => {
+  try {
+    await db.clearCards();
+    gate.reset();
+    closeDetail();
+    await renderList();
+    clearDialog.close();
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), true);
+  }
 });
 
-// Deterministic hook for e2e + power users (page is session-authed).
 /** @type {any} */ (window).__gcsSimulateScan = (/** @type {string} */ text) =>
-  handleDecoded(text);
+  handleDecoded(text, true);
 
 // ── Boot ─────────────────────────────────────────────────────────────
 
 void (async () => {
-  await renderList();
-  setStatus("Point the camera at a slab, or use upload / manual entry.");
-  await scanner.start();
+  try {
+    await renderList();
+    setStatus("Start scanning to open the trusted camera, or use upload / manual entry.");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : String(error), true);
+  }
 })();

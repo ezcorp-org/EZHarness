@@ -1,4 +1,5 @@
 import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
+import { savedCardTools } from "./lib/saved-cards";
 
 export default defineExtension({
   schemaVersion: 4,
@@ -32,6 +33,7 @@ export default defineExtension({
   ],
 
   tools: [
+    ...savedCardTools,
     {
       name: "lookup_card",
       description:
@@ -166,7 +168,7 @@ export default defineExtension({
       "the JSON is provided to you as a system note; you can also call",
       "`identify_slab` with an image's ez-attachment:// handle directly.",
       "The user also has a phone scanner page at",
-      "`/api/extensions/graded-card-scanner/data/app/index.html` — mention it",
+      "`/extensions/graded-card-scanner/preview` — mention it",
       "if they want continuous scanning rather than one-off lookups.",
     ].join("\n"),
     category: "Collectibles",

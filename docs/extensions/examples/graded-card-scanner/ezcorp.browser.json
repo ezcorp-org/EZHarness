@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "entrypoint": "app/app.js",
+  "html": "app/index.html",
+  "styles": ["app/style.css"],
+  "tools": ["lookup_card", "scanner_saved_list", "scanner_saved_get", "scanner_saved_upsert", "scanner_saved_delete", "scanner_saved_clear"]
+}

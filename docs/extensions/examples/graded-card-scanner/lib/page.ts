@@ -59,7 +59,7 @@ export function buildDashboard(recent: RecentEntry[], stats: DashboardStats): Hu
     );
   }
 
-  page.divider().link("Open scanner", "/api/extensions/graded-card-scanner/data/app/index.html");
+  page.divider().link("Open scanner", "/extensions/graded-card-scanner/preview");
   return page.build();
 }
 

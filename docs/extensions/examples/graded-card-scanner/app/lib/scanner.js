@@ -1,15 +1,7 @@
 // @ts-check
-// ZXing wiring — continuous camera decode + still-image decode.
-//
-// ZXing loads from jsdelivr (the extension data route's CSP allows it).
-// If the CDN is unreachable (offline demo) or getUserMedia is blocked
-// (plain-HTTP LAN, platform Permissions-Policy), the SPA still works via
-// image upload (when ZXing loaded), manual cert entry, and the simulate
-// button — camera is an enhancement, not a dependency.
-
+import * as ZXing from "@zxing/library";
 import { buildDecodeVariants } from "./decode-plan.js";
-
-const ZXING_SRC = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+import { canvasBridge } from "./bridge.js";
 
 // White quiet-zone border added around a `quietZone` tile, as a fraction of
 // the scaled tile (L/R and T/B). MUST match TILE_PAD_X / TILE_PAD_Y in
@@ -18,27 +10,7 @@ const ZXING_SRC = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.
 const QUIET_PAD_X = 0.12;
 const QUIET_PAD_Y = 0.4;
 
-/** @type {Promise<any>|null} */
-let zxingLoad = null;
-
-/**
- * Load the ZXing UMD bundle once. Resolves with the global namespace.
- * @returns {Promise<any>}
- */
-export function loadZxing() {
-  const w = /** @type {any} */ (globalThis);
-  if (w.ZXing) return Promise.resolve(w.ZXing);
-  if (zxingLoad) return zxingLoad;
-  zxingLoad = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = ZXING_SRC;
-    s.crossOrigin = "anonymous";
-    s.onload = () => (w.ZXing ? resolve(w.ZXing) : reject(new Error("ZXing global missing after load")));
-    s.onerror = () => reject(new Error("ZXing failed to load (offline?)"));
-    document.head.appendChild(s);
-  });
-  return zxingLoad;
-}
+export function loadZxing() { return Promise.resolve(ZXing); }
 
 /**
  * The barcode symbologies a PSA slab can carry:
@@ -59,11 +31,6 @@ function decodeHints(ZXing, tryHarder = false) {
     if (tryHarder) hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
   }
   return hints;
-}
-
-/** @param {any} ZXing @returns {any} continuous camera reader (ITF + Code 128 + QR) */
-function makeReader(ZXing) {
-  return new ZXing.BrowserMultiFormatReader(decodeHints(ZXing));
 }
 
 /**
@@ -115,78 +82,81 @@ function tryDecodeVariant(ZXing, source, v) {
 }
 
 /**
- * Continuous scanner bound to a <video> element.
- * @param {{videoEl: HTMLVideoElement, onText: (text: string) => void, onError: (err: Error) => void}} opts
+ * Continuous scanner uses frames from the trusted host camera.
+ * @param {{videoEl: HTMLImageElement, onText: (text: string) => void, onError: (err: Error) => void, bridge?:ReturnType<typeof canvasBridge>}} opts
  */
-export function createScanner({ videoEl, onText, onError }) {
-  /** @type {any} */
-  let reader = null;
+export function createScanner({ videoEl, onText, onError, bridge = canvasBridge() }) {
   let running = false;
+  let opening = false;
+  let decoding = false;
+  let generation = 0;
+  /** @type {string|null} */
+  let sessionId = null;
+
+  const decode = async (/** @type {Blob} */ file) => {
+    if (file.size > 10 * 1024 * 1024) throw new Error("Image exceeds 10 MiB.");
+    const bitmap = await createImageBitmap(file);
+    try {
+      if (bitmap.width * bitmap.height > 24_000_000) throw new Error("Image resolution exceeds 24 megapixels.");
+      for (const variant of buildDecodeVariants(bitmap.width, bitmap.height)) {
+        const text = tryDecodeVariant(ZXing, bitmap, variant);
+        if (text !== null) return text;
+      }
+      throw new Error("No barcode found in image");
+    } finally { bitmap.close(); }
+  };
+
+  const unsubscribe = bridge.subscribeCamera(async event => {
+    if (!sessionId || event.sessionId !== sessionId) return;
+    if (event.type === "ezcorp.canvas.camera-stopped") {
+      running = false;
+      sessionId = null;
+      videoEl.removeAttribute("src");
+      onError(new Error(typeof event.reason === "string" ? event.reason : "Camera stopped."));
+      return;
+    }
+    if (!running || decoding || typeof event.dataUrl !== "string" || event.dataUrl.length > 700_000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(event.dataUrl)) return;
+    videoEl.src = event.dataUrl;
+    decoding = true;
+    try {
+      const bytes = Uint8Array.from(atob(event.dataUrl.slice(event.dataUrl.indexOf(",") + 1)), character => character.charCodeAt(0));
+      const text = await decode(new Blob([bytes], { type: "image/jpeg" }));
+      if (running && event.sessionId === sessionId) onText(text);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "No barcode found in image") onError(error instanceof Error ? error : new Error(String(error)));
+    } finally { decoding = false; }
+  });
+
+  const stop = () => {
+    generation += 1;
+    running = false;
+    opening = false;
+    videoEl.removeAttribute("src");
+    const previous = sessionId;
+    sessionId = null;
+    if (previous) void bridge.request("camera.stop", { sessionId: previous }).catch(error => onError(error));
+  };
 
   return {
-    get running() {
-      return running;
-    },
-
-    /** Start (or restart) the camera + decode loop. */
+    get running() { return running; },
     async start() {
+      if (running || opening) return;
+      opening = true;
+      const requested = ++generation;
       try {
-        const ZXing = await loadZxing();
-        if (!reader) reader = makeReader(ZXing);
-        const callback = (/** @type {any} */ result) => {
-          // ZXing fires with either a result or a NotFoundException per
-          // frame; only results matter here.
-          if (result?.getText) onText(String(result.getText()));
-        };
-        // Prefer the back camera. decodeFromConstraints exists on
-        // current builds; fall back to the default device if not.
-        if (typeof reader.decodeFromConstraints === "function") {
-          await reader.decodeFromConstraints(
-            { video: { facingMode: { ideal: "environment" } } },
-            videoEl,
-            callback,
-          );
-        } else {
-          await reader.decodeFromVideoDevice(undefined, videoEl, callback);
+        const result = await bridge.request("camera.start", {});
+        if (typeof result?.sessionId !== "string" || result.sessionId.length > 128) throw new Error("Invalid camera session.");
+        if (requested !== generation) {
+          await bridge.request("camera.stop", { sessionId: result.sessionId });
+          return;
         }
+        sessionId = result.sessionId;
         running = true;
-      } catch (err) {
-        running = false;
-        onError(err instanceof Error ? err : new Error(String(err)));
-      }
+      } catch (error) { onError(error instanceof Error ? error : new Error(String(error))); }
+      finally { opening = false; }
     },
-
-    /** Stop the decode loop and release the camera. */
-    stop() {
-      running = false;
-      try {
-        reader?.reset();
-      } catch {
-        // releasing an already-released camera is fine
-      }
-    },
-
-    /**
-     * Decode a still image (file upload / native camera capture). Loads the
-     * bitmap once, then walks the bounded variant ladder from decode-plan.js
-     * — whole frame first, then upscaled horizontal bands — and returns the
-     * first success. A thin ITF front-label barcode does not decode from the
-     * raw full frame, so the band pass is what makes real PSA photos work.
-     * @param {File} file
-     * @returns {Promise<string>} decoded text
-     */
-    async decodeImageFile(file) {
-      const ZXing = await loadZxing();
-      const bitmap = await createImageBitmap(file);
-      try {
-        for (const variant of buildDecodeVariants(bitmap.width, bitmap.height)) {
-          const text = tryDecodeVariant(ZXing, bitmap, variant);
-          if (text !== null) return text;
-        }
-        throw new Error("No barcode found in image");
-      } finally {
-        bitmap.close?.();
-      }
-    },
+    stop,
+    dispose() { stop(); unsubscribe(); },
+    decodeImageFile: decode,
   };
 }

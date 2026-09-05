@@ -116,9 +116,9 @@
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
-      "files": 55,
-      "bytes": 291175,
-      "sourceDigest": "7feed1b01937635cca7b86963bc41e80555020f947c2a3d0c27cae26c4062853"
+      "files": 60,
+      "bytes": 311270,
+      "sourceDigest": "b3f479804f1ebeb6614541e0c97dde6415c54916fd7899c744356d90bb11afa1"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
