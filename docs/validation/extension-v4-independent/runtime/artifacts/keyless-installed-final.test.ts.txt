@@ -1,0 +1,11 @@
+import { afterAll, expect, test } from 'bun:test';
+import { buildFirstPartyRelease } from '/home/dev/work/EZCorp/extension-v4-audit-runtime/src/__tests__/helpers/first-party-release.ts';
+import { closeTestDb, mockDbConnection, setupTestDb } from '/home/dev/work/EZCorp/extension-v4-audit-runtime/src/__tests__/helpers/test-pglite.ts';
+mockDbConnection(); afterAll(closeTestDb);
+const cases=[
+ {name:'github-stats',hosts:['api.github.com'],tool:'user-profile',input:{username:'octocat'},check:(x:any)=>x.login==='octocat'&&x.publicRepos>0},
+ {name:'weather',hosts:['geocoding-api.open-meteo.com','api.open-meteo.com'],tool:'get_weather',input:{location:'New York, NY',unit:'celsius'},check:(x:any)=>Boolean(x.location&&x.current&&x.daily?.length)},
+ {name:'city-conditions',hosts:['geocoding-api.open-meteo.com','api.open-meteo.com','air-quality-api.open-meteo.com','www.atlantaallergy.com'],tool:'city_conditions',input:{city:'New York, NY',unit:'celsius'},check:(x:any)=>x.ok===true&&Boolean(x.weather&&x.pollen)},
+ {name:'price-chart',hosts:['query1.finance.yahoo.com','api.coingecko.com','logo.clearbit.com'],tool:'get_stock_chart',input:{ticker:'MSFT'},check:(x:any)=>Boolean(x.symbol&&x.points?.length)},
+];
+for(const c of cases)test(`installed ${c.name} reaches keyless provider through network broker`,async()=>{await setupTestDb();const release=await buildFirstPartyRelease(c.name);const session=await release.session({networkHosts:c.hosts,fetchImpl:fetch});try{const r=await session.tool(c.tool,c.input);expect({r,failures:session.failures}).toMatchObject({r:{isError:false}});const p=JSON.parse(r.content[0]?.text??'{}');expect(c.check(p)).toBe(true);}finally{await session.close();await release.close();}},180000);
