@@ -31,6 +31,7 @@ import { buildPromptInput } from "./stream-chat/build-prompt";
 import { suggestFallback } from "../providers/router";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
+import type { InvocationGuard } from "../extensions/runtime-locks";
 import { createSpawnQuota, type SpawnQuota } from "../extensions/spawn-quota";
 import { getPermissionEngine } from "../extensions/permission-engine";
 import { createShellProvider } from "../providers/shell";
@@ -60,6 +61,11 @@ export interface ExecutorOptions {
   shell?: ShellProvider;
   file?: FileProvider;
   persist?: boolean;
+}
+
+export interface AgentExecutionControl {
+  signal?: AbortSignal;
+  invocationGuard?: InvocationGuard;
 }
 
 /**
@@ -448,11 +454,19 @@ export class AgentExecutor {
     projectId?: string,
     userId?: string,
     modelOverride?: import("../types").ModelOverride,
+    control?: AgentExecutionControl,
   ): Promise<AgentRun> {
+    const assertActive = async () => {
+      control?.signal?.throwIfAborted();
+      await control?.invocationGuard?.();
+      control?.signal?.throwIfAborted();
+    };
+    await assertActive();
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
 
     const resolvedInput = await this.resolveInput(input, projectId);
+    await assertActive();
 
     const run: AgentRun = {
       id: crypto.randomUUID(),
@@ -497,14 +511,24 @@ export class AgentExecutor {
     // own log (`warn`) puts it on `/runs/[id]` next to the step that asked —
     // the same fact the delegation consent dialog already shows before a grant
     // (`findEffortNoops`), now at the moment it actually bites.
-    const piLlm = createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"));
+    const piLlm = createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
+    const guarded = async <Result>(effect: () => Promise<Result>): Promise<Result> => {
+      controller.signal.throwIfAborted();
+      await assertActive();
+      controller.signal.throwIfAborted();
+      return effect();
+    };
 
     const ctx: AgentContext = {
       input: resolvedInput,
       // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
       llm: piLlm as any,
-      shell: this.shell,
-      file: this.file,
+      shell: control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
+      file: control ? {
+        read: (...args) => guarded(() => this.file.read(...args)),
+        write: (...args) => guarded(() => this.file.write(...args)),
+        exists: (...args) => guarded(() => this.file.exists(...args)),
+      } : this.file,
       log: appendLog,
       signal: controller.signal,
       // A nested spawn inherits IDENTITY (project + user), never the
@@ -513,7 +537,7 @@ export class AgentExecutor {
       // bound to a different model would be the more surprising of the two
       // defaults. A caller that wants the child rebound passes its own.
       run: async (agentName, childInput) => {
-        const childRun = await this.runAgent(agentName, childInput, projectId, userId);
+        const childRun = await this.runAgent(agentName, childInput, projectId, userId, undefined, control ? { ...control, signal: controller.signal } : undefined);
         return childRun.result ?? { success: false, output: null, error: "No result" };
       },
     };
@@ -531,17 +555,22 @@ export class AgentExecutor {
             db: { _token: "executor" },
           });
           const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
+          if (userId) toolExec.setCurrentUserId(userId);
           if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
-          ctx.tools = toolExec.createToolsContext(run.id, run.id, { signal: controller.signal });
+          ctx.tools = toolExec.createToolsContext(run.id, run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}) });
         }
       } catch {
         // Extension loading failure is non-fatal for code-based agents
       }
     }
 
-    this.bus.emit("run:start", { run, runId: run.id });
+    const onAbort = () => { this.cancelRun(run.id); };
+    control?.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+      if (control?.signal?.aborted) onAbort();
+      await assertActive();
+      this.bus.emit("run:start", { run, runId: run.id });
       const result = await agent.execute(ctx);
       // Don't overwrite if cancelRun() already set status — an agent that
       // resolves normally on abort (rather than throwing) would otherwise
@@ -580,6 +609,7 @@ export class AgentExecutor {
         this.bus.emit("run:error", { run, runId: run.id, error: message });
       }
     } finally {
+      control?.signal?.removeEventListener("abort", onAbort);
       // Record the binding the LLM call actually resolved to (the
       // override, the agent's own, or the router's pick — already
       // collapsed into one answer by `resolveModel`). Stamped in the

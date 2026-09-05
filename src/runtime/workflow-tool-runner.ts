@@ -16,6 +16,7 @@ import type { ToolCallResult } from "../extensions/types";
 import type { EventBus } from "./events";
 import type { AgentEvents } from "../types";
 import type { PendingPermissionInfo } from "./stream-chat/host";
+import type { InvocationGuard } from "../extensions/runtime-locks";
 
 /**
  * The slice of `ToolExecutor` a workflow tool step uses. Structural, so
@@ -45,7 +46,7 @@ export interface WorkflowToolRunner {
     input: Record<string, unknown>,
     conversationId: string,
     messageId: string | null,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard },
   ): Promise<ToolCallResult>;
 }
 

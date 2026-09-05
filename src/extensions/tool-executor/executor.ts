@@ -745,7 +745,9 @@ export class ToolExecutor {
         };
         const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
           await verifyInvocationLocks(transaction, _opts?.invocationGuard);
-          return executeEntity(transaction);
+          const result = await executeEntity(transaction);
+          await verifyInvocationLocks(transaction, _opts?.invocationGuard);
+          return result;
         });
         const duration = Date.now() - startTime;
         const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
@@ -1074,7 +1076,7 @@ export class ToolExecutor {
    * Create the `tools` object for AgentContext.
    * Code-based agents can call ctx.tools.invoke("tool_name", {input}).
    */
-  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal }) {
+  createToolsContext(conversationId: string, messageId: string, options?: { signal?: AbortSignal; invocationGuard?: InvocationGuard }) {
     return {
       invoke: async (toolName: string, input: Record<string, unknown>): Promise<unknown> => {
         const result = await this.executeToolCall(toolName, input, conversationId, messageId, ...(options ? [options] : []));

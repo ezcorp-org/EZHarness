@@ -206,6 +206,7 @@ function resolveTuning(
 export function createPiLlmAdapter(
   overrides?: ModelOverride,
   onEffortIgnored?: (message: string) => void,
+  control?: { beforeCall: () => Promise<void>; signal?: AbortSignal },
 ): PiLlmAdapter {
   // Reasoning effort has no home on the raw `stream`/`complete` options —
   // each provider spells it differently. pi-ai's `*Simple` entrypoints are
@@ -243,6 +244,7 @@ export function createPiLlmAdapter(
 
   const adapter: PiLlmAdapter = {
     async complete(messages, options) {
+      await control?.beforeCall();
       const resolved = await resolveModel(
         overrides?.provider ?? options?.provider,
         overrides?.model ?? options?.model,
@@ -261,7 +263,8 @@ export function createPiLlmAdapter(
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const callOpts = { apiKey: cred.token, ...resolveTuning(overrides, options) };
+      const callOpts = { apiKey: cred.token, ...resolveTuning(overrides, options), ...(control?.signal ? { signal: control.signal } : {}) };
+      await control?.beforeCall();
       const result = reasoning
         ? await completeSimple(resolved.piModel, context, { ...callOpts, reasoning })
         : await complete(resolved.piModel, context, callOpts);
@@ -274,6 +277,7 @@ export function createPiLlmAdapter(
       return { text, usage };
     },
     async *stream(messages, options) {
+      await control?.beforeCall();
       const resolved = await resolveModel(
         overrides?.provider ?? options?.provider,
         overrides?.model ?? options?.model,
@@ -294,9 +298,10 @@ export function createPiLlmAdapter(
       };
       const callOpts = {
         apiKey: cred.token,
-        signal: options?.signal,
+        signal: control?.signal && options?.signal ? AbortSignal.any([control.signal, options.signal]) : control?.signal ?? options?.signal,
         ...resolveTuning(overrides, options),
       };
+      await control?.beforeCall();
       const s = reasoning
         ? streamSimple(resolved.piModel, context, { ...callOpts, reasoning })
         : stream(resolved.piModel, context, callOpts);

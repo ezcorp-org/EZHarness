@@ -13,7 +13,7 @@ import type {
   WorkflowStepInputSink,
   WorkflowStepRun,
 } from "../types";
-import type { AgentExecutor } from "./executor";
+import type { AgentExecutor, AgentExecutionControl } from "./executor";
 import type { DelegationOwnerKind } from "../db/schema";
 import type { EventBus } from "./events";
 import { resumeReasonRefusal } from "./workflow-resume-reasons";
@@ -45,6 +45,7 @@ import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
 import { workflowReleaseCanExecute, type WorkflowExecutionAuthority } from "./workflow-release-assets";
+import type { InvocationGuard } from "../extensions/runtime-locks";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
 import {
   advanceWorkflowRunCursor,
@@ -322,6 +323,7 @@ export function nestedRunKey(
  * render to and the run parks `awaiting_approval` instead of hanging.
  */
 export interface WorkflowRunOptions {
+  invocationGuard?: InvocationGuard;
   /**
    * The REAL chat conversation this run belongs to. Set ⇒ INTERACTIVE: no
    * non-interactive scope is registered, so a sensitive step's permission
@@ -905,6 +907,7 @@ export class WorkflowExecutor {
       cursor: { batchIndex: 0, completedSteps: [], prevStepName: null },
       releaseEntry: entry,
       releasePrincipal: { ...opts, userId, projectId },
+      invocationGuard: opts?.invocationGuard,
       stepResults: new Map(),
       skippedSteps: new Map(),
       depth: opts?.depth ?? 0,
@@ -1184,6 +1187,7 @@ export class WorkflowExecutor {
   private async executeFrom(ctx: {
     releaseEntry: CachedWorkflow;
     releasePrincipal: WorkflowExecutionAuthority;
+    invocationGuard?: InvocationGuard;
     workflow: WorkflowDefinition;
     input: Record<string, unknown>;
     workflowRun: WorkflowRun;
@@ -1220,6 +1224,10 @@ export class WorkflowExecutor {
     pendingPermissions?: PendingPermissionGate;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
+    const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard) ? async database => {
+      await ctx.invocationGuard?.(database);
+      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database)) throw new Error("Workflow release authority is no longer available");
+    } : undefined;
     const stepResults = ctx.stepResults;
     const skippedSteps = ctx.skippedSteps;
     // `$prev` for the batch we are about to run. On a fresh run there is
@@ -1313,6 +1321,7 @@ export class WorkflowExecutor {
       scope: approvalScope,
       getRunner: getToolRunner,
       signal,
+      invocationGuard,
     };
 
     const inFlightRunIds = new Set<string>();
@@ -1424,6 +1433,7 @@ export class WorkflowExecutor {
         await this.persistCritical("in-batch", () =>
           markWorkflowRunInBatch(workflowRun.id),
         );
+        await invocationGuard?.();
 
         // Run every step in the batch concurrently. The FIRST failure
         // records `batchError` and immediately cancels the still-running
@@ -1620,7 +1630,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
+              { skippedSteps, depth: ctx.depth, signal, invocationGuard, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -1974,6 +1984,7 @@ export class WorkflowExecutor {
     inputSink: WorkflowStepInputSink,
     flow: FlowContext,
   ): Promise<AgentResult> {
+    await flow.invocationGuard?.();
     const baseCtx: RefContext = {
       input,
       stepResults,
@@ -2045,6 +2056,7 @@ export class WorkflowExecutor {
       inputSink,
       flow.skippedSteps,
       flow.requireManagedFactoryAgent,
+      flow.signal || flow.invocationGuard ? { signal: flow.signal, invocationGuard: flow.invocationGuard } : undefined,
     );
   }
 
@@ -2109,6 +2121,7 @@ export class WorkflowExecutor {
       );
     }
     const definition = await this.workflowResolver?.(name, {
+      authority: opts.flow.releasePrincipal,
       ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
       ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
     });
@@ -2129,6 +2142,7 @@ export class WorkflowExecutor {
     const existing = this.persist
       ? await findWorkflowRunByIdempotencyKey(name, idempotencyKey)
       : undefined;
+    await opts.flow.invocationGuard?.();
     if (existing) return nestedOutcome(step, name, existing.status, existing.result);
 
     const child = await this.runWorkflow(
@@ -2139,7 +2153,7 @@ export class WorkflowExecutor {
       // The parent's signal, so a cancel cascades into the child rather
       // than leaving an orphan run the sweep has to clean up later.
       opts.flow.signal,
-      { parentRunId: opts.parentRunId, idempotencyKey, depth },
+      { parentRunId: opts.parentRunId, idempotencyKey, depth, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: "service" as const, runAs: opts.flow.releasePrincipal.runAs } : {}) },
     );
     return nestedOutcome(step, name, child.status, child.result ?? null);
   }
@@ -2164,6 +2178,7 @@ export class WorkflowExecutor {
     inputSink: WorkflowStepInputSink,
     skippedSteps: ReadonlyMap<string, string>,
     requireManagedFactoryAgent?: boolean,
+    control?: AgentExecutionControl,
   ): Promise<AgentResult> {
     const refCtx: RefContext = { input, stepResults, prevResult, skippedSteps };
     const resolvedInput = resolveMapping(step.input ?? {}, refCtx);
@@ -2186,6 +2201,7 @@ export class WorkflowExecutor {
         modelOverride,
         inputSink,
         requireManagedFactoryAgent,
+        control,
       );
       if (result.success) return result;
 
@@ -2207,7 +2223,9 @@ export class WorkflowExecutor {
     modelOverride: ModelOverride | undefined,
     inputSink: WorkflowStepInputSink,
     requireManagedFactoryAgent?: boolean,
+    control?: AgentExecutionControl,
   ): Promise<AgentAttemptOutcome> {
+    await control?.invocationGuard?.();
     if (requireManagedFactoryAgent) {
       const { assertManagedFactoryAgent } = await import("../extensions/ez-factory-release-agents");
       assertManagedFactoryAgent(step.agent as string, this.agentExecutor.listAgents());
@@ -2218,6 +2236,7 @@ export class WorkflowExecutor {
       projectId,
       userId,
       modelOverride,
+      ...(control ? [control] as const : []),
     );
     stepRun.runId = agentRun.id;
     stepRun.status = agentRun.status;
@@ -2305,6 +2324,7 @@ export class WorkflowExecutor {
 
     for (let i = 1; i <= maxIterations; i++) {
       if (isAborted()) throw new WorkflowAbortError();
+      await flow.invocationGuard?.();
 
       const loopCtx = { iteration: i, last };
       const iterationStartedAt = Date.now();
@@ -2357,6 +2377,7 @@ export class WorkflowExecutor {
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
           flow.requireManagedFactoryAgent,
+          flow.signal || flow.invocationGuard ? { signal: flow.signal, invocationGuard: flow.invocationGuard } : undefined,
         );
         // Written BEFORE the failure check, so a loop that dies on
         // iteration 3 still records that iterations 1 and 2 happened and
@@ -2465,6 +2486,8 @@ export class WorkflowExecutor {
  * parameters through `runStep` and `runLoop`.
  */
 interface FlowContext {
+  releasePrincipal?: WorkflowExecutionAuthority;
+  invocationGuard?: InvocationGuard;
   requireManagedFactoryAgent?: boolean;
   /** Steps this run has skipped, name → reason. MUTABLE: `executeFrom`
    *  owns it and each skipped step records itself into it, which is what
@@ -2579,6 +2602,7 @@ function nestedOutcome(
 
 /** Per-run wiring a `tool` step needs. Built once in `runWorkflow`. */
 interface ToolStepContext {
+  invocationGuard?: InvocationGuard;
   signal?: AbortSignal;
   /** The synthetic `conversationId` every tool call of this run uses —
    *  see {@link workflowScopeKey}. */
@@ -2634,7 +2658,7 @@ async function runToolStep(
     result = await toolCtx.scope.run(() =>
       toolCtx
         .getRunner()
-        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal }),
+        .executeToolCall(step.tool as string, resolvedInput, toolCtx.scopeKey, null, { signal: toolCtx.signal, ...(toolCtx.invocationGuard ? { invocationGuard: toolCtx.invocationGuard } : {}) }),
     );
   } catch (err) {
     // A deliberate park is not a dispatch failure and must reach the

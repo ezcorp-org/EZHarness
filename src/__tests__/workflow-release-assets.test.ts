@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../extensions/release-process";
 import { executionLimits } from "@ezcorp/extension-runner";
@@ -21,8 +21,8 @@ async function loadReleaseWorkflowEntries(registry: Parameters<typeof loadSealed
   });
 }
 
-async function fixture() {
-  const files = { "deploy.workflow.yaml": "name: deploy\ndescription: sealed\nsteps:\n  - name: emit\n    kind: transform\n    output:\n      hello: world\n" };
+async function fixture(workflowText?: string) {
+  const files = { "deploy.workflow.yaml": workflowText ?? "name: deploy\ndescription: sealed\nsteps:\n  - name: emit\n    kind: transform\n    output:\n      hello: world\n" };
   const snapshot: ActiveExtensionRelease = {
     installation: { id: "installation", ownerId: "owner", scope: "global", activeReleaseId: "release", generation: 1, acknowledgedGeneration: 1, enabled: true, status: "active", uninstalled: false, grants: [] },
     release: { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "c".repeat(64), imageDigest: "d".repeat(64), runnerProfile: "test", createdAt: new Date(0).toISOString(), evidence: { protocolVersion: 4, validatorVersion: "test", tests: [], discoveryDigest: "e".repeat(64) }, artifactDigest: await sha256(canonicalJson(files)), releaseDigest: "a".repeat(64), policyDigest: "b".repeat(64), manifest: { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "sealed", author: { name: "Owner" }, entrypoint: "extension.ts", permissions: {}, tools: [] } },
@@ -363,4 +363,84 @@ test("nested dispatch and late authority reads refuse a revoked release", async 
   };
   expect(await workflowReleaseCanAccess(entries[0]!, "owner")).toBe(false);
   expect(reads).toBe(2);
+});
+
+test.each(["disable", "replacement", "grant-revocation"] as const)("%s prevents the next tool after an earlier workflow step completes", async mutation => {
+  const setup = await fixture("name: deploy\ndescription: sealed\nsteps:\n  - name: first\n    kind: tool\n    tool: wait_tool\n  - name: later\n    kind: tool\n    tool: late_effect\n    dependsOn: [first]\n");
+  if (mutation === "grant-revocation") {
+    setup.snapshot.installation.grants = ["storage"];
+    setup.snapshot.release.manifest.permissions = { storage: true };
+  }
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  const [entry] = await loadReleaseWorkflowEntries(setup.registry);
+  expect(entry).toBeDefined();
+  const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
+  const { getWorkflowRunRow } = await import("../db/queries/workflow-runs");
+  const bus = new EventBus<import("../types").AgentEvents>();
+  const effects: string[] = [];
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, toolRunnerFactory: () => ({
+    setCurrentUserId() {},
+    executeToolCall: async name => {
+      effects.push(name);
+      if (mutation === "disable") setup.snapshot.installation.enabled = false;
+      if (mutation === "replacement") {
+        setup.snapshot.release.id = "replacement";
+        setup.snapshot.installation.activeReleaseId = "replacement";
+      }
+      if (mutation === "grant-revocation") setup.snapshot.installation.grants = [];
+      return { content: [{ type: "text", text: "{}" }], isError: false };
+    },
+  }) });
+  registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [entry!], workflowExecutor: executor });
+  try {
+    const run = await executor.runWorkflow(entry!.definition, {}, undefined, "owner");
+    expect(effects).toEqual(["wait_tool"]);
+    expect(run.status).toBe("error");
+    expect((await getWorkflowRunRow(run.id))?.status).toBe("error");
+  } finally { _resetWorkflowRuntimeForTests(); }
+});
+
+test("workflow authority is rechecked inside the actual entity mutation transaction", async () => {
+  const setup = await fixture("name: deploy\ndescription: sealed\nsteps:\n  - name: write\n    kind: tool\n    tool: write_note\n    input:\n      slug: guarded-note\n      data: $input.data\n");
+  await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
+  const [entry] = await loadReleaseWorkflowEntries(setup.registry);
+  const { WorkflowExecutor } = await import("../runtime/workflow-executor");
+  const { AgentExecutor } = await import("../runtime/executor");
+  const { EventBus } = await import("../runtime/events");
+  const { loadAgentsStatic } = await import("../runtime/loader");
+  const { ToolExecutor } = await import("../extensions/tool-executor");
+  const { createStubPermissionEngine } = await import("./helpers/permission-engine-stub");
+  const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import("../runtime/workflow/runtime-registry");
+  const storage = await import("../db/queries/extension-storage");
+  const { extensionStorage } = await import("../db/schema");
+  const manifest = { schemaVersion: 4, name: "entity-target", version: "1.0.0", description: "Entity", author: { name: "Owner" }, permissions: { storage: true }, entities: [{ type: "note", label: "Note", pluralLabel: "Notes", scope: "user", schema: { type: "object", properties: { title: { type: "string" } } } }], tools: [{ name: "write_note", description: "Write", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
+  await getTestDb().insert(extensions).values({ id: "entity-target", name: "entity-target", version: "1.0.0", source: "test:fixture", enabled: true, manifest: manifest as unknown as import("../extensions/types").ExtensionManifestV2 });
+  const targetRegistry = {
+    getRegisteredTool: () => ({ extensionId: "entity-target", name: "write_note", originalName: "write_note", description: "Write", inputSchema: { type: "object" }, entityKind: "create", entityType: "note" }),
+    getManifest: () => manifest,
+    getGrantedPermissions: () => ({ storage: true, grantedAt: {} }),
+  } as unknown as import("../extensions/registry").ExtensionRegistry;
+  const original = storage.getStorageValue;
+  const readTransactions: unknown[] = [];
+  const read = spyOn(storage, "getStorageValue").mockImplementation(async (...args) => {
+    const result = await original(...args);
+    readTransactions.push(args[4]);
+    setup.snapshot.installation.enabled = false;
+    return result;
+  });
+  const bus = new EventBus<import("../types").AgentEvents>();
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, toolRunnerFactory: () => new ToolExecutor(targetRegistry, createStubPermissionEngine()) });
+  registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [entry!], workflowExecutor: executor });
+  try {
+    const run = await executor.runWorkflow(entry!.definition, { data: { title: "must-not-commit" } }, undefined, "owner");
+    expect(readTransactions.length).toBeGreaterThan(0);
+    expect(readTransactions.every(database => database && database !== getTestDb())).toBe(true);
+    expect(run.status).toBe("error");
+    expect(JSON.stringify(run.result?.error)).toContain("release authority");
+    expect(await getTestDb().select().from(extensionStorage).where(eq(extensionStorage.extensionId, "entity-target"))).toEqual([]);
+  } finally { read.mockRestore(); _resetWorkflowRuntimeForTests(); }
 });
