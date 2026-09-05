@@ -110,8 +110,8 @@
       "directory": "docs/extensions/examples/github-stats",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 11187,
-      "sourceDigest": "67e35966f403cc1745315aeabbc659fa41d930a35decb4bb1e14d7173325ff55"
+      "bytes": 11272,
+      "sourceDigest": "feec36598f0d388fdd44658b930b9280ce9a622fd7ff35a22472aee655457654"
     },
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",

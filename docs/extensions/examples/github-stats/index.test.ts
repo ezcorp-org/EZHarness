@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { createRuntimeExtension, type DefinedExtension, type ExtensionContext } from "@ezcorp/sdk/v4";
 import manifest from "./ezcorp.config";
 import { start } from "./index";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
 
 const originalFetch = globalThis.fetch;
 const mockFetch = mock(async (_url: string, _init?: RequestInit) => Response.json({}));
@@ -9,7 +10,7 @@ let extension: DefinedExtension;
 let credential: string | null = null;
 const context: ExtensionContext = { invocation: { invocationId: "test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 60_000 }, signal: new AbortController().signal, call: async (method, input) => { expect(method).toBe("ezcorp/env.get"); expect(input).toEqual({ name: "GITHUB_TOKEN" }); return credential; } };
 beforeEach(async () => { credential = null; mockFetch.mockReset(); globalThis.fetch = mockFetch as unknown as typeof fetch; extension = await createRuntimeExtension({ manifest, register: start }); });
-afterEach(() => { globalThis.fetch = originalFetch; });
+afterEach(() => { globalThis.fetch = originalFetch; __resetChannelForTests(); });
 
 const cases = [
   { name: "repo-stats", input: { owner: "octocat", repo: "hello" }, path: "/repos/octocat/hello", data: { full_name: "octocat/hello", stargazers_count: 100, forks_count: 2, open_issues_count: 3, language: "TypeScript", description: "Repo" }, expected: { name: "octocat/hello", stars: 100, forks: 2, openIssues: 3, language: "TypeScript", description: "Repo" }, missing: "Repository octocat/hello not found" },
