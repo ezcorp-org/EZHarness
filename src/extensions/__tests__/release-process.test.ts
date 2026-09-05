@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ReleaseProcess } from "../release-process";
+import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime } from "../release-process";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
@@ -27,6 +27,12 @@ function harness() {
   const token = registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: "alice", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });
   return { process, token, starts, reverse, snapshot: () => snapshot, mutate: (change: (value: ActiveExtensionRelease) => void) => change(snapshot), setSnapshot: (value: ActiveExtensionRelease) => { snapshot = value; }, invoke: (callback: typeof onInvoke) => { onInvoke = callback; }, discover: (callback: typeof onDiscover) => { onDiscover = callback; }, closed: () => closed, cleanup: () => { process.kill(); releaseCallProvenance(token); } };
 }
+
+test("release runtime configuration exposes the configured runner without starting it", () => {
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => { throw new Error("No worker requested"); }, resolve: async () => null };
+  configureReleaseRuntime(runtime);
+  expect(getReleaseRuntime()).toBe(runtime);
+});
 
 describe("release runtime", () => {
   test("notifications require an acknowledged durable delivery hook", async () => {

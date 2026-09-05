@@ -53,7 +53,7 @@ const REMOTE_DECL = {
 };
 
 import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
-import { normalizeMcpCatalog } from "@ezcorp/extension-contract";
+import { normalizeMcpCatalog, validateManifest } from "@ezcorp/extension-contract";
 import { createUser } from "../db/queries/users";
 let releaseFixture: ReturnType<typeof mcpReleaseFixture> | undefined;
 afterEach(() => releaseFixture?.cleanup());
@@ -92,7 +92,7 @@ async function bootRegistry(extId: string, approved = false): Promise<{
     const row = (await getExtension(extId))!;
     releaseFixture = mcpReleaseFixture({ id: extId, name: row.name, tools: normalizeMcpCatalog(row.manifest.tools ?? []).map((tool, index) => ({ ...tool, capabilities: row.manifest.tools![index]!.capabilities })) });
     releaseFixture.snapshot.installation.ownerId = ownerId;
-    releaseFixture.manifest.permissions = { ...row.manifest.permissions, mcpInvoke: true };
+    releaseFixture.manifest.permissions = validateManifest({ ...releaseFixture.manifest, permissions: { ...row.manifest.permissions, mcpInvoke: true } }).permissions;
     releaseFixture.invoke(async params => { calls.push(String(params.name)); return { content: [{ type: "text", text: "ok" }], isError: false }; });
     await updateExtension(extId, { manifest: releaseFixture.manifest, source: "release-v4" });
     await registry.loadFromDb();

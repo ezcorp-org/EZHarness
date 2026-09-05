@@ -50,7 +50,7 @@ import type { NewExtension } from "../db/schema";
 
 /** A blocked target that is NOT the fixture — the cloud metadata address. */
 import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
-import { normalizeMcpCatalog } from "@ezcorp/extension-contract";
+import { normalizeMcpCatalog, validateManifest } from "@ezcorp/extension-contract";
 import { probeRemoteMcp } from "../extensions/mcp-control";
 const activeFixtures: ReturnType<typeof mcpReleaseFixture>[] = [];
 afterEach(() => { for (const active of activeFixtures.splice(0)) active.cleanup(); });
@@ -120,7 +120,7 @@ async function installFixture(name: string) {
   const active = mcpReleaseFixture({ id: row.id, name, tools: normalizeMcpCatalog(row.manifest.tools ?? []).map((tool, index) => ({ ...tool, capabilities: row.manifest.tools![index]!.capabilities })) });
   activeFixtures.push(active);
   active.snapshot.installation.ownerId = ADMIN_USER.id;
-  active.manifest.permissions = { ...row.manifest.permissions, mcpInvoke: true };
+  active.manifest.permissions = validateManifest({ ...active.manifest, permissions: { ...row.manifest.permissions, mcpInvoke: true } }).permissions;
   active.invoke(async params => ({ content: [{ type: "text", text: "echoed:" + String((params.input as Record<string, unknown>).text) }], isError: false }));
   const updated = await updateExtension(row.id, { manifest: active.manifest, source: "release-v4" });
   await active.registry.loadFromDb();
