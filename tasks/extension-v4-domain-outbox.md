@@ -26,7 +26,11 @@ bun test src/__tests__/finalize-success-cancel-guard.test.ts src/__tests__/final
 
 The transaction API is `ExtensionDeliveryQueue.enqueueInTransaction(transaction, input)` and `publishDomainEvent(transaction, event)`. The producer must hold the domain row's transition guard. It must not publish a transition again after that row is terminal, including when the original event had zero subscribers. `updateRun(run, event)` enforces this guard. Tool events use a host-minted tool-row ID, never a provider-controlled call ID. Replaying a queue insertion compares immutable payload identity, including a digest of fields hidden from the subscriber.
 
-Payloads have a 256 KiB limit. Each installation has a 10,000 pending delivery limit. Overflow aborts the source transaction with an explicit error; it is not a dropped event. Failed tool event persistence prevents stream-chat from announcing successful completion. Operators must resolve a persistent database/capacity failure; this leaf does not claim that such a failure can be hidden while preserving both atomicity and availability.
+Each recipient's sanitized event representation has a 256 KiB limit. Events without recipients do not have a queue payload limit. Default tool events omit input/output; default terminal run events omit run logs and result output, retaining identity, status, timestamps, and result metadata. The full source record and original host/UI bus payload are not truncated. Explicit full-payload approval retains those fields and fails clearly if its representation exceeds the limit; it is never silently truncated. The immutable event digest binds the complete serialized host DTO, including fields omitted from a recipient.
+
+Each installation has a 10,000 pending delivery limit. Representation or capacity overflow aborts the source transaction with an explicit error; it is not a dropped event. Failed tool event persistence prevents stream-chat from announcing successful completion. Operators must resolve a persistent database/capacity failure; this leaf does not claim that such a failure can be hidden while preserving both atomicity and availability.
+
+Large-payload proof: `/tmp/lifecycle-payload-sized.log`, 22 tests and 90 assertions pass, including actual SQL multi-MiB tool output with metadata-only/no subscribers, full stored terminal result plus unchanged UI object, and explicit full-payload overflow rollback. Existing SIGKILL tests remain green.
 
 ## Remaining producer work
 

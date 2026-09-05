@@ -158,7 +158,7 @@ test("terminal run and outbox commit together; replay does not fan out again", a
 });
 
 test("terminal publication failure leaves no success row or success bus event", async () => {
-  const context = await fixture();
+  const context = await fixture(true);
   const run: AgentRun = { id: crypto.randomUUID(), agentName: "probe", status: "running", startedAt: Date.now(), logs: [] };
   await insertRun(run, undefined, undefined, context.conversation.id, context.owner.id);
   run.status = "success"; run.result = { success: true, output: "x".repeat(1024 * 1024) };
@@ -167,6 +167,43 @@ test("terminal publication failure leaves no success row or success bus event", 
   await expect(emitTerminalRun({ persist: true, bus }, run, "run:complete", { run, conversationId: context.conversation.id })).rejects.toMatchObject({ code: "event_payload_limit" });
   expect((await context.database.select().from(runs).where(eq(runs.id, run.id)))[0]?.status).toBe("running");
   expect(seen).toBe(0);
+});
+
+test("large outputs do not block source commits without subscribers or with metadata-only subscribers", async () => {
+  const context = await fixture();
+  const large = "x".repeat(2 * 1024 * 1024);
+  const [delivery] = await context.database.transaction(async transaction => {
+    await transaction.update(conversations).set({ title: "metadata commit" }).where(eq(conversations.id, context.conversation.id));
+    return publishDomainEvent(transaction, { ...context.event, payload: { toolName: "large", input: large, output: large } });
+  });
+  expect((delivery!.input as { params: object }).params).toEqual({ toolName: "large", conversationId: context.conversation.id });
+  await context.database.delete(conversationExtensions).where(eq(conversationExtensions.extensionId, context.id));
+  const result = await context.database.transaction(async transaction => {
+    await transaction.update(conversations).set({ title: "no subscribers" }).where(eq(conversations.id, context.conversation.id));
+    return publishDomainEvent(transaction, { ...context.event, id: "unobserved", payload: { arbitraryLargeData: large } });
+  });
+  expect(result).toEqual([]);
+  expect((await context.database.select().from(conversations).where(eq(conversations.id, context.conversation.id)))[0]?.title).toBe("no subscribers");
+});
+
+test("terminal metadata delivery preserves the full stored result and the original UI payload", async () => {
+  const context = await fixture();
+  const run: AgentRun = { id: crypto.randomUUID(), agentName: "probe", status: "running", startedAt: Date.now(), logs: [] };
+  await insertRun(run, undefined, undefined, context.conversation.id, context.owner.id);
+  run.status = "success";
+  run.result = { success: true, output: "x".repeat(2 * 1024 * 1024) };
+  const payload = { run: { ...run, logs: ["x".repeat(2 * 1024 * 1024)] }, conversationId: context.conversation.id };
+  const bus = new EventBus<AgentEvents>();
+  let seen: unknown;
+  bus.on("run:complete", value => { seen = value; });
+  await emitTerminalRun({ persist: true, bus }, run, "run:complete", payload);
+  expect(seen).toBe(payload);
+  expect((await context.database.select().from(runs).where(eq(runs.id, run.id)))[0]?.result).toEqual(run.result);
+  const delivery = await context.queue.claim();
+  const metadata = (delivery!.input as { params: { run: Record<string, unknown> } }).params.run;
+  expect(metadata).not.toHaveProperty("logs");
+  expect(metadata.result).toEqual({ success: true });
+  expect(metadata.id).toBe(run.id);
 });
 
 test("non-persistent and unscoped runtime events retain the existing UI bus behavior", async () => {
