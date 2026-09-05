@@ -356,6 +356,9 @@ run_legs() {
       src/__tests__/extension-author-page-server-load.server.test.ts \
       src/__tests__/extension-author-page.component.test.ts \
       src/__tests__/extension-control-routes.server.test.ts \
+      src/__tests__/extension-project-binding.server.test.ts \
+      src/__tests__/extension-review-location.server.test.ts \
+      src/__tests__/mcp-control-request.server.test.ts \
       src/__tests__/extension-credential-resolver.server.test.ts \
       src/__tests__/extension-host-api-transport.server.test.ts \
       src/__tests__/extension-legacy-cutover.server.test.ts \
