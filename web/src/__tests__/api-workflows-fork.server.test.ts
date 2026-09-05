@@ -38,9 +38,16 @@ vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/db/queries/workflow-versions", () => versions);
 vi.mock("$server/db/queries/project-members", () => projectMembers);
+vi.mock("$server/db/queries/users", () => ({
+  getUserById: async (id: string) => ({ id, status: "active", role: id === "a1" ? "admin" : "member" }),
+}));
 
 import { POST } from "../routes/api/workflows/[name]/fork/+server";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { releaseRuntimeFixture } from "$server/__tests__/helpers/release-runtime";
+import { releaseBinding } from "$server/extensions/release-process";
+
+let release: ReturnType<typeof releaseRuntimeFixture>;
 
 const SOURCE = {
   name: "ez-factory:docs-factory",
@@ -49,14 +56,19 @@ const SOURCE = {
 };
 
 function extensionEntry(definition = SOURCE) {
+  release = releaseRuntimeFixture("factory-installation", {
+    schemaVersion: 4, name: "ez-factory", version: "1.0.0", description: "Shipped workflows", author: { name: "Owner" }, permissions: {},
+  }, { ownerId: "u1" });
+  release.configure();
   return {
     definition,
     source: "extension",
     id: null,
     projectId: null,
-    userId: null,
-    visibility: "system",
+    userId: "u1",
+    visibility: "private",
     forkedFrom: null,
+    extensionRelease: { installationId: release.snapshot.installation.id, binding: releaseBinding(release.snapshot), ownerId: "u1", scope: "global" },
   };
 }
 
@@ -286,5 +298,24 @@ describe("POST /api/workflows/[name]/fork", () => {
     await POST(makeEvent({ locals: authedUser }));
     expect(versions.ensureWorkflowVersion).toHaveBeenCalledTimes(1);
     expect(ctx.reloadWorkflows).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["unacknowledged", "disabled", "replaced"])("a %s release cannot be copied from a stale cache", async state => {
+    if (state === "unacknowledged") release.snapshot.installation.acknowledgedGeneration = 0;
+    if (state === "disabled") release.snapshot.installation.enabled = false;
+    if (state === "replaced") {
+      release.snapshot.installation.generation = 2;
+      release.snapshot.installation.acknowledgedGeneration = 2;
+    }
+    const response = await POST(makeEvent({ locals: authedUser }));
+    expect(response.status).toBe(404);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
+    expect(versions.ensureWorkflowVersion).not.toHaveBeenCalled();
+  });
+
+  test("a different member cannot copy another owner's private release", async () => {
+    const response = await POST(makeEvent({ locals: { user: { id: "other", role: "member", name: "Other", email: "other@test.invalid" } } }));
+    expect(response.status).toBe(404);
+    expect(queries.createWorkflow).not.toHaveBeenCalled();
   });
 });
