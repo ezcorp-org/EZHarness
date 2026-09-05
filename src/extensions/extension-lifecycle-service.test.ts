@@ -74,9 +74,8 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
   const contexts: unknown[] = [];
   const runner: Runner = {
     async build() { throw new Error("not used"); }, async cancel() {}, async inspect() { return { id: "worker", state: "running", diagnostics: [] }; }, async collectArtifacts() { return {}; },
-    async start(input, reverseRpc) {
+    async start(input) {
       contexts.push(input.context);
-      await expect(reverseRpc("storage/get", { key: "production-secret" })).rejects.toMatchObject({ code: "test_effect_denied" });
       return { workerId: input.workerId, request, async close() { closed = true; }, onNotification() { return () => {}; } };
     },
   };

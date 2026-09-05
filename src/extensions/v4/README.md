@@ -63,6 +63,21 @@ Catalog verification never invents a smoke tool call. Declared smoke checks must
 pass using the candidate broker; sealed catalog verification alone is not proof
 of all feature behavior.
 
+Candidate verification uses the production filesystem, storage, credential, and
+network handlers with temporary roots, separate storage, an ephemeral encryption
+key, and exact network response fixtures. No candidate request reaches a real
+provider or production secret. Missing adapters fail closed. A denied request
+fails verification even if the extension catches its error. The immutable release
+records which declared capabilities were tested, denied, or not exercised.
+
+Run `bun scripts/verify-first-party-lifecycle-v4.ts` for full first-party source
+builds and candidate checks through PGlite and the real rootless Podman runner.
+The script emits JSONL evidence and stops at the first failure. Set
+`EXTENSION_VERIFY_ALL=1` to collect every failure, or `EXTENSION_VERIFY_NAMES` to
+select a comma-separated subset. Optional `EXTENSION_VERIFY_FIXTURES` names a
+JSON file keyed by extension name with explicit isolated test fixtures. The
+summary reports untested extensions. The script never approves or activates.
+
 Run each `*.test.ts` file in its own Bun process. The lifecycle, delivery, and
 data-migration suites use real PGlite transactions. The blob tests use real files.
 To check the other supported driver against a disposable PostgreSQL database:

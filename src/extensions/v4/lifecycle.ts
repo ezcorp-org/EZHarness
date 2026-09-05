@@ -205,7 +205,8 @@ export class ExtensionLifecycle {
       const releaseInput = { installationId, workspaceId: operation.workspaceId!, workspaceRevision: operation.workspaceRevision!, sourceDigest: operation.sourceDigest!, artifactDigest, imageDigest: result.imageDigest, manifest: result.manifest, evidence: result.evidence, runnerProfile: this.dependencies.runnerProfile, policyDigest: this.policyDigest() };
       const release: LifecycleRelease = { ...releaseInput, id: randomUUID(), releaseDigest: digestObject(releaseInput), createdAt: this.timestamp() };
       await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); this.transition(current, "verifying"); });
-      await this.dependencies.verifyCandidate(release, artifacts);
+      const verification = await this.dependencies.verifyCandidate(release, artifacts);
+      if (verification) { release.verification = verification; release.releaseDigest = digestObject({ ...releaseInput, verification }); }
       await this.transaction(actor, installationId, (state) => {
         const current = this.operation(state, operationId);
         this.assertLease(current, holder, fence);

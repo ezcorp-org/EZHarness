@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
-import { canonicalJson, compileValueSchema, validateManifest, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner } from "@ezcorp/extension-contract";
+import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, RunnerClient } from "@ezcorp/extension-runner";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
@@ -9,6 +9,7 @@ import { ExtensionControl, requestedReleaseGrants } from "./extension-control";
 import { ExtensionLifecycle, FileBlobStore, LifecycleError, type LifecycleActor, type LifecycleDependencies, type LifecycleRelease } from "./v4";
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
+import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -62,11 +63,14 @@ export function createLifecycleAuthorization(lookup: LifecyclePolicyLookup): Pic
   };
 }
 
-export async function verifyExtensionCandidate(runner: Runner, release: ReleaseRecord, reverseRpc?: ReverseRpc): Promise<void> {
+export async function verifyExtensionCandidate(runner: Runner, release: ReleaseRecord, reverseRpc?: ReverseRpc, fixtures?: CandidateFixtures): Promise<CandidateVerificationReport> {
   const workerId = randomUUID();
-  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId: `verification:${randomUUID()}`, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs };
-  const worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? (async () => { throw new LifecycleError("test_effect_denied", "Verification cannot access production capabilities."); }));
+  const scopeId = `verification:${randomUUID()}`;
+  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs, metadata: { ezConversationId: scopeId } };
+  const broker = await createCandidateVerificationBroker(release, context, fixtures);
+  let worker: RunnerExecution | undefined;
   try {
+    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? broker.reverseRpc);
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
     if (discovered.smokeTest) {
@@ -74,13 +78,20 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
       const tool = discovered.tools?.find((candidate) => candidate.name === smoke.tool);
       if (!tool) throw new LifecycleError("missing_test_tool", "Smoke test references an undeclared tool.");
       compileValueSchema(tool.inputSchema)(smoke.input);
+      broker.begin(smoke.tool);
       const result = await worker.request("extension/invoke", { name: smoke.tool, input: smoke.input, context });
       compileValueSchema(tool.outputSchema)(result);
       const expected = smoke.expect;
       if (expected?.textIncludes !== undefined && !canonicalJson(result).includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
       if (expected?.isError === false && result && typeof result === "object" && "isError" in result && result.isError === true) throw new LifecycleError("smoke_assertion_failed", "Smoke test returned an error.");
     }
-  } finally { await worker.close(); }
+    const report: CandidateVerificationReport = { catalog: "verified", smoke: discovered.smokeTest ? "passed" : "not_declared", capabilities: broker.coverage() };
+    if (report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
+    return report;
+  } catch (error) {
+    if (error && typeof error === "object") Object.assign(error, { capabilities: broker.coverage() });
+    throw error;
+  } finally { try { await worker?.close(); } finally { await broker.close(); } }
 }
 
 export async function runStorageMigration(runner: Runner, input: StorageMigrationInput): Promise<unknown> {

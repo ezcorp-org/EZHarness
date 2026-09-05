@@ -97,6 +97,17 @@ async function approved(setup: Awaited<ReturnType<typeof releaseFixture>>, key =
 }
 
 describe("durable extension lifecycle", () => {
+  test("independent candidate coverage is immutable and bound into the release digest", async () => {
+    const verification = { catalog: "verified" as const, smoke: "not_declared" as const, capabilities: [{ capability: "storage", state: "unexercised" as const, calls: 0 }] };
+    const setup = await releaseFixture(harness({ verifyCandidate: async () => verification }));
+    const state = await setup.lifecycle.inspect(actor, setup.installation.id);
+    const release = state.releases[setup.releaseId]!;
+    expect(release.verification).toEqual(verification);
+    const { id: _id, createdAt: _createdAt, releaseDigest, ...input } = release;
+    expect(releaseDigest).toBe(digestObject(input));
+    const { verification: _verification, ...withoutCoverage } = input;
+    expect(releaseDigest).not.toBe(digestObject(withoutCoverage));
+  });
   test("nested edits are atomic; deletion is explicit; concurrent revisions conflict", async () => {
     const { lifecycle } = harness();
     const { installation, workspace } = await lifecycle.createWorkspace(actor, { files: { "extension.ts": "one", "src/remove.ts": "remove" } });

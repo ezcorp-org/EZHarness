@@ -1,4 +1,4 @@
-import type { ApprovalRecord, InstallationRecord, OperationRecord, ReleaseRecord, ResourceLimits, Runner, WorkspaceFiles, WorkspaceRecord } from "@ezcorp/extension-contract";
+import type { ApprovalRecord, CandidateVerificationReport, InstallationRecord, OperationRecord, ReleaseRecord, ResourceLimits, Runner, WorkspaceFiles, WorkspaceRecord } from "@ezcorp/extension-contract";
 
 export type { InstallationRecord, WorkspaceRecord } from "@ezcorp/extension-contract";
 export type LifecycleRelease = ReleaseRecord;
@@ -45,7 +45,7 @@ export interface LifecycleDependencies {
   buildLimits: ResourceLimits;
   authorize(actor: LifecycleActor, action: "workspace" | "build" | "approve" | "activate" | "disable" | "uninstall", release?: LifecycleRelease, grants?: string[]): Promise<void>;
   authorizeAccess?(actor: LifecycleActor, installation: InstallationRecord): Promise<void>;
-  verifyCandidate(release: LifecycleRelease, artifacts: WorkspaceFiles): Promise<void>;
+  verifyCandidate(release: LifecycleRelease, artifacts: WorkspaceFiles): Promise<CandidateVerificationReport | void>;
   prepareActivation?(installation: InstallationRecord, previous: LifecycleRelease | null, release: LifecycleRelease, operation: LifecycleOperation): Promise<void>;
   abortActivation?(installationId: string, operation: LifecycleOperation): Promise<void>;
   publish(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void>;
