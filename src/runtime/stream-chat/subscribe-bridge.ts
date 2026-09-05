@@ -347,9 +347,17 @@ export function subscribeBridge(
           }
         }
         // Persist built-in tool calls to DB so diff panel survives page refresh.
-        // Use event.toolCallId as the row id so streaming events and hydrated
-        // DB rows share the same key — lets the client dedupe without fuzzy
-        // matching when a page reload overlaps an in-flight run.
+        // `providerToolCallId: event.toolCallId` (NOT `id` — see the doc on
+        // `ToolCallRow`/`toolCalls.id` in schema.ts) is what lets streaming
+        // events and hydrated DB rows share a client-visible key
+        // (`toolCallRowToSummary` reads it back) so the client can dedupe
+        // without fuzzy matching when a page reload overlaps an in-flight
+        // run. `id` itself stays the DB-generated surrogate: the LLM's own
+        // wire id is provider-controlled and NOT globally unique (the mock
+        // LLM defaults an unset id to positional `call_0`, and so do
+        // plenty of real OpenAI-compatible local servers) — pinning the PK
+        // to it let two conversations collide and silently drop the
+        // second tool call's row.
         if (host.persist) {
           const args = ctx.pendingToolArgs.get(event.toolCallId) ?? {};
           ctx.pendingToolArgs.delete(event.toolCallId);
@@ -358,7 +366,7 @@ export function subscribeBridge(
           // the four analytics dimensions (user/agent/model/provider) in
           // lockstep with the extension-tool write path.
           queueDb(() => persistToolCall({
-            id: event.toolCallId,
+            providerToolCallId: event.toolCallId,
             conversationId,
             messageId: null,
             extensionId: "builtin",
@@ -492,21 +500,25 @@ export function subscribeBridge(
                 parentMessageId: capturedParent ?? undefined,
               });
 
-              // Anchor unanchored tool calls to this turn's message
+              // Anchor unanchored tool calls to this turn's message. Both the
+              // built-in path (tool_execution_end above) and the extension
+              // path (`extensionToAgentTool`'s `messageId` — see its doc
+              // comment) insert with `messageId: null` because the turn's
+              // assistant message doesn't exist yet at tool-call time; this
+              // is the single re-parent step that anchors ALL of them once
+              // it does. (A prior "also handle extension tools that used
+              // run.id as placeholder" second UPDATE was removed here: that
+              // never matched anything — `tool_calls.message_id` is a
+              // non-deferrable FK to `messages(id)`, so an insert carrying
+              // `run.id` — never a real message id — always violated the
+              // constraint and the row never landed, rather than landing
+              // with a stale id for this step to fix up.)
               await getDb()
                 .update(toolCalls)
                 .set({ messageId: turnMsg.id })
                 .where(and(
                   eq(toolCalls.conversationId, conversationId),
                   isNull(toolCalls.messageId),
-                ));
-              // Also handle extension tools that used run.id as placeholder
-              await getDb()
-                .update(toolCalls)
-                .set({ messageId: turnMsg.id })
-                .where(and(
-                  eq(toolCalls.conversationId, conversationId),
-                  eq(toolCalls.messageId, run.id),
                 ));
 
               // Anchor agent sub-conversations created during this turn to the assistant message

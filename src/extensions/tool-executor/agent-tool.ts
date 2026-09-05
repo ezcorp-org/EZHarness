@@ -36,7 +36,23 @@ export function extensionToAgentTool(
   },
   toolExecutor: { executeToolCall: ExecuteToolCall },
   conversationId: string,
-  messageId: string,
+  /**
+   * The chat message this call will be anchored to, when already known —
+   * ALWAYS `null` for the live per-turn wiring paths (setup-tools.ts,
+   * orchestration-host.ts, ask-user-host.ts): the assistant message for
+   * the CURRENT turn does not exist yet at wire time, it is only created
+   * in `subscribe-bridge.ts`'s `turn_end` handler once the turn finishes.
+   *
+   * This USED to be `run.id` (a run, not a message) passed straight
+   * through as a "placeholder" — `tool_calls.message_id` is an immediate
+   * (non-deferrable) FK to `messages(id)`, so every insert with that
+   * value violated it and the row never landed at all. `null` is honest
+   * about "not yet known" and lands cleanly (the column is nullable);
+   * `subscribe-bridge.ts`'s `turn_end` anchor (`WHERE message_id IS
+   * NULL`) then re-parents it to the real message, exactly like the
+   * built-in tool path already does.
+   */
+  messageId: string | null,
   schemaOverride?: Record<string, unknown>,
   invocationMetadata?: Record<string, unknown>,
 ): AgentTool {

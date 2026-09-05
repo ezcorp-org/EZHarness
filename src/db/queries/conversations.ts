@@ -1251,7 +1251,15 @@ function toolCallRowToSummary(tc: typeof toolCalls.$inferSelect): ToolCallSummar
   }
 
   return {
-    id: tc.id,
+    // The CLIENT-visible id. A built-in tool's row carries the provider's
+    // wire id in `providerToolCallId` (never in `id` — see the FK-collision
+    // history on `toolCalls.id` in schema.ts); exposing that here, not the
+    // row's own surrogate PK, is what lets a reload match the same id the
+    // live SSE stream used for this card (`stores.svelte.ts` keys live
+    // entries by `invocationId`, i.e. the wire id). Extension rows never
+    // set `providerToolCallId`, so this is a no-op fallback to `tc.id` for
+    // them — unchanged behavior.
+    id: tc.providerToolCallId ?? tc.id,
     extensionId: tc.extensionId,
     toolName: tc.toolName,
     input: tc.input,

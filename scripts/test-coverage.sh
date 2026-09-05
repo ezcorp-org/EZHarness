@@ -107,6 +107,12 @@ FAILED_FILES=()
 # when they are in fact gated by their own exit codes. Only full mode appends
 # legs, so this is the same list as FAILED_FILES in the two CI modes.
 HOST_FAILED_FILES=()
+# file -> the --coverage-dir the pooled run wrote it into ($TMPDIR/cov_$i).
+# Populated for every host file (not just failures) right after run_host_pool
+# returns. recover_missing_coverage (lib/test-file-sets.sh) reads this to find
+# a crashed file's shard directory without needing FILES/index plumbing of
+# its own — see that function's header for why the recovery exists.
+declare -A HOST_COVDIR=()
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
@@ -1015,6 +1021,10 @@ run_host_pool FILES
 # — never a silent skip: in shard mode it feeds the P-membership gate below;
 # elsewhere it is at least visible in the failed-files list.
 for ((i = 0; i < HOST_COUNT; i++)); do
+  # Record every file's covdir up front (not just failures) — cheap, and it's
+  # the one place that knows run_host_pool's "$TMPDIR/cov_$idx" convention, so
+  # recover_missing_coverage below never has to re-derive it.
+  HOST_COVDIR["${FILES[$i]}"]="$TMPDIR/cov_$i"
   if [ -f "$TMPDIR/result_$i" ]; then
     OUTPUT=$(cat "$TMPDIR/result_$i")
     CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
@@ -1034,6 +1044,19 @@ for ((i = 0; i < HOST_COUNT; i++)); do
   fi
 done
 
+# COVERAGE RECOVERY — shared by both host-pool modes so a shard and a full
+# local run can never disagree about which files' instrumentation survived,
+# exactly like gate_host_failures below is shared for pass/fail. See
+# recover_missing_coverage's header (lib/test-file-sets.sh) for the defect
+# this closes: a crashed file's plain pass/fail retry never touched its
+# --coverage-dir, so the crash's lost lcov used to stay lost even when the
+# retry proved the file was fine. This re-runs (bounded attempts) ISOLATED
+# WITH --coverage into the SAME dir the pooled run used, so a recovered
+# lcov.info needs no special-casing in the merge glob below. Must run BEFORE
+# either mode's merge step — see the UNRECOVERABLE_COVERAGE_FILES checks in
+# each branch.
+recover_missing_coverage
+
 if [ -n "$SHARD_TOTAL" ]; then
   # SHARDED CI form: emit lcov, then gate pass/fail on P-MEMBERSHIP with an
   # isolated retry sweep (the design documented in ci.yml's cov-shard comment
@@ -1047,6 +1070,21 @@ if [ -n "$SHARD_TOTAL" ]; then
   #     files; the Per-file coverage gate's thresholds remain their only gate.
   #     C\P is now only the scoped web bun:test files; the
   #     docs/extensions/examples suites joined P and DO gate here.
+  #
+  # COVERAGE-RECOVERY INTEGRITY: checked BEFORE the pre-merge, same placement
+  # as the N_LCOV guard just below and for the identical reason — a file
+  # recover_missing_coverage could not recover must never let the merge run
+  # with that shard's lcov silently missing (its source files would then be
+  # measured only by shards that merely import them, reading as a false
+  # threshold miss for code nobody touched). This is a hard infrastructure
+  # failure, not a threshold violation, so it reds here rather than flowing
+  # into check-coverage.ts's percentage math.
+  if [ "${#UNRECOVERABLE_COVERAGE_FILES[@]}" -gt 0 ]; then
+    for f in "${UNRECOVERABLE_COVERAGE_FILES[@]}"; do
+      echo "::error::$f — no coverage evidence recoverable after $COVERAGE_RECOVERY_ATTEMPTS instrumented re-run attempt(s) (infrastructure failure, not a threshold violation)"
+    done
+    exit 1
+  fi
   #
   # PRE-MERGE: the shard's ~200 per-file lcovs are merged into ONE artifact
   # file here (~110MB → <1MB; the gate then merges 8 files, not ~1000).
@@ -1142,6 +1180,20 @@ gate_host_failures
 # gate both still failed the run), so what follows buys DIAGNOSABILITY, not
 # correctness: the same run now fails naming the leg that died.
 check_leg_lcov || exit 1
+
+# Per-file counterpart of the same guard: recover_missing_coverage (called
+# above, shared with shard mode) could not regenerate lcov for one or more
+# crashed host files after COVERAGE_RECOVERY_ATTEMPTS isolated, instrumented
+# re-runs. Fails here, BEFORE the merge, for the same reason check_leg_lcov
+# does — a source file measured only by shards that merely import it would
+# otherwise read as a false threshold miss for code nobody touched. Loud and
+# named, never a silent percentage.
+if [ "${#UNRECOVERABLE_COVERAGE_FILES[@]}" -gt 0 ]; then
+  for f in "${UNRECOVERABLE_COVERAGE_FILES[@]}"; do
+    echo "::error::$f — no coverage evidence recoverable after $COVERAGE_RECOVERY_ATTEMPTS instrumented re-run attempt(s) (infrastructure failure, not a threshold violation)"
+  done
+  exit 1
+fi
 
 # Host-pool counterpart of the shard branch's N_LCOV guard. Deliberately a
 # ZERO check and not a per-file one: full local mode TOLERATES host pass/fail

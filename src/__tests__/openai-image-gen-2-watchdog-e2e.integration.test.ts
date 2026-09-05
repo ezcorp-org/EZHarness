@@ -373,7 +373,10 @@ describe("openai-image-gen-2 watchdog e2e — happy path", () => {
 
     // tool:complete fired and persisted.
     expect(h.events.find((e) => e.type === "tool:complete")).toBeDefined();
-    expect(persisted.find((r) => r.id === "tc-img-ok")).toBeDefined();
+    // `id` is never the wire id (see the FK-collision fix on
+    // toolCalls.id) — the built-in path threads it through as
+    // `providerToolCallId` instead.
+    expect(persisted.find((r) => r.providerToolCallId === "tc-img-ok")).toBeDefined();
     // No tool:error or run:error on the wire.
     expect(h.events.find((e) => e.type === "tool:error")).toBeUndefined();
     expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();

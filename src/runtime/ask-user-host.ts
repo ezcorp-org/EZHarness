@@ -190,7 +190,12 @@ export async function wireAskUserToolForTurn(
     },
     toolExec,
     conversationId,
-    runId,
+    // `run.id` is not a `messages.id` — the current turn's assistant
+    // message doesn't exist yet at wire time. `null` lands cleanly and
+    // subscribe-bridge.ts's turn_end anchor re-parents it once the
+    // message is created (see the `messageId` doc on
+    // extensionToAgentTool for the FK-violation history).
+    null,
     undefined,
     invocationMetadata,
   );
