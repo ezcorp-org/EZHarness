@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { extractPackage, fetchLockedDependencies, resolveDependencies } from "../src/dependencies";
 
 function archive(name: string, type = "0"): Uint8Array {
@@ -15,6 +15,11 @@ function archive(name: string, type = "0"): Uint8Array {
 
 test("tar extraction rejects traversal, absolute paths, symlinks and devices", () => {
   expect(new TextDecoder().decode(extractPackage(archive("package/file.txt"))["file.txt"])).toBe("x");
+  expect(new TextDecoder().decode(extractPackage(archive("./node v14.18/file.txt"))["file.txt"])).toBe("x");
+  expect(extractPackage(archive("node v14.18/", "5"))).toEqual({});
+  const mixedRoots = gzipSync(Buffer.concat([gunzipSync(archive("first/file")).subarray(0, 1024), gunzipSync(archive("second/file"))]));
+  expect(() => extractPackage(mixedRoots)).toThrow("one package root");
+  for (const name of ["./../escape/file", "./package/../escape", "file-without-root", "./package//file"]) expect(() => extractPackage(archive(name))).toThrow();
   for (const [name, type] of [["package/../../host", "0"], ["/host", "0"], ["package/link", "2"], ["package/device", "3"]]) expect(() => extractPackage(archive(name!, type))).toThrow();
   expect(() => extractPackage(gzipSync(Buffer.alloc(512, 1)))).toThrow("checksum");
 });

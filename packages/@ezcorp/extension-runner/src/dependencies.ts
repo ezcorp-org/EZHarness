@@ -76,6 +76,7 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
 export function extractPackage(archive: Uint8Array): Record<string, Uint8Array> {
   const tar = gunzipSync(archive, { maxOutputLength: maximumClosure });
   const result: Record<string, Uint8Array> = Object.create(null);
+  let archiveRoot: string | undefined;
   let offset = 0;
   while (offset + 512 <= tar.length) {
     const header = tar.subarray(offset, offset + 512);
@@ -92,9 +93,13 @@ export function extractPackage(archive: Uint8Array): Record<string, Uint8Array> 
     const size = Number.parseInt(sizeString, 8);
     if (!/^[0-7]+$/.test(sizeString) || !Number.isSafeInteger(size) || size < 0 || offset + 512 + size > tar.length) throw new RunnerError("archive_invalid", "Invalid tar entry size", "dependencies");
     if (type !== "0" && type !== "" && type !== "5") throw new RunnerError("archive_unsafe", "Links, devices, and extended tar entries are not supported", "dependencies");
-    if (!name.startsWith("package/")) throw new RunnerError("archive_unsafe", "Tar entry is outside package root", "dependencies");
+    const normalized = name.replace(/^(?:\.\/)+/, "").replace(/\/$/, "");
+    const parts = relativePath(normalized).split("/");
+    const root = parts.shift()!;
+    if (archiveRoot !== undefined && archiveRoot !== root) throw new RunnerError("archive_unsafe", "Tar entries must share one package root", "dependencies");
+    archiveRoot = root;
     if (type !== "5") {
-      const path = relativePath(name.slice("package/".length));
+      const path = relativePath(parts.join("/"));
       if (Object.hasOwn(result, path)) throw new RunnerError("archive_duplicate", "Duplicate tar entry", "dependencies");
       result[path] = tar.subarray(offset + 512, offset + 512 + size);
       if (Object.keys(result).length > 10_000) throw new RunnerError("dependency_limit", "Archive file count exceeds policy", "dependencies");
