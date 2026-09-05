@@ -313,6 +313,7 @@
   "src/runtime/workflow-authz.ts": 100,
   "src/runtime/workflow-extension-loader.ts": 100,
   "src/runtime/workflow-release-assets.ts": 100,
+  "src/runtime/workflow-release-consent.ts": 100,
   "src/runtime/workflow-tools-host.ts": 100,
   "src/runtime/tools/run-workflow.ts": 100,
   "src/runtime/tools/agent-tool.ts": 100,

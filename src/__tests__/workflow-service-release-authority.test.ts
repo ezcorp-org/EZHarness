@@ -14,6 +14,25 @@ const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
 beforeEach(setupTestDb);
 afterAll(closeTestDb);
 
+test("versioned consent resolves the source origin independently of a host workflow root", async () => {
+  const { db, release, authority } = await fixture();
+  const { captureWorkflowConsentOrigin, resolveWorkflowServiceOrigin } = await import("../runtime/workflow-release-assets");
+  const { buildWorkflowReleaseConsent } = await import("../runtime/workflow-release-consent");
+  const origin = await captureWorkflowConsentOrigin("installation", "host-root", "service", "service", "owner", null);
+  const binding = buildWorkflowReleaseConsent(origin, [release.entry]);
+  await db.update(workflowDelegations).set({ workflowName: "host-root", extensionReleaseBinding: binding }).where(eq(workflowDelegations.id, "delegation"));
+  expect(await resolveWorkflowServiceOrigin(authority)).toEqual({ consenterId: "owner", sourceInstallationId: "installation", sourceReleaseBinding: release.entry.extensionRelease!.binding });
+  expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(true);
+  await db.transaction(async transaction => {
+    expect(await resolveWorkflowServiceOrigin(authority, transaction)).not.toBeNull();
+    await transaction.update(serviceAccounts).set({ enabled: false }).where(eq(serviceAccounts.id, "service"));
+    expect(await resolveWorkflowServiceOrigin(authority, transaction)).toBeNull();
+  });
+  expect(await resolveWorkflowServiceOrigin({ ...authority, userId: "owner" })).toBeNull();
+  expect(await resolveWorkflowServiceOrigin({ ...authority, runAsKind: "user" })).toBeNull();
+  await expect(captureWorkflowConsentOrigin("installation", "host-root", "service", "service", "admin", null)).rejects.toThrow("not available");
+});
+
 test("service runs use exact persisted human consent without human impersonation", async () => {
   const { release, authority } = await fixture();
   expect(await workflowReleaseCanExecute(release.entry, authority)).toBe(true);

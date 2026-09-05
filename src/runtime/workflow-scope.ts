@@ -79,21 +79,7 @@
  * still the tier a create DEFAULTS to, remains open to anyone.
  */
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
-import { canonicalJson } from "@ezcorp/extension-contract";
-
-export function workflowDelegationReleaseBinding(entry: CachedWorkflow, workflowNames: readonly string[] = [entry.definition.name]): string | null {
-  return entry.extensionRelease ? canonicalJson({ version: 1, release: entry.extensionRelease, workflows: [...new Set(workflowNames)].sort() }) : null;
-}
-
-export function workflowDelegationReleaseAllows(entry: CachedWorkflow, binding: string | null | undefined): boolean {
-  if (!binding || binding.length > 65536 || entry.source !== "extension" || !entry.extensionRelease) return false;
-  try {
-    const value = JSON.parse(binding);
-    return value?.version === 1 && Object.keys(value).length === 3 && Array.isArray(value.workflows) && value.workflows.length <= 256 && value.workflows.every((name: unknown) => typeof name === "string") && value.workflows.includes(entry.definition.name) && canonicalJson(value.release) === canonicalJson(entry.extensionRelease) && workflowDelegationReleaseBinding(entry, value.workflows) === binding;
-  } catch {
-    return false;
-  }
-}
+export { workflowDelegationReleaseBinding, workflowDelegationReleaseAllows } from "./workflow-release-consent";
 
 /** Where a cached workflow came from. */
 export type WorkflowSource = "extension" | "yaml" | "db";
