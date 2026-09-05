@@ -168,7 +168,7 @@ async function runScript(
   const cancel = () => { cancelled = true; stop(); };
   signal?.addEventListener("abort", cancel, { once: true });
   if (signal?.aborted) cancel();
-  const grab = async (reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> => {
+  const grab = async (reader: (typeof readers)[number]): Promise<string> => {
     const chunks: Uint8Array[] = [];
     try {
       for (;;) {
