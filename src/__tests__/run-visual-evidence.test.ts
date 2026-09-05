@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -63,15 +63,16 @@ describe("visual evidence runner", () => {
 		expect(() => parseEvidenceSelection("__ALL__\ne2e/a.spec.ts\n")).toThrow();
 	});
 
-		test("CLI keeps both reports and passes the real config and prepared runner environment", async () => {
+	async function runCliCase(realExit: number) {
 		const root = await mkdtemp(join(tmpdir(), "visual-evidence-cli-"));
 		const bin = join(root, "bin");
 		const web = join(root, "web");
 		await mkdir(bin);
-		await mkdir(web);
+		await mkdir(join(web, "blob-report"), { recursive: true });
+		await writeFile(join(web, "blob-report/stale.zip"), "stale");
 		const log = join(root, "calls.log");
 		const stub = join(bin, "bunx");
-		await writeFile(stub, `#!/bin/sh\nprintf '%s|%s|%s\\n' "$*" "$EZCORP_EVIDENCE_RUNNER_READY" "$PI_E2E_REAL" >> '${log}'\nprintf report > "$PLAYWRIGHT_BLOB_OUTPUT_FILE"\n`);
+		await writeFile(stub, `#!/bin/sh\nprintf '%s|%s|%s\\n' "$*" "$EZCORP_EVIDENCE_RUNNER_READY" "$PI_E2E_REAL" >> '${log}'\nprintf report > "$PLAYWRIGHT_BLOB_OUTPUT_FILE"\ncase "$*" in *playwright.real.config.ts*) exit ${realExit};; esac\n`);
 		await chmod(stub, 0o755);
 		const selection = join(root, "selection.txt");
 		await writeFile(selection, "e2e/import-wizard\\.spec\\.ts\ne2e/real-auth/extension-browser-scanner\\.spec\\.ts\n");
@@ -85,35 +86,24 @@ describe("visual evidence runner", () => {
 			stdout: "pipe",
 			stderr: "pipe",
 		});
-		expect(await proc.exited).toBe(0);
-		expect(await Bun.file(join(web, "blob-report/mock.zip")).text()).toBe("report");
-		expect(await Bun.file(join(web, "blob-report/real-auth.zip")).text()).toBe("report");
-		const calls = await Bun.file(log).text();
-		expect(calls).toContain("--project=chromium");
-		expect(calls).toContain("--config playwright.real.config.ts");
-		expect(calls).toContain("|1|1");
-	});
+		return { root, web, log, exit: await proc.exited };
+	}
 
-	test("CLI keeps both failure reports, clears stale output, and returns failure", async () => {
-		const root = await mkdtemp(join(tmpdir(), "visual-evidence-cli-fail-"));
-		const bin = join(root, "bin");
-		const web = join(root, "web");
-		await mkdir(bin);
-		await mkdir(join(web, "blob-report"), { recursive: true });
-		await writeFile(join(web, "blob-report/stale.zip"), "stale");
-		const stub = join(bin, "bunx");
-		await writeFile(stub, `#!/bin/sh\nprintf report > "$PLAYWRIGHT_BLOB_OUTPUT_FILE"\ncase "$*" in *playwright.real.config.ts*) exit 7;; esac\n`);
-		await chmod(stub, 0o755);
-		const selection = join(root, "selection.txt");
-		await writeFile(selection, "e2e/import-wizard\\.spec\\.ts\ne2e/real-auth/extension-browser-scanner\\.spec\\.ts\n");
-		const proc = Bun.spawn([process.execPath, resolve(import.meta.dir, "../../scripts/run-visual-evidence.ts"), selection], {
-			env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, EZCORP_VISUAL_EVIDENCE_WEB_ROOT: web, EZCORP_EVIDENCE_RUNNER_READY: "1" },
-			stdout: "pipe",
-			stderr: "pipe",
+	for (const [label, realExit, expectedExit] of [["success", 0, 0], ["real-auth failure", 7, 1]] as const) {
+		test(`CLI ${label}: keeps both reports, clears stale output, and preserves config and environment`, async () => {
+			const result = await runCliCase(realExit);
+			try {
+				expect(result.exit).toBe(expectedExit);
+				expect(await Bun.file(join(result.web, "blob-report/mock.zip")).text()).toBe("report");
+				expect(await Bun.file(join(result.web, "blob-report/real-auth.zip")).text()).toBe("report");
+				expect(await Bun.file(join(result.web, "blob-report/stale.zip")).exists()).toBe(false);
+				const calls = await Bun.file(result.log).text();
+				expect(calls).toContain("--project=chromium");
+				expect(calls).toContain("--config playwright.real.config.ts");
+				expect(calls).toContain("|1|1");
+			} finally {
+				await rm(result.root, { recursive: true, force: true });
+			}
 		});
-		expect(await proc.exited).toBe(1);
-		expect(await Bun.file(join(web, "blob-report/mock.zip")).text()).toBe("report");
-		expect(await Bun.file(join(web, "blob-report/real-auth.zip")).text()).toBe("report");
-		expect(await Bun.file(join(web, "blob-report/stale.zip")).exists()).toBe(false);
-	});
+	}
 });
