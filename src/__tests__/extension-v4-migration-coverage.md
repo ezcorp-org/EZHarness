@@ -47,6 +47,14 @@ cannot copy host files, execute configuration, approve, or activate a release.
 
 ## Installer replacement
 
+The former bundled-boot-spawn-real-process suite started a persistent host
+subprocess. Its delivery and reverse-RPC cases now run in
+lessons-distiller-host-integration against actual rootless workers and SQL.
+Startup creates no resident worker. A queued event starts one worker, waits for
+host RPC wiring, and resolves the conversation owner's settings. Restarting the
+delivery service does not replay the first event; the next event starts one new
+worker. The same suite checks real tool history and persisted lessons.
+
 The retired installer, installer-coverage, installer-v2,
 installer-preloaded-manifest, installer-deputy-flag,
 installer-idempotent-local, installer-tool-list-drift, and

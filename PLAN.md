@@ -74,3 +74,13 @@ Every leaf runs in its own worktree. No edits to primary checkout. Do not revert
 - Full web Vitest run 3 found two remaining old-author suites (42 failed tests). Both are now migrated: 29 focused tests pass; the legacy settings mock also now passes all 42 tests. Another full run is in progress.
 - Backend typecheck run 11 passed. Later changes require another full run. Lint passed with 119 warnings and 13 informational findings; this is not a warning-free result.
 - Origin was fetched again and the branch is not behind main. No push or PR. Remaining gates include host integration, metadata/test migration, coverage, project review integration and final frozen validation.
+
+### Integration review, 2026-09-05 UTC
+
+- Coverage run 3 completed on c0de12b8 and failed. Six threshold gaps remain; legacy test migrations and atomic persistence fixtures are assigned. No threshold was lowered.
+- Merged canonical binary assets, streamed HTTP body limits, browser-safe source codec, native MCP HTTP/CONNECT proxy, explicit raw credential grants, and exact-owner legacy source adoption.
+- Parent native network checks pass, including actual rootless HTTP/TCP/TLS, direct network refusal, revoked grants and raw credential refusal. Log: `/tmp/ez-native-parent1.log`.
+- Parent source adoption, strict input and binary release roundtrip tests pass. Log: `/tmp/ez-binary-adoption-parent1.log`.
+- Startup diagnostics: seven tests pass. Subscription candidate matrix: 49 tests pass. Visible release evidence registration: seven tests pass. These are intermediate checks, not final-head proof.
+- Review found and fixed scoped event disclosure and an async host-wiring race. Remaining state/event receipt producers are not complete.
+- Latest fetch found no missing main commits. No push or PR. Maintainer approval for legitimate test/gate migration remains required.
