@@ -1038,8 +1038,8 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   echo "== coverage legs-only mode =="
   run_legs
   # Every leg that ran must have produced an lcov. This matters MOST for the
-  # two pass/fail-TOLERATED legs (sdk, suggest): a gating leg that dies also
-  # reds via its exit code below, but a tolerated one used to exit 0 with no
+  # historically pass/fail-tolerated legs: a gating leg that dies also reds
+  # via its exit code below, but a tolerated one used to exit 0 with no
   # lcov — cov-extras went green, the `Per-file coverage gate` job then merged
   # an artifact silently missing that leg's files, and blamed the PR with one
   # "listed in thresholds but no lcov data" violation per orphaned file.
@@ -1053,7 +1053,11 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
   # the exit status the cov-extras CI job reports.
-  if [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
+  if [ "$SDK_LEG_EXIT" != "0" ]; then
+    echo "::error::sdk coverage leg failed (exit $SDK_LEG_EXIT)"
+    exit 1
+  fi
+  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
      [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi

@@ -101,7 +101,8 @@ describe("check_leg_lcov: behaviour", () => {
   test("a leg with NO lcov fails the guard and is named — healthy legs are not", () => {
     withTmp((tmp) => {
       // Every leg but sdk produced its lcov: exactly the incident shape (the
-      // sdk leg is pass/fail-TOLERATED, so its death is otherwise invisible).
+      // This reproduces the historical SDK-tolerated incident shape; the lcov
+      // guard must still diagnose missing producer output independently.
       for (const [name, dir] of ALL_DIRS) if (name !== "sdk") seedLeg(tmp, dir, LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
@@ -728,19 +729,40 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(src).not.toContain("coverage gate below is authoritative");
   });
 
-  test("SDK assertion failures gate both leg-only and full coverage modes", async () => {
+  test("SDK assertion failures execute non-zero leg-only and full verdicts", async () => {
     const src = await runner;
     const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
     const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
     expect(legsOnlyStart).toBeGreaterThan(-1);
     expect(shardStart).toBeGreaterThan(legsOnlyStart);
-    const legsOnly = src.slice(legsOnlyStart, shardStart);
-    expect(legsOnly).toContain('[ "$SDK_LEG_EXIT" != "0" ]');
+    const legsOnlyBranch = src.slice(legsOnlyStart, shardStart);
+    const legsVerdictStart = legsOnlyBranch.indexOf('echo "  $' + '{TOTAL_PASS} pass | $' + '{TOTAL_FAIL} fail | legs"');
+    expect(legsVerdictStart).toBeGreaterThan(-1);
+    const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
+
+    const runVerdict = (body: string, sdkExit: number): Run => {
+      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nVITEST_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+      return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+    };
+
+    const legsRed = runVerdict(legsVerdict, 1);
+    expect(legsRed.code).toBe(1);
+    expect(legsRed.stdout).toContain("::error::sdk coverage leg failed (exit 1)");
+    expect(runVerdict(legsVerdict, 0).code).toBe(0);
 
     const tail = await fullModeTail();
-    const verdict = tail.slice(tail.indexOf("COVERAGE_FAILED=0"));
-    expect(verdict).toContain('[ "$SDK_LEG_EXIT" != "0" ]');
-    expect(verdict).not.toContain("tolerated (not gated here): sdk=");
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdictExit = tail.indexOf(fullExit, fullVerdictStart);
+    const fullVerdictEnd = fullVerdictExit + fullExit.length;
+    expect(fullVerdictStart).toBeGreaterThan(-1);
+    expect(fullVerdictExit).toBeGreaterThan(fullVerdictStart);
+    const fullVerdict = tail.slice(fullVerdictStart, fullVerdictEnd);
+    const fullRed = runVerdict(fullVerdict, 1);
+    expect(fullRed.code).toBe(1);
+    expect(fullRed.stdout).toContain("COVERAGE: FAILED (check=0 sdk=1");
+    expect(runVerdict(fullVerdict, 0).code).toBe(0);
+    expect(fullVerdict).not.toContain("tolerated (not gated here): sdk=");
   });
 });
 
