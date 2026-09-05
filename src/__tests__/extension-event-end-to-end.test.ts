@@ -35,6 +35,7 @@ import {
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import * as realOutbox from "../extensions/domain-event-outbox";
+import { LifecycleError } from "../extensions/v4/types";
 const admitted: Array<{ principalId: string; name: string; type: string; key: string; payload: Record<string, unknown> }> = [];
 const admitActionPort = async (principalId: string, name: string, type: string, key: string, payload: Record<string, unknown>, targetBus: EventBus<AgentEvents>) => {
   admitted.push({ principalId, name, type, key, payload });
@@ -183,6 +184,38 @@ describe("extension event registration and durable route admission", () => {
     admitted.length = 0;
     // Reset the registry state our test owns.
     unregisterExtensionEvent(FAKE_EXT_NAME, FAKE_EVENT);
+  });
+
+  test.each([
+    ["invalid_event_key", 400],
+    ["event_payload_limit", 400],
+    ["event_not_found", 404],
+    ["event_conflict", 409],
+    ["event_admission_full", 503],
+    ["event_queue_full", 503],
+  ] as const)("durable admission failure %s returns %i without emitting", async (code, status) => {
+    const { dispatcher, proc } = bootDispatcher();
+    try {
+      mockConv = { id: "conv-1", userId: "user-1" };
+      admissionSpy.mockRejectedValueOnce(new LifecycleError(code, "Admission refused"));
+      const response = await POST(makeRequest({ conversationId: "conv-1", toolCallId: "tc-1" }) as never);
+      expect(response.status).toBe(status);
+      expect(admissionSpy).toHaveBeenCalledTimes(1);
+      expect(admitted).toHaveLength(0);
+      expect(proc.calls).toHaveLength(0);
+    } finally { dispatcher.stop(); }
+  });
+
+  test("unexpected admission failures propagate without false success or bus emission", async () => {
+    const { dispatcher, proc } = bootDispatcher();
+    try {
+      mockConv = { id: "conv-1", userId: "user-1" };
+      const failure = new Error("Database unavailable");
+      admissionSpy.mockRejectedValueOnce(failure);
+      await expect(POST(makeRequest({ conversationId: "conv-1", toolCallId: "tc-1" }) as never)).rejects.toBe(failure);
+      expect(admitted).toHaveLength(0);
+      expect(proc.calls).toHaveLength(0);
+    } finally { dispatcher.stop(); }
   });
 
   test("registerExtension wires the event into the SSE-filter registry (link #4 → #5)", () => {
