@@ -35,7 +35,7 @@ export function sanitizeDomainEvent(type: string, payload: Record<string, unknow
   return metadata;
 }
 
-interface TargetRow { installation: string; permissions: ExtensionPermissions | string; name: string }
+interface TargetRow { installation: string; permissions: ExtensionPermissions | string; effective: ExtensionPermissions | string | null; name: string }
 
 export async function publishDomainEvent(transaction: MigrationDb, event: DomainExtensionEvent): Promise<ExtensionDelivery[]> {
   if (!event.id || event.id.length > 256 || !event.conversationId || event.conversationId.length > 256 || !DIRECT_CARRIER_EVENT_TYPES.has(event.type)) throw new LifecycleError("invalid_event", "A bounded host domain event identity is required.");
@@ -46,16 +46,17 @@ export async function publishDomainEvent(transaction: MigrationDb, event: Domain
   const owners = releaseRows<{ user_id: string | null; project_id: string | null }>(await transaction.execute(sql`SELECT c.user_id, c.project_id FROM conversations c JOIN users u ON u.id = c.user_id WHERE c.id = ${event.conversationId} AND u.status = 'active' FOR SHARE OF c, u`));
   const owner = owners[0];
   if (!owner?.user_id) return [];
-  const targets = releaseRows<TargetRow>(await transaction.execute(sql`SELECT i.payload AS installation, e.granted_permissions AS permissions, e.name FROM conversation_extensions ce JOIN extension_release_installations i ON i.id = ce.extension_id JOIN extensions e ON e.id = i.id WHERE ce.conversation_id = ${event.conversationId} AND e.enabled = true ORDER BY i.id FOR UPDATE OF i`));
+  const targets = releaseRows<TargetRow>(await transaction.execute(sql`SELECT i.payload AS installation, e.granted_permissions AS permissions, ce.effective_granted_permissions AS effective, e.name FROM conversation_extensions ce JOIN extension_release_installations i ON i.id = ce.extension_id JOIN extensions e ON e.id = i.id WHERE ce.conversation_id = ${event.conversationId} AND e.enabled = true ORDER BY i.id FOR UPDATE OF i`));
   const deliveries: ExtensionDelivery[] = [];
   const deduplicationId = await sha256(canonicalJson(["domain", event.type, event.id, event.conversationId]));
   const eventDigest = await sha256(canonicalJson(payload));
   for (const target of targets) {
     const installation = JSON.parse(target.installation) as InstallationRecord;
     const permissions = typeof target.permissions === "string" ? JSON.parse(target.permissions) as ExtensionPermissions : target.permissions;
+    const effective = typeof target.effective === "string" ? JSON.parse(target.effective) as ExtensionPermissions : target.effective;
     const declaration = installation.grants.map(grant => JSON.parse(grant) as [string, unknown]).find(([name]) => name === "eventSubscriptions")?.[1] as string[] | { events?: string[]; includeFullPayload?: boolean } | undefined;
     const sealedEvents = Array.isArray(declaration) ? declaration : declaration?.events;
-    if (!installation.enabled || installation.uninstalled || !installation.activeReleaseId || !permissions.eventSubscriptions?.includes(event.type) || !sealedEvents?.includes(event.type)) continue;
+    if (!installation.enabled || installation.uninstalled || !installation.activeReleaseId || !permissions.eventSubscriptions?.includes(event.type) || (effective && !effective.eventSubscriptions?.includes(event.type)) || !sealedEvents?.includes(event.type)) continue;
     const pending = releaseRows<{ count: number }>(await transaction.execute(sql`SELECT COUNT(*)::int AS count FROM extension_release_deliveries WHERE installation_id = ${installation.id} AND state IN ('queued', 'leased') AND deduplication_id <> ${deduplicationId}`));
     if ((pending[0]?.count ?? 0) >= 10000) throw new LifecycleError("event_queue_full", "Domain event queue capacity is exhausted; the state transaction was not committed.");
     const run = payload.run as { id?: unknown } | undefined;

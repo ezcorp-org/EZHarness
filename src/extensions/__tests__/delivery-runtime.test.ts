@@ -14,6 +14,7 @@ let binding: ExtensionProjectBinding | null = null;
 let beforeDispatch = () => {};
 let eventWired = true;
 let eventGranted = true;
+let scopedGranted: boolean | null = null;
 let paused = false;
 const jobs: ExtensionDelivery[] = [];
 const invocations: { method: string; params: Record<string, unknown> }[] = [];
@@ -39,7 +40,7 @@ const queue = {
 mock.module("../extension-lifecycle-service", () => ({ getExtensionDeliveryQueue: async () => queue, getExtensionInstallationState: async () => ({ installation: { id: "installation", ownerId: "owner", scope: "global", generation: 3, activeReleaseId: "release", enabled: active } }) }));
 mock.module("../../db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: userActive ? "active" : "inactive" }) }));
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ userId: conversationOwner, projectId: conversationProject }) }));
-mock.module("../../db/queries/conversation-extensions", () => ({ getConversationExtensionIds: async () => eventWired ? ["installation"] : [] }));
+mock.module("../../db/queries/conversation-extensions", () => ({ getConversationExtensionIds: async () => eventWired ? ["installation"] : [], getConversationExtensionEffectiveGrants: async () => scopedGranted === null ? null : { grantedAt: {}, eventSubscriptions: scopedGranted ? ["test"] : [] } }));
 mock.module("../../db/queries/extensions", () => ({ getExtension: async () => ({ enabled: active, grantedPermissions: { eventSubscriptions: eventGranted ? ["test"] : [] } }) }));
 mock.module("../loops-kill-switch", () => ({ loopsKillSwitchEngaged: async () => paused }));
 mock.module("../project-binding", () => ({ getExtensionProjectBinding: async () => binding }));
@@ -50,6 +51,23 @@ const { enqueueExtensionNotification, startExtensionDeliveryRuntime, stopExtensi
 function token(ownerless = false) { return registerCallProvenance({ actorExtensionId: "installation", onBehalfOf: ownerless ? null : "caller", conversationId: ownerless ? null : "conversation", runId: null, parentCallId: null, kind: "event", ownerless }); }
 afterEach(async () => { await stopExtensionDeliveryRuntime(); jobs.length = 0; invocations.length = 0; active = true; userActive = true; conversationOwner = "caller"; outcomeError = false; conversationProject = null; projectMember = true; binding = null; beforeDispatch = () => {}; eventWired = true; eventGranted = true; paused = false; });
 afterAll(() => restoreModuleMocks());
+
+test("queued payloads cannot cross revoked conversation grants or project membership", async () => {
+  startExtensionDeliveryRuntime(() => {});
+  for (const revocation of ["scoped", "membership"] as const) {
+    conversationProject = "owned-project";
+    projectMember = true;
+    scopedGranted = true;
+    beforeDispatch = () => { if (revocation === "scoped") scopedGranted = false; else projectMember = false; };
+    const ezCallId = token();
+    try {
+      await expect(enqueueExtensionNotification("installation", "ezcorp/event/test", { input: "private", output: "private", _meta: { ezCallId } })).rejects.toHaveProperty("code", "delivery_outcome_unknown");
+    } finally { releaseCallProvenance(ezCallId); }
+  }
+  expect(jobs).toHaveLength(2);
+  expect(invocations).toHaveLength(0);
+  scopedGranted = null;
+});
 
 test("the emergency pause retains queued delivery without consuming a worker attempt", async () => {
   startExtensionDeliveryRuntime(() => {});

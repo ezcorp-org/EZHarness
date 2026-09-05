@@ -60,11 +60,13 @@ async function dispatch(delivery: ExtensionDelivery): Promise<void> {
   const user = await getUserById(input.provenance.onBehalfOf);
   if (user?.status !== "active") throw new LifecycleError("delivery_revoked", "Delivery principal is no longer active.");
   if (input.method.startsWith("ezcorp/event/")) {
-    const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
+    const { getConversationExtensionIds, getConversationExtensionEffectiveGrants } = await import("../db/queries/conversation-extensions");
     const { getExtension } = await import("../db/queries/extensions");
     const extension = await getExtension(delivery.installationId);
     const wired = input.provenance.conversationId ? await getConversationExtensionIds(input.provenance.conversationId) : [];
-    if (!extension?.enabled || !wired.includes(delivery.installationId) || !extension.grantedPermissions.eventSubscriptions?.includes(input.method.slice("ezcorp/event/".length))) throw new LifecycleError("delivery_revoked", "Event subscription or conversation wiring was revoked.");
+    const effective = input.provenance.conversationId ? await getConversationExtensionEffectiveGrants(input.provenance.conversationId, delivery.installationId) : null;
+    const eventType = input.method.slice("ezcorp/event/".length);
+    if (!extension?.enabled || !wired.includes(delivery.installationId) || !extension.grantedPermissions.eventSubscriptions?.includes(eventType) || (effective && !effective.eventSubscriptions?.includes(eventType))) throw new LifecycleError("delivery_revoked", "Event subscription or conversation wiring was revoked.");
   }
   const project = await resolveDeliveryProject(delivery.installationId, user.id, input.provenance.conversationId);
   if (project.projectId !== input.provenance.projectId || project.projectBindingId !== input.provenance.projectBindingId) throw new LifecycleError("delivery_revoked", "Delivery project approval changed.");

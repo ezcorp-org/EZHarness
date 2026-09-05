@@ -97,6 +97,17 @@ test("full payload needs sealed approval and current event grant", async () => {
   expect(await context.database.transaction(transaction => publishDomainEvent(transaction, { ...context.event, id: "after-revoke" }))).toEqual([]);
 });
 
+test("conversation grant ceiling blocks payload admission without widening installed grants", async () => {
+  const context = await fixture(true);
+  await context.database.update(conversationExtensions).set({ effectiveGrantedPermissions: { grantedAt: {} } }).where(eq(conversationExtensions.extensionId, context.id));
+  expect(await context.database.transaction(transaction => publishDomainEvent(transaction, context.event))).toEqual([]);
+  expect(await context.queue.claim()).toBeNull();
+  await context.database.update(conversationExtensions).set({ effectiveGrantedPermissions: { grantedAt: {}, eventSubscriptions: ["tool:complete"] } }).where(eq(conversationExtensions.extensionId, context.id));
+  expect(await context.database.transaction(transaction => publishDomainEvent(transaction, context.event))).toHaveLength(1);
+  await context.database.update(extensions).set({ grantedPermissions: { grantedAt: {} } }).where(eq(extensions.id, context.id));
+  expect(await context.database.transaction(transaction => publishDomainEvent(transaction, { ...context.event, id: "cannot-widen" }))).toEqual([]);
+});
+
 test("unwired or inactive owners and revoked sealed grants never receive events", async () => {
   const context = await fixture();
   await context.repository.transact(context.id, state => { state.installation.grants = []; });

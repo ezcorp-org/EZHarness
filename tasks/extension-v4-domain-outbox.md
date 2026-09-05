@@ -30,6 +30,8 @@ Payloads have a 256 KiB limit. Each installation has a 10,000 pending delivery l
 
 ## Remaining producer work
 
+Event subscriptions currently have no time-to-live policy: `mapGrantKeyToExpiryKind("eventSubscriptions")` returns `null`. Their current installed and conversation-scoped allowlists are both checked before admission and again before a worker receives the event. Project membership is rechecked before dispatch, including owned conversations. Other capability expiry never grants permission to receive event data.
+
 These paths retain their previous bus behavior, not a new no-loss guarantee. Do not mark the complete extension reliability plan done from this leaf.
 
 | Retained event kinds | Producers still outside a shared state/outbox transaction |
