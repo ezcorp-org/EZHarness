@@ -32,7 +32,7 @@ describe("dry run cannot dispatch, structurally", () => {
     const definition = { ...toolBearing, name: "unapproved:ship" };
     expect((await dryRunWorkflow(definition, { topic: "release" })).stubbed).toEqual(["draft", "publish"]);
     await expect(dryRunWorkflow(definition, {}, () => true)).rejects.toThrow(WorkflowDryRunViolation);
-    const executor = new WorkflowExecutor(dryRunAgentExecutor(), new EventBus(), { persist: false, toolRunnerFactory: dryRunToolRunnerFactory });
+    const executor = new WorkflowExecutor(dryRunAgentExecutor(), new EventBus(), { persist: false, toolRunnerFactory: () => dryRunToolRunnerFactory() });
     await expect(executor.runWorkflow(definition, {})).rejects.toThrow("release authority");
   });
 
