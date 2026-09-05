@@ -13,6 +13,8 @@ function fixture() {
     release: { id: "release", installationId: "mcp", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", runnerProfile: "secure", releaseDigest: "digest", policyDigest: "policy", createdAt: "2026-09-04", evidence: { protocolVersion: 4, validatorVersion: "4.0.0", tests: [], discoveryDigest: "discovery" }, manifest: { schemaVersion: 4, name: "mcp-test", version: "1.0.0", description: "Test", author: { name: "Tests" }, permissions: { network: ["example.com"] }, kind: "mcp", mcpServers: [{ name: "remote", transport: "http", url: "https://example.com/mcp" }], tools: normalizeMcpCatalog(catalog) } },
     limits: { memoryBytes: 512 * 1024 * 1024, cpuMillis: 1000, pids: 64, tmpBytes: 64 * 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 60_000 },
   };
+  snapshot.installation.grants.push(canonicalJson(["mcpInvoke", true]));
+  snapshot.release.manifest.permissions.mcpInvoke = true;
   const token = registerCallProvenance({ actorExtensionId: "mcp", onBehalfOf: "alice", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });
   const requests: unknown[] = [];
   let changed = false;

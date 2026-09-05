@@ -79,7 +79,7 @@ export { redactExtensionSecrets, redactMcpServer };
  *  admin's input — a row healed of its `headers`/`env` by an earlier build has
  *  only blanks left there, so a replace would delete the auth map it cannot
  *  rebuild. */
-async function persistMcpSecret(
+export async function persistMcpSecret(
   extensionName: string,
   server: McpServerDefinition,
   opts?: { mergeStored?: boolean },

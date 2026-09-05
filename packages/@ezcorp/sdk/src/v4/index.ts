@@ -6,7 +6,7 @@ export * from "@ezcorp/extension-contract";
 export { serve, createSession } from "./serve";
 export type { ServeOptions, Session } from "./serve";
 export { getInvocationContext, getGrantedEnv } from "./context";
-export { createMcpExtension } from "./mcp";
+export { createMcpExtension, readMcpCatalog } from "./mcp";
 export { createRuntimeExtension, defineRuntimeManifest, unwrapToolResponse, TOOL_RESULT_SCHEMA } from "./runtime";
 
 export interface ExtensionContext {

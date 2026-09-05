@@ -14,6 +14,7 @@ export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVe
   bootSpawn?: boolean;
   dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {
+    mcpInvoke?: boolean;
     hostApi?: { routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[]; events: boolean };
     custom?: Record<string, JsonValue>;
   };

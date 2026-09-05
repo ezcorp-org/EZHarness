@@ -6,10 +6,29 @@ import { defineExtension } from "./index";
 import type { DefinedExtension, ExtensionHandler } from "./index";
 import { defineRuntimeManifest } from "./runtime";
 
+export async function readMcpCatalog(instance: Pick<Client, "listTools">): Promise<ToolDefinitionV4[]> {
+  const tools: unknown[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const list = await instance.listTools(cursor ? { cursor } : undefined);
+    tools.push(...list.tools);
+    if (tools.length > 128 || (list.nextCursor && cursors.has(list.nextCursor))) throw new ContractError("DATA_LIMIT", "MCP catalog exceeds bounds or repeats a cursor");
+    cursor = list.nextCursor;
+    if (cursor) cursors.add(cursor);
+  } while (cursor);
+  return normalizeMcpCatalog(tools);
+}
+
 export async function createMcpExtension(options: { manifest: unknown }): Promise<DefinedExtension> {
-  const manifest = defineRuntimeManifest(options.manifest);
+  const manifest = structuredClone(defineRuntimeManifest(options.manifest));
+  manifest.permissions.mcpInvoke = true;
   const server = manifest.mcpServers?.[0];
-  if (manifest.kind !== "mcp" || manifest.mcpServers?.length !== 1 || server?.transport !== "stdio") throw new ContractError("INVALID_MCP", "The isolated MCP adapter requires one stdio server");
+  if (manifest.kind !== "mcp" || manifest.mcpServers?.length !== 1 || !server) throw new ContractError("INVALID_MCP", "The MCP adapter requires one declared server");
+  if (server.transport !== "stdio") {
+    const tools = Object.fromEntries((manifest.tools ?? []).map(tool => [tool.name, () => { throw new ContractError("HOST_MEDIATED_MCP", "Remote MCP calls require the host release broker"); }]));
+    return defineExtension({ manifest, tools });
+  }
   if (!server.command || server.command.length > 240 || server.command.includes("\0")) throw new ContractError("INVALID_MCP", "Invalid packaged MCP command");
   const { command, args, env } = server;
   function client() {
@@ -20,24 +39,11 @@ export async function createMcpExtension(options: { manifest: unknown }): Promis
     const transport = new StdioClientTransport({ command, args: args ?? [], env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...env }, stderr: "ignore" });
     return { instance, transport };
   }
-  async function catalog(instance: Client): Promise<ToolDefinitionV4[]> {
-    const tools: unknown[] = [];
-    const cursors = new Set<string>();
-    let cursor: string | undefined;
-    do {
-      const list = await instance.listTools(cursor ? { cursor } : undefined);
-      tools.push(...list.tools);
-      if (tools.length > 128 || (list.nextCursor && cursors.has(list.nextCursor))) throw new ContractError("DATA_LIMIT", "MCP catalog exceeds bounds or repeats a cursor");
-      cursor = list.nextCursor;
-      if (cursor) cursors.add(cursor);
-    } while (cursor);
-    return normalizeMcpCatalog(tools);
-  }
   const discovery = client();
   let tools: ToolDefinitionV4[];
   try {
     await discovery.instance.connect(discovery.transport, { timeout: 30_000 });
-    tools = await catalog(discovery.instance);
+    tools = await readMcpCatalog(discovery.instance);
   } finally { await discovery.instance.close(); }
   const approvedCatalog = canonicalJson(tools);
   const handlers: Record<string, ExtensionHandler> = {};
@@ -45,11 +51,12 @@ export async function createMcpExtension(options: { manifest: unknown }): Promis
     const execution = client();
     try {
       await execution.instance.connect(execution.transport, { timeout: Math.max(1, context.invocation.deadline - Date.now()) });
-      if (canonicalJson(await catalog(execution.instance)) !== approvedCatalog) throw new ContractError("CATALOG_MISMATCH", "MCP tool catalog changed after release discovery");
+      if (canonicalJson(await readMcpCatalog(execution.instance)) !== approvedCatalog) throw new ContractError("CATALOG_MISMATCH", "MCP tool catalog changed after release discovery");
       const result = await execution.instance.callTool({ name: tool.name, arguments: input as Record<string, unknown> }, undefined, { signal: context.signal, timeout: Math.max(1, context.invocation.deadline - Date.now()) });
       if (tool.mcpOutputSchema && !result.isError) compileValueSchema(tool.mcpOutputSchema)(result.structuredContent);
       return { ...result, isError: result.isError === true };
     } finally { await execution.instance.close(); }
   };
-  return defineExtension({ manifest: { ...manifest, tools }, tools: handlers });
+  const declaredTools = tools.map(tool => ({ ...tool, capabilities: { ...(manifest.permissions.network?.length ? { network: { hosts: manifest.permissions.network } } : {}), custom: { "ezcorp:mcp:invoke": true } } }));
+  return defineExtension({ manifest: { ...manifest, tools: declaredTools }, tools: handlers });
 }

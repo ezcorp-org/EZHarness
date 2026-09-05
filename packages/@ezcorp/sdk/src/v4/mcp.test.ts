@@ -1,9 +1,24 @@
 import { expect, test } from "bun:test";
-import { createMcpExtension } from "./mcp";
+import { createMcpExtension, readMcpCatalog } from "./mcp";
 import { normalizeMcpCatalog, valueSchemaValidator } from "@ezcorp/extension-contract";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+test("remote descriptors never execute network calls inside the worker", async () => {
+  const extension = await createMcpExtension({ manifest: { schemaVersion: 4, name: "remote", version: "1.0.0", description: "Remote", author: { name: "Tests" }, permissions: {}, kind: "mcp", mcpServers: [{ name: "remote", transport: "http", url: "https://example.com/mcp" }], tools: normalizeMcpCatalog([{ name: "echo", inputSchema: { type: "object" } }]) } });
+  expect(extension.manifest.permissions.mcpInvoke).toBe(true);
+  const context = { invocation: { invocationId: "test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 30_000 }, signal: new AbortController().signal, call: async () => null };
+  await expect(extension.invoke("echo", {}, context)).rejects.toThrow("host release broker");
+});
+
+test("catalog pagination is bounded and rejects repeated cursors", async () => {
+  let calls = 0;
+  const client = { listTools: async () => ({ tools: [{ name: `tool${calls++}`, inputSchema: { type: "object" as const } }], nextCursor: calls === 1 ? "next" : undefined }) };
+  expect(await readMcpCatalog(client)).toHaveLength(2);
+  await expect(readMcpCatalog({ listTools: async () => ({ tools: [], nextCursor: "again" }) })).rejects.toThrow("repeats");
+  await expect(readMcpCatalog({ listTools: async () => ({ tools: Array.from({ length: 129 }, (_, index) => ({ name: `tool${index}`, inputSchema: { type: "object" as const } })) }) })).rejects.toThrow("bounds");
+});
 
 test("stdio MCP discovery and invocation use a fresh protocol client and checked schemas", async () => {
   const extension = await createMcpExtension({ manifest: { schemaVersion: 4, name: "mcp-test", version: "1.0.0", description: "Fixture", author: { name: "Tests" }, permissions: {}, kind: "mcp", mcpServers: [{ name: "fixture", transport: "stdio", command: process.execPath, args: [new URL("./__tests__/mcp-fixture.ts", import.meta.url).pathname] }] } });

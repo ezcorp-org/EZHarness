@@ -901,6 +901,9 @@
               "description": "Emit the content-free loop-approval nudges (loops:approval_pending / loops:approval_resolved / loops:auto_disabled) via ezcorp/emit-loop-event (Loops EZ Mode Phase 2). Distinct from taskEvents: loop nudges fire ownerless and may broadcast globally, so they carry their own least-privilege gate. The host stamps the wire loopId with the emitting extension's id so an extension can only emit for its own loops.",
               "type": "boolean"
             },
+            "mcpInvoke": {
+              "type": "boolean"
+            },
             "memory": {
               "additionalProperties": false,
               "description": "Read/write access to the user's memory store via `ctx.memory`. Extension-authored memories are stamped with provenance and default to `injectionEligible: false` so they don't auto-inject into LLM system prompts. `selfOnly: true` (the default) keeps reads scoped to memories this extension itself authored.",
