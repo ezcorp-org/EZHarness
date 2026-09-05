@@ -1,5 +1,7 @@
 {
   "packages/@ezcorp/extension-runner/src/browser.ts": 100,
+  "src/extensions/runtime-locks.ts": 100,
+  "src/db/migrations/add-extension-runtime-locks.ts": 100,
   "src/db/migrations/add-managed-extension-agents.ts": 100,
   "src/extensions/ez-factory-release-agents.ts": 100,
   "src/extensions/domain-event-outbox.ts": 100,

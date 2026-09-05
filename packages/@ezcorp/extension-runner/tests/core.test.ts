@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles } from "../src/core";
+import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles, safeHostError } from "../src/core";
+
+test("public host errors use fixed allowlisted messages and never expose exception details", () => {
+  for (const code of ["STATE_CONFLICT", "INVALID_LOCK", "LOCK_TIMEOUT", "LOCK_QUARANTINED", "LOCK_FENCED", "LOCK_CAPACITY", "LOCK_CLOSED", "LOCK_KEY_REQUIRED"]) {
+    expect(safeHostError({ code, message: "secret-token" }).code).toBe(code);
+    expect(safeHostError({ code, message: "secret-token" }).message).not.toContain("secret-token");
+  }
+  for (const error of [null, false, "secret-token", new Error("secret-token"), { code: "constructor" }, { code: 123 }]) expect(safeHostError(error)).toEqual({ code: "host_denied", message: "Host capability denied or failed" });
+});
 
 test("workspace and command inputs reject path and resource escapes", () => {
   expect(relativePath("nested/file.ts")).toBe("nested/file.ts");

@@ -1,6 +1,6 @@
 import { request } from "node:http";
 import type { BuildRequest, BuildResult, Runner, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { RunnerError } from "./core";
+import { RunnerError, safeHostError } from "./core";
 import type { ReverseRpc } from "./protocol";
 
 export class RunnerClient implements Runner {
@@ -40,7 +40,7 @@ export class RunnerClient implements Runner {
         for (const event of events) {
           if (closed) break;
           if (event.id) {
-            void reverseRpc(event.method, event.params).then(result => this.call("reply", { workerId: input.workerId, id: event.id, result }), () => this.call("reply", { workerId: input.workerId, id: event.id, error: true })).catch(() => { closed = true; void this.cancel(input.workerId).catch(() => {}); });
+            void reverseRpc(event.method, event.params).then(result => this.call("reply", { workerId: input.workerId, id: event.id, result }), error => this.call("reply", { workerId: input.workerId, id: event.id, error: safeHostError(error).code })).catch(() => { closed = true; void this.cancel(input.workerId).catch(() => {}); });
           } else for (const listener of listeners) listener(event.method, event.params);
         }
       }

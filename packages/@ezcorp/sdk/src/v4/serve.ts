@@ -127,7 +127,7 @@ export function createSession(extension: DefinedExtension, write: Writer, option
         if (typeof error.code !== "number" || typeof error.message !== "string") throw new ContractError("INVALID_RESPONSE", "Invalid host error");
         pending.delete(message.id);
         call.cleanup();
-        call.reject(new ContractError("HOST_ERROR", error.message));
+        call.reject(new ContractError(error.code === -32009 ? "STATE_CONFLICT" : "HOST_ERROR", error.message));
       } else {
         pending.delete(message.id);
         call.cleanup();

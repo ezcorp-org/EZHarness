@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { validateResourceLimits, validateInvocationContext } from "@ezcorp/extension-contract";
-import { identifier, processSpawn, RunnerError, validateFiles } from "./core";
+import { identifier, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
 
 type Event = { id?: string; method: string; params: unknown };
 interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void }
@@ -103,7 +103,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         if (!pending) throw new RunnerError("unknown_request", "Host reply ID is stale or invalid");
         clearTimeout(pending.timer);
         session?.pending.delete(data.id);
-        if (data.error) pending.reject(new RunnerError("host_denied", "Host capability denied")); else pending.resolve(data.result);
+        if (data.error) { const safe = safeHostError({ code: data.error }); pending.reject(new RunnerError(safe.code, safe.message)); } else pending.resolve(data.result);
         send(response, 200, {});
         return;
       }

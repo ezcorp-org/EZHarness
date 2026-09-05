@@ -13,6 +13,22 @@ export class RunnerError extends Error {
   }
 }
 
+const publicHostErrors: Record<string, string> = {
+  STATE_CONFLICT: "State changed; reload before retrying.",
+  INVALID_LOCK: "Invalid stable lock key or request.",
+  LOCK_TIMEOUT: "Lock wait exceeded its deadline.",
+  LOCK_QUARANTINED: "Lock requires human recovery through extension control.",
+  LOCK_FENCED: "Lock ownership changed or expired.",
+  LOCK_CAPACITY: "Bounded lock capacity was reached.",
+  LOCK_CLOSED: "Lock invocation is closed or expired.",
+  LOCK_KEY_REQUIRED: "v4 createMutex requires a stable explicit key.",
+};
+
+export function safeHostError(error: unknown): { code: string; message: string } {
+  const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "";
+  return Object.hasOwn(publicHostErrors, code) ? { code, message: `${code}: ${publicHostErrors[code]}` } : { code: "host_denied", message: "Host capability denied or failed" };
+}
+
 export const executionLimits: ResourceLimits = Object.freeze({ memoryBytes: 512 * 1024 ** 2, cpuMillis: 1000, pids: 64, tmpBytes: 64 * 1024 ** 2, outputBytes: 1024 ** 2, timeoutMs: 60_000 });
 export const buildLimits: ResourceLimits = Object.freeze({ memoryBytes: 2 * 1024 ** 3, cpuMillis: 2000, pids: 128, tmpBytes: 1024 ** 3, outputBytes: 1024 ** 2, timeoutMs: 300_000 });
 

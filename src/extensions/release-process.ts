@@ -3,6 +3,7 @@ import type { InstallationRecord, InvocationContext, JsonValue, ReleaseRecord, R
 import { resolveCallProvenance } from "./call-provenance";
 import { ExtensionProcess } from "./subprocess";
 import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "./types";
+import { InvocationLocks } from "./runtime-locks";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -106,6 +107,7 @@ export class ReleaseProcess extends ExtensionProcess {
     let accepting = false;
     const runner = await this.runtime!.runner();
     let worker: RunnerExecution | undefined;
+    const locks = new InvocationLocks(this.extensionId, context, snapshot.installation.generation);
     try {
       worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, async (rpcMethod, raw) => {
         if (!accepting || this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
@@ -117,6 +119,7 @@ export class ReleaseProcess extends ExtensionProcess {
         if (!liveProvenance || liveProvenance.actorExtensionId !== this.extensionId || liveProvenance.onBehalfOf !== context.principalId || (liveProvenance.conversationId ?? snapshot.installation.scope) !== context.scopeId) throw new ContractError("INVALID_CALL_TOKEN", "Invocation token has expired or changed scope");
         await assertCurrentBinding();
         if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
+        if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") return locks.request(rpcMethod, envelope.input as Record<string, unknown>);
         const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _meta: { ezCallId: token } };
         delete input._toolName;
         if (method === "tools/call") input._toolName = params.name;
@@ -124,11 +127,12 @@ export class ReleaseProcess extends ExtensionProcess {
           if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
           if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
           if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
-          await notification({ jsonrpc: "2.0", method: rpcMethod, params: input });
+          await locks.effect(rpcMethod, async () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input }));
           return { ok: true };
         }
         if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
-        const response = await handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input });
+        const response = await locks.effect(rpcMethod, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }));
+        if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
         if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
         assertJson(response.result);
         return response.result;
@@ -161,7 +165,7 @@ export class ReleaseProcess extends ExtensionProcess {
     } finally {
       accepting = false;
       this.releaseWorkers.delete(workerId);
-      if (worker) await worker.close();
+      try { if (worker) await worker.close(); } finally { await locks.close(); }
     }
   }
 

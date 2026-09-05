@@ -34,7 +34,13 @@ test("Unix API checks peer UID and bearer and carries bidirectional RPC", async 
     const files = { "extension.ts": "export {};" };
     expect((await client.build({ operationId: "build", files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits })).state).toBe("failed");
     const context = { workerId: "worker", invocationId: "invocation", releaseId: "release", principalId: "user", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
-    const execution = await client.start({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async (method, params) => ({ method, params }));
+    const execution = await client.start({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async (method, params) => {
+      if (method === "conflict") throw Object.assign(new Error("private SQL details"), { code: "STATE_CONFLICT" });
+      if (method === "denied") throw new Error("private token");
+      return { method, params };
+    });
+    await expect(execution.request("conflict", {})).rejects.toMatchObject({ code: "STATE_CONFLICT", message: "STATE_CONFLICT: State changed; reload before retrying." });
+    await expect(execution.request("denied", {})).rejects.toThrow("Host capability denied or failed");
     expect(await execution.request("storage.get", { key: "hello" })).toEqual({ method: "storage.get", params: { key: "hello" } });
     const notification = new Promise(resolve => { const unsubscribe = execution.onNotification((method, params) => { unsubscribe(); resolve({ method, params }); }); });
     await execution.request("notify", { key: "updated" });

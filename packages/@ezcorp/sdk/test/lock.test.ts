@@ -6,6 +6,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { createMutex, withLock } from "../src/runtime/lock";
+import { withExtensionContext } from "../src/v4/context";
+import type { ExtensionContext } from "../src/v4";
 
 // ── Tiny helpers ───────────────────────────────────────────────────
 
@@ -20,6 +22,50 @@ function deferred<T = void>() {
 }
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+function hostContext(call: ExtensionContext["call"], overrides: Partial<ExtensionContext> = {}): ExtensionContext {
+  return { call, signal: new AbortController().signal, invocation: { invocationId: "invocation", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 60_000 }, ...overrides };
+}
+
+test("v4 locks poll bounded host ownership and release the exact fence on failure", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  let attempts = 0;
+  const context = hostContext(async (method, input) => {
+    calls.push({ method, input });
+    if (method === "ezcorp/lock.release") return { released: true };
+    return ++attempts === 1 ? { acquired: false, retryAfterMs: 50 } : { acquired: true, fence: "host-fence" };
+  });
+  await expect(withExtensionContext(context, () => withLock("counter", async () => { throw new Error("critical section failed"); }))).rejects.toThrow("critical section failed");
+  expect(calls).toHaveLength(3);
+  expect(calls[2]).toEqual({ method: "ezcorp/lock.release", input: { key: "counter", fence: "host-fence" } });
+});
+
+test("v4 mutexes require stable keys while standalone mutexes retain local behavior", async () => {
+  const context = hostContext(async (method) => method === "ezcorp/lock.acquire" ? { acquired: true, fence: "fence" } : { released: true });
+  await expect(withExtensionContext(context, () => createMutex()(async () => 1))).rejects.toThrow("stable explicit key");
+  expect(await withExtensionContext(context, () => createMutex("store")(async () => 2))).toBe(2);
+  expect(await createMutex("standalone")(async () => 3)).toBe(3);
+});
+
+test("v4 lock validation rejects malformed responses, unsafe keys and expired waits", async () => {
+  for (const response of [null, [], {}, { acquired: "yes" }, { acquired: true }, { acquired: true, fence: "" }, { acquired: true, fence: "x".repeat(129) }]) {
+    await expect(withExtensionContext(hostContext(async () => response), () => withLock("counter", async () => 1))).rejects.toThrow("Invalid lock");
+  }
+  await expect(withExtensionContext(hostContext(async () => null), () => withLock("../unsafe", async () => 1))).rejects.toThrow("stable lock key");
+  const expired = hostContext(async () => null);
+  expired.invocation.deadline = 0;
+  await expect(withExtensionContext(expired, () => withLock("counter", async () => 1))).rejects.toThrow("bounded deadline");
+});
+
+test("aborted invocation does not enter the critical section or send late release", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  let entered = false;
+  const context = hostContext(async () => { calls++; controller.abort(); return { acquired: true, fence: "fence" }; }, { signal: controller.signal });
+  await expect(withExtensionContext(context, () => withLock("counter", async () => { entered = true; }))).rejects.toThrow();
+  expect(entered).toBe(false);
+  expect(calls).toBe(1);
+});
 
 // ── withLock ───────────────────────────────────────────────────────
 

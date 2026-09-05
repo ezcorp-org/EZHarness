@@ -12,8 +12,8 @@
       "directory": "docs/extensions/examples/auto-note",
       "entrypoint": "extension.ts",
       "files": 11,
-      "bytes": 134959,
-      "sourceDigest": "cdfd60938820c823fa9dfbb0e2cdcc48b593b314593c50b95551df39de7572c6"
+      "bytes": 134976,
+      "sourceDigest": "a5a7d4ed45148538ae04fbb1d8e207147058356372a4537f91984cb052986070"
     },
     "cash-recovery-agent": {
       "directory": "docs/extensions/examples/cash-recovery-agent",
@@ -257,8 +257,8 @@
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 79188,
-      "sourceDigest": "31e70892224c119535b51603aa14c1048d0cb6bec06eacbca7d3d60f9ab1fb41"
+      "bytes": 79206,
+      "sourceDigest": "c6132b22ee5edc721db6b3bedcbcdca83019b9043602c363dacb9114555eecba"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",

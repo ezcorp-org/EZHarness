@@ -8,6 +8,18 @@ const request = (id: string, context = identity(id), input: unknown = { text: "h
 const definition = (handler: ExtensionHandler = input => (input as { text: string }).text) => defineExtension({ manifest: metadata, tools: { echo: handler } });
 
 describe("v4 protocol", () => {
+  test("host CAS conflicts preserve their stable public discriminator", async () => {
+    let session: ReturnType<typeof createSession>;
+    const frames: string[] = [];
+    session = createSession(definition(async (_input, context) => context.call("ezcorp/storage", {})), async frame => {
+      frames.push(frame);
+      const message = JSON.parse(frame);
+      if (message.method) await session.receive({ jsonrpc: "2.0", id: message.id, error: { code: -32009, message: "State changed; reload before retrying." } });
+    });
+    await session.receive(request("conflict"));
+    expect(JSON.parse(frames.at(-1)!).error.data.code).toBe("STATE_CONFLICT");
+    session.close();
+  });
   test("discovery returns immutable data and typed invocation enforces both schemas", async () => {
     const frames: any[] = [];
     let invoked = 0;

@@ -20,6 +20,7 @@ import { createRateLimiter } from "./rate-limit";
 import { rpcError, rpcResult } from "./json-rpc";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
+import { verifyInvocationLocks } from "./runtime-locks";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -118,6 +119,7 @@ export interface StorageRepository {
 export const productionStorageRepository: StorageRepository = {
   async transaction(extensionId, operation) {
     return getDb().transaction(async (transaction: StorageDatabase) => {
+      await verifyInvocationLocks(transaction);
       await transaction.execute(sql`SELECT id FROM extensions WHERE id = ${extensionId} FOR UPDATE`);
       return operation({
         ...productionStorageRepository,

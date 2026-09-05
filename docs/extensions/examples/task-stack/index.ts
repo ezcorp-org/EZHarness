@@ -219,7 +219,7 @@ function hasCycle(store: Store, blockingId: string, dependentId: string): boolea
 
 // --- Store mutex (prevents read-modify-write races) ---
 
-const storeMutex = createMutex();
+const storeMutex = createMutex("task-stack:store");
 
 /** Serialize store access so concurrent requests don't clobber each other. */
 export function withStoreLock<T>(fn: (store: Store) => Promise<T>): Promise<T> {

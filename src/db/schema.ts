@@ -2849,3 +2849,19 @@ export const savedContexts = pgTable("saved_contexts", {
 
 export type SavedContext = typeof savedContexts.$inferSelect;
 export type NewSavedContext = typeof savedContexts.$inferInsert;
+
+export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
+  installationId: text("installation_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  key: text("lock_key").notNull(),
+  fence: text("fence").notNull(),
+  invocationId: text("invocation_id").notNull(),
+  workerId: text("worker_id").notNull(),
+  releaseId: text("release_id").notNull(),
+  generation: integer("generation").notNull(),
+  principalId: text("principal_id").notNull(),
+  scopeId: text("scope_id").notNull(),
+  deadline: timestamp("deadline", { withTimezone: true }).notNull(),
+  state: text("state").notNull().$type<"held" | "quarantined">(),
+  effects: integer("effects").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.installationId, table.key] })]);

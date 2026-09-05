@@ -68,3 +68,10 @@ test("notifications and denied reverse calls use distinct protocol envelopes", a
     expect(await notification).toEqual({ method: "changed", params: { version: 1 } });
   } finally { await execution.close(); }
 });
+
+test("framed host conflicts preserve only their stable public error", async () => {
+  const child = spawn(process.execPath, ["-e", `let host;process.stdin.on('data',data=>{for(const line of data.toString().trim().split('\\n')){const req=JSON.parse(line);if(req.method){host=req.id;console.log(JSON.stringify({jsonrpc:'2.0',id:'child',method:'conflict',params:{}}));}else console.log(JSON.stringify({jsonrpc:'2.0',id:host,result:req.error}));}});`], { stdio: ["pipe", "pipe", "pipe"] });
+  const execution = new FramedExecution("worker", child, async () => { throw Object.assign(new Error("private database token"), { code: "STATE_CONFLICT" }); }, async () => { child.kill("SIGKILL"); }, 4096, 1000);
+  try { expect(await execution.request("invoke", {})).toEqual({ code: -32009, message: "STATE_CONFLICT: State changed; reload before retrying." }); }
+  finally { await execution.close(); }
+});

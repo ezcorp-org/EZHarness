@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { RunnerError } from "./core";
+import { RunnerError, safeHostError } from "./core";
 
 export type ReverseRpc = (method: string, params: unknown) => Promise<unknown>;
 type Frame = { jsonrpc: "2.0"; id?: string | number; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string } };
@@ -92,8 +92,9 @@ export class FramedExecution {
       this.reverseIds.add(key);
       void this.reverse(frame.method, frame.params).then(result => {
         if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, result });
-      }, () => {
-        if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: -32001, message: "Host capability denied or failed" } });
+      }, error => {
+        const safe = safeHostError(error);
+        if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: safe.code === "STATE_CONFLICT" ? -32009 : -32001, message: safe.message } });
       }).catch(error => this.fail(error instanceof Error ? error : new Error(String(error)))).finally(() => { this.reversePending--; this.reverseIds.delete(key); });
       return;
     }

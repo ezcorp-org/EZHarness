@@ -4,6 +4,7 @@ import { canonicalJson, compileValueSchema, validateWorkspaceFiles, WORKSPACE_FI
 import type { ExtensionLifecycle } from "./v4";
 import type { LifecycleActor, InstallationState } from "./v4/types";
 import { extensionLogger } from "../logger";
+import { inspectRuntimeLocks, recoverRuntimeLock } from "./runtime-locks";
 
 const log = extensionLogger("author", "control");
 const identifier = { type: "string", minLength: 1, maxLength: 128 };
@@ -14,8 +15,8 @@ export const extensionControlTools = [
   { name: "extensions_describe", description: "Read the extension SDK, available features, authoring example and release rules.", properties: {}, required: [] },
   { name: "extensions_workspace", description: "Create, inspect or atomically edit an extension workspace. Edits require the last observed revision. Nested files are supported. After changing package dependencies, use resolveDependencies to save the exact lockfile in a new revision before building.", properties: { ...commonProperties, action: { enum: ["create", "list", "read", "edit", "fork", "resolveDependencies"] }, workspaceId: identifier, releaseId: identifier, expectedRevision: { type: "integer", minimum: 0 }, writes: filesSchema, deletes: { type: "array", items: { type: "string" } }, name: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }, description: { type: "string", maxLength: 1000 } }, required: ["action"] },
   { name: "extensions_build", description: "Build and verify an exact workspace revision in the isolated runner. Returns a durable operation; inspect it for errors before requesting release approval.", properties: { ...commonProperties, workspaceId: identifier, expectedRevision: { type: "integer", minimum: 0 }, idempotencyKey: identifier, entrypoint: { type: "string", maxLength: 512 } }, required: ["installationId", "workspaceId", "expectedRevision", "idempotencyKey"] },
-  { name: "extensions_inspect", description: "Read extension workspaces, releases, checks, approvals and operation status. An operationId with waitMs waits for a terminal build state, with a maximum of five minutes.", properties: { ...commonProperties, operationId: identifier, waitMs: { type: "integer", minimum: 0, maximum: 300000 } }, required: ["installationId"] },
-  { name: "extensions_release", description: "Request human approval for the exact tested release, activate an approved release, roll back, disable or uninstall. This tool cannot approve code or permissions. Uninstall retains data.", properties: { ...commonProperties, action: { enum: ["requestApproval", "activate", "rollback", "disable", "uninstall"] }, releaseId: identifier, approvalId: identifier, expectedActiveReleaseId: { anyOf: [identifier, { type: "null" }] }, idempotencyKey: identifier }, required: ["action", "installationId"] },
+  { name: "extensions_inspect", description: "Read extension workspaces, releases, checks, approvals and operation status. An operationId with waitMs waits for a terminal build state, with a maximum of five minutes.", properties: { ...commonProperties, locks: { type: "boolean" }, operationId: identifier, waitMs: { type: "integer", minimum: 0, maximum: 300000 } }, required: ["installationId"] },
+  { name: "extensions_release", description: "Request human approval for the exact tested release, activate an approved release, roll back, disable or uninstall. This tool cannot approve code or permissions. Uninstall retains data.", properties: { ...commonProperties, action: { enum: ["requestApproval", "activate", "rollback", "disable", "uninstall", "recoverLock"] }, lockKey: identifier, expectedFence: identifier, acknowledgeUncertainEffects: { type: "boolean" }, releaseId: identifier, approvalId: identifier, expectedActiveReleaseId: { anyOf: [identifier, { type: "null" }] }, idempotencyKey: identifier }, required: ["action", "installationId"] },
 ] as const;
 
 export type ExtensionControlTool = (typeof extensionControlTools)[number]["name"];
@@ -83,6 +84,11 @@ export class ExtensionControl {
     if (tool === "extensions_inspect") return this.inspect(actor, installationId, input, signal);
     if (tool !== "extensions_release") throw new ExtensionControlError("unknown_tool", "Unknown extension control tool.");
     const action = requiredString(input, "action");
+    if (action === "recoverLock") {
+      await this.lifecycle.inspect(actor, installationId);
+      await recoverRuntimeLock(actor, installationId, input.lockKey, input.expectedFence, input.acknowledgeUncertainEffects);
+      return { recovered: true };
+    }
     if (action === "requestApproval") {
       const releaseId = requiredString(input, "releaseId");
       const state = await this.lifecycle.inspect(actor, installationId);
@@ -113,14 +119,14 @@ export class ExtensionControl {
     return this.lifecycle.editWorkspace(actor, { installationId, workspaceId, expectedRevision: expectedRevision(input), writes: sourceFiles(input.writes), deletes: input.deletes as string[] | undefined });
   }
 
-  private async inspect(actor: LifecycleActor, installationId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<InstallationState> {
+  private async inspect(actor: LifecycleActor, installationId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<InstallationState & { locks?: Awaited<ReturnType<typeof inspectRuntimeLocks>> }> {
     const waitMs = input.waitMs ?? 0;
     if (typeof waitMs !== "number" || !Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 300000) throw new ExtensionControlError("invalid_input", "waitMs must be between 0 and 300000.");
     const deadline = performance.now() + waitMs;
     for (;;) {
       signal?.throwIfAborted();
       const state = await this.lifecycle.inspect(actor, installationId);
-      if (input.operationId === undefined) return state;
+      if (input.operationId === undefined) return input.locks === true ? { ...state, locks: await inspectRuntimeLocks(installationId) } : state;
       const operation = state.operations[requiredString(input, "operationId")];
       if (!operation) throw new ExtensionControlError("not_found", "Operation not found.");
       if (!["queued", "building", "verifying", "activating"].includes(operation.state) || performance.now() >= deadline) return state;
