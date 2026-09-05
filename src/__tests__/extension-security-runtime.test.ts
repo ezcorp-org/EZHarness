@@ -822,3 +822,5 @@ describe("ToolExecutor request handler routing", () => {
     expect(resp.error.message).toBe("Method not found");
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

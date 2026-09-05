@@ -183,3 +183,5 @@ describe("ToolExecutor — _meta.ezOnBehalfOf side channel", () => {
     }
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

@@ -24,7 +24,7 @@ mockDbConnection();
 
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import { conversations, projects, users } from "../../db/schema";
+import { conversations, projects, users, extensions } from "../../db/schema";
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../types";
 
@@ -85,6 +85,7 @@ let projectConvId: string;
 
 async function seed(): Promise<void> {
   const db = getTestDb();
+  await db.insert(extensions).values({ id: EXT_ID, name: EXT_ID, version: "1.0.0", source: "test:fixture", manifest: makeManifest() });
   const projRows = await db
     .insert(projects)
     .values({ name: "ECF Demo", path: PROJECT_PATH })
@@ -126,13 +127,12 @@ describe("ToolExecutor · conversation project-root → _meta.ezProjectRoot (B5)
     expect(captured.meta?.ezProjectRoot).toBe(PROJECT_PATH);
   });
 
-  test("(b) unknown conversation → ezProjectRoot unset (defensive, no throw)", async () => {
+  test("(b) unknown conversation has no project authority and cannot commit a tool result", async () => {
     const captured: { meta?: Record<string, unknown> } = {};
     const executor = new ToolExecutor(makeRegistry(captured), createStubPermissionEngine());
     executor.setCurrentUserId(userId);
 
-    const res = await executor.executeToolCall(TOOL, {}, "conv-does-not-exist", null);
-    expect(res.isError).toBe(false);
+    await expect(executor.executeToolCall(TOOL, {}, "conv-does-not-exist", null)).rejects.toHaveProperty("code", "event_persist_failed");
     // Still forwards the conversation id, but no project resolved → no key.
     expect(captured.meta?.ezConversationId).toBe("conv-does-not-exist");
     expect(captured.meta && "ezProjectRoot" in captured.meta).toBe(false);

@@ -215,3 +215,5 @@ describe("long-blocking subprocess skipTimeout (F2)", () => {
     expect(callToolOptions[0]).toBeUndefined();
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

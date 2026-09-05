@@ -385,3 +385,5 @@ describe("ToolExecutor setStateMediator wiring", () => {
 		expect(() => executor.setStateMediator(mediator)).not.toThrow();
 	});
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

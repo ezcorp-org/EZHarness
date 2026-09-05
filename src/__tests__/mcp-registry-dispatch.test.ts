@@ -77,3 +77,5 @@ describe("ToolExecutor dispatch for MCP-kind extensions", () => {
     expect(result.content[0]).toEqual({ type: "text", text: "pong" });
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();
