@@ -59,6 +59,7 @@ test("member imports verified marketplace source into their own installation and
     await expect(page.getByText("An administrator must review this release in a human session. API keys cannot approve.")).toBeVisible();
     const forbidden = await context.request.post(`/api/extensions/releases/${created.installation.id}/approve`, { data: { approvalId: approval.id, decision: true } });
     expect(forbidden.status()).toBe(403);
+    await page.getByRole("button", { name: "Approve exact release", exact: true }).scrollIntoViewIfNeeded();
     await captureEvidence(page, testInfo, "extension-source-import-review");
     expect((await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id })).installation.activeReleaseId).toBeNull();
   } finally { await cleanup?.(); await context.close(); }
