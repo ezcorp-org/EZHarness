@@ -6,6 +6,19 @@ import { findProjectRoot, getExtensionDataDir } from "../runtime/fs";
 
 afterEach(__resetChannelForTests);
 
+test("runtime notifications acknowledge before handler success", async () => {
+  let acknowledge!: () => void;
+  const ack = new Promise<void>(resolve => { acknowledge = resolve; });
+  const extension = await createRuntimeExtension({ manifest: { schemaVersion: 4, name: "notify", version: "1.0.0", description: "Notify", author: { name: "Test" }, permissions: {} }, register() { getChannel().onRequest("event/notify", () => { getChannel().notify("ezcorp/state", {}); }); } });
+  let completed = false;
+  const invocation = extension.dispatch("event/notify", {}, { invocation: { invocationId: "notify", workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "scope", token: "token", deadline: Date.now() + 5000 }, signal: new AbortController().signal, call: async () => { await ack; return null; } }).then(result => { completed = true; return result; });
+  await Bun.sleep(1);
+  expect(completed).toBe(false);
+  acknowledge();
+  expect(await invocation).toBeNull();
+  expect(completed).toBe(true);
+});
+
 test("filesystem paths use project and own data virtual roots", async () => {
   const paths: unknown[] = [];
   const extension = await createRuntimeExtension({ manifest: { schemaVersion: 4, name: "files", version: "1.0.0", description: "Files", author: { name: "Test" }, permissions: {} }, register() {
@@ -56,7 +69,6 @@ test("registration failures restore the adapter and tool envelopes reject errors
   await expect(createRuntimeExtension({ manifest, register() { getChannel().onRequest("page/render", () => null); getChannel().onRequest("page/render", () => null); } })).rejects.toThrow("already registered");
   const extension = await createRuntimeExtension({ manifest, register() { getChannel().onRequest("event/changed", () => { getChannel().notify("ezcorp/state", {}); }); } });
   let calls = 0;
-  const result = await extension.dispatch("event/changed", {}, { invocation: { invocationId: "event", workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "project", token: "token", deadline: Date.now() + 1000 }, signal: new AbortController().signal, call: async () => { calls++; throw new Error("denied"); } });
-  expect(result).toBeNull();
+  await expect(extension.dispatch("event/changed", {}, { invocation: { invocationId: "event", workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "project", token: "token", deadline: Date.now() + 1000 }, signal: new AbortController().signal, call: async () => { calls++; throw new Error("denied"); } })).rejects.toThrow("denied");
   expect(calls).toBe(1);
 });

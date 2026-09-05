@@ -30,11 +30,12 @@ export function defineRuntimeManifest<Metadata>(metadata: Metadata): Metadata & 
 export async function createRuntimeExtension(options: { manifest: unknown; register: () => unknown | Promise<unknown> }): Promise<DefinedExtension> {
   const manifest = defineRuntimeManifest(options.manifest);
   const context = new AsyncLocalStorage<ExtensionContext>();
+  const notifications = new WeakMap<ExtensionContext, Promise<unknown>[]>();
   const handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
   let registering = true;
   function current(): ExtensionContext {
     const invocation = context.getStore();
-    if (!invocation) throw new ContractError("NO_INVOCATION", "Host capabilities require an active invocation");
+    if (!invocation || !notifications.has(invocation)) throw new ContractError("NO_INVOCATION", "Host capabilities require an active invocation");
     invocation.signal.throwIfAborted();
     return invocation;
   }
@@ -52,7 +53,9 @@ export async function createRuntimeExtension(options: { manifest: unknown; regis
     },
     notify: (method, params) => {
       const invocation = current();
-      void invocation.call(method, params).catch(() => { process.stderr.write("Extension host notification failed\n"); });
+      const pending = invocation.call(method, params);
+      notifications.get(invocation)!.push(pending);
+      void pending.catch(() => {});
     },
     onRequest: (method, handler) => {
       if (!registering) throw new ContractError("REGISTRATION_CLOSED", "Handlers must be registered before serving");
@@ -67,9 +70,15 @@ export async function createRuntimeExtension(options: { manifest: unknown; regis
     await options.register();
     registering = false;
     const tools: Record<string, ExtensionHandler> = {};
-    function scoped(handler: (params: unknown) => unknown, input: unknown, invocation: ExtensionContext, toolName?: string): Promise<unknown> {
+    async function scoped(handler: (params: unknown) => unknown, input: unknown, invocation: ExtensionContext, toolName?: string): Promise<unknown> {
       const conversationId = invocation.invocation.metadata?.ezConversationId;
-      return context.run(invocation, () => withToolContext({ invocation: invocation.invocation, extensionName: manifest.name, callId: invocation.invocation.token, conversationId: typeof conversationId === "string" ? conversationId : "", projectRoot: "/project", ...(toolName ? { toolName } : {}) }, () => handler(input)));
+      const pending: Promise<unknown>[] = [];
+      notifications.set(invocation, pending);
+      try {
+        const result = await context.run(invocation, () => withToolContext({ invocation: invocation.invocation, extensionName: manifest.name, callId: invocation.invocation.token, conversationId: typeof conversationId === "string" ? conversationId : "", projectRoot: "/project", ...(toolName ? { toolName } : {}) }, () => handler(input)));
+        await Promise.all(pending);
+        return result;
+      } finally { notifications.delete(invocation); }
     }
     for (const tool of manifest.tools ?? []) {
       const handler = handlers.get("tools/call");
