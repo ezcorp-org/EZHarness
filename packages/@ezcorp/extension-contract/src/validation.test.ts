@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import { createRequire } from "node:module";
 import { assertJson, canonicalJson, compileValueSchema, parseJson, sha256, sealPublishedRelease, validatePublishedRelease, validateInvocationContext, validateManifest, validateResourceLimits, validateWire, validateWorkspaceFiles, validateWorkspacePath, validateArtifactFiles } from "./index";
 
 const manifest = { schemaVersion: 4, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 
 describe("data contracts", () => {
+  test("AJV's resolved URI parser preserves authority across hostile normalization inputs", () => {
+    const uri = createRequire(import.meta.resolve("ajv"))("fast-uri");
+    for (const input of ["http://[::not-valid]/private", "http://[fc00::not-hex]/", "%2f%2fevil.example:/pwn", "%u002f%u002fevil.example:/pwn", "%0d%0ahttps:/path"]) {
+      expect(uri.parse(input).error).toBeDefined();
+      expect(uri.normalize(input)).toBe(input);
+    }
+    const nestedHost = "http://%256c%256f%2563%2561%256c%2568%256f%2573%2574/";
+    expect(uri.normalize(nestedHost)).toBe(nestedHost);
+    expect(uri.resolve("https://example.com/base", "//ｅxample.com/")).toBe("https://example.com/");
+    expect(uri.parse("https://example.com/path").host).toBe("example.com");
+  });
   test("compiled schemas reuse exact content without retaining mutable source or byte limits", () => {
     const source = { type: "object", const: { value: "original" }, description: "detached cache probe" };
     const original = compileValueSchema(source);
