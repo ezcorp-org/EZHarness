@@ -49,7 +49,7 @@ human review. Verify locally before pushing:
 `bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
 **That line does NOT cover everything CI does** — `bun run test` is the backend
 pool only (not `scripts/test-web.sh`, not Vitest, not e2e), `bun run test:e2e`
-runs the whole backlog rather than CI's 24-spec gate lane, and a rebase
+runs the whole backlog rather than CI's manifest-defined `mock-gate` lane, and a rebase
 invalidates any baseline you measured before it. Details and the exact lane
 invocation:
 [docs/development-lifecycle.md](docs/development-lifecycle.md#what-the-local-commands-do-not-cover).

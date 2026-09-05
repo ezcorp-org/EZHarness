@@ -242,7 +242,7 @@ A green `bun run test` therefore says nothing about three separate CI jobs. Run
 a live backend, and the 20 real-tier specs under `e2e/real-auth/` that
 fail-closed to 404 without `PI_E2E_REAL=1`. Expect it to be substantially red;
 that is by design, not a regression. CI's `E2E (mock, no Docker)` gates the
-**24-spec `mock-gate` lane on chromium only**. To reproduce exactly what CI
+manifest-defined **`mock-gate` lane on chromium only**. To reproduce exactly what CI
 gates:
 
 ```sh
@@ -253,7 +253,8 @@ bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
 `mapfile` is **bash-only**. Under zsh it is not a builtin, `ARGS` silently comes
 out EMPTY, and playwright runs the whole 4102-test backlog instead of the lane —
 which looks like a catastrophic regression and is nothing of the sort. Keep the
-`bash -c`, and sanity-check `${#ARGS[@]}` is 24.
+`bash -c`; the non-empty check in CI fails closed, and `web/e2e/lanes.json` is
+the single source for the current member count.
 
 **A rebase invalidates your baselines. Re-measure the control on the new base.**
 Comparing post-rebase numbers against pre-rebase ones silently attributes
