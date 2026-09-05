@@ -2,131 +2,47 @@ import { fileURLToPath as fixtureFilePath } from "node:url";
 const fixtureImportMeta = { dir: fixtureFilePath(new URL("../../../../docs/extensions/examples/auto-note/", import.meta.url)), dirname: fixtureFilePath(new URL("../../../../docs/extensions/examples/auto-note/", import.meta.url)), url: new URL("../../../../docs/extensions/examples/auto-note/legacy-subprocess.integration.test.ts", import.meta.url).href };
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { FramedExecution } from "@ezcorp/extension-runner";
 import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { makeFsRpcHandler } from "@ezcorp/sdk/test";
 import { CATEGORIES } from "../../../../docs/extensions/examples/auto-note/lib/types";
 const TMP_DIR = join("/tmp", `auto-note-subprocess-${Date.now()}`);
 afterAll(() => rmSync(TMP_DIR, { recursive: true, force: true }));
-type Spawned = {
-  proc: ReturnType<typeof Bun.spawn>;
-  send: (req: any) => Promise<any>;
-  readNotifications: () => any[];
-  close: () => Promise<void>;
-};
-
-async function spawnExtension(opts: { cwd: string; env?: Record<string, string> } = { cwd: TMP_DIR }): Promise<Spawned> {
-  const extDir = fixtureImportMeta.dir; // points to docs/extensions/examples/auto-note
-  const preloadPath = join(extDir, "..", "..", "..", "..", "src", "extensions", "runtime", "sandbox-preload.ts");
-  const entrypoint = join(extDir, "index.ts");
-
-  const baseEnv: Record<string, string> = {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "test",
-    TMPDIR: opts.cwd,
-    // Phase 3 fs hardening: auto-note persists via host-mediated `fs*`
-    // reverse-RPC. Grant the flag + answer `ezcorp/fs.*` below (scoped to
-    // the subprocess cwd, which contains its `.ezcorp/extension-data` vault).
-    EZCORP_FS_ALLOWED: "1",
-  };
-
-  const proc = Bun.spawn(
-    ["bun", "run", "--preload", preloadPath, entrypoint],
-    {
-      cwd: opts.cwd,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...baseEnv, ...(opts.env ?? {}) },
-    },
-  );
-
-  // Host-side `ezcorp/fs.*` reverse-RPC handler, scoped to the subprocess cwd.
+async function spawnExtension(opts: { cwd: string; env?: Record<string, string> } = { cwd: TMP_DIR }) {
+  const entrypoint = join(fixtureImportMeta.dir, "extension.ts");
+  const proc = spawn(process.execPath, [entrypoint], { cwd: opts.cwd, stdio: "pipe", env: { PATH: process.env.PATH, ...opts.env } });
   const fsHandler = makeFsRpcHandler(opts.cwd);
-
-  // Collect stdout lines and demux responses from notifications
-  const responseCbs = new Map<number | string, (msg: any) => void>();
-  const notifications: any[] = [];
-  let stdoutBuffer = "";
-
-  const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  (async () => {
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        stdoutBuffer += decoder.decode(value, { stream: true });
-        let idx: number;
-        while ((idx = stdoutBuffer.indexOf("\n")) !== -1) {
-          const line = stdoutBuffer.slice(0, idx).trim();
-          stdoutBuffer = stdoutBuffer.slice(idx + 1);
-          if (!line) continue;
-          try {
-            const msg = JSON.parse(line);
-            if (msg.method && msg.id != null) {
-              // Reverse-RPC REQUEST from the subprocess (e.g. ezcorp/fs.*).
-              // Answer it and write the response back over stdin — the host's
-              // job. Without this the subprocess's fsWrite never resolves.
-              const resp = fsHandler(msg) ?? {
-                jsonrpc: "2.0", id: msg.id,
-                error: { code: -32601, message: `Method not found: ${msg.method}` },
-              };
-              (proc.stdin as any).write(JSON.stringify(resp) + "\n");
-              if ((proc.stdin as any).flush) (proc.stdin as any).flush();
-            } else if (msg.id != null) {
-              responseCbs.get(msg.id)?.(msg);
-              responseCbs.delete(msg.id);
-            } else if (msg.method) {
-              notifications.push(msg);
-            }
-          } catch { /* skip malformed */ }
-        }
-      }
-    } catch { /* closed */ }
-  })();
-
-  // Also drain stderr so it doesn't block on a full pipe
-  const stderrChunks: string[] = [];
-  (async () => {
-    const r = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    const d = new TextDecoder();
-    try {
-      while (true) {
-        const { done, value } = await r.read();
-        if (done) break;
-        stderrChunks.push(d.decode(value, { stream: true }));
-      }
-    } catch { /* closed */ }
-  })();
-
-  let nextId = 1;
-
-  const send = (req: any): Promise<any> => {
-    const id = req.id ?? nextId++;
-    const full = { jsonrpc: "2.0", id, ...req };
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        responseCbs.delete(id);
-        reject(new Error(`Timeout waiting for id=${id}. stderr=${stderrChunks.join("")}`));
-      }, 10_000);
-      responseCbs.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
-      (proc.stdin as any).write(JSON.stringify(full) + "\n");
-      if ((proc.stdin as any).flush) (proc.stdin as any).flush();
-    });
-  };
-
-  const close = async () => {
-    try { (proc.stdin as any).end?.(); } catch {}
-    proc.kill();
-    await proc.exited.catch(() => {});
-  };
-
+  const notifications: Array<{ method: string; params: any }> = [];
+  const execution = new FramedExecution("auto-note-test", proc, async (method, envelope) => {
+    const input = (envelope as { input: Record<string, unknown> }).input;
+    if (method === "ezcorp/state") { notifications.push({ method, params: input }); return null; }
+    const params = { ...input };
+    for (const key of ["path", "src", "dest"]) {
+      const path = params[key];
+      if (typeof path !== "string") continue;
+      if (path === "/data" || path.startsWith("/data/")) params[key] = join(opts.cwd, ".ezcorp", "extension-data", "auto-note", path.slice(5));
+      else if (path === "/project" || path.startsWith("/project/")) params[key] = join(opts.cwd, path.slice(8));
+      else throw new Error("Fixture refuses non-virtual filesystem path");
+    }
+    const response = fsHandler({ jsonrpc: "2.0", id: 1, method, params });
+    if (!response || response.error) throw new Error(response?.error?.message ?? `Unsupported fixture RPC: ${method}`);
+    return response.result;
+  }, async () => { proc.kill("SIGKILL"); }, 4 * 1024 * 1024, 5000);
+  try { await execution.request("extension/discover", {}); } catch (error) { await execution.close(); throw error; }
+  let sequence = 0;
   return {
-    proc,
-    send,
+    send: async (request: { method: string; params?: any }) => {
+      const context = { invocationId: `auto-note-${++sequence}`, workerId: "worker", releaseId: "release", principalId: "user", scopeId: "project", token: "fixture", deadline: Date.now() + 5000 };
+      try {
+        const result = request.method === "tools/call"
+          ? await execution.request("extension/invoke", { name: request.params.name, input: request.params.arguments ?? {}, context })
+          : await execution.request("extension/dispatch", { method: request.method, input: request.params ?? {}, context });
+        return { result } as any;
+      } catch (error) { return { error: { message: error instanceof Error ? error.message : String(error) } } as any; }
+    },
     readNotifications: () => [...notifications],
-    close,
+    close: () => execution.close(),
   };
 }
 
