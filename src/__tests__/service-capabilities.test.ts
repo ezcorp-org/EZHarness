@@ -149,6 +149,10 @@ test("service project files use the host-bound project and stop after membership
     const request = { jsonrpc: "2.0" as const, id: "write", method: "ezcorp/fs.write", params: { path: "/project/proof.txt", content: "bounded", projectId: "foreign" } };
     expect((await handleVirtualFilesystemRpc("write", request, context)).error).toBeUndefined();
     expect(await readFile(join(directory, "proof.txt"), "utf8")).toBe("bounded");
+    const read = await handleVirtualFilesystemRpc("read", { ...request, method: "ezcorp/fs.read", params: { path: "/project/proof.txt" } }, context);
+    expect(read.error).toBeUndefined();
+    expect(read.result).toMatchObject({ body: Buffer.from("bounded").toString("base64") });
+    expect((await handleVirtualFilesystemRpc("write", { ...request, params: { ...request.params, path: "/project/../escape" } }, context)).error).toBeDefined();
     await db.delete(projectMembers).where(eq(projectMembers.projectId, "project"));
     expect((await handleVirtualFilesystemRpc("write", { ...request, params: { ...request.params, content: "revoked" } }, context)).error).toBeDefined();
     expect(await readFile(join(directory, "proof.txt"), "utf8")).toBe("bounded");
