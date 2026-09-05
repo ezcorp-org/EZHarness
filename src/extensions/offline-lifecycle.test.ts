@@ -9,6 +9,7 @@ import { FileBlobStore, putFiles } from "./v4/blobs";
 import { ReleaseProcess } from "./release-process";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { createDatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { loadReleaseWorkflowEntries } from "../runtime/workflow-release-assets";
 
 mockDbConnection();
 
@@ -38,13 +39,16 @@ test("production lifecycle edits and empty delivery polling work offline while b
     await expect(new ReleaseProcess(created.installation.id).call("tools/list", {})).rejects.toMatchObject({ code: "RELEASE_NOT_ACTIVE" });
     await expect(new ReleaseProcess(created.installation.id).sendNotification("ezcorp/trigger-fire")).rejects.toMatchObject({ code: "invalid_delivery" });
     const active = releaseRuntimeFixture(crypto.randomUUID(), { schemaVersion: 4, name: "offline-catalog", version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: {}, tools: [{ name: "read", description: "Read", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] }, { ownerId: user!.id }).snapshot;
-    const files = { "workflows/review.yaml": "name: Review\nsteps: []" };
+    const files = { "review.workflow.yaml": "name: review\ndescription: Review\nsteps:\n  - name: emit\n    kind: transform\n    output:\n      approved: 'false'\n" };
     active.release.artifactDigest = await putFiles(new FileBlobStore(directory), files, "artifact");
     const repository = await createDatabaseLifecycleRepository();
     await repository.create({ installation: active.installation, releases: { [active.release.id]: active.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
     expect((await new ReleaseProcess(active.installation.id).call("tools/list", {})).result).toEqual({ tools: active.release.manifest.tools });
     const readArtifacts = () => getExtensionReleaseArtifacts(active.installation.id, active.release.id);
     expect(await readArtifacts()).toEqual(files);
+    const registry = { getAllManifests: () => new Map([[active.installation.id, active.release.manifest]]).entries() };
+    const [workflow] = await loadReleaseWorkflowEntries(registry);
+    expect(workflow).toMatchObject({ source: "extension", visibility: "private", userId: user!.id, projectId: null, definition: { name: "offline-catalog:review" }, extensionRelease: { installationId: active.installation.id, ownerId: user!.id, scope: "global" } });
     await expect(getExtensionReleaseArtifacts("missing", active.release.id)).rejects.toMatchObject({ code: "release_not_active" });
     await expect(getExtensionReleaseArtifacts(active.installation.id, "missing")).rejects.toMatchObject({ code: "release_not_active" });
     for (const mutation of [
@@ -57,6 +61,7 @@ test("production lifecycle edits and empty delivery polling work offline while b
     }
     await repository.transact(active.installation.id, state => { state.installation = { ...active.installation, status: "reconciling", acknowledgedGeneration: active.installation.generation - 1 }; });
     expect(await readArtifacts()).toEqual(files);
+    expect(await loadReleaseWorkflowEntries(registry)).toHaveLength(1);
     for (const mutation of [null, { id: "foreign-release" }, { installationId: "foreign-installation" }]) {
       const installationId = crypto.randomUUID();
       await repository.create({ installation: { ...active.installation, id: installationId }, releases: mutation ? { [active.release.id]: { ...active.release, installationId, ...mutation } } : {}, revisions: {}, workspaces: {}, approvals: {}, operations: {} });

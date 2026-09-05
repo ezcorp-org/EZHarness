@@ -66,6 +66,7 @@ vi.mock("$server/extensions/registry", () => ({
 			getAllManifests: () => new Map(),
 			getProcessIfRunning: () => undefined,
 			killAll: vi.fn(),
+			onReload: vi.fn(() => vi.fn()),
 		}),
 	},
 }));
@@ -109,6 +110,7 @@ vi.mock("$lib/server/security/openai-extension-creds", () => ({
 vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
 	LifecycleHookDispatcher: class {
 		registerExtension = vi.fn();
+		reconcileFromRegistry = vi.fn();
 		start = vi.fn();
 		stop = vi.fn();
 	},
@@ -116,6 +118,7 @@ vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
 vi.mock("$server/extensions/event-subscription-dispatcher", () => ({
 	EventSubscriptionDispatcher: class {
 		registerExtension = vi.fn();
+		reconcileFromRegistry = vi.fn();
 		start = vi.fn();
 		stop = vi.fn();
 	},
@@ -139,6 +142,7 @@ vi.mock("$server/runtime/loader", () => ({
 vi.mock("$server/runtime/workflow-loader", () => ({
 	loadYamlWorkflows: vi.fn(async () => []),
 }));
+vi.mock("$server/runtime/workflow-release-assets", () => ({ loadReleaseWorkflowEntries: vi.fn(async () => []) }));
 vi.mock("$server/db/queries/workflows", () => ({
 	loadDbCachedWorkflows: vi.fn(async () => []),
 }));

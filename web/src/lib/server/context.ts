@@ -11,10 +11,7 @@ import { triggerBriefingRunNow } from "$lib/server/briefing-run-now";
 import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
-import {
-  collectExtensionWorkflowSources,
-  loadExtensionWorkflows,
-} from "$server/runtime/workflow-extension-loader";
+import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
 import { initDb, closeDb } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
@@ -440,6 +437,7 @@ export async function ensureInitialized(): Promise<void> {
 
   // Load workflows from extension assets + YAML + DB
   workflows = await buildWorkflowCache();
+  registerTeardown("extension-workflow-reload", registry.onReload(reloadWorkflows));
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE
@@ -523,16 +521,11 @@ export function getCachedWorkflows(): CachedWorkflow[] {
  * their names always carry a `:` and host names never do.
  */
 async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
-  const extensionWorkflows = await loadExtensionWorkflows(
-    collectExtensionWorkflowSources(ExtensionRegistry.getInstance()),
-  );
+  const extensionWorkflows = await loadReleaseWorkflowEntries(ExtensionRegistry.getInstance());
   const yamlWorkflows = await loadYamlWorkflows(agentsDir);
-  // Only DB rows carry ownership. YAML and extension assets ship with the
-  // INSTALL, not with a project or a user, so they are `system` — the same
-  // authorization they have had all along.
   const dbWorkflows = await loadDbCachedWorkflows();
   return [
-    ...extensionWorkflows.map((w) => systemCachedWorkflow(w, "extension")),
+    ...extensionWorkflows,
     ...yamlWorkflows.map((w) => systemCachedWorkflow(w, "yaml")),
     ...dbWorkflows,
   ];
