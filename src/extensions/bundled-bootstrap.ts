@@ -43,7 +43,13 @@ export async function stageBundledExtensionSources(entries: readonly { name: str
         state = await repository.read(installationId);
       }
       if (!state) throw new Error("Source installation could not be persisted");
-      if (legacy && !state.installation.activeReleaseId) await updateExtension(legacy.id, { enabled: false, grantedPermissions: { grantedAt: {} } });
+      if (!users.some((user) => user.id === state.installation.ownerId && user.status === "active")) {
+        log.warn("Bundled installation owner is inactive; manual ownership review required", { name: entry.name });
+        continue;
+      }
+      const legacyGrants = legacy?.grantedPermissions;
+      const needsRevocation = legacy?.enabled || Object.keys(legacyGrants ?? {}).some((key) => key !== "grantedAt") || Object.keys(legacyGrants?.grantedAt ?? {}).length > 0;
+      if (legacy && !state.installation.activeReleaseId && needsRevocation) await updateExtension(legacy.id, { enabled: false, grantedPermissions: { grantedAt: {} } });
       const actor: LifecycleActor = { principalId: state.installation.ownerId, scope: state.installation.scope, kind: "service" };
       const snapshot = await snapshotFirstPartyExtension(getProjectRoot(), entry.name);
       if (snapshot.source.directory !== entry.path) throw new Error("Bundled source path does not match the reviewed inventory");

@@ -3,7 +3,7 @@ import type { InstallationState, LifecycleActor } from "../extensions/v4/types";
 import { digestObject } from "../extensions/v4/blobs";
 
 const states = new Map<string, InstallationState>();
-const legacy = new Map<string, { id: string; creatorUserId?: string; enabled: boolean; disabledByUser?: boolean }>();
+const legacy = new Map<string, { id: string; creatorUserId?: string; enabled: boolean; disabledByUser?: boolean; grantedPermissions?: Record<string, unknown> }>();
 let users: Array<{ id: string; role: string; status: string }> = [];
 let files: Record<string, string> = {};
 let sourceDirectory = "extensions/candidate";
@@ -50,13 +50,60 @@ beforeEach(() => {
   runBuild.mockImplementation(async () => {});
 });
 
-async function stage(): Promise<InstallationState> {
-  await stageBundledExtensionSources(entries);
+async function stage(selectedEntries = entries): Promise<InstallationState> {
+  await stageBundledExtensionSources(selectedEntries);
   await new Promise((resolve) => setTimeout(resolve, 0));
   return [...states.values()][0]!;
 }
 
 describe("host-owned bundled source staging", () => {
+  for (const name of ["ask-user", "task-tracking", "scratchpad"]) {
+    for (const disabledByUser of [true, false]) test(`${name}: no critical or repair exemption can re-enable an unapproved installation (user disabled=${disabledByUser})`, async () => {
+      legacy.set(name, { id: `legacy-${name}`, enabled: false, disabledByUser });
+      const state = await stage([{ name, path: sourceDirectory }]);
+      expect(state.installation.enabled).toBe(false);
+      expect(state.installation.activeReleaseId).toBeNull();
+      expect(legacy.get(name)?.disabledByUser).toBe(disabledByUser);
+      expect(update).not.toHaveBeenCalled();
+      expect(state.approvals).toEqual({});
+    });
+  }
+
+  for (const permission of ["custom.drafts", "eventSubscriptions", "network", "shell", "env", "storage"]) test(`${permission}: source declarations never backfill or widen existing grants`, async () => {
+    legacy.set("candidate", { id: "legacy-id", enabled: false, grantedPermissions: { grantedAt: {} } });
+    const state = await stage();
+    state.installation.activeReleaseId = "approved-release";
+    state.installation.enabled = true;
+    state.installation.grants = ["storage:read"];
+    files = { ...files, "capabilities.json": JSON.stringify({ [permission]: true }) };
+    update.mockClear();
+    await stage();
+    expect(state.installation.grants).toEqual(["storage:read"]);
+    expect(state.installation.activeReleaseId).toBe("approved-release");
+    expect(state.installation.enabled).toBe(true);
+    expect(state.approvals).toEqual({});
+    expect(update).not.toHaveBeenCalled();
+    expect(Object.keys(state.workspaces)).toHaveLength(2);
+  });
+
+  test("revokes stale legacy capabilities once, including event subscriptions and draft authority", async () => {
+    legacy.set("candidate", { id: "legacy-id", enabled: false, grantedPermissions: { shell: true, eventSubscriptions: [{ event: "*" }], custom: { drafts: true }, grantedAt: { shell: "old" } } });
+    await stage();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(legacy.get("candidate")?.grantedPermissions).toEqual({ grantedAt: {} });
+    await stage();
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  test("an inactive persisted owner cannot be replaced by the current administrator", async () => {
+    const state = await stage();
+    state.installation.ownerId = "inactive-original-owner";
+    snapshot.mockClear(); build.mockClear();
+    await stage();
+    expect(state.installation.ownerId).toBe("inactive-original-owner");
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(build).not.toHaveBeenCalled();
+  });
   test("binds an active human owner but starts disabled without grants or approvals", async () => {
     const state = await stage();
     expect(state.installation).toMatchObject({ ownerId: "admin", enabled: false, activeReleaseId: null, grants: [], generation: 0 });
