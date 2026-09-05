@@ -148,11 +148,11 @@ export class ReleaseProcess extends ExtensionProcess {
           if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
           if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
           if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
-          await locks.effect(rpcMethod, async () => { checkCancellation(); return notification({ jsonrpc: "2.0", method: rpcMethod, params: input }); });
+          await locks.effect(rpcMethod, async () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input }), checkCancellation);
           return { ok: true };
         }
         if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
-        const response = await locks.effect(rpcMethod, () => { checkCancellation(); return handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }); });
+        const response = await locks.effect(rpcMethod, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input }), checkCancellation);
         if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
         if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
         assertJson(response.result);
