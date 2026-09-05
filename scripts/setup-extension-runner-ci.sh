@@ -19,7 +19,9 @@ if [[ "$mode" == "--install" ]]; then
     exit 1
   fi
   sudo apt-get update
-  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux ca-certificates
+  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux ca-certificates curl
+  source "$repo_root/scripts/lib/extension-runner-conmon.sh"
+  install_extension_runner_conmon
   runner_user="$(id -un)"
   for mapping in subuid subgid; do
     if ! awk -F: -v account="$runner_user" '$1 == account { found = 1 } END { exit !found }' "/etc/$mapping"; then
@@ -30,6 +32,10 @@ if [[ "$mode" == "--install" ]]; then
   done
   source "$repo_root/scripts/lib/extension-runner-delegation.sh"
   configure_extension_runner_delegation
+  if [[ "$(podman info --format '{{.Host.Conmon.Path}}')" != /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1 ]]; then
+    echo "Podman did not select the verified CI container monitor." >&2
+    exit 1
+  fi
   if [[ -n "${GITHUB_ENV:-}" ]]; then
     printf 'XDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
   fi
