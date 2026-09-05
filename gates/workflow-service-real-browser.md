@@ -64,3 +64,7 @@ bunx playwright test --config=playwright.real.config.ts --project=chromium
 ```
 
 The exact service test still verifies global storage set/get, bounded `/data` write/read, the service principal, `userId: null`, human approval, revoked-fire denial, and no additional run. The reviewed screenshot is `/tmp/ez-service-workflow-exact-release-review.png`. This lane proves only the declared browser scenarios and exact service effects; it does not claim every external integration.
+
+## Dependency refresh rerun
+
+After the Pi 0.84.3 and Bun type dependency refresh, both forced frozen installs completed and the unchanged complete lane passed all 54 tests in 4.3 minutes. The task-panel durability test passed in 1.5 seconds, the exact service workflow passed in 11.4 seconds, and the scanner passed in 29.0 seconds. Source tree: `e162e8e87900ea25092d9db6b49c1f43e0af5974`. Log: `/tmp/ez-real-auth54-79c404b4.log`. The command and limits are the same as the final frozen browser lane above.
