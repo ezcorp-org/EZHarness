@@ -13,7 +13,7 @@ export function restoreModuleMocks(): void {
   mock.module("@ezcorp/sdk/runtime", () => runtimeExports);
 }
 
-export async function verifyExtensionEntrypoint(load: () => Promise<unknown>, expectedName: string): Promise<void> {
+export async function verifyExtensionEntrypoint(load: () => Promise<unknown>, expectedName: string): Promise<import("../v4").DefinedExtension["manifest"]> {
   const sdk = { ...await import("../v4") };
   const definitions: import("../v4").DefinedExtension[] = [];
   mock.module("@ezcorp/sdk/v4", () => ({ ...sdk, serve: async (extension: import("../v4").DefinedExtension) => { definitions.push(extension); } }));
@@ -26,5 +26,6 @@ export async function verifyExtensionEntrypoint(load: () => Promise<unknown>, ex
     expect(typeof extension.invoke).toBe("function");
     expect(typeof extension.dispatch).toBe("function");
     expect(sdk.validateManifest(extension.manifest)).toEqual(extension.manifest);
+    return extension.manifest;
   } finally { mock.module("@ezcorp/sdk/v4", () => sdk); }
 }
