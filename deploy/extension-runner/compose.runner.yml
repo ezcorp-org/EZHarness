@@ -1,6 +1,7 @@
 services:
   app:
     environment:
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
       EZ_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
       EZ_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
     volumes:

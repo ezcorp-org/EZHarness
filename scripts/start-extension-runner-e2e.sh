@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"

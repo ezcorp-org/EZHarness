@@ -1,5 +1,7 @@
 # Extension runner deployment
 
+Set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` before starting Bun for both the host and runner. Bun 1.3.14 can reuse environment constants from a previous process when its persistent transpiler cache is enabled. This can select an old database or runner credential. The service unit and test launch scripts disable this cache. This does not disable the immutable extension artifact store.
+
 Run the runner on the Linux host under a dedicated non-root account. The app receives only the runner Unix socket and its credential. Never expose a Podman socket to the app or to an extension.
 
 Requirements: Podman 5 with rootless cgroup v2 CPU, memory and PID controllers; Python 3.11 or newer for Linux `SO_PEERCRED`; util-linux `flock` and `setpriv`; the repository's pinned Bun and installed lockfile dependency closure; a local image matching `DEFAULT_IMAGE`. Provision the SDK and TypeScript only from the installed trusted application release. Builds never resolve packages from the app's dependency tree.

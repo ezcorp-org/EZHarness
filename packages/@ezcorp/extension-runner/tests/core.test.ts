@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles } from "../src/core";
 
 test("workspace and command inputs reject path and resource escapes", () => {
@@ -28,4 +31,17 @@ test("control processes bound stdout, stderr and elapsed time", async () => {
   await expect(command("/missing/control", [])).rejects.toThrow();
   await expect(command(process.execPath, ["-e", "setInterval(()=>{},1000)"], 20)).rejects.toThrow("timed out");
   await expect(command(process.execPath, ["-e", "console.log('x'.repeat(1000))"], 1000, 20)).rejects.toThrow("output");
+});
+
+test("separate Bun boots read current environment from the same large module", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ez-runtime-env-"));
+  try {
+    const modulePath = join(directory, "environment.mjs");
+    await writeFile(modulePath, `export const padding=${JSON.stringify("x".repeat(100000))}; export const value=process.env.EZ_TEST_RUNTIME_TOKEN;`);
+    for (const token of ["first-process-secret", "second-process-secret"]) {
+      const child = Bun.spawn([process.execPath, "-e", `const module=await import(${JSON.stringify(modulePath)});console.log(module.value);`], { env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", EZ_TEST_RUNTIME_TOKEN: token }, stdout: "pipe", stderr: "pipe" });
+      expect((await new Response(child.stdout).text()).trim()).toBe(token);
+      expect(await child.exited).toBe(0);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

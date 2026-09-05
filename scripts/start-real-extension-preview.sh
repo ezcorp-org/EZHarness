@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -40,6 +41,6 @@ console.log("Authenticated rootless runner ready");
 if [[ "${1:-}" == "--probe-only" ]]; then exit 0; fi
 cd web
 bun run build
-bun run preview &
+bun ./node_modules/vite/bin/vite.js preview --port "${EZCORP_PORT:-4173}" --strictPort &
 preview_pid=$!
 wait "$preview_pid"
