@@ -623,7 +623,7 @@ describe("task-tracking extension — task_unassign", () => {
 // ── commit-3 spawn integration ─────────────────────────────────────
 
 type SpawnRecord = {
-  input: { task: string; agentConfigId?: string; agentName?: string; title?: string; taskId?: string; assignmentId?: string };
+  input: Parameters<Parameters<typeof _setSpawnForTests>[0]>[0];
 };
 
 function makeFakeSpawn(opts: {
@@ -1458,6 +1458,33 @@ describe("task-tracking extension — task_stop", () => {
 // ── Phase 4: task_resume LLM tool ───────────────────────────────────
 
 describe("task-tracking extension — task_resume", () => {
+  for (const taskStatus of ["active", "pending"] as const) test(`uses host-committed resume state without overwriting concurrent edits (${taskStatus})`, async () => {
+    fakeStorage.seed(seedTaskWithAssignments([{
+      taskId: "t1", taskStatus,
+      assignments: [{ id: "a1", status: "assigned", subConversationId: "sub-persisted" }],
+    }], taskStatus === "active" ? "t1" : undefined));
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(async input => {
+      const handle = await fn(input);
+      const committed = structuredClone(fakeStorage.peek()!);
+      const task = committed.tasks[0]!;
+      Object.assign(task.assignments[0]!, { status: "running", agentRunId: handle.agentRunId, subConversationId: handle.subConversationId });
+      task.title = "Concurrent host title";
+      fakeStorage.seed(committed);
+      return handle;
+    });
+    const result = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    expect(isResultText(result, /Concurrent host title/)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.input.reuseSubConversationFor).toBe("agent-builder");
+    const committed = fakeStorage.peek()!;
+    expect(committed.tasks[0]!.title).toBe("Concurrent host title");
+    expect(committed.tasks[0]!.status).toBe("active");
+    expect(committed.tasks[0]!.assignments[0]).toMatchObject({ status: "running", agentRunId: "run-a1", subConversationId: "sub-a1" });
+    expect(fakeEvents.assignmentUpdates).toEqual([]);
+    expect(fakeEvents.snapshots).toHaveLength(taskStatus === "active" ? 0 : 1);
+  });
+
   test("rejects when assignment status !== 'assigned'", async () => {
     fakeStorage.seed(seedTaskWithAssignments([
       {

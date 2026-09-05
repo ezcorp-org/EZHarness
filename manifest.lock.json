@@ -96,8 +96,8 @@
       "directory": "docs/extensions/examples/file-refactor",
       "entrypoint": "extension.ts",
       "files": 5,
-      "bytes": 25427,
-      "sourceDigest": "5ff885edeb6103229020d6ed906070f0586ce6a93f022be132249b417fea3d9d"
+      "bytes": 26016,
+      "sourceDigest": "dc828e55fee72ed80ddb6450a3c6e4e4923d1443dfe65c8653d1d0d751899bbc"
     },
     "github-projects": {
       "directory": "docs/extensions/examples/github-projects",
@@ -138,8 +138,8 @@
       "directory": "docs/extensions/examples/log-analyzer",
       "entrypoint": "extension.ts",
       "files": 5,
-      "bytes": 14274,
-      "sourceDigest": "2d85f979f0b09f2fa4af695a91a4595e7c20538604fbabc2ff64f2536af48703"
+      "bytes": 14866,
+      "sourceDigest": "9e82d214b44921e39cea7be82ca3d96ffa59fcd86c7e3757de01b67a96d07272"
     },
     "markdown-utils": {
       "directory": "docs/extensions/examples/markdown-utils",
@@ -187,8 +187,8 @@
       "directory": "docs/extensions/examples/project-analyzer",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 14820,
-      "sourceDigest": "fc3b1996f52264fb8f57c6b07a07ce2554eab9e659dae6fad5035014559d4930"
+      "bytes": 15360,
+      "sourceDigest": "b65d5e370869008d0878d4a1c83be9af040c94e3150f38c9f4b8e213ae75e3a4"
     },
     "property-intelligence-agent": {
       "directory": "docs/extensions/examples/property-intelligence-agent",

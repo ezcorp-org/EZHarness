@@ -162,11 +162,16 @@ describe("dispatch", () => {
 });
 
 describe("registration", () => {
-  test("registers handlers without opening stdin", () => {
+  test("registered handler filters logs and rejects unknown tools without opening stdin", async () => {
     const input = spyOn(Bun.stdin, "stream");
+    const registration = spyOn(getChannel(), "onRequest");
     try {
       main();
       expect(input).not.toHaveBeenCalled();
+      const handler = registration.mock.calls.find(([method]) => method === "tools/call")?.[1];
+      expect(handler).toBeDefined();
+      expect(await handler!({ name: "search-logs", arguments: { logFile: "app.log", query: "SLOW" } })).toEqual({ content: [{ type: "text", text: expect.stringContaining("1 matching entries found.") }], isError: false });
+      await expect(handler!({ name: "unknown" })).rejects.toMatchObject({ code: "HANDLER_FAILED", message: "Tool request failed" });
     } finally {
       input.mockRestore();
     }

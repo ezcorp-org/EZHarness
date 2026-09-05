@@ -157,11 +157,16 @@ describe("listFiles — dispatch", () => {
 });
 
 describe("registration", () => {
-  test("registers handlers without opening stdin", () => {
+  test("registered handler reads a file and rejects unknown tools without opening stdin", async () => {
     const input = spyOn(Bun.stdin, "stream");
+    const registration = spyOn(getChannel(), "onRequest");
     try {
       main();
       expect(input).not.toHaveBeenCalled();
+      const handler = registration.mock.calls.find(([method]) => method === "tools/call")?.[1];
+      expect(handler).toBeDefined();
+      expect(await handler!({ name: "readFile", arguments: { path: "README.md" } })).toEqual({ content: [{ type: "text", text: "hello from README" }], isError: false });
+      await expect(handler!({ name: "unknown" })).rejects.toMatchObject({ code: "HANDLER_FAILED", message: "Tool request failed" });
     } finally {
       input.mockRestore();
     }
