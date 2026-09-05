@@ -83,6 +83,15 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
 }
 
 describe("candidate verification", () => {
+  test("text assertions inspect literal tool text rather than JSON-escaped transport", async () => {
+    const candidate = structuredClone(release);
+    candidate.manifest.tools![0]!.outputSchema = { type: "object" };
+    candidate.manifest.smokeTest!.expect = { textIncludes: '\"ok\": true' };
+    const fixture = candidateRunner(async (method) => method === "extension/discover" ? candidate.manifest : { content: [{ type: "text", text: '{\n  \"ok\": true\n}' }] });
+    expect((await verifyExtensionCandidate(fixture.runner, candidate)).smoke).toBe("passed");
+    const invalid = candidateRunner(async (method) => method === "extension/discover" ? candidate.manifest : { content: [{ type: "image", text: '\"ok\": true' }] });
+    await expect(verifyExtensionCandidate(invalid.runner, candidate)).rejects.toMatchObject({ code: "smoke_assertion_failed" });
+  });
   test("checks runtime metadata and output using a separate verification identity", async () => {
     const fixture = candidateRunner(async (method) => method === "extension/discover" ? release.manifest : { text: "hello" });
     await verifyExtensionCandidate(fixture.runner, release);

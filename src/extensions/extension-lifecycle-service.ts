@@ -83,7 +83,9 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
       const result = await worker.request("extension/invoke", { name: smoke.tool, input: smoke.input, context });
       compileValueSchema(tool.outputSchema)(result);
       const expected = smoke.expect;
-      if (expected?.textIncludes !== undefined && !canonicalJson(result).includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
+      const output = result && typeof result === "object" ? result as Record<string, unknown> : undefined;
+      const text = Array.isArray(output?.content) ? output.content.filter((part) => part?.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n") : typeof output?.text === "string" ? output.text : typeof result === "string" ? result : canonicalJson(result);
+      if (expected?.textIncludes !== undefined && !text.includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
       if (expected?.isError === false && result && typeof result === "object" && "isError" in result && result.isError === true) throw new LifecycleError("smoke_assertion_failed", "Smoke test returned an error.");
     }
     const report: CandidateVerificationReport = { catalog: "verified", smoke: discovered.smokeTest ? "passed" : "not_declared", capabilities: broker.coverage() };
