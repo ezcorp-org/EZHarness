@@ -69,6 +69,34 @@ test("code-agent tools retain the exact upstream authority guard without accepti
   } finally { executor.destroy(); context.mockRestore(); policy.mockRestore(); tools.mockRestore(); }
 });
 
+test.each(["before-start", "while-running"] as const)("upstream cancellation %s stops a controlled code agent", async timing => {
+  const controller = new AbortController();
+  const entered = Promise.withResolvers<void>();
+  let executions = 0;
+  let received: AbortSignal | undefined;
+  const executor = new AgentExecutor(loadAgentsStatic([{ name: "controlled", description: "Controlled", capabilities: [], execute: async agent => {
+    executions++;
+    received = agent.signal;
+    entered.resolve();
+    await new Promise<never>((_resolve, reject) => agent.signal.addEventListener("abort", () => reject(agent.signal.reason), { once: true }));
+    return { success: true, output: null };
+  } }]), new EventBus<AgentEvents>());
+  try {
+    if (timing === "before-start") controller.abort(new Error("upstream cancelled"));
+    const pending = executor.runAgent("controlled", {}, undefined, undefined, undefined, { signal: controller.signal });
+    if (timing === "before-start") {
+      await expect(pending).rejects.toThrow("upstream cancelled");
+      expect(executions).toBe(0);
+    } else {
+      await entered.promise;
+      controller.abort(new Error("upstream cancelled"));
+      expect((await pending).status).toBe("cancelled");
+      expect(received?.aborted).toBe(true);
+      expect(executions).toBe(1);
+    }
+  } finally { executor.destroy(); }
+});
+
 test("code-agent file, shell and nested effects recheck the parent release", async () => {
   for (const effect of ["file", "shell", "nested"] as const) {
     let revoked = false;

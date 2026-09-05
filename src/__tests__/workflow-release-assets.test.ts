@@ -402,7 +402,7 @@ test.each(["disable", "replacement", "grant-revocation"] as const)("%s prevents 
   } finally { _resetWorkflowRuntimeForTests(); }
 });
 
-test("workflow authority is rechecked inside the actual entity mutation transaction", async () => {
+test.each(["during-read", "while-policy-waits"] as const)("workflow authority %s prevents an actual entity mutation commit", async mutation => {
   const setup = await fixture("name: deploy\ndescription: sealed\nsteps:\n  - name: write\n    kind: tool\n    tool: write_note\n    input:\n      slug: guarded-note\n      data: $input.data\n");
   await getTestDb().insert(users).values({ id: "owner", email: "owner@test.invalid", passwordHash: "h", name: "Owner" });
   const [entry] = await loadReleaseWorkflowEntries(setup.registry);
@@ -427,16 +427,33 @@ test("workflow authority is rechecked inside the actual entity mutation transact
   const read = spyOn(storage, "getStorageValue").mockImplementation(async (...args) => {
     const result = await original(...args);
     readTransactions.push(args[4]);
-    setup.snapshot.installation.enabled = false;
+    if (mutation === "during-read") setup.snapshot.installation.enabled = false;
     return result;
   });
   const bus = new EventBus<import("../types").AgentEvents>();
-  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, toolRunnerFactory: () => new ToolExecutor(targetRegistry, createStubPermissionEngine()) });
+  const policy = createStubPermissionEngine();
+  const entered = Promise.withResolvers<void>();
+  const resumed = Promise.withResolvers<void>();
+  if (mutation === "while-policy-waits") policy.authorize = async () => {
+    entered.resolve();
+    await resumed.promise;
+    return { decision: "allow", auditId: "waited-policy" };
+  };
+  const executor = new WorkflowExecutor(new AgentExecutor(loadAgentsStatic([]), bus), bus, { persist: true, toolRunnerFactory: () => new ToolExecutor(targetRegistry, policy) });
   registerWorkflowRuntime({ getWorkflows: () => [entry!.definition], getCachedWorkflows: () => [entry!], workflowExecutor: executor });
   try {
-    const run = await executor.runWorkflow(entry!.definition, { data: { title: "must-not-commit" } }, undefined, "owner");
-    expect(readTransactions.length).toBeGreaterThan(0);
-    expect(readTransactions.every(database => database && database !== getTestDb())).toBe(true);
+    const pending = executor.runWorkflow(entry!.definition, { data: { title: "must-not-commit" } }, undefined, "owner");
+    if (mutation === "while-policy-waits") {
+      await entered.promise;
+      expect(readTransactions).toEqual([]);
+      setup.snapshot.installation.enabled = false;
+      resumed.resolve();
+    }
+    const run = await pending;
+    if (mutation === "during-read") {
+      expect(readTransactions.length).toBeGreaterThan(0);
+      expect(readTransactions.every(database => database && database !== getTestDb())).toBe(true);
+    } else expect(readTransactions).toEqual([]);
     expect(run.status).toBe("error");
     expect(JSON.stringify(run.result?.error)).toContain("release authority");
     expect(await getTestDb().select().from(extensionStorage).where(eq(extensionStorage.extensionId, "entity-target"))).toEqual([]);
