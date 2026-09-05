@@ -223,6 +223,7 @@ export interface MockOverrides {
 		status: "success" | "error" | "interrupted";
 		messageId?: string | null;
 		cardType?: string | null;
+		cardLayout?: string | null;
 	}>>;
 	/**
 	 * Phase 48 — fixtures for the Ez panel API.

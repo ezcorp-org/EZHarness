@@ -108,7 +108,8 @@ test.describe("Extension install-granted capabilities", () => {
 		await expect(permissions).toBeVisible();
 		await expect(permissions).toContainText("Current grants");
 		await expect(permissions).toContainText("storage");
-		await captureEvidence(page, testInfo, "install-granted-capabilities-v4");
+		await permissions.scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "install-granted-capabilities-v4", { fullPage: true });
 		await page.getByTestId("review-extension-release").click();
 		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
 

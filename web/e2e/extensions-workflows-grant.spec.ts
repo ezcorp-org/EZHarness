@@ -179,7 +179,8 @@ test.describe("Extensions review dialog — workflows grant", () => {
 		const permissions = page.getByTestId("release-permissions");
 		await expect(permissions).toBeVisible();
 		await expect(permissions).toContainText("workflows");
-		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4");
+		await permissions.scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4", { fullPage: true });
 		// Live approval behavior is covered by the real-auth release-gate lane.
 		await page.getByTestId("review-extension-release").click();
 		await expect(page).toHaveURL("/extensions/author?installation=ext-wf");
