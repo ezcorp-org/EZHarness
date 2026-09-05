@@ -549,7 +549,7 @@ async function enforceBodyCap(
     const chunks: Uint8Array[] = [];
     let total = 0;
     for (;;) {
-      let next: ReadableStreamReadResult<Uint8Array>;
+      let next: Awaited<ReturnType<typeof reader.read>>;
       try { next = await withinDeadline(reader.read(), deadline, onTimeout); }
       catch (error) { void reader.cancel().catch(() => {}); throw error; }
       const { done, value } = next;
