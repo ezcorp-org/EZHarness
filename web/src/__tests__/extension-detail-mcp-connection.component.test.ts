@@ -20,7 +20,9 @@
  * subroutes so the page's other panels degrade gracefully).
  */
 import "@testing-library/jest-dom/vitest";
-import { render, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, waitFor } from "@testing-library/svelte";
+import { goto } from "$app/navigation";
+import { updateMcpServer } from "$lib/api";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const { pageStore } = vi.hoisted(() => ({
@@ -131,6 +133,33 @@ afterEach(() => {
 });
 
 describe("Extension detail — MCP Connection panel (secret-not-rendered)", () => {
+	test("permission changes navigate to the exact release review without direct grant writes", async () => {
+		const id = "release-review";
+		pageStore.params.id = id;
+		restoreFetch = installFetch(id, localExt(id));
+		const { findByTestId, queryByText } = render(ExtensionDetailPage);
+		await fireEvent.click(await findByTestId("review-extension-release"));
+		expect(goto).toHaveBeenCalledWith(`/extensions/author?installation=${id}`);
+		expect(queryByText("Save Permissions")).toBeNull();
+		expect(queryByText("Always allow shell commands")).toBeNull();
+		expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/reapprove"))).toBe(false);
+		expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+	});
+
+	test("MCP edits stage a candidate and open human review without claiming activation", async () => {
+		const id = "mcp-review";
+		pageStore.params.id = id;
+		restoreFetch = installFetch(id, mcpExtWithSecret(id));
+		vi.mocked(updateMcpServer).mockResolvedValue({ openUrl: `/extensions/author?installation=${id}` } as never);
+		const { findByTestId, getByTestId, queryByText } = render(ExtensionDetailPage);
+		await fireEvent.click(await findByTestId("mcp-edit-connection-button"));
+		expect(getByTestId("mcp-edit-headers")).not.toHaveValue(expect.stringContaining(SECRET));
+		await fireEvent.click(getByTestId("mcp-test-save-button"));
+		await waitFor(() => expect(updateMcpServer).toHaveBeenCalled());
+		await waitFor(() => expect(goto).toHaveBeenCalledWith(`/extensions/author?installation=${id}`));
+		expect(queryByText("MCP server updated")).toBeNull();
+		expect(document.body.innerHTML).not.toContain(SECRET);
+	});
 	test("renders Connection panel + Edit button for mcp; header secret value is never in the DOM", async () => {
 		const id = "mcp-secret-1";
 		pageStore.params.id = id;

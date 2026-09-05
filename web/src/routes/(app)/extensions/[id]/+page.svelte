@@ -4,42 +4,18 @@
 	import { store } from "$lib/stores.svelte.js";
 	import type { SettingsSchema } from "$server/extensions/types";
 	import SettingsPanel from "./SettingsPanel.svelte";
-	import CapabilitiesPanel from "$lib/components/extensions/CapabilitiesPanel.svelte";
 	import UsesList from "$lib/components/extensions/UsesList.svelte";
-	import type { HeldCapabilityView, SearchGrant } from "$lib/capability-policy-ui.js";
+	import type { HeldCapabilityView } from "$lib/capability-policy-ui.js";
 	import JsonBlock from "$lib/components/JsonBlock.svelte";
 	import { invalidateExtensionSettings } from "$lib/stores/extensionSettings";
 	import ExpiredGrantsBanner, {
 		type ExpiredGrant,
 	} from "$lib/components/permissions/ExpiredGrantsBanner.svelte";
-	import ExpiredReapproveModal from "$lib/components/permissions/ExpiredReapproveModal.svelte";
-	import { DEFAULT_TTL_FIRST_USE_MS } from "$lib/components/permissions/expiry-copy";
 	import EntityTable from "$lib/components/EntityTable.svelte";
 	import UninstallDialog from "$lib/components/extensions/UninstallDialog.svelte";
 	import { goto } from "$app/navigation";
 	import { addToast } from "$lib/toast.svelte.js";
 	import { updateMcpServer, extensionReviewLocation, type McpServerSpec } from "$lib/api";
-
-	// Phase 56: per-capability TTL UI. The picker default seed comes
-	// from the batch-loaded expired-grants response: each row carries
-	// `stickyTtlMs` (the user's last picker selection for that
-	// capability kind) or `null` (first use). Plan 56-03 read-on-mount
-	// path — see `web/src/routes/api/extensions/[id]/expired-grants/
-	// +server.ts` for the enrichment. The page passes
-	// `row.stickyTtlMs ?? DEFAULT_TTL_FIRST_USE_MS` to the modal's
-	// `initialTtlMs` prop so the dropdown opens at the sticky default.
-
-	interface DriftPreview {
-		version: string;
-		permissions: {
-			network?: string[];
-			filesystem?: string[];
-			shell?: boolean;
-			env?: string[];
-		};
-		diffs: Array<{ field: string; oldValue?: unknown; newValue?: unknown }>;
-		ceilingClamped?: boolean;
-	}
 
 	interface ExtensionDetail {
 		id: string;
@@ -130,34 +106,10 @@
 	}
 
 	let ext = $state<ExtensionDetail | null>(null);
-	let driftPreview = $state<DriftPreview | null>(null);
-	let driftLoading = $state(false);
-	let driftApproving = $state(false);
 	let loading = $state(true);
 	let errorMsg = $state("");
 	let successMsg = $state("");
-	let saving = $state(false);
 
-	// Editable permissions (cloned from ext.grantedPermissions)
-	let editPerms = $state<{
-		network: string[];
-		filesystem: string[];
-		shell: boolean;
-		env: string[];
-		acceptsCallerCaps: boolean;
-		escalateChildCaps: boolean;
-	}>({
-		network: [],
-		filesystem: [],
-		shell: false,
-		env: [],
-		acceptsCallerCaps: false,
-		escalateChildCaps: false,
-	});
-
-	// Always-allow state for sensitive ops
-	let alwaysAllowShell = $state(false);
-	let alwaysAllowFs = $state(false);
 
 	// Security violations
 	interface Violation {
@@ -235,33 +187,6 @@
 
 	const hasSchema = $derived(Object.keys(settingsSchema).length > 0);
 
-	// Capability-tier grants declared in the manifest. These are auto-granted
-	// at install (all-or-nothing) and NOT user-editable here — the PUT
-	// /permissions endpoint runs `clampExtensionPermissions`, which re-strips
-	// custom event subscriptions, so a naive toggle would silently no-op or
-	// revoke. We therefore render them read-only ("granted at install"). The
-	// object/array `eventSubscriptions` shapes are normalized to a flat list.
-	const eventSubscriptions = $derived.by((): string[] => {
-		const raw = ext?.manifest.permissions.eventSubscriptions;
-		if (!raw) return [];
-		return Array.isArray(raw) ? raw : (raw.events ?? []);
-	});
-	const installGrants = $derived.by((): { storage: boolean; spawnAgents: { maxPerHour: number; maxConcurrent?: number } | null; events: string[]; workflows: { names: string[]; maxRunsPerHour?: number } | null } => ({
-		storage: ext?.manifest.permissions.storage === true,
-		spawnAgents: ext?.manifest.permissions.spawnAgents ?? null,
-		events: eventSubscriptions,
-		// W2 — the extension may start runs of the workflows it ships. Shown
-		// here so an admin auditing an installed extension sees the capability
-		// without having to re-open the enable dialog.
-		workflows: ext?.manifest.permissions.workflows ?? null,
-	}));
-	const hasInstallGrants = $derived(
-		installGrants.storage
-		|| installGrants.spawnAgents !== null
-		|| installGrants.events.length > 0
-		|| (installGrants.workflows?.names?.length ?? 0) > 0,
-	);
-
 	function authorName(author?: string | { name: string; id?: string }): string {
 		return typeof author === "string" ? author : (author?.name ?? "");
 	}
@@ -308,13 +233,12 @@
 	 * no longer exists, so staying would show a 404 the user has to work out
 	 * for themselves.
 	 */
-	async function uninstall({ purgeData }: { purgeData: boolean }) {
+	async function uninstall() {
 		if (!ext) return;
 		const name = ext.name;
 		uninstalling = true;
 		try {
-			const query = purgeData ? "?purgeData=1" : "";
-			const res = await fetch(`/api/extensions/${extId}${query}`, { method: "DELETE" });
+			const res = await fetch(`/api/extensions/${extId}`, { method: "DELETE" });
 			if (!res.ok && res.status !== 204) {
 				const body = await res.json().catch(() => null);
 				throw new Error(body?.error ?? `Uninstall failed: HTTP ${res.status}`);
@@ -322,9 +246,7 @@
 			uninstallOpen = false;
 			addToast({
 				type: "success",
-				message: purgeData
-					? `${name} uninstalled — its files were deleted too`
-					: `${name} uninstalled — its files were kept`,
+				message: `${name} uninstalled — its data was kept`,
 			});
 			// Same signal the library page sends, so the Hub nav drops this
 			// extension's tabs without a reload.
@@ -349,21 +271,8 @@
 		await loadSettings();
 	}
 
-	// §5.2 — persist a host-capability grant override (the security
-	// CEILING). Writes the GRANT via the EXISTING admin permissions PUT
-	// (clamped to manifest server-side), NOT the per-user settings route.
-	// Merge into the current grant so unrelated permissions are preserved.
-	async function saveCapabilityGrant(cap: string, grant: SearchGrant) {
-		const res = await fetch(`/api/extensions/${extId}/permissions`, {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				permissions: { ...(ext?.grantedPermissions ?? {}), [cap]: grant },
-			}),
-		});
-		if (!res.ok) throw new Error(`Capability save failed: HTTP ${res.status}`);
-		showTemporarySuccess("Capability policy saved");
-		await loadSettings();
+	async function openReleaseReview() {
+		if (ext) await goto(`/extensions/author?installation=${encodeURIComponent(ext.id)}`);
 	}
 
 	async function checkAdmin() {
@@ -383,31 +292,9 @@
 	// jump to the existing editable preview. Server is the authority
 	// (creator + modifiable + not-bundled); this gate is UX only.
 	async function reopenForEdit() {
-		if (!ext || modifyBusy) return;
-		modifyBusy = true;
-		errorMsg = "";
-		try {
-			const res = await fetch(`/api/extensions/${extId}/reopen`, {
-				method: "POST",
-			});
-			if (!res.ok) {
-				errorMsg =
-					res.status === 404
-						? "This extension can no longer be modified (an admin may have turned it off)."
-						: "Failed to re-open this extension for editing.";
-				return;
-			}
-			const { draftId } = await res.json();
-			window.location.href = `/extensions/author?prefill=${encodeURIComponent(draftId)}`;
-		} catch {
-			errorMsg = "Failed to re-open this extension for editing.";
-		} finally {
-			modifyBusy = false;
-		}
+		await openReleaseReview();
 	}
 
-	// Admin-only: flip the `modifiable` gate. Server enforces the admin
-	// role + audits; this is the affordance.
 	async function toggleModifiable() {
 		if (!ext || modifiableBusy) return;
 		modifiableBusy = true;
@@ -475,69 +362,11 @@
 			const res = await fetch(`/api/extensions/${extId}`);
 			if (!res.ok) throw new Error("Extension not found");
 			ext = await res.json();
-			if (ext) {
-				editPerms = {
-					network: ext.grantedPermissions.network ?? [],
-					filesystem: ext.grantedPermissions.filesystem ?? [],
-					shell: ext.grantedPermissions.shell ?? false,
-					env: ext.grantedPermissions.env ?? [],
-					acceptsCallerCaps: ext.grantedPermissions.acceptsCallerCaps === true,
-					escalateChildCaps: ext.grantedPermissions.escalateChildCaps === true,
-				};
-			}
+
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : "Failed to load extension";
 		} finally {
 			loading = false;
-		}
-	}
-
-	/**
-	 * Load the current on-disk grant for bundled extensions. S9 deliberately
-	 * keeps the database manifest stale while waiting for consent, so the
-	 * ordinary permissions section cannot show a newly added website host.
-	 */
-	async function loadDriftPreview() {
-		driftPreview = null;
-		if (!isAdmin || !ext?.isBundled) return;
-		driftLoading = true;
-		try {
-			const res = await fetch(`/api/extensions/${ext.id}/reapprove-drift`);
-			if (!res.ok) return;
-			const data = (await res.json()) as Partial<DriftPreview>;
-			if (!Array.isArray(data.diffs) || !data.permissions || typeof data.version !== "string") return;
-			if (data.diffs.length > 0 || !ext.enabled) {
-				driftPreview = data as DriftPreview;
-			}
-		} catch {
-			// Preview is an optional admin affordance; the normal detail page
-			// remains usable if the endpoint is unavailable.
-		} finally {
-			driftLoading = false;
-		}
-	}
-
-	async function approveBundledDrift() {
-		if (!ext || driftApproving) return;
-		driftApproving = true;
-		errorMsg = "";
-		try {
-			const res = await fetch(`/api/extensions/${ext.id}/reapprove-drift`, { method: "POST" });
-			if (!res.ok) {
-				const data = await res.json().catch(() => ({}));
-				throw new Error(data.error || `Permission approval failed (HTTP ${res.status})`);
-			}
-			const hadDrift = (driftPreview?.diffs.length ?? 0) > 0;
-			driftPreview = null;
-			showTemporarySuccess(
-				hadDrift ? "Updated website access approved" : "Permissions re-approved",
-			);
-			await loadExtension();
-			await loadDriftPreview();
-		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Permission approval failed";
-		} finally {
-			driftApproving = false;
 		}
 	}
 
@@ -547,21 +376,6 @@
 	// /audit IS).
 	let expiredGrants = $state<ExpiredGrant[]>([]);
 	let expiredGrantsError = $state("");
-
-	// Inline re-approve modal state. The settings page does NOT have an
-	// active tool call to gate (those are chat-side); the in-chat
-	// PermissionGate handles those. The banner here pops a small
-	// `ExpiredReapproveModal` that shares the design doc § 3.2 copy
-	// contract with PermissionGate's expired branch but POSTs to
-	// /api/extensions/[id]/reapprove (the install-time-equivalent
-	// re-grant path) instead of /api/tool-calls/:id/permission.
-	type ReapproveTarget = {
-		capability: string;
-		ageMs: number;
-		stickyTtlMs?: number | null;
-	};
-	let reapproveModal = $state<ReapproveTarget | null>(null);
-	let reapproveSubmitting = $state(false);
 
 	async function loadExpiredGrants() {
 		try {
@@ -575,48 +389,6 @@
 		} catch (e) {
 			expiredGrantsError = e instanceof Error ? e.message : "Failed to load expired grants";
 		}
-	}
-
-	function handleReapproveOpen(target: ReapproveTarget) {
-		reapproveModal = target;
-	}
-
-	async function handleReapproveSubmit(
-		scope?: "forever",
-		ttlOverrideMs?: number | null,
-	) {
-		if (!reapproveModal || !ext) return;
-		reapproveSubmitting = true;
-		try {
-			// Phase 56: thread the picker's per-row TTL selection through
-			// the POST body. `scope === "forever"` is the admin-gated
-			// escalation path (defense-in-depth on the server). Picker
-			// Never (`ttlOverrideMs: null`) on a non-forever scope is
-			// allowed for any authenticated user — server-side validator
-			// accepts `number > 0 | null | omitted`.
-			const body: Record<string, unknown> = {
-				capability: reapproveModal.capability,
-			};
-			if (scope) body.scope = scope;
-			if (ttlOverrideMs !== undefined) body.ttlOverrideMs = ttlOverrideMs;
-			const res = await fetch(`/api/extensions/${ext.id}/reapprove`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			});
-			if (!res.ok) throw new Error(`Re-approve failed (HTTP ${res.status})`);
-			showTemporarySuccess("Permission re-approved");
-			reapproveModal = null;
-			await Promise.all([loadExpiredGrants(), loadExtension()]);
-		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Re-approve failed";
-		} finally {
-			reapproveSubmitting = false;
-		}
-	}
-
-	function handleReapproveCancel() {
-		reapproveModal = null;
 	}
 
 	// Permission-change audit trail (admin-only). Rows sourced from the
@@ -792,7 +564,6 @@
 			loadAuditTrail(),
 			loadSettings(),
 			loadExpiredGrants(),
-			loadDriftPreview(),
 		]);
 	});
 
@@ -801,54 +572,12 @@
 		setTimeout(() => (successMsg = ""), 3000);
 	}
 
-	async function savePermissions() {
-		if (!ext) return;
-		saving = true;
-		errorMsg = "";
-		try {
-			const res = await fetch(`/api/extensions/${ext.id}/permissions`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					permissions: {
-						...editPerms,
-						grantedAt: ext.grantedPermissions.grantedAt ?? {},
-					},
-				}),
-			});
-			if (!res.ok) throw new Error("Failed to save permissions");
-			showTemporarySuccess("Permissions saved");
-			await loadExtension();
-		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Save failed";
-		} finally {
-			saving = false;
-		}
-	}
-
-	async function toggleAlwaysAllow(opType: "shell" | "filesystem", current: boolean) {
-		if (!ext) return;
-		const action = current ? "deny" : "always_allow";
-		try {
-			await fetch(`/api/extensions/${ext.id}/confirm`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ operationType: opType, action }),
-			});
-			if (opType === "shell") alwaysAllowShell = !current;
-			else alwaysAllowFs = !current;
-		} catch (e) {
-			errorMsg = e instanceof Error ? e.message : "Failed to update";
-		}
-	}
-
 	// ── MCP Connection edit (Phase 3/B) ─────────────────────────────────
 	const isMcp = $derived(ext?.manifest.kind === "mcp");
 	const mcpServer = $derived(ext?.manifest.mcpServers?.[0] ?? null);
 
 	let mcpEditOpen = $state(false);
 	let mcpSaving = $state(false);
-	let mcpToolDelta = $state<{ added: string[]; removed: string[] } | null>(null);
 	// Edit form fields (pre-filled from the current server config on open).
 	let mcpTransport = $state<"stdio" | "http" | "sse">("stdio");
 	let mcpName = $state("");
@@ -863,7 +592,6 @@
 	function openMcpEdit() {
 		const s = mcpServer;
 		if (!s) return;
-		mcpToolDelta = null;
 		mcpTransport = s.transport;
 		mcpName = s.name;
 		mcpDescription = ext?.description ?? "";
@@ -902,7 +630,6 @@
 		if (!ext) return;
 		mcpSaving = true;
 		errorMsg = "";
-		mcpToolDelta = null;
 		try {
 			let server: McpServerSpec;
 			if (mcpTransport === "stdio") {
@@ -984,50 +711,6 @@
 			</div>
 		{/if}
 
-		{#if driftLoading}
-			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-4 py-3 text-xs text-[var(--color-text-muted)]" data-testid="bundled-drift-loading">
-				Checking for updated website permissions…
-			</div>
-		{:else if driftPreview}
-			{@const hasDrift = driftPreview.diffs.length > 0}
-			<div class="rounded-lg border border-amber-700/70 bg-amber-900/20 p-4" data-testid="bundled-drift-preview">
-				<h3 class="text-sm font-semibold text-amber-200">
-					{hasDrift ? "Updated permissions need approval" : "Disabled — re-approve to enable"}
-				</h3>
-				<p class="mt-1 text-xs text-amber-200/80">
-					{#if hasDrift}
-						This bundled extension has a newer permission set (v{driftPreview.version}). Review the current website access before enabling it.
-					{:else}
-						This bundled extension is disabled. Its permissions (v{driftPreview.version}) already match what is on disk — re-approving grants them again and enables it.
-					{/if}
-				</p>
-				{#if driftPreview.permissions.network?.length}
-					<div class="mt-3">
-						<div class="text-xs font-medium uppercase tracking-wide text-amber-200">Website access</div>
-						<ul class="mt-1 flex flex-wrap gap-1.5">
-							{#each driftPreview.permissions.network as domain}
-								<li>
-									<code class="inline-block rounded bg-[var(--color-surface-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)]" data-testid="bundled-drift-website">{domain}</code>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				<button
-					onclick={approveBundledDrift}
-					disabled={driftApproving || !isAdmin}
-					data-testid="approve-bundled-drift"
-					class="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-				>
-					{driftApproving
-						? "Enabling…"
-						: hasDrift
-							? "Approve website access and enable"
-							: "Re-approve and enable"}
-				</button>
-			</div>
-		{/if}
-
 		<!--
 			Phase 4 (capability-expiry) — recently-expired grants banner.
 			Renders nothing if there are no rows. Click → opens the inline
@@ -1036,23 +719,8 @@
 		<ExpiredGrantsBanner
 			expiredGrants={expiredGrants}
 			isAdmin={isAdmin}
-			onReapprove={handleReapproveOpen}
+			onReapprove={openReleaseReview}
 		/>
-
-		{#if reapproveModal && ext}
-			<ExpiredReapproveModal
-				extensionName={ext.name}
-				capability={reapproveModal.capability}
-				ageMs={reapproveModal.ageMs}
-				initialTtlMs={reapproveModal.stickyTtlMs ?? DEFAULT_TTL_FIRST_USE_MS}
-				isAdmin={isAdmin}
-				loading={reapproveSubmitting}
-				onApproveDefault={(ttlOverrideMs) =>
-					handleReapproveSubmit(undefined, ttlOverrideMs)}
-				onApproveForever={() => handleReapproveSubmit("forever")}
-				onCancel={handleReapproveCancel}
-			/>
-		{/if}
 
 		<!-- Security Violations -->
 		{#if hasViolations}
@@ -1137,16 +805,6 @@
 								</dd>
 							{/if}
 						</dl>
-						{#if mcpToolDelta && (mcpToolDelta.added.length || mcpToolDelta.removed.length)}
-							<div class="mt-2 rounded-md border border-blue-800/60 bg-blue-900/20 px-3 py-2 text-xs text-blue-200" data-testid="mcp-tool-delta">
-								{#if mcpToolDelta.added.length}
-									<div><span class="font-medium text-green-300">+{mcpToolDelta.added.length}</span> added: {mcpToolDelta.added.join(", ")}</div>
-								{/if}
-								{#if mcpToolDelta.removed.length}
-									<div><span class="font-medium text-red-300">-{mcpToolDelta.removed.length}</span> removed: {mcpToolDelta.removed.join(", ")}</div>
-								{/if}
-							</div>
-						{/if}
 					{:else}
 						<!-- Edit panel — install field set, pre-filled. -->
 						<div class="space-y-2" data-testid="mcp-edit-panel">
@@ -1352,7 +1010,8 @@
 			     section below is unaffected by capability changes. -->
 			{#if settingsLoaded && capabilities.length > 0}
 				<div class="mb-4">
-					<CapabilitiesPanel {capabilities} {isAdmin} onsave={saveCapabilityGrant} />
+					<h4 class="text-xs font-medium text-[var(--color-text-secondary)]">Effective host capability policy</h4>
+					<JsonBlock value={capabilities} />
 				</div>
 			{/if}
 
@@ -1461,270 +1120,24 @@
 			{/each}
 		{/if}
 
-		<!-- Permissions -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
-			<h3 class="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">Permissions</h3>
-
-			<div class="space-y-3">
-				<!-- Network -->
-				<div>
-					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Network Access</div>
-					<!-- `text-xs`, not `text-[10px]`: the contrast passes (5.79:1) but
-					     10px does not meet the minimum body size. This line explains
-					     what the checkboxes beneath it grant. -->
-					<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">Website domains this extension may contact.</p>
-					<!--
-						`min-w-0` on the row + `max-w-full break-all` on each pill. This
-						pairing is repeated on every pill row in this card (filesystem,
-						env, granted-at-install) for the same reason:
-
-						a flex item's default `min-width: auto` refuses to shrink below
-						its content, and these values are unbroken strings, so a
-						near-limit host rendered ~490px past the card AND past the
-						viewport — an admin granting network egress could not read the
-						hostname they were approving. Consent to a string the UI won't
-						show is not consent. `break-all` (not `break-words`) because a
-						host/path/env name has no spaces to break at; the file already
-						uses it for the MCP command + URL rows.
-					-->
-					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-						{#each ext.manifest.permissions.network ?? [] as domain}
-							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
-								<input
-									type="checkbox"
-									checked={editPerms.network.includes(domain)}
-									onchange={() => {
-										if (editPerms.network.includes(domain)) {
-											editPerms.network = editPerms.network.filter((d) => d !== domain);
-										} else {
-											editPerms.network = [...editPerms.network, domain];
-										}
-									}}
-									class="h-3 w-3"
-								/>
-								{domain}
-							</label>
-						{/each}
-						{#if !ext.manifest.permissions.network?.length}
-							<span class="text-xs text-[var(--color-text-muted)]">None requested</span>
-						{/if}
-					</div>
-				</div>
-
-				<!-- Filesystem -->
-				<div>
-					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Filesystem Access</div>
-					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-						{#each ext.manifest.permissions.filesystem ?? [] as path}
-							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
-								<input
-									type="checkbox"
-									checked={editPerms.filesystem.includes(path)}
-									onchange={() => {
-										if (editPerms.filesystem.includes(path)) {
-											editPerms.filesystem = editPerms.filesystem.filter((p) => p !== path);
-										} else {
-											editPerms.filesystem = [...editPerms.filesystem, path];
-										}
-									}}
-									class="h-3 w-3"
-								/>
-								{path}
-							</label>
-						{/each}
-						{#if !ext.manifest.permissions.filesystem?.length}
-							<span class="text-xs text-[var(--color-text-muted)]">None requested</span>
-						{/if}
-					</div>
-				</div>
-
-				<!-- Shell -->
-				<div>
-					<label class="flex items-center gap-2 text-xs font-medium text-[var(--color-text-secondary)]">
-						<input
-							type="checkbox"
-							checked={editPerms.shell}
-							onchange={() => (editPerms.shell = !editPerms.shell)}
-							class="h-3 w-3"
-						/>
-						Shell Access
-						{#if ext.manifest.permissions.shell}
-							<span class="rounded bg-red-900/40 px-1 py-0.5 text-xs text-red-400">Requested</span>
-						{/if}
-					</label>
-				</div>
-
-				<!-- Env -->
-				<div>
-					<div class="text-xs font-medium text-[var(--color-text-secondary)]">Environment Variables</div>
-					<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-						{#each ext.manifest.permissions.env ?? [] as varName}
-							<label class="flex max-w-full items-center gap-1 break-all rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
-								<input
-									type="checkbox"
-									checked={editPerms.env.includes(varName)}
-									onchange={() => {
-										if (editPerms.env.includes(varName)) {
-											editPerms.env = editPerms.env.filter((v) => v !== varName);
-										} else {
-											editPerms.env = [...editPerms.env, varName];
-										}
-									}}
-									class="h-3 w-3"
-								/>
-								{varName}
-							</label>
-						{/each}
-						{#if !ext.manifest.permissions.env?.length}
-							<span class="text-xs text-[var(--color-text-muted)]">None requested</span>
-						{/if}
-					</div>
-				</div>
-
-				<!--
-					Capability-tier grants (storage / spawnAgents /
-					eventSubscriptions). Unlike network/fs/shell/env, these are
-					auto-granted at install from the manifest — all-or-nothing,
-					with no per-cap opt-out — and the PUT /permissions endpoint
-					re-strips custom event subscriptions via
-					`clampExtensionPermissions`. So we DISPLAY them read-only
-					("granted at install"), never as editable toggles that would
-					silently no-op. Revoking these means uninstalling the
-					extension.
-				-->
-				{#if hasInstallGrants}
-					<div data-testid="install-granted-capabilities">
-						<div class="text-xs font-medium text-[var(--color-text-secondary)]">Granted at install</div>
-						<!-- Same 10px→xs bump as the Network Access helper above: it is
-						     the same role (the sentence explaining what a pill row
-						     grants) in the same card, so leaving one at 10px would be
-						     an inconsistency as well as a size failure. -->
-						<p class="mt-0.5 text-xs text-[var(--color-text-muted)]">
-							Auto-granted from the manifest. Read-only — to revoke, uninstall the extension.
-						</p>
-						<div class="mt-1 flex min-w-0 flex-wrap gap-1">
-							{#if installGrants.storage}
-								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-storage">Persistent storage</span>
-							{/if}
-							{#if installGrants.spawnAgents}
-								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-spawn-agents">Spawn sub-agents ({installGrants.spawnAgents.maxPerHour}/hr)</span>
-							{/if}
-							{#each installGrants.events as evt}
-								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 font-mono text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-event">{evt}</span>
-							{/each}
-							{#if installGrants.workflows?.names?.length}
-								{@const wf = installGrants.workflows}
-								<span class="rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]" data-testid="install-grant-workflows">Run its own workflows ({wf.names.length}, {wf.maxRunsPerHour ?? 20}/hr)</span>
-							{/if}
-						</div>
-					</div>
-				{/if}
-
-				<!--
-					Phase 4 deputy / orchestration consent. Each renders only
-					when the manifest actually declares the flag (the runtime
-					gate also requires the user's acceptance, so the
-					checkbox state is the source of truth at install time).
-				-->
-				{#if ext.manifest.acceptsCallerCaps === true}
-					<div class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
-						<label class="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
-							<input
-								type="checkbox"
-								checked={editPerms.acceptsCallerCaps}
-								onchange={() => (editPerms.acceptsCallerCaps = !editPerms.acceptsCallerCaps)}
-								class="mt-0.5 h-3 w-3"
-							/>
-							<span>
-								<span class="font-medium text-amber-300">Accept caller capabilities (deputy)</span>
-								<span class="ml-2 rounded bg-amber-900/40 px-1 py-0.5 text-xs text-amber-300">Elevated trust</span>
-								<div class="mt-1 text-[var(--color-text-muted)]">
-									This extension's tools run with the
-									intersection of the calling extension's
-									capabilities and its own. Deny if you
-									don't expect this extension to act as a
-									deputy for other extensions via
-									<code>ezcorp/invoke</code>.
-								</div>
-							</span>
-						</label>
-					</div>
-				{/if}
-				{#if ext.manifest.escalateChildCaps === true}
-					<div class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
-						<label class="flex items-start gap-2 text-xs text-[var(--color-text-secondary)]">
-							<input
-								type="checkbox"
-								checked={editPerms.escalateChildCaps}
-								onchange={() => (editPerms.escalateChildCaps = !editPerms.escalateChildCaps)}
-								class="mt-0.5 h-3 w-3"
-							/>
-							<span>
-								<span class="font-medium text-amber-300">Escalate child capabilities (orchestrator)</span>
-								<span class="ml-2 rounded bg-amber-900/40 px-1 py-0.5 text-xs text-amber-300">Elevated trust</span>
-								<div class="mt-1 text-[var(--color-text-muted)]">
-									Sub-conversations spawned by this
-									extension are NOT capped by your
-									conversation's capabilities — they run
-									with the spawned extension's own
-									installed grants. Only enable for
-									dedicated orchestration extensions.
-								</div>
-							</span>
-						</label>
-					</div>
-				{/if}
+		<section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4" aria-labelledby="release-permissions-title" data-testid="release-permissions">
+			<h3 id="release-permissions-title" class="text-sm font-medium text-[var(--color-text-secondary)]">Release permissions</h3>
+			<p class="mt-2 text-sm text-[var(--color-text-muted)]">Permissions belong to an exact built release. Changes require a new review and human approval. Disable the extension to stop access.</p>
+			<div class="mt-4 min-w-0 space-y-3">
+				<h4 class="text-xs font-medium text-[var(--color-text-secondary)]">Declared permissions</h4>
+				<JsonBlock value={ext.manifest.permissions} />
+				<h4 class="text-xs font-medium text-[var(--color-text-secondary)]">Current grants</h4>
+				<JsonBlock value={ext.grantedPermissions} />
 			</div>
-
-			<button
-				onclick={savePermissions}
-				disabled={saving}
-				class="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-			>
-				{saving ? "Saving..." : "Save Permissions"}
-			</button>
-		</div>
-
-		<!-- Sensitive Operations -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
-			<h3 class="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">Sensitive Operations</h3>
-			<p class="mb-3 text-xs text-[var(--color-text-muted)]">
-				Control whether this extension can bypass confirmation dialogs for sensitive operations.
-			</p>
-			<div class="space-y-2">
-				<label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-					<input
-						type="checkbox"
-						checked={alwaysAllowShell}
-						onchange={() => toggleAlwaysAllow("shell", alwaysAllowShell)}
-						class="h-4 w-4"
-					/>
-					Always allow shell commands
-				</label>
-				<label class="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-					<input
-						type="checkbox"
-						checked={alwaysAllowFs}
-						onchange={() => toggleAlwaysAllow("filesystem", alwaysAllowFs)}
-						class="h-4 w-4"
-					/>
-					Always allow filesystem writes
-				</label>
-			</div>
-		</div>
-
-		<!-- Test placeholder -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
-			<h3 class="mb-2 text-sm font-medium text-[var(--color-text-muted)]">Testing</h3>
-			<p class="text-xs text-[var(--color-text-muted)]">Tool testing will be available after Plan 07-04 is implemented.</p>
-		</div>
+			<button class="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500" onclick={openReleaseReview} data-testid="review-extension-release">Review release and permissions</button>
+		</section>
 
 		<!-- Permission-change audit trail (S8 in the Phase 1 plan) -->
 		{#if isAdmin}
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4">
 				<h3 class="mb-2 text-sm font-medium text-[var(--color-text-muted)]">Audit Trail</h3>
 				<p class="mb-3 text-xs text-[var(--color-text-muted)]">
-					Permission grants and revokes, rejected attempts, and MCP server lifecycle (install, edit, refresh, uninstall) are recorded here. System rows capture automatic grants (bundled-install, bundled-regrant, drift detection, blocked version bumps).
+					Release approvals, activation, revocation, rejected requests, and MCP operations are recorded here.
 				</p>
 				<!--
 					#206 — the two things a reader of this panel would otherwise get
