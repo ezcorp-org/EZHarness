@@ -494,7 +494,7 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 	});
 
 	test("dirty dot appears for the changed knob only", async () => {
-		const { getByTestId, queryByTestId } = render(DesignCanvasCard, {
+		const { getByTestId, queryByTestId, rerender } = render(DesignCanvasCard, {
 			toolCall: makeCallWithPayload({
 				knobs: [
 					{
@@ -515,16 +515,13 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 			conversationId: "conv-1",
 		});
 
-		// Initially nothing dirty (form is empty, applied is set — empty
-		// form + applied = "user cleared it" which IS dirty per spec, BUT
-		// the bind:value initialises from undefined so values map starts
-		// empty. encodeKnobValue("") returns null → considered dirty when
-		// applied is set. To get a clean baseline we first set the value
-		// to match the applied one.
+		// The open-canvas payload seeds both the displayed form and the
+		// applied baseline, so valid colors render immediately without a
+		// false dirty state.
 		const primary = getByTestId("knob-primaryColor") as HTMLInputElement;
-		await fireEvent.input(primary, { target: { value: "#ff0066" } });
 		const secondary = getByTestId("knob-secondaryColor") as HTMLInputElement;
-		await fireEvent.input(secondary, { target: { value: "#00ff00" } });
+		expect(primary.value).toBe("#ff0066");
+		expect(secondary.value).toBe("#00ff00");
 
 		// Now dirty-dot for both should be hidden.
 		expect(queryByTestId("dirty-dot-primaryColor")).toBeNull();
@@ -534,6 +531,21 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 		await fireEvent.input(primary, { target: { value: "#000000" } });
 		expect(queryByTestId("dirty-dot-primaryColor")).not.toBeNull();
 		expect(queryByTestId("dirty-dot-secondaryColor")).toBeNull();
+
+		// A replacement open-canvas result initializes the new payload once.
+		await rerender({
+			toolCall: makeCallWithPayload({
+				knobs: [
+					{ key: "primaryColor", kind: "color", label: "Primary" },
+					{ key: "secondaryColor", kind: "color", label: "Secondary" },
+				],
+				knobValues: { primaryColor: "#123456", secondaryColor: "#abcdef" },
+			}),
+			conversationId: "conv-1",
+		});
+		expect(primary.value).toBe("#123456");
+		expect(secondary.value).toBe("#abcdef");
+		expect(queryByTestId("dirty-dot-primaryColor")).toBeNull();
 	});
 
 	test("diff drawer renders when both originalTokensBlock and tokensBlock supplied", () => {

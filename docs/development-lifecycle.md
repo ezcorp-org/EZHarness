@@ -228,7 +228,7 @@ below has already cost someone a red CI run or a wrong conclusion.
 
 **`bun run test` is the BACKEND pool only** (`scripts/test.sh`). It does not run:
 
-- `scripts/test-web.sh` — 222 orphaned `web/src/**/*.test.ts`, their own CI job
+- `scripts/test-web.sh` — the canonical orphaned `web/src/**/*.test.ts` runner pool, with its own CI job
   (`Web tests (bun-leg orphans)`);
 - the Vitest surface (`bun run --cwd web test:component`);
 - any e2e.

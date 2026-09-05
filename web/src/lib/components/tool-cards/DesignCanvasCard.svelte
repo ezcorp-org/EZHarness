@@ -197,7 +197,15 @@
 	// seed the live state. This effect runs whenever the parsed payload
 	// changes — typically once on mount.
 	$effect(() => {
-		if (payload.knobValues) liveAppliedValues = payload.knobValues;
+		if (payload.knobValues) {
+			liveAppliedValues = payload.knobValues;
+			const initial: Record<string, string> = {};
+			for (const knob of knobs) {
+				const wire = payload.knobValues[knob.key];
+				if (wire !== undefined) initial[knob.key] = stripUnit(wire, knob);
+			}
+			values = initial;
+		}
 		if (payload.tokensBlock !== undefined) liveTokensBlock = payload.tokensBlock;
 		if (payload.revisions) liveRevisions = payload.revisions;
 	});
