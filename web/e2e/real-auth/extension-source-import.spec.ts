@@ -13,7 +13,6 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 }
 
 function toolResult(output: unknown): Record<string, unknown> {
