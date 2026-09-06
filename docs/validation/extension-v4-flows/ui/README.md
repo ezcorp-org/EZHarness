@@ -1,6 +1,6 @@
 # Extension lifecycle UI receipt
 
-Source SHA: `9a12e922738a20d6d09563d5240af1d73952d81b`.
+Source SHA: `260de9452822aab4d07dd7672ae53c4d2c322fe4`.
 
 Command (serialized with the required shared lock):
 
@@ -8,11 +8,11 @@ Command (serialized with the required shared lock):
 flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH; export PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4281 EZCORP_E2E_EVIDENCE=1; cd web && bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts'
 ```
 
-Playwright reported `1 passed` in 1.1 minutes, and the wrapper recorded `COMMAND_EXIT=0`. The raw reporter output is [final log](raw/extension-lifecycle-flow-mobile-9a12e922.log). Client diagnostics are empty: no page errors, console errors, lifecycle API failures, or other application API failures.
+Playwright reported `1 passed` in 57.1 seconds, and the wrapper recorded `COMMAND_EXIT=0`. The raw reporter output is [final log](raw/extension-lifecycle-flow-desktop-anchor-260de945.log). Client diagnostics are empty: no page errors, console errors, lifecycle API failures, or other application API failures.
 
 The browser created a workspace, edited and built its source, refreshed the visible build state to `verified`, reviewed and approved the exact release, and activated it. Test-only setup created an owned conversation and selected the local `ezcorp-mock` LLM for the normal mention/send turn; the extension lifecycle and both tool calls used product UI and the real extension runtime. The normal mention/send path created conversation wiring. The visible Add form produced the exact transformed UUID output, first-use card, and re-enabled card. The test then hid the extension through the conversation tools UI, proved its mention suggestion was unavailable, reset selection, disabled it, completed fresh approval/re-activation, invoked it again, and uninstalled it. Server inspection records `uninstalled: true` after the UI uninstall.
 
-Visual inspection found the desktop review and expanded output readable. At 390 px and 320 px, the toolbar wraps, the Tools trigger, title, checkbox, and reset control fit entirely inside the viewport, and the extension mention has readable light-theme contrast. The test asserts trigger and popover x/y/width/height bounds at both widths. Screenshots: [review](screenshots/extension-lifecycle-review-desktop.png), [output](screenshots/extension-lifecycle-live-output.png), [390 px selection](screenshots/extension-lifecycle-tool-selection-mobile.png), and [320 px selection](screenshots/extension-lifecycle-tool-selection-mobile-narrow.png).
+Visual inspection found the desktop review and expanded output readable. At 390 px and 320 px, the toolbar wraps, the Tools trigger, title, checkbox, and reset control fit entirely inside the viewport, and the extension mention has readable light-theme contrast. The test asserts trigger and popover x/y/width/height bounds at both widths, then resizes the open panel to 1280 px and asserts the panel's left edge equals the trigger's left edge within one pixel. Screenshots: [review](screenshots/extension-lifecycle-review-desktop.png), [output](screenshots/extension-lifecycle-live-output.png), [390 px selection](screenshots/extension-lifecycle-tool-selection-mobile.png), [320 px selection](screenshots/extension-lifecycle-tool-selection-mobile-narrow.png), and [desktop after mobile](screenshots/extension-lifecycle-tool-selection-desktop-after-mobile.png).
 
 The retained [ff41 390 px screenshot](screenshots/extension-lifecycle-tool-selection-mobile-clipped-ff41d7a3.png) records the original clipped panel. The first narrow replay caught the panel at right edge 349.97 px ([log](raw/extension-lifecycle-flow-mobile-e0dcdfde.log)); the next replay caught the Tools trigger at the same edge ([log](raw/extension-lifecycle-flow-mobile-5e02b75c.log)).
 
