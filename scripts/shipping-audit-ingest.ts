@@ -5,11 +5,20 @@ import { initDb, closeDb } from "../src/db/connection";
 
 const logPath = process.argv[2];
 if (!logPath) throw new Error("usage: bun scripts/shipping-audit-ingest.ts <vm-log>");
+if (!process.env.EZCORP_DB_PATH || process.env.EZCORP_DB_PATH === ":memory:") {
+  throw new Error("EZCORP_DB_PATH must name an owned on-disk test database");
+}
 const lines = readFileSync(logPath, "utf8").split("\n");
 const pid = lines.map((line) => /^VM_PROBE_PID=(\d+)$/.exec(line.trim())?.[1]).find(Boolean);
 if (!pid) throw new Error("VM probe PID missing from serial log");
 const kernelLines = lines.filter((line) => line.includes("audit: type=1326"));
 if (kernelLines.length === 0) throw new Error("VM serial log has no type=1326 record");
+const exactRecords = kernelLines.map((line) => {
+  const match = /\bpid=(\d+)\b.*\barch=([0-9a-f]+)\b.*\bsyscall=(\d+)\b.*\bcode=(0x[0-9a-f]+)\b/i.exec(line);
+  if (!match) throw new Error(`unparseable type=1326 row: ${line}`);
+  return { pid: match[1]!, arch: match[2]!, syscall: Number(match[3]), code: match[4]!.toLowerCase() };
+}).filter((record) => record.pid === pid);
+if (exactRecords.length === 0) throw new Error(`no type=1326 record for VM probe PID ${pid}`);
 
 // Import a query-string-isolated copy before registering the observer. The
 // parser then receives the mock for its canonical module specifier, while the
@@ -45,7 +54,13 @@ try {
     await Bun.sleep(25);
     rows = await listAuditForExtension(extensionId);
   }
-  if (rows.length === 0 || rows.some((row) => (row.metadata as { pid?: string } | null)?.pid !== pid)) {
+  const actualRecords = rows.map((row) => {
+    const metadata = row.metadata as { pid?: string; arch?: string; syscall?: number; code?: string } | null;
+    return { action: row.action, pid: metadata?.pid, arch: metadata?.arch, syscall: metadata?.syscall, code: metadata?.code?.toLowerCase() };
+  });
+  const expected = exactRecords.map((record) => JSON.stringify({ action: "ext:mcp:seccomp-violation", ...record })).sort();
+  const actual = actualRecords.map((record) => JSON.stringify(record)).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`production reader did not persist exact PID ${pid}; observed writes=${pendingWrites.length}`);
   }
 
