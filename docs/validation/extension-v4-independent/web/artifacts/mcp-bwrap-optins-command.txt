@@ -2,6 +2,7 @@ Image: localhost/ezcorp-extension-v4:audit-final-3ec53eaa
 Immutable image ID: sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be
 Source: 3ec53eaa66409a39d66b502f79d74139ec94dcf2
 Tree: 2ccafce2b65a9af89482e85e7168a5f01980051a
+Test fixture commit: 528d75ec379de7c3e068464cbbc2bae8513d42b1
 Bun: 1.3.14
 
 The repository bind was read-only. /tmp was an owned tmpfs.
