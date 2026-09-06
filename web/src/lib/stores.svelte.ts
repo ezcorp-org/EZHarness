@@ -667,13 +667,15 @@ export function hydrateTaskSnapshotInto(
 
 // ── Canvas Dock helpers ──
 //
-// Three-method API:
+// Four-method API:
 //   - openDock(convId, toolCallId): snapshot sidebar, force-collapse it,
 //     persist the dock-state to localStorage. Idempotent on a no-op same-id
 //     call. Replacing the toolCallId leaves `previousSidebar` snapshot intact
 //     so close still restores the user's pre-dock state.
-//   - closeDock(convId): clear the slot, restore previousSidebar UNLESS the
-//     user manually toggled it while open (precedence rule, plan §7.2).
+//   - closeDock(convId): clear the slot, remember an explicit user dismissal,
+//     and restore previousSidebar unless the user manually changed it.
+//   - clearStaleDock(convId): clear an unresolvable slot without treating it
+//     as a user dismissal, so later authoritative history may reopen it.
 //   - setDockSize(px): clamp + persist.
 //
 // Per-conversation reload restore is keyed on `ezcorp-dock-state-<convId>`
@@ -771,25 +773,25 @@ export function openDock(conversationId: string, toolCallId: string): void {
 }
 
 /**
- * Close the dock for `conversationId`. Restores the snapshot of
- * `sidebarCollapsed` UNLESS `userOverrode` is set (the user manually toggled
- * it after the auto-collapse, so we leave their choice alone).
+ * Remove an open dock slot. Restore the sidebar to its `previousSidebar`
+ * snapshot unless `userOverrode` is set after the auto-collapse.
+ *
+ * An explicit user close records a dismissal. An authoritative removal does
+ * not, so a later authoritative tool call can open the dock again.
  */
-export function closeDock(conversationId: string): void {
+function clearDockSlot(conversationId: string, userDismissed: boolean): void {
 	const slot = store.dockState[conversationId];
 	if (!slot) return;
 	const { [conversationId]: _removed, ...rest } = store.dockState;
 	store.dockState = rest;
-	// Mark this toolCallId as user-dismissed so the InlineToolCard /
-	// ToolCallCard auto-open `$effect` doesn't fire `openDock` again the
-	// moment we return — `routeToDock` is still true (cardLayout=dock,
-	// status=complete). The flag is cleared on a manual reopen via
-	// `openDock` (which the chat-history pill click goes through).
-	const prevDismissed = store.dismissedDocks[conversationId] ?? {};
-	store.dismissedDocks = {
-		...store.dismissedDocks,
-		[conversationId]: { ...prevDismissed, [slot.toolCallId]: true },
-	};
+	if (userDismissed) {
+		// An explicit close must stop this still-complete card from reopening.
+		const prevDismissed = store.dismissedDocks[conversationId] ?? {};
+		store.dismissedDocks = {
+			...store.dismissedDocks,
+			[conversationId]: { ...prevDismissed, [slot.toolCallId]: true },
+		};
+	}
 	if (!slot.userOverrode && store.sidebarCollapsed !== slot.previousSidebar) {
 		store.sidebarCollapsed = slot.previousSidebar;
 		if (typeof localStorage !== 'undefined') {
@@ -797,6 +799,16 @@ export function closeDock(conversationId: string): void {
 		}
 	}
 	_clearDockSlotLS(conversationId);
+}
+
+/** Close a dock the user explicitly dismissed. */
+export function closeDock(conversationId: string): void {
+	clearDockSlot(conversationId, true);
+}
+
+/** Clear a dock whose tool call is absent from authoritative history. */
+export function clearStaleDock(conversationId: string): void {
+	clearDockSlot(conversationId, false);
 }
 
 /**

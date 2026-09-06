@@ -549,6 +549,7 @@ run_legs() {
       src/__tests__/pending-decisions-tray.component.test.ts \
       src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
       src/__tests__/inline-tool-store.test.ts \
+      src/lib/components/tool-cards/DockHost.component.test.ts \
       src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
       src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
       src/__tests__/composer-suggest-logic.unit.test.ts \

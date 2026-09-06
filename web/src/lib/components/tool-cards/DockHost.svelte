@@ -19,6 +19,7 @@
 	import {
 		store,
 		closeDock,
+		clearStaleDock,
 		openDock,
 		setDockSize,
 		readPersistedDockSlot,
@@ -67,6 +68,12 @@
 			cardType: found.cardType,
 			cardLayout: found.cardLayout,
 		};
+	});
+
+	// An authoritative history hydrate can remove the call in the open slot.
+	// Clear it instead of leaving invisible dock state and desktop padding.
+	$effect(() => {
+		if (activeConvId && slot && !toolCall) clearStaleDock(activeConvId);
 	});
 
 	// ── Pop-out URL ──────────────────────────────────────────────────

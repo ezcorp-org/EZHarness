@@ -12,7 +12,7 @@
  * Vitest is used (not bun test) because the component imports .svelte
  * files that need the Svelte 5 rune compiler — see web/vitest.config.ts.
  */
-import { render, fireEvent, cleanup } from "@testing-library/svelte";
+import { render, fireEvent, cleanup, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, beforeEach, beforeAll } from "vitest";
 import DockHost from "./DockHost.svelte";
 import { store, openDock, closeDock } from "$lib/stores.svelte.js";
@@ -69,6 +69,24 @@ describe("DockHost", () => {
 		expect(getByTestId("dock-host")).toBeInTheDocument();
 		await fireEvent.click(getByTestId("dock-close"));
 		expect(queryByTestId("dock-host")).toBeNull();
+	});
+
+	test("an authoritative removal clears a stale slot without a user dismissal", async () => {
+		store.sidebarCollapsed = false;
+		store.dismissedDocks = {};
+		seedDocked("tc-stale");
+		const { getByTestId, queryByTestId } = render(DockHost, { conversationId: "conv-1" });
+		expect(getByTestId("dock-host")).toBeInTheDocument();
+		expect(store.sidebarCollapsed).toBe(true);
+
+		inlineToolStore.calls = [];
+		await waitFor(() => {
+			expect(queryByTestId("dock-host")).toBeNull();
+			expect(store.dockState["conv-1"]).toBeUndefined();
+			expect(store.dismissedDocks["conv-1"]?.["tc-stale"]).toBeUndefined();
+			expect(store.sidebarCollapsed).toBe(false);
+			expect(localStorage.getItem("ezcorp-dock-state-conv-1")).toBeNull();
+		});
 	});
 
 	test("iframe inside the dock keeps SANDBOX_FLAGS_STRICT (security regression)", async () => {
