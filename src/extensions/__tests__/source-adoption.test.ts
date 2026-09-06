@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
-import { users, extensions, projects, projectMembers } from "../../db/schema";
-import { getUserById } from "../../db/queries/users";
+import { users, extensions, projects, projectMembers, extensionStorage } from "../../db/schema";
+import { getUserById, updateUserStatus } from "../../db/queries/users";
 import { getExtension, getExtensionByName } from "../../db/queries/extensions";
+import { getStorageValue, setStorageValue } from "../../db/queries/extension-storage";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { ExtensionLifecycle, FileBlobStore, type LifecycleActor } from "../v4";
+import { digestObject } from "../v4/blobs";
 import * as service from "../extension-lifecycle-service";
 import { importExtensionSource, stageExtensionSourceFiles } from "../source-import";
 import { resolveSourceTarget } from "../source-adoption";
@@ -20,6 +22,7 @@ import { load as loadAuthorPage } from "../../../web/src/routes/(app)/extensions
 
 mockDbConnection();
 const owner: LifecycleActor = { principalId: "owner", scope: "global", kind: "human" };
+const administrator: LifecycleActor = { principalId: "admin", scope: "global", kind: "human" };
 const files = { "extension.ts": "throw new Error('source must never execute on the host')", "data/example.json": "{\"preserved\":true}" };
 let root: string;
 let repository: DatabaseLifecycleRepository;
@@ -28,6 +31,26 @@ let restoreService: ReturnType<typeof spyOn>;
 let pending: Promise<unknown>[] = [];
 function replaceFetch(implementation: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>) {
   return spyOn(globalThis, "fetch").mockImplementation(Object.assign(implementation, { preconnect: globalThis.fetch.preconnect }));
+}
+
+function githubSourceFetch(sourceFiles: Record<string, string>, options: { treeId?: string; failBlob?: number } = {}) {
+  const treeId = options.treeId ?? "a".repeat(40);
+  const blobs = Object.entries(sourceFiles).map(([path, content], index) => ({ path, content, sha: (index + 1).toString(16).padStart(40, "0") }));
+  let requests = 0;
+  return {
+    requests: () => requests,
+    fetch: async (...args: Parameters<typeof fetch>) => {
+      const [input] = args;
+      const url = String(input);
+      if (url.includes("/commits/")) return Response.json({ commit: { tree: { sha: treeId } } });
+      if (url.includes("/git/trees/")) return Response.json({ tree: blobs.map(({ path, sha, content }) => ({ path, mode: "100644", type: "blob", sha, size: content.length })) });
+      const blob = blobs.find(({ sha }) => url.endsWith(`/git/blobs/${sha}`));
+      if (!blob) return new Response("unexpected blob", { status: 404 });
+      requests += 1;
+      if (requests === options.failBlob) return new Response("interrupted", { status: 503 });
+      return Response.json({ encoding: "base64", content: Buffer.from(blob.content).toString("base64") });
+    },
+  };
 }
 beforeEach(async () => {
   await setupTestDb();
@@ -89,6 +112,92 @@ test("active owner imports build a candidate without changing the active release
   expect(state?.releases).toEqual({ [snapshot.release.id]: snapshot.release });
   expect(state?.approvals).toEqual({});
   expect((await getExtension(previous.id))?.enabled).toBe(true);
+});
+
+test("a later GitHub blob failure stages nothing and leaves an active installation byte-for-byte unchanged", async () => {
+  const previous = await legacy();
+  const manifest = { schemaVersion: 4 as const, name: previous.name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts", permissions: {} };
+  const { snapshot } = releaseRuntimeFixture(previous.id, manifest, { ownerId: owner.principalId });
+  await repository.create({ installation: snapshot.installation, releases: { [snapshot.release.id]: snapshot.release }, workspaces: {}, revisions: {}, approvals: {}, operations: {} });
+  await setStorageValue(previous.id, "global", null, "known-output", { exact: "retained" }, false, 20);
+  const before = structuredClone(await repository.read(previous.id));
+  const storageBefore = await getTestDb().select().from(extensionStorage);
+  expect(await getStorageValue(previous.id, "global", null, "known-output")).toEqual({ value: { exact: "retained" }, encrypted: false, sizeBytes: 20 });
+  const guarded = egress.guardedFetch;
+  const guard = spyOn(egress, "guardedFetch").mockImplementation((url, init, options) => guarded(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }));
+  const source = githubSourceFetch({ "extension.ts": "export {};", "later.ts": "export {};" }, { failBlob: 2 });
+  const network = replaceFetch(source.fetch);
+  try {
+    await expect(importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id })).rejects.toMatchObject({ code: "source_fetch_failed" });
+    expect(source.requests()).toBe(2);
+    expect(await repository.read(previous.id)).toEqual(before);
+    expect(await getTestDb().select().from(extensionStorage)).toEqual(storageBefore);
+    expect(await getStorageValue(previous.id, "global", null, "known-output")).toEqual({ value: { exact: "retained" }, encrypted: false, sizeBytes: 20 });
+  } finally { network.mockRestore(); guard.mockRestore(); }
+});
+
+test("an identical immutable GitHub retry reuses one candidate while changed source stages a distinct unapproved candidate", async () => {
+  const previous = await legacy();
+  const manifest = { schemaVersion: 4 as const, name: previous.name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts", permissions: {} };
+  const { snapshot } = releaseRuntimeFixture(previous.id, manifest, { ownerId: owner.principalId });
+  await repository.create({ installation: snapshot.installation, releases: { [snapshot.release.id]: snapshot.release }, workspaces: {}, revisions: {}, approvals: {}, operations: {} });
+  const guarded = egress.guardedFetch;
+  const guard = spyOn(egress, "guardedFetch").mockImplementation((url, init, options) => guarded(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }));
+  const immutable = githubSourceFetch({ "extension.ts": "export const revision = 'one';" }, { treeId: "a".repeat(40) });
+  const initialNetwork = replaceFetch(immutable.fetch);
+  let firstWorkspaceId = "";
+  let firstOperationId = "";
+  try {
+    const first = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+    const repeated = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+    firstWorkspaceId = first.workspace.id;
+    firstOperationId = first.operation.id;
+    const afterRepeat = await repository.read(previous.id);
+    expect(repeated.workspace.id).toBe(first.workspace.id);
+    expect(repeated.operation.id).toBe(first.operation.id);
+    expect(immutable.requests()).toBe(2);
+    expect(afterRepeat).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
+    expect(Object.keys(afterRepeat?.workspaces ?? {})).toHaveLength(1);
+    expect(Object.keys(afterRepeat?.revisions ?? {})).toHaveLength(1);
+    expect(Object.keys(afterRepeat?.operations ?? {})).toHaveLength(1);
+  } finally { initialNetwork.mockRestore(); }
+
+  const changed = githubSourceFetch({ "extension.ts": "export const revision = 'two';" }, { treeId: "d".repeat(40) });
+  const changedNetwork = replaceFetch(changed.fetch);
+  try {
+    const staged = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+    const afterChange = await repository.read(previous.id);
+    expect(staged.workspace.id).not.toBe(firstWorkspaceId);
+    expect(staged.operation.id).not.toBe(firstOperationId);
+    expect(changed.requests()).toBe(1);
+    expect(afterChange).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
+    expect(Object.keys(afterChange?.workspaces ?? {})).toHaveLength(2);
+    expect(Object.keys(afterChange?.revisions ?? {})).toHaveLength(2);
+    expect(Object.keys(afterChange?.operations ?? {})).toHaveLength(2);
+  } finally { changedNetwork.mockRestore(); guard.mockRestore(); }
+});
+
+test("a deactivated owner cannot activate an administrator-approved release or change its live installation", async () => {
+  const previous = await legacy();
+  const manifest = { schemaVersion: 4 as const, name: previous.name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts", permissions: {} };
+  const { snapshot } = releaseRuntimeFixture(previous.id, manifest, { ownerId: owner.principalId });
+  const release = { ...snapshot.release, policyDigest: digestObject({ profile: "test", image: `sha256:${"a".repeat(64)}`, validator: "test", limits: { memoryBytes: 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024, outputBytes: 1024, timeoutMs: 1000 } }) };
+  const installation = { ...snapshot.installation, activeReleaseId: null, generation: 0, enabled: false, status: "disabled" as const, acknowledgedGeneration: 0, grants: [] };
+  await repository.create({ installation, releases: { [release.id]: release }, workspaces: {}, revisions: {}, approvals: {}, operations: {} });
+  await getTestDb().update(extensions).set({ enabled: false, grantedPermissions: { grantedAt: {} } }).where(eq(extensions.id, previous.id));
+
+  const requested = await lifecycle.requestApproval(owner, { installationId: previous.id, releaseId: release.id, grants: [], expectedActiveReleaseId: null });
+  const approved = await lifecycle.approve(administrator, previous.id, requested.id, true);
+  expect(approved).toMatchObject({ status: "approved", approvedBy: administrator.principalId, releaseId: release.id });
+  expect(await updateUserStatus(owner.principalId, "inactive")).toBe(true);
+  expect(await getUserById(owner.principalId)).toMatchObject({ status: "inactive" });
+
+  const activation = await lifecycle.activate(administrator, { installationId: previous.id, approvalId: approved.id, idempotencyKey: crypto.randomUUID() });
+  expect(activation).toMatchObject({ kind: "activate", state: "failed", approvalId: approved.id, releaseId: release.id, diagnostics: [expect.objectContaining({ code: "unauthorized", stage: "activate" })] });
+  const after = await repository.read(previous.id);
+  expect(after?.installation).toEqual(installation);
+  expect(after?.approvals[approved.id]).toEqual(approved);
+  expect((await getExtension(previous.id))?.enabled).toBe(false);
 });
 
 test("unknown targets and mismatched persisted owners stay opaque, while an owner's deleted installation reports its tombstone", async () => {
