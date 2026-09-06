@@ -24,3 +24,11 @@ export async function e2eReady(): Promise<boolean> {
   cached = await isServerUp(E2E_BASE_URL);
   return cached;
 }
+
+/** A configured E2E lane must fail when its target is unavailable. */
+export async function requireE2eReady(): Promise<void> {
+  if (!E2E_BASE_URL) throw new Error("EZCORP_E2E_BASE_URL is required");
+  if (!(await e2eReady())) {
+    throw new Error(`AI-kit E2E server is not healthy: ${E2E_BASE_URL}`);
+  }
+}
