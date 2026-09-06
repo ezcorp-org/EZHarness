@@ -44,7 +44,43 @@ async function expectInlineToolOutput(page: Page, output: string): Promise<void>
   await expect(completedCall).toBeVisible({ timeout: 90_000 });
   await completedCall.click();
   await expect(completedCall).toHaveAttribute("aria-expanded", "true");
-  await expect(threadMessages(page).getByText(output, { exact: false })).toBeVisible();
+	await expect(threadMessages(page).getByText(output, { exact: false })).toBeVisible();
+}
+
+async function expectDesktopSidebarRowsDoNotShrink(page: Page): Promise<void> {
+	const sidebar = page.getByTestId("desktop-sidebar");
+	await expect(sidebar).toBeVisible();
+	const labels = ["Agents", "Commands", "Workflows", "Extensions"];
+	const boxes = await Promise.all(labels.map(async label => {
+		const row = sidebar.getByRole("link", { name: label, exact: true });
+		await expect(row).toBeVisible();
+		const box = await row.boundingBox();
+		expect(box, `${label} must have a visible click target`).not.toBeNull();
+		return box!;
+	}));
+	for (let index = 0; index < boxes.length; index += 1) {
+		expect(boxes[index]!.height, `${labels[index]} must retain a readable 30px click target`).toBeGreaterThanOrEqual(30);
+		if (index > 0) {
+			expect(boxes[index]!.y, `${labels[index]} must not overlap ${labels[index - 1]}`).toBeGreaterThanOrEqual(
+				boxes[index - 1]!.y + boxes[index - 1]!.height,
+			);
+		}
+	}
+}
+
+async function expectDesktopSidebarCanReachLastRow(page: Page): Promise<void> {
+	const sidebar = page.getByTestId("desktop-sidebar");
+	const lastRow = sidebar.getByRole("link", { name: "Moderation", exact: true });
+	await lastRow.scrollIntoViewIfNeeded();
+	await expect(lastRow).toBeVisible();
+	const lastBox = await lastRow.boundingBox();
+	expect(lastBox, "The last sidebar item must have a visible click target").not.toBeNull();
+	expect(lastBox!.height, "The last sidebar item must retain a readable 30px click target").toBeGreaterThanOrEqual(30);
+	await lastRow.click();
+	await page.waitForURL("/admin/moderation");
+	await page.goBack();
+	await expect(page).toHaveURL(/\/extensions\/author$/);
+	await sidebar.getByRole("link", { name: "Agents", exact: true }).scrollIntoViewIfNeeded();
 }
 
 test("human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -76,7 +112,12 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
   try {
     // Create + author source entirely through the visible workspace.
+    await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/extensions/author");
+		await expectDesktopSidebarRowsDoNotShrink(page);
+		await expectDesktopSidebarCanReachLastRow(page);
+		await expectDesktopSidebarRowsDoNotShrink(page);
+		await captureEvidence(page, testInfo, "extension-lifecycle-sidebar-720", { fullPage: false });
     await page.getByLabel("Extension name").fill(name);
     await page.getByRole("button", { name: "Create workspace", exact: true }).click();
     await page.waitForURL(/\/extensions\/author\?installation=[^&]+&workspace=[^&]+/);
