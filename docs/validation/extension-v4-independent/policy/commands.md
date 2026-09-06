@@ -2,9 +2,9 @@
 
 Date: 2026-09-05 (America/New_York)
 
-Final source freeze: `29d145cf222255de4110c067e2c07ca1ee42d405`
+Final source freeze: `939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c`
 
-Final source tree: `357e88be9f8efd7b779110de88fbfe4d89d38953`
+Final source tree: `5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83`
 
 Audit ledger commit: `c760e1e2ab4e4a4aef87b8612d47df1399f50838`. Portable policy evidence commit: `4f9bc0af`. The final freeze includes both plus the runtime and web repairs.
 
@@ -30,7 +30,7 @@ The complete Gate integrity output is deterministic from the pinned hashes and t
 
 The original `2c73e6ba` checkpoint against base `65edc5bc` produced the same 84-finding split. Its candidate tree was `4a5c5c7a`; its P/C counts were 1,559/1,545. The latest-main fast-forward adds one discovered test to each pool and does not change any extension migration finding.
 
-Final source freeze `29d145cf` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The split remains 1 removed threshold, 27 deleted files, 25 renamed files, and 31 gutted files. The final raw gate output is `artifacts/final-gate-freeze3.log.gz`.
+Final source freeze `939a2b30` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The split remains 1 removed threshold, 27 deleted files, 25 renamed files, and 31 gutted files. The final raw gate output is `seccomp-compiler-proof/final-gate.txt.gz`.
 
 The final focused visual-evidence runner check passed 7 tests with 23 assertions. It covered tier partitioning, the `__ALL__` fallback, failure aggregation, spawn failure, invalid selections, distinct report retention, stale-output removal, config selection, and the real-auth environment.
 

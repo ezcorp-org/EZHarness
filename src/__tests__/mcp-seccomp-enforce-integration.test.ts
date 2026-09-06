@@ -175,21 +175,22 @@ test.skipIf(SHOULD_SKIP)(
         "pipe",
         seccompFd!,
       ];
-      proc = Bun.spawn({
+      const child = Bun.spawn({
         cmd: [spec.command, ...(spec.args ?? [])],
         env: spec.env,
         stdio,
       }) as Subprocess<"pipe", "pipe", "pipe">;
-      childPid = proc.pid;
+      proc = child;
+      childPid = child.pid;
       closeSync(seccompFd!);
       seccompFd = null;
-      await spec.onChildSpawned?.(proc.pid, async (byte) => {
-        proc.stdin.write(Uint8Array.of(byte));
-        await proc.stdin.flush();
+      await spec.onChildSpawned?.(child.pid, async (byte) => {
+        child.stdin.write(Uint8Array.of(byte));
+        await child.stdin.flush();
       });
       const [exitCode, stderr] = await Promise.all([
-        proc.exited,
-        new Response(proc.stderr).text(),
+        child.exited,
+        new Response(child.stderr).text(),
       ]);
       expect(exitCode).toBe(0);
       // getpid is explicitly logged. io_uring_setup is absent from the declared
