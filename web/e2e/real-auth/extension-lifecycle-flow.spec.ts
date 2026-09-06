@@ -30,10 +30,17 @@ async function waitForVisibleBuild(page: Page): Promise<void> {
   }).toBe("verified");
 }
 
-async function expectInlineToolOutput(page: Page, name: string, output: string): Promise<void> {
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function expectInlineToolOutput(page: Page, output: string): Promise<void> {
   // A second invocation appears after re-enable. The last matching card is
-  // the one just submitted from the visible composer.
-  const completedCall = page.getByRole("button", { name: new RegExp(`${name} > echo --`) }).last();
+  // the one just submitted from the visible composer. The collapsed card
+  // labels tool name and a truncated output preview, not its extension name.
+  const completedCall = page.getByRole("button", {
+    name: new RegExp(`echo \\{\\"text\\":\\"${escapeRegex(output.slice(0, 32))}`),
+  }).last();
   await expect(completedCall).toBeVisible({ timeout: 90_000 });
   await completedCall.click();
   await expect(completedCall).toHaveAttribute("aria-expanded", "true");
@@ -135,7 +142,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(threadMessages(page).getByText("Mention wiring complete.", { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await invokeExtensionToolFromComposer(page, name, { text: expected });
-    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}`);
+    await expectInlineToolOutput(page, `UI lifecycle: ${expected}`);
     await captureEvidence(page, testInfo, "extension-lifecycle-live-output", { fullPage: true });
 
     // This visible control is a persisted per-conversation tool selection,
@@ -197,7 +204,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: `${expected}-reenabled` });
-    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}-reenabled`);
+    await expectInlineToolOutput(page, `UI lifecycle: ${expected}-reenabled`);
 
     await page.goto("/extensions");
     await card.getByTestId("ext-card-uninstall").click();
