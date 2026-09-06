@@ -22,9 +22,10 @@
  * SECCOMP_RET_ERRNO.
  */
 
-import { test, expect, beforeAll } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import type {
   ExtensionManifestV2,
   ExtensionPermissions,
@@ -32,16 +33,9 @@ import type {
 } from "../extensions/types";
 import type { AuditEntry } from "../db/schema";
 
-const PROBE_DIR = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "tests",
-  "fixtures",
-  "synthetic-mcp",
-);
-const PROBE_C_PATH = resolve(PROBE_DIR, "probe-ptrace.c");
-const PROBE_BIN_PATH = resolve(PROBE_DIR, "probe-ptrace");
+let probeDir: string | undefined;
+let probeCPath: string;
+let probeBinPath: string;
 const BPF_PATH = resolve(
   import.meta.dir,
   "..",
@@ -78,13 +72,16 @@ if (!existsSync(BPF_PATH)) GATE_REASONS.push("mcp-seccomp.bpf artifact absent (r
 
 const SHOULD_SKIP = GATE_REASONS.length > 0;
 
-beforeAll(() => {
+beforeAll(async () => {
   if (SHOULD_SKIP) return;
-  // Write source and compile the probe once per test run.
-  mkdirSync(PROBE_DIR, { recursive: true });
-  writeFileSync(PROBE_C_PATH, PROBE_C_SOURCE, "utf8");
+  const { initDb } = await import("../db/connection");
+  await initDb();
+  probeDir = mkdtempSync(join(tmpdir(), "ez-seccomp-probe-"));
+  probeCPath = join(probeDir, "probe-ptrace.c");
+  probeBinPath = join(probeDir, "probe-ptrace");
+  writeFileSync(probeCPath, PROBE_C_SOURCE, "utf8");
   const proc = Bun.spawnSync({
-    cmd: ["gcc", "-O2", "-o", PROBE_BIN_PATH, PROBE_C_PATH],
+    cmd: ["gcc", "-O2", "-o", probeBinPath, probeCPath],
     stderr: "pipe",
     stdout: "pipe",
   });
@@ -93,6 +90,10 @@ beforeAll(() => {
       `probe-ptrace compile failed: ${new TextDecoder().decode(proc.stderr)}`,
     );
   }
+});
+
+afterAll(() => {
+  if (probeDir) rmSync(probeDir, { recursive: true, force: true });
 });
 
 test.skipIf(SHOULD_SKIP)(
@@ -121,7 +122,7 @@ test.skipIf(SHOULD_SKIP)(
     const stdioServer: McpServerStdio = {
       transport: "stdio",
       name: "probe-ptrace",
-      command: PROBE_BIN_PATH,
+      command: probeBinPath,
       args: [],
     };
     const manifest: ExtensionManifestV2 = {
