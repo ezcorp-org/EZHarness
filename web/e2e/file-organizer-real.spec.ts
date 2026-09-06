@@ -30,10 +30,11 @@
  * daemon actually persist; post-fix the Hub render reads the SAME dir, so
  * the "appears in the Hub" specs ALSO assert the rendered reflection.
  *
- * CLEANUP — this spec mutates the SHARED container's config.json. It
- * snapshots config.json in `beforeAll` and restores the exact bytes in
- * `afterAll`, so a run leaves the shared container exactly as it found it
- * (no folder/ignore/rule pollution for other sessions).
+ * CLEANUP — this suite is for an owned disposable container only. It snapshots
+ * config.json in `beforeAll`, restores the exact bytes in `afterAll`, and the
+ * outer runner removes the container, database, extension state, and scratch
+ * filesystem. An explicit `EZCORP_APP_CONTAINER` prevents accidental mutation
+ * of a developer's long-lived stack.
  *
  * DATA-DIR ALIGNMENT (was a dev-only split; FIXED 2026-06-19): the events
  * route + daemon write `/app/.ezcorp/extension-data/file-organizer/`. The
@@ -55,7 +56,10 @@ import { importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
 
-const CONTAINER = process.env.EZCORP_APP_CONTAINER ?? "ezharness-app-1";
+const CONTAINER = process.env.EZCORP_APP_CONTAINER ?? "";
+if (RUN_REAL && !CONTAINER) {
+  throw new Error("Set EZCORP_APP_CONTAINER to an owned disposable application container");
+}
 // The canonical data dir: events route + daemon WRITE here, and post-fix
 // the render subprocess READS here too — see the data-dir alignment note
 // in the header.
@@ -179,7 +183,7 @@ test.describe(
   () => {
     test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
 
-    // Snapshot the shared container's config.json before any mutation and
+    // Snapshot the disposable container's config.json before any mutation and
     // restore the exact bytes afterward — leave no pollution for other
     // sessions. Runs serially so the snapshot/restore brackets the whole
     // mutating set deterministically.

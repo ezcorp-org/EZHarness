@@ -2,7 +2,7 @@
 
 ## Revision
 
-- Combined coordinator checkpoint: `bca9fb0a`
+- Final browser-run checkpoint: `4b41933d` (tree `581e1ef7bc868e2042e5956d64d2879729497f5a`)
 - Browser runner and evidence repair: `0b0a8293ac3bb35b4344f316a0f4b36f64790f30`
 - Final canvas label spacing: `8d7a530dcd41f92763ca5923386fce65de8e85d1`
 - Updated base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`
@@ -67,8 +67,9 @@ The CI fallback also had a fail-open defect. `select-specs.ts` emits `__ALL__`
 when a changed visual surface lacks a covering map entry or the map cannot load.
 The repaired workflow credits every non-empty selection, routes mock and
 real-auth specs through their own configurations, retains separate blob reports,
-and propagates either failure. Focused runner tests pass 41 tests with 125
-assertions. A targeted opaque iframe capture passed and was inspected directly.
+and propagates either failure. The focused visual-runner regression passed 7
+tests with 23 assertions; the parent's wider regression group passed 159 tests.
+A targeted opaque iframe capture passed and was inspected directly.
 
 ## Final browser results
 
@@ -86,5 +87,8 @@ assertions. A targeted opaque iframe capture passed and was inspected directly.
   use the active theme tokens, show seeded values, and do not overflow.
 - `commands.md` records commands, versions, exits, and applicability.
   `skips.md` records the exact runtime skip names and configuration exclusions.
-  `artifacts/final-blob/` and `screenshots/final/` contain reports, PNGs, manifests,
+  `artifacts/final2-blob/` and `screenshots/final/` contain reports, PNGs, manifests,
   and SHA-256 indexes.
+- `artifacts/browser-raw-logs.tar.gz` contains the sanitized red and green raw
+  logs. `artifacts/file-organizer-real-production.zip` contains the exact
+  12-case receipt plus its disposable Compose configuration and command.
