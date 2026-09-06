@@ -522,6 +522,7 @@ html[data-dev-indicator="1"] img[src="/logo.svg"] {
 .deck-row {
   position: relative;
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 0.5rem;
   height: 1.875rem;            /* 30px — tight */
