@@ -1,7 +1,8 @@
 import { json } from "@sveltejs/kit";
 import { sealPublishedRelease } from "@ezcorp/extension-contract";
 import { requireSessionAuth } from "$server/auth/middleware";
-import { createListing } from "$server/db/queries/marketplace";
+import { createListing, getListingBySlug } from "$server/db/queries/marketplace";
+import { generateSlug } from "$server/extensions/manifest";
 import { createVersion } from "$server/db/queries/marketplace-versions";
 import { getExtensionLifecycle, getExtensionRunner } from "$server/extensions/extension-lifecycle-service";
 import { LifecycleError, type InstallationState } from "$server/extensions/v4/types";
@@ -33,7 +34,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const artifacts = await (await getExtensionRunner()).collectArtifacts(release.artifactDigest);
     const published = await sealPublishedRelease({ operationId: operation.id, state: "succeeded", sourceDigest: release.sourceDigest, artifactDigest: release.artifactDigest, imageDigest: release.imageDigest, manifest: release.manifest, evidence: release.evidence, diagnostics: [] }, artifacts);
     verifiedRelease(await lifecycle.inspect(actor, installationId), user.id, releaseId);
-    const listing = await createListing({ authorId: user.id, name: release.manifest.name, description: release.manifest.description, category: "tools", tags: [], latestVersion: release.manifest.version });
+    const listing = await getListingBySlug(generateSlug(release.manifest.name))
+      ?? await createListing({ authorId: user.id, name: release.manifest.name, description: release.manifest.description, category: "tools", tags: [], latestVersion: release.manifest.version });
     const version = await createVersion(listing.id, release.manifest.version, release.manifest, undefined, published);
     return json({ versionId: version.id }, { status: 201 });
   } catch (cause) { return extensionControlError(cause); }

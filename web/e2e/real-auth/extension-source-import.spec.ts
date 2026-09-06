@@ -110,7 +110,9 @@ test("member imports verified marketplace source, an administrator approves it, 
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
     const source = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: importedWorkspace.id });
-    const permissionedEntrypoint = source.files["extension.ts"]!.replace('"permissions": {},', '"permissions": { "storage": true },');
+    const permissionedEntrypoint = source.files["extension.ts"]!
+      .replace('"permissions": {},', '"permissions": { "storage": true },')
+      .replace('"version": "1.0.0",', '"version": "1.0.1",');
     const storageOutputEntrypoint = permissionedEntrypoint.replace('"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": {\n            "type": "string"\n          }\n        },\n        "required": [\n          "text"\n        ],\n        "additionalProperties": false\n      }', '"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": { "type": "string" },\n          "sentinel": { "type": ["string", "null"] }\n        },\n        "required": ["text", "sentinel"],\n        "additionalProperties": false\n      }');
     expect(storageOutputEntrypoint).not.toBe(source.files["extension.ts"]);
     const storageSentinel = `retained-storage-${crypto.randomUUID()}`;
