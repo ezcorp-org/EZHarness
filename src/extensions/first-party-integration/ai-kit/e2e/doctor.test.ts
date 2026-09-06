@@ -5,10 +5,9 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "../../../../../packa
 describe.skipIf(!E2E_BASE_URL)("e2e: doctor", () => {
   beforeAll(requireE2eReady);
 
-  test("doctor reports ok when server is healthy + key is valid", async () => {
+  test("doctor reports ok when the configured server is healthy", async () => {
     const ok = await doctor({ baseUrl: E2E_BASE_URL, apiKey: E2E_API_KEY });
-    expect(typeof ok).toBe("boolean");
-    if (E2E_API_KEY) expect(ok).toBe(true);
+    expect(ok).toBe(true);
   }, 10_000);
 
 });
