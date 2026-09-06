@@ -16,6 +16,7 @@
  */
 import { describe, test, expect, beforeEach } from "vitest";
 import { inlineToolStore, type InlineToolCall } from "$lib/inline-tool-store.svelte";
+import { getHistoricalToolCalls } from "$lib/chat/historical-tool-calls";
 
 function makeCall(
 	overrides: Partial<Omit<InlineToolCall, "status" | "retryCount">> = {},
@@ -42,6 +43,18 @@ describe("inline tool store (IEXT-02)", () => {
 		expect(inlineToolStore.calls[0]!.status).toBe("pending");
 		expect(inlineToolStore.calls[0]!.retryCount).toBe(0);
 		expect(inlineToolStore.calls[0]!.extensionName).toBe("ext-a");
+	});
+
+	test("client inline source survives start and complete updates", () => {
+		inlineToolStore.add(makeCall({ messageId: "message-1" }));
+		inlineToolStore.updateFromEvent("inv-1", "tool:start", { timestamp: 1000 });
+		inlineToolStore.updateFromEvent("inv-1", "tool:complete", { output: "full event output", duration: 25 });
+		expect(inlineToolStore.calls[0]).toMatchObject({
+			source: "inline",
+			status: "complete",
+			output: "full event output",
+		});
+		expect(getHistoricalToolCalls("message-1")[0]!.source).toBe("inline");
 	});
 
 	test("add() preserves existing calls", () => {

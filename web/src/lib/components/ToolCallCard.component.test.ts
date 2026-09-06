@@ -161,6 +161,18 @@ describe("ToolCallCard inline output", () => {
 		await findByText("extension returned this exact output");
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
+
+	test("a persisted card still requests its full output on expand", async () => {
+		const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ output: "persisted full output" })));
+		vi.stubGlobal("fetch", fetchSpy);
+		const { container, findByText } = render(ToolCallCard, {
+			toolCall: baseToolCall({ status: "complete", output: "preview", source: undefined }),
+		});
+
+		await fireEvent.click(container.querySelector("button[aria-expanded]") as HTMLButtonElement);
+		await findByText("persisted full output");
+		expect(fetchSpy).toHaveBeenCalledWith("/api/tool-calls/tc-1/output");
+	});
 });
 
 /**
