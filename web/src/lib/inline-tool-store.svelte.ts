@@ -18,6 +18,8 @@ export interface InlineToolCall {
    *  whether to auto-open a docked card on completion. NULL/undefined
    *  is treated as "inline" by `shouldRenderInDock` (utils.ts). */
   cardLayout?: 'inline' | 'dock';
+  /** Client-local ordering for streamed updates. Never persisted. */
+  liveRevision?: number;
   /**
    * Where this entry came from:
    *   'inline'    — user-initiated invocation from the client (default).
@@ -33,6 +35,11 @@ export interface InlineToolCall {
 
 class InlineToolStore {
   calls = $state<InlineToolCall[]>([]);
+  #liveRevision = 0;
+
+  get liveRevision(): number {
+    return this.#liveRevision;
+  }
 
   add(call: Omit<InlineToolCall, 'status' | 'retryCount'>): void {
     this.calls = [...this.calls, { ...call, source: call.source ?? 'inline', status: 'pending', retryCount: 0 }];
@@ -112,8 +119,8 @@ class InlineToolStore {
    *
    * On a subsequent `hydrateToolCalls(convId, …)`, persisted rows replace
    * streamed entries with the same id. A request can finish after a newer
-   * stream event, though, so hydration keeps only agent-run entries that
-   * started after the request snapshot and are absent from its response.
+   * stream event, though, so hydration keeps only agent-run entries received
+   * after the request snapshot and absent from its response.
    */
   upsertStreaming(entry: {
     id: string;
@@ -136,12 +143,14 @@ class InlineToolStore {
      *  event handler for non-inline tool events. */
     source?: InlineToolCall['source'];
   }): void {
+    const liveRevision = ++this.#liveRevision;
     const idx = this.calls.findIndex(c => c.id === entry.id);
     if (idx < 0) {
       this.calls = [...this.calls, {
         retryCount: 0,
         input: entry.input ?? {},
         source: 'agent-run',
+        liveRevision,
         ...entry,
       }];
       return;
@@ -154,6 +163,7 @@ class InlineToolStore {
     next[idx] = {
       ...existing,
       ...entryRest,
+      liveRevision,
       ...(entryInput !== undefined ? { input: entryInput } : {}),
     };
     this.calls = next;
@@ -162,9 +172,9 @@ class InlineToolStore {
   /**
    * Hydrate historical tool calls from an API response.
    *
-   * `requestStartedAt` marks the snapshot boundary. A live agent-run call
-   * that starts after that boundary cannot be in the response, so retain it
-   * until a later response includes its matching persisted row.
+   * `requestLiveRevision` marks the client-local snapshot boundary. A live
+   * agent-run call received after that boundary cannot be in the response, so
+   * retain it until a later response includes its matching persisted row.
    */
   hydrateToolCalls(conversationId: string, toolCalls: Array<{
     id: string;
@@ -179,7 +189,7 @@ class InlineToolStore {
     cardType?: string | null;
     cardLayout?: string | null;
     fullOutput?: string | null;
-  }>, requestStartedAt?: number): void {
+  }>, requestLiveRevision?: number): void {
     const otherCalls = this.calls.filter(c => c.conversationId !== conversationId);
     const hydrated: InlineToolCall[] = toolCalls.map(tc => ({
       id: tc.id,
@@ -200,11 +210,11 @@ class InlineToolStore {
       cardLayout: tc.cardLayout === 'dock' ? 'dock' as const : tc.cardLayout === 'inline' ? 'inline' as const : undefined,
     }));
     const persistedIds = new Set(hydrated.map((call) => call.id));
-    const newerLiveCalls = requestStartedAt === undefined ? [] : this.calls.filter((call) =>
+    const newerLiveCalls = requestLiveRevision === undefined ? [] : this.calls.filter((call) =>
       call.conversationId === conversationId &&
       call.source === 'agent-run' &&
-      call.startedAt !== undefined &&
-      call.startedAt > requestStartedAt &&
+      call.liveRevision !== undefined &&
+      call.liveRevision > requestLiveRevision &&
       !persistedIds.has(call.id),
     );
     this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls];

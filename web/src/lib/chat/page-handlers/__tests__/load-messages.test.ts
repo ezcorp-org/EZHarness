@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 	userFetch: vi.fn(),
 	invalidate: vi.fn(),
 	persistLastModel: vi.fn(),
+	liveRevision: 0,
 }));
 
 const backgroundFetchMock = mocks.backgroundFetch;
@@ -50,6 +51,9 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 vi.mock("$lib/inline-tool-store.svelte.js", () => ({
 	inlineToolStore: {
 		hydrateToolCalls: hydrateToolCallsMock,
+		get liveRevision() {
+			return mocks.liveRevision;
+		},
 	},
 }));
 
@@ -155,6 +159,7 @@ beforeEach(() => {
 	hydrateToolCallsMock.mockReset();
 	restoreLastModelMock.mockReset();
 	userFetchMock.mockReset();
+	mocks.liveRevision = 0;
 	backgroundFetchMock.mockImplementation(async () => null);
 	restoreLastModelMock.mockImplementation(() => null);
 	userFetchMock.mockImplementation(async () =>
@@ -750,6 +755,32 @@ describe("makeLoadMessages.hydrateToolCallsFromApi", () => {
 		await Promise.all([p1, p2]);
 
 		expect(backgroundFetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("uses one pre-request live revision for parent and child hydrations", async () => {
+		let resolveResponse: (response: Response) => void = () => {};
+		const pendingResponse = new Promise<Response>((resolve) => {
+			resolveResponse = resolve;
+		});
+		mocks.liveRevision = 4;
+		backgroundFetchMock.mockImplementation(async () => pendingResponse);
+
+		const { host } = makeHost();
+		const hydration = makeLoadMessages(host).hydrateToolCallsFromApi();
+		mocks.liveRevision = 5; // live updates arrive after the request begins
+		resolveResponse(jsonResponse({
+			subConversationToolCalls: {
+				"sub-1": [{
+					id: "sub-tool", extensionId: "ext", toolName: "edit_file",
+					status: "success", input: {}, outputSummary: "done", success: true, durationMs: 1,
+				}],
+			},
+		}));
+		await hydration;
+
+		const calls = hydrateToolCallsMock.mock.calls;
+		expect(calls.find((call) => call[0] === "conv-1")?.[2]).toBe(4);
+		expect(calls.find((call) => call[0] === "sub-1")?.[2]).toBe(4);
 	});
 
 	test("returns silently on a non-ok response (no host writes)", async () => {

@@ -69,6 +69,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		let releaseInitialToolHydration: (() => void) | undefined;
 		let initialToolHydrationStarted: (() => void) | undefined;
+		let toolHydrationCount = 0;
 		const initialToolHydration = new Promise<void>((resolve) => {
 			initialToolHydrationStarted = resolve;
 		});
@@ -76,9 +77,40 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			releaseInitialToolHydration = resolve;
 		});
 		await page.route("**/api/conversations/conv-1/messages?withToolCalls=true", async (route) => {
-			initialToolHydrationStarted?.();
-			await releaseInitialToolHydrationPromise;
-			await route.fallback();
+			toolHydrationCount++;
+			if (toolHydrationCount === 1) {
+				initialToolHydrationStarted?.();
+				await releaseInitialToolHydrationPromise;
+			}
+			const completedToolCall = toolHydrationCount === 1 ? [] : [{
+				id: "tc-dock-live",
+				extensionId: "claude-design",
+				toolName: "claude-design__open-canvas",
+				input: { draftId: "d-1" },
+				outputSummary: "Canvas ready",
+				fullOutput: JSON.stringify(payload),
+				success: true,
+				durationMs: 50,
+				status: "success",
+				cardType: "design-canvas",
+				cardLayout: "dock",
+			}];
+			const hydrationSentinel = {
+				id: `hydration-sentinel-${toolHydrationCount}`,
+				extensionId: "builtin",
+				toolName: `hydration-sentinel-${toolHydrationCount}`,
+				input: {},
+				outputSummary: "hydrated",
+				success: true,
+				durationMs: 1,
+				status: "success",
+			};
+			await route.fulfill({
+				json: {
+					messages: [userMsg, { ...assistantMsg, toolCalls: [hydrationSentinel] }],
+					orphanedToolCalls: completedToolCall,
+				},
+			});
 		});
 		await routePreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -101,6 +133,9 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		});
 		await assertDock(page);
 		releaseInitialToolHydration?.();
+		// The sentinel is anchored to the existing assistant message and renders
+		// only after the delayed hydration reaches the transcript and store.
+		await expect(page.getByText("hydration-sentinel-1", { exact: true })).toBeVisible();
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await assertCanvasThemeTokens(page);
@@ -114,6 +149,22 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await page.setViewportSize({ width: 393, height: 851 });
 		await expect(page.getByTestId("dock-host")).toBeVisible();
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-mobile-dark");
+		await page.setViewportSize({ width: 1280, height: 720 });
+		const persistedRefresh = page.waitForResponse((response) =>
+			response.url().includes("/api/conversations/conv-1/messages?withToolCalls=true") &&
+			response.request().method() === "GET",
+		);
+		await page.evaluate(() => {
+			window.dispatchEvent(new CustomEvent("ez:agent_complete", {
+				detail: { parentConversationId: "conv-1" },
+			}));
+		});
+		await persistedRefresh;
+		// The later refresh started after completion, so it must contain the
+		// matching persisted row. The second sentinel confirms it was applied.
+		await expect(page.getByText("hydration-sentinel-2", { exact: true })).toBeVisible();
+		await expect(page.getByTestId("dock-host")).toBeVisible();
+		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await page.getByTestId("dock-close").click();
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 	});
