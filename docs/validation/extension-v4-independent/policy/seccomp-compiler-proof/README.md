@@ -57,3 +57,20 @@ source produces `added=0`, so the regression detects restoration of the cursor
 bug. The focused regression passed with 4 assertions on Bun 1.3.14.
 
 Sanitized repair output is `fixed-compiler.txt.gz`.
+
+## Final integrated freeze
+
+Final source `939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c`, tree
+`5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83`, retains the reviewed repair.
+Its compiler source SHA-256 is
+`e938b2fdbb5d53543ea4744169817dfb145d36c840482513d541f48b70874fc4`.
+The exact final compile repeats the result above: tiny `added=2`, production
+`added=333`/`skipped=74`, 2,736 bytes, and fixed BPF SHA `4b975524...`.
+
+The final no-override Gate integrity command exits 1 with the unchanged 84
+findings: 1 threshold, 27 deletions, 25 renames, and 31 gutted files. Runner
+discovery is P=1,564, C=1,550, W=221, residual=14, critical=38, with `C ∖ P`
+empty. Runtime changed existing test files, so discovery counts did not change.
+
+Final sanitized compiler and gate outputs are `final-compiler.txt.gz` and
+`final-gate.txt.gz`.
