@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "created": "2026-09-06T02:23:00Z",
+  "created": "2026-09-06T03:01:00Z",
   "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
-  "final_validation_head": "37593411323ba33faf4563413b9e673c865052f7",
-  "final_validation_tree": "b7c570a262e25559a2739cfecf52efbf4541e50e",
+  "final_validation_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+  "final_validation_tree": "31a3adeb44ff2caf2fdcc28c07e10231ca1ad7cd",
   "tools": {
     "bun": "1.3.14",
     "node_coverage": "22.22.2",
@@ -22,8 +22,17 @@
     },
     "supplemental_receipts": {
       "file": "build-supplemental-receipts.tar.zst",
-      "sha256": "e70de7b3b9c2b1c16a4040bb8d11c8986d36397c5b6da73589e7b2037f48fab4",
+      "sha256": "c18ac5133725e5a5eda945444399150c46a73c8d584cf565f382714aabfddfb2",
       "index": "supplemental-receipt-index.json"
+    },
+    "coverage_archive_final": {
+      "file": "final-coverage-curated-ea445e9e-plus4d.tar.zst",
+      "sha256": "dc49e57619ec3ff242cf8ffe6ef716c57c5331882b8d106be3d06b1e7985230e",
+      "inputs": 1556
+    },
+    "replacement_logs": {
+      "file": "final-replacement-validation-logs.tar.zst",
+      "sha256": "aa6d84dc2484cec13a268b1732d5187d6f9e75f1c17fc2e81e0ddb0f48053b0c"
     }
   },
   "receipts": [
@@ -258,10 +267,114 @@
       "result": "3992 files; 100 warnings; 11 infos; no errors",
       "declared_input_head": "37593411323ba33faf4563413b9e673c865052f7",
       "command_head": "c6acc60fd55a16c72b9bfbf5384b95e98f2c3d38"
+    },
+    {
+      "log": "139-ea-final-affected-host-coverage.log",
+      "sha256": "4d0687e58df0a2e646d438b9a1ca2f712d7e1a9823c2874916d5aae24a935065",
+      "command": "affected host coverage producers",
+      "start": "2026-09-06T02:49:36Z",
+      "end": "2026-09-06T02:49:46Z",
+      "exit": 0,
+      "result": "price 3/4 skip; MCP 5/4 skip; task 7/43; todo 7/33; AI-kit default guards",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "140-ea-final-ai-kit-suite-coverage.log",
+      "sha256": "e87d6fd9432aff2772d27a782e2e55ba783c7e1e409f9114f949c9f64c2878b1",
+      "command": "bun test --cwd packages/@ezcorp/ai-kit --coverage",
+      "start": "2026-09-06T02:51:16Z",
+      "end": "2026-09-06T02:51:18Z",
+      "exit": 0,
+      "result": "220 pass, 0 fail, 540 assertions",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "142-ea-final-ai-kit-extra-coverage.log",
+      "sha256": "3fe960d73c19ef51699d53b3b47dd2529da8b4f3e78900c20f5393fe27f033c4",
+      "command": "root-based AI-kit coverage leg",
+      "start": "2026-09-06T02:52:59Z",
+      "end": "2026-09-06T02:53:01Z",
+      "exit": 0,
+      "result": "220 pass, 0 fail, 540 assertions; canonical SF paths",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "143-ea-final-static.log",
+      "sha256": "55d4b2f837cf2db3612e34b23788115b57ac7162170de1a74c6be6d2db5d864f",
+      "command": "bun run typecheck; bun run lint; manifest lock check",
+      "start": "2026-09-06T02:53:13Z",
+      "end": "2026-09-06T02:53:38Z",
+      "exit": 0,
+      "result": "all pass; lint 100 warnings and 11 infos",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "144-ea-final-image-build.log",
+      "sha256": "74784fb2f0d92d52670bc6333005cdcac2ad9fd49abc28ab27eedc1c00b8e520",
+      "command": "podman build --format docker --layers",
+      "start": "2026-09-06T02:54:06Z",
+      "end": "2026-09-06T02:55:13Z",
+      "exit": 0,
+      "result": "image abc364440518...",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "145-ea-final-image-verifier.log",
+      "sha256": "a0e4344ffe1ec20ac95ee144245de237374ba9c58c6adb62178e0de38e1d74f3",
+      "command": "bash scripts/verify-extension-container.sh IMAGE",
+      "start": "2026-09-06T02:55:27Z",
+      "end": "2026-09-06T02:55:45Z",
+      "exit": 0,
+      "result": "8/8 pass; BPF SHA 4b975...",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "146-ea-final-docker-load.log",
+      "sha256": "e9d6249aada0daf4a71aafdc05c5109e2e204fbebc21b42d4ecff9bd6e0db269",
+      "command": "podman save IMAGE | docker load",
+      "start": "2026-09-06T02:55:59Z",
+      "end": "2026-09-06T02:56:20Z",
+      "exit": 0,
+      "result": "same immutable image ID loaded",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "147-final-quickstart-producer.log",
+      "sha256": "24016b16a7fcf828cd782826c75da99c1f0ccf735c73b813cd774ca778f23ba7",
+      "command": "focused quickstart coverage producer",
+      "start": "2026-09-06T02:56:39Z",
+      "end": "2026-09-06T02:56:40Z",
+      "exit": 0,
+      "result": "0 pass, 3 explicit live-provider skips, 0 fail",
+      "command_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "148-final-replacement-coverage-gates.log",
+      "sha256": "cd75418500aab44ed97777610cd5eb3226dd0eb443e0e3549f394a212bd1d121",
+      "command": "merge 1556 inputs; threshold/new-file/patch gates",
+      "start": "2026-09-06T02:56:51Z",
+      "end": "2026-09-06T02:57:24Z",
+      "exit": 0,
+      "result": "1392 SF; threshold1246; new131; patch378",
+      "command_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
     }
   ],
-  "production_code_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
-  "production_code_tree": "5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83",
-  "image_source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
-  "image_source_tree": "2ccafce2b65a9af89482e85e7168a5f01980051a"
+  "production_code_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "production_code_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "image_source_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "image_source_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "external_receipts": {
+    "fresh_clean_installs": "../parent/parent-first-clean-installs.json",
+    "independent_ci_coverage_replay": "../parent/final-ci-coverage-replay.json",
+    "final_web_production12": "../web (cf75ab65 evidence; 12 pass, 0 skip, exit 0, cleanup 0)"
+  }
 }

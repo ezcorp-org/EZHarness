@@ -1,0 +1,80 @@
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > (unnamed)
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > (unnamed)
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > a real 23505 unique-violation is recognized by isUniqueViolation
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > execute() wrapper normalizes bun-sql arrays to { rows }
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > initDb selected external mode (PGlite handle is null)
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > jsonb column round-trips as an object (mapToDriverValue identity fix)
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > migrate() built the schema on the real server
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > migrate() is idempotent under the advisory lock (second run is clean)
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > rawQuery binds params through the real $client.unsafe
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > repairDoubleEncodedJsonb runs and records its one-shot marker
+450	src/__tests__/db-migration-postgres.test.ts	(skip) external Postgres via Bun.sql (real server) > tx.execute() inside db.transaction() is normalized too, against the real driver
+746	src/__tests__/marketplace-release-isolation.integration.test.ts	(skip) isolated publish artifacts persist and rebuild from immutable marketplace source
+769	src/__tests__/mcp-netns-integration.test.ts	(skip) bwrap tmpfs isolation > 100 MB write to tmpfs fails with ENOSPC (size cap enforced)
+769	src/__tests__/mcp-netns-integration.test.ts	(skip) bwrap tmpfs isolation > no --unshare-pid: host PID matches mcpChild.pid
+769	src/__tests__/mcp-netns-integration.test.ts	(skip) bwrap tmpfs isolation > writes inside bwrap'd /tmp succeed AND are invisible on host
+769	src/__tests__/mcp-netns-integration.test.ts	(skip) seccomp log mode > seccomp log → MCP_SECCOMP_VIOLATION audit row
+770	src/__tests__/mcp-netns-raw-socket-blocked.test.ts	(skip) RC#1: raw-socket bypass closed at kernel level > [Task 2 + Plan 03] Bun.connect({hostname: '127.0.0.1', port: 22}) inside Stage 2 netns rejects with ENETUNREACH (NOT ECONNREFUSED)
+781	src/__tests__/mcp-seccomp-enforce-integration.test.ts	(skip) ptrace under enforce returns EPERM/ENOSYS, emits MCP_SECCOMP_VIOLATION with code=0x00050001
+782	src/__tests__/mcp-seccomp-profile.test.ts	(skip) seccomp profile shape > mcp-seccomp.bpf exists and is non-empty
+782	src/__tests__/mcp-seccomp-profile.test.ts	(skip) seccomp profile shape > openSeccompBpfFd returns a usable FD when the .bpf is present (Linux)
+788	src/__tests__/mcp-stage2-conntrack-soak.test.ts	(skip) Stage 2 conntrack soak (RC#2 CI proxy) > scaled 4×100 synthetic load: max(count) < 0.5 * max + zero `nf_conntrack: table full` in dmesg
+789	src/__tests__/mcp-stage2-ipv6-disabled.test.ts	(skip) Stage 2 IPv6 leak guard (RC#3) > curl -6 https://example.com inside Stage 2 netns returns 'Network is unreachable'
+789	src/__tests__/mcp-stage2-ipv6-disabled.test.ts	(skip) Stage 2 IPv6 leak guard (RC#3) > negative control: curl -4 https://example.com via proxy SUCCEEDS in the same netns
+790	src/__tests__/mcp-stage2-orphan-sweep.test.ts	(skip) Stage 2 boot orphan veth sweep (RC#5) > (unnamed)
+790	src/__tests__/mcp-stage2-orphan-sweep.test.ts	(skip) Stage 2 boot orphan veth sweep (RC#5) > non-matching name `mcp-deadbeefXX` (14 chars) is NOT swept
+790	src/__tests__/mcp-stage2-orphan-sweep.test.ts	(skip) Stage 2 boot orphan veth sweep (RC#5) > pre-seeded mcp-deadbeef is swept + MCP_VETH_ORPHAN_SWEPT row fires count=1
+790	src/__tests__/mcp-stage2-orphan-sweep.test.ts	(skip) Stage 2 boot orphan veth sweep (RC#5) > zero orphans → row STILL fires with count=0 (operator-visibility contract)
+795	src/__tests__/mcp-veth-bridge-integration.test.ts	(skip) Stage 2 bridge + veth pair integration > [Plan 03] idempotent bridge create — calling ensureBridge twice produces a single br-ezcorp-mcp interface
+795	src/__tests__/mcp-veth-bridge-integration.test.ts	(skip) Stage 2 bridge + veth pair integration > [Task 2 + Plan 03] nft list table inet mcp-egress shows single allow-exception rule
+795	src/__tests__/mcp-veth-bridge-integration.test.ts	(skip) Stage 2 bridge + veth pair integration > cleanup: ip link delete <host-side> tears down both ends
+795	src/__tests__/mcp-veth-bridge-integration.test.ts	(skip) Stage 2 bridge + veth pair integration > veth pair create + move into PID-target netns succeeds
+949	src/__tests__/preview-dynamic-e2e.docker.test.ts	(skip) dynamic preview — LIVE e2e (DOCKER_TEST=1) > WS upstream (ws://127.0.0.1:<port>) connects + echoes a frame
+949	src/__tests__/preview-dynamic-e2e.docker.test.ts	(skip) dynamic preview — LIVE e2e (DOCKER_TEST=1) > reapPreviewConversation: REAL helper --kill actually reaps the tree + confirms
+949	src/__tests__/preview-dynamic-e2e.docker.test.ts	(skip) dynamic preview — LIVE e2e (DOCKER_TEST=1) > spawn as preview uid → ProcPortSource detects → loopback fetch 200
+961	src/__tests__/preview-uid-keystone.docker.test.ts	(skip) uid keystone — LIVE (DOCKER_TEST=1) > ProcPortSource attributes a live listener by its preview uid
+961	src/__tests__/preview-uid-keystone.docker.test.ts	(skip) uid keystone — LIVE (DOCKER_TEST=1) > helper refuses an out-of-range uid even invoked directly
+961	src/__tests__/preview-uid-keystone.docker.test.ts	(skip) uid keystone — LIVE (DOCKER_TEST=1) > preview uid CANNOT read .ezcorp/data (chmod 0700) — keystone
+961	src/__tests__/preview-uid-keystone.docker.test.ts	(skip) uid keystone — LIVE (DOCKER_TEST=1) > setuid helper present + 4755 root-owned in the image
+965	src/__tests__/price-chart.e2e.test.ts	(skip) price-chart e2e — chat-flow path (real PDP) > extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt)
+965	src/__tests__/price-chart.e2e.test.ts	(skip) price-chart e2e — installed v4 release + live network > get_crypto_chart(BTC) returns JSON with points + Bitcoin name
+965	src/__tests__/price-chart.e2e.test.ts	(skip) price-chart e2e — installed v4 release + live network > get_stock_chart(AAPL) returns JSON with points + no iframeSrc
+965	src/__tests__/price-chart.e2e.test.ts	(skip) price-chart e2e — through ToolExecutor (stub PDP) > ToolExecutor.executeToolCall returns JSON payload
+1047	src/__tests__/sandbox-landlock-apply-coverage.test.ts	(skip) landlock applyReadWriteJail — in-process grant body coverage > ABI guard: applyReadWriteJail throws on an unsupported kernel
+1188	src/__tests__/task-stack-sdk-integration.test.ts	(skip) task-stack SDK integration (createTestExtension + real RPC) > add-task → list-tasks round-trip through JSON-RPC + SDK storage wrapper
+1188	src/__tests__/task-stack-sdk-integration.test.ts	(skip) task-stack SDK integration (createTestExtension + real RPC) > list-stacks returns the default 'inbox' stack created by SDK-loaded store
+1188	src/__tests__/task-stack-sdk-integration.test.ts	(skip) task-stack SDK integration (createTestExtension + real RPC) > start-task → get-active-task → finish-task lifecycle round-trip
+1188	src/__tests__/task-stack-sdk-integration.test.ts	(skip) task-stack SDK integration (createTestExtension + real RPC) > storeTool mutex serializes concurrent add-task calls — no lost writes
+1188	src/__tests__/task-stack-sdk-integration.test.ts	(skip) task-stack SDK integration (createTestExtension + real RPC) > unknown tool returns isError:true without killing the subprocess (dispatcher surface)
+1207	src/__tests__/todo-tracker-sdk-integration.test.ts	(skip) todo-tracker SDK integration (createTestExtension + real RPC) > scan-todos discovers seeded TODO/FIXME/HACK markers
+1207	src/__tests__/todo-tracker-sdk-integration.test.ts	(skip) todo-tracker SDK integration (createTestExtension + real RPC) > scan-todos on empty dir reports no comments found
+1207	src/__tests__/todo-tracker-sdk-integration.test.ts	(skip) todo-tracker SDK integration (createTestExtension + real RPC) > scan-todos respects searchQuery filter through JSON-RPC args
+1207	src/__tests__/todo-tracker-sdk-integration.test.ts	(skip) todo-tracker SDK integration (createTestExtension + real RPC) > sequential scan-todos calls survive on the same process (dispatcher idempotence)
+1207	src/__tests__/todo-tracker-sdk-integration.test.ts	(skip) todo-tracker SDK integration (createTestExtension + real RPC) > unknown tool returns isError:true; dispatcher keeps subprocess alive
+1433	src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts	(skip) e2e: bundled ai-kit > (unnamed)
+1433	src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts	(skip) e2e: bundled ai-kit > ai-kit is registered as an installed extension
+1433	src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts	(skip) e2e: bundled ai-kit > ai-kit's tools are reachable via /api/extensions/ai-kit/tools
+1433	src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts	(skip) e2e: bundled ai-kit > sending ![ext:ai-kit] into a chat wires the tools
+1434	src/extensions/first-party-integration/ai-kit/e2e/doctor.test.ts	(skip) e2e: doctor > (unnamed)
+1434	src/extensions/first-party-integration/ai-kit/e2e/doctor.test.ts	(skip) e2e: doctor > doctor reports ok when the configured server is healthy
+1435	src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts	(skip) e2e: four fan-out mechanisms > (a) parallel ![agent:…] mentions spawn concurrent sub-conversations
+1435	src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts	(skip) e2e: four fan-out mechanisms > (b) ![team:…] with autoSpinUp spawns every member
+1435	src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts	(skip) e2e: four fan-out mechanisms > (c) assign_task + start_assignment spawns a sub-conversation
+1435	src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts	(skip) e2e: four fan-out mechanisms > (d) spawn_chats — batch of 3 independent root conversations
+1435	src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts	(skip) e2e: four fan-out mechanisms > (unnamed)
+1436	src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts	(skip) e2e: internal-auth HTTP contract > (unnamed)
+1436	src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts	(skip) e2e: internal-auth HTTP contract > a valid user-issued key still authenticates (no regression)
+1436	src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts	(skip) e2e: internal-auth HTTP contract > ezkint_ rejection and random-token rejection look IDENTICAL to the client (no prefix-based info leak)
+1436	src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts	(skip) e2e: internal-auth HTTP contract > forged ezkint_ token is rejected with 401 from the live server
+1436	src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts	(skip) e2e: internal-auth HTTP contract > random-garbage Bearer is rejected with 401 (baseline)
+1437	src/extensions/first-party-integration/ai-kit/e2e/on-behalf-of.test.ts	(skip) e2e: on-behalf-of header > (unnamed)
+1437	src/extensions/first-party-integration/ai-kit/e2e/on-behalf-of.test.ts	(skip) e2e: on-behalf-of header > user-issued keys ignore X-Ezcorp-On-Behalf-Of (no privilege bypass)
+1438	src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts	(skip) e2e: quickstart > (unnamed)
+1438	src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts	(skip) e2e: quickstart > (unnamed)
+1438	src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts	(skip) e2e: quickstart > create conversation → send message → stream until run:complete
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > (unnamed)
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > (unnamed)
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > MCP client connects to subprocess and lists tools
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > start_chat WITHOUT _meta → conversation owned by sys-ai-kit (baseline)
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > start_chat with _meta.ezOnBehalfOf=geff → conversation owned by geff
+1439	src/extensions/first-party-integration/ai-kit/e2e/real-subprocess-obo.test.ts	(skip) e2e subprocess: full OBO chain with real stdio MCP > subprocess exits cleanly after client.close()

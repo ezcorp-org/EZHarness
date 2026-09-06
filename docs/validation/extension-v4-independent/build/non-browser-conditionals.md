@@ -1,22 +1,24 @@
 # Non-browser conditional and exclusion inventory
 
-This inventory corrects the immutable coverage archive map without changing the replayed archive (`ba9f8cfc…`). The archived TSV has 98 matched lines: **75 `(skip)` records** plus **23 aggregate `N skip` summary lines**. The 75 records contain 69 named tests and 6 unnamed hook records: PostgreSQL 2, AI-kit quickstart 1, AI-kit real OBO 2, and orphan sweep 1. The summary lines are not tests or hooks.
+The original immutable coverage archive (`ba9f8cfc…`) contains 75 `(skip)` records. After the final readiness-guard replacements, `final-default-skip-records-ea.tsv` contains **80 `(skip)` records: 68 named tests and 12 unnamed hook records**. The unnamed records are PostgreSQL 2, AI-kit 9, and orphan sweep 1. Aggregate `N skip` summary lines are excluded.
 
 ## Arithmetic and dispositions
 
-| Group | Named tests | Exact gate | Disposition | Next command |
+| Group | `(skip)` records | Exact gate | Disposition | Next command |
 |---|---:|---|---|---|
 | PostgreSQL migration | 11 | `!DATABASE_URL` | Not executed in this lane. Requires the dedicated PostgreSQL lifecycle job. Seven extension PostgreSQL fences do not replace these 11 migration assertions. | `DATABASE_URL=postgres://… bun test ./src/__tests__/db-migration-postgres.test.ts` |
 | Task-stack and Todo SDK | 10 | unconditional `describe.skip` | Still disabled in source. No environment toggle exists; owner must remove `describe.skip`. | After enabling: `bun test ./src/__tests__/{task-stack-sdk-integration,todo-tracker-sdk-integration}.test.ts` |
-| AI-kit live E2E | 22 | `EZCORP_E2E_BASE_URL`, API key, and for 6 tests `EZCORP_E2E_SUBPROCESS=1` | Requires a live authenticated server and provider credentials. Package AI-kit tests do not replace these live cases. | Set the documented variables; run each listed `src/extensions/first-party-integration/ai-kit/e2e/*.test.ts` file. |
+| AI-kit live E2E | 27 | `EZCORP_E2E_BASE_URL`, API key, and for 6 tests `EZCORP_E2E_SUBPROCESS=1` | Requires a live authenticated server and provider credentials. Package AI-kit tests do not replace these live cases. | Set the documented variables; run each listed `src/extensions/first-party-integration/ai-kit/e2e/*.test.ts` file. |
 | Price live E2E | 4 | `EZCORP_E2E_NETWORK=1`; real PDP also needs `EZCORP_E2E_REAL_PDP=1` and `DATABASE_URL` | Requires external network and, for the PDP case, PostgreSQL. | `EZCORP_E2E_NETWORK=1 EZCORP_E2E_REAL_PDP=1 DATABASE_URL=… bun test ./src/__tests__/price-chart.e2e.test.ts` |
 | Preview Docker | 7 | `DOCKER_TEST=1` | Not executed here. Production File Organizer 12/12 does not replace UID or dynamic-preview assertions. | `DOCKER_TEST=1 bun test ./src/__tests__/preview-dynamic-e2e.docker.test.ts ./src/__tests__/preview-uid-keystone.docker.test.ts` |
 | MCP/network/seccomp | 19 | Linux capabilities, bwrap/network namespace tools, optional soak flag, or generated BPF | Marketplace/rootless runner checks replace only their named paths. The final-image seccomp effect closes the generated-BPF syscall behavior, but kernel journal audit rows remain unavailable. | Run the listed files on the privileged Linux security tier; add `EZCORP_RUN_CONNTRACK_SOAK=1` for the soak case and provide the image BPF/probe for enforcement. |
 | Landlock complementary ABI guard | 1 | `test.if(!LANDLOCK_OK)` | Landlock was supported, so the positive grant test passed and the opposite unsupported-kernel guard skipped. | Run the exact file on a kernel without Landlock to execute the complementary guard. |
 | Marketplace isolation | 1 | `EZCORP_RUN_PODMAN_TESTS=1` | Closed by the separate opted-in run: 1 pass, 5 assertions. | `EZCORP_RUN_PODMAN_TESTS=1 bun test ./src/__tests__/marketplace-release-isolation.integration.test.ts` |
-| **Total** | **75** | | `11 + 10 + 22 + 4 + 7 + 19 + 1 + 1 = 75` | |
+| **Total** | **80** | | `11 + 10 + 27 + 4 + 7 + 19 + 1 + 1 = 80` | |
 
-## Exact skip records (69 named tests and 6 unnamed hooks)
+## Original checkpoint skip records
+
+The bullets below preserve the original 75-record checkpoint. Use `final-default-skip-records-ea.tsv` for the authoritative final 80-record inventory.
 
 - Host producer `450` — `src/__tests__/db-migration-postgres.test.ts` — external Postgres via Bun.sql (real server) > (unnamed)
 - Host producer `450` — `src/__tests__/db-migration-postgres.test.ts` — external Postgres via Bun.sql (real server) > (unnamed)

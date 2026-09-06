@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "archive": "build-supplemental-receipts.tar.zst",
-  "archive_sha256": "e70de7b3b9c2b1c16a4040bb8d11c8986d36397c5b6da73589e7b2037f48fab4",
+  "archive_sha256": "c18ac5133725e5a5eda945444399150c46a73c8d584cf565f382714aabfddfb2",
   "records": [
     {
       "file": "00-wrong-bun-1.3.9-root-web-invalid.log",
@@ -130,15 +130,28 @@
       "sha256": "3c36d65d7476e80dd6782d9f34ea22d1d1a7c9e7fbcda39e6075bf9009217d09",
       "command": "read-only receipt metadata",
       "exit": 0,
-      "result": "candidate/head/tree/worktree and declared clean install result",
+      "result": "historical prior PR-review metadata only; not independent-audit clean-install proof",
       "captured_mtime": "2026-09-05T22:40:54.072457-04:00",
       "source_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
-      "source_tree": "4a5c5c7a27e8315c25262ecfb3c27db030493388"
+      "source_tree": "4a5c5c7a27e8315c25262ecfb3c27db030493388",
+      "provenance_note": "Scope includes PRs 237/240/246 and pushed=true; retained as a historical claim and superseded by the parent fresh exact-ea proof."
+    },
+    {
+      "file": "09b-extension-runner-final.log",
+      "sha256": "f9350789b178f3980720a957f522923ddbd8fb233f2b275ffb6ad3eda76c6ca6",
+      "command": "bun test ./packages/@ezcorp/extension-runner",
+      "exit": 0,
+      "result": "49 pass, 0 fail, 314 assertions; full package including native-network and kernel PID/memory/tmp/cancel cases",
+      "captured_mtime": "2026-09-05T22:48:00-04:00",
+      "source_head": "9ccce310facd28f0ad2898318fe081ef9f70e433",
+      "source_tree": "f4b0174bac5b121464d381da24b21022ac0f4c36",
+      "provenance_note": "Authoritative later runner receipt; package paths did not change through ea445e9e."
     }
   ],
   "limitations": [
     "Most historical raw logs did not embed start/end timestamps or git HEAD. captured_mtime and producing-worktree reflog attribution are recorded instead; no timestamp was invented.",
-    "AI-kit checkpoint is superseded by the pending final source receipt.",
-    "The immutable coverage archive SHA ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335 is unchanged."
+    "The immutable coverage archive SHA ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335 is unchanged.",
+    "The clean-proof source-state JSON is historical prior-review metadata, not independent-audit proof. A fresh exact-ea proof is indexed separately when captured.",
+    "The AI-kit checkpoint is superseded by final 220-pass receipt 140 and root-based coverage receipt 142 in the final replacement archive."
   ]
 }
