@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 
 const root = resolve(import.meta.dir, "../..");
 const suite = resolve(root, "scripts/verify-shipping-production-suite.sh");
-const shell = Bun.which("bash");
-if (!shell) throw new Error("bash is required for the shipping suite test");
+const shell = Bun.which("bash") ?? (() => { throw new Error("bash is required for the shipping suite test"); })();
 
 async function executable(path: string, body: string): Promise<void> {
   await writeFile(path, `#!${shell}\nset -euo pipefail\n${body}`, { mode: 0o700 });

@@ -24,16 +24,39 @@ type BrowserDiagnostics = {
   failedApiResponses: FailedApiResponse[];
   failedApiRequests: Array<FailedApiResponse & { error: string }>;
   ignoredApiResponses: FailedApiResponse[];
+  expectedRuntimeEventCancellations: Array<FailedApiResponse & { error: string }>;
 };
 
+const WEBKIT_VIEWPORT_WARNING = 'Viewport argument key "interactive-widget" not recognized and ignored.';
+
+function isIgnoredBrowserConsoleError(text: string): boolean {
+  return text === WEBKIT_VIEWPORT_WARNING;
+}
+
 function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnostics {
-  const diagnostics: BrowserDiagnostics = { pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [] };
+  const diagnostics: BrowserDiagnostics = {
+    pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [],
+    expectedRuntimeEventCancellations: [],
+  };
   const appOrigin = new URL(baseURL).origin;
   const completedExtensionDeletes = new WeakSet<Request>();
+  const activeRuntimeEventRequests = new Set<Request>();
+  const expectedRuntimeEventTeardowns = new WeakSet<Request>();
+  const isRuntimeEventRequest = (request: Request): boolean => {
+    const url = new URL(request.url());
+    return url.origin === appOrigin && request.method() === "GET" && url.pathname === "/api/runtime-events";
+  };
   page.on("pageerror", error => diagnostics.pageErrors.push(error.message));
   page.on("console", message => {
-    if (message.type() === "error") diagnostics.consoleErrors.push(message.text());
+    if (message.type() === "error" && !isIgnoredBrowserConsoleError(message.text())) diagnostics.consoleErrors.push(message.text());
   });
+  page.on("request", request => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      for (const runtimeEventRequest of activeRuntimeEventRequests) expectedRuntimeEventTeardowns.add(runtimeEventRequest);
+    }
+    if (isRuntimeEventRequest(request)) activeRuntimeEventRequests.add(request);
+  });
+  page.on("requestfinished", request => activeRuntimeEventRequests.delete(request));
   page.on("response", response => {
     const url = new URL(response.url());
     if (url.origin === appOrigin && url.pathname.startsWith("/api/extensions/") && response.request().method() === "DELETE" && response.status() === 204) {
@@ -49,8 +72,17 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
     // its response event. Every other transport failure remains strict.
     if (completedExtensionDeletes.has(request) && request.failure()?.errorText === "net::ERR_ABORTED") return;
     const url = new URL(request.url());
+    const error = request.failure()?.errorText ?? "unknown transport failure";
+    // WebKit reports a live EventSource as cancelled when an observed main
+    // frame navigation tears it down. Any other stream failure stays strict.
+    if (expectedRuntimeEventTeardowns.has(request) && error === "Load request cancelled") {
+      diagnostics.expectedRuntimeEventCancellations.push({ method: request.method(), path: url.pathname, status: 0, error });
+      activeRuntimeEventRequests.delete(request);
+      return;
+    }
+    activeRuntimeEventRequests.delete(request);
     if (url.origin === appOrigin && url.pathname.startsWith("/api/")) {
-      diagnostics.failedApiRequests.push({ method: request.method(), path: url.pathname, status: 0, error: request.failure()?.errorText ?? "unknown transport failure" });
+      diagnostics.failedApiRequests.push({ method: request.method(), path: url.pathname, status: 0, error });
     }
   });
   return diagnostics;
@@ -168,7 +200,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   const appOrigin = new URL(baseURL!).origin;
   page.on("pageerror", error => pageErrors.push(error.message));
   page.on("console", message => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+    if (message.type() === "error" && !isIgnoredBrowserConsoleError(message.text())) consoleErrors.push(message.text());
   });
   page.on("request", request => {
     const url = new URL(request.url());

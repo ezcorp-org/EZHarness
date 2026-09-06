@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
+import { listFirstPartyExtensionSources } from "./migrate-extension-v4";
 import type { InstallationState, LifecycleOperation } from "../src/extensions/v4/types";
 
 type Receipt = {
@@ -11,7 +12,7 @@ type Receipt = {
   owner: { id: string; email: string; name: string; role: string };
   installation: { id: string; name: string; ownerId: string; source: string; installPath: string; storageKey: string; value: string };
   conversationId: string;
-  runnerCapacity?: { initialPending: number; maximumPending: number; terminalOperationStates: Record<string, number> };
+  runnerCapacity?: { bootstrapInstallations: number; initialPending: number; maximumPending: number; terminalOperationStates: Record<string, number> };
 };
 
 const mode = process.env.EZ_LEGACY_ADOPTION_MODE;
@@ -35,7 +36,7 @@ function legacyFiles(name: string, storageKey: string) {
   const index = `import { createToolDispatcher, getChannel, Storage, toolResult } from "@ezcorp/sdk/runtime";\nconst store = new Storage("global");\nconst channel = getChannel();\nchannel.start();\ncreateToolDispatcher({ echo: async (input: unknown) => { const text = (input as { text?: unknown })?.text; if (typeof text === "string") await store.set(${JSON.stringify(storageKey)}, text); const result = await store.get<string>(${JSON.stringify(storageKey)}); return toolResult(result.value ?? ""); } });\n`;
   const handler = `export type Store = { get<T>(key: string): Promise<{ value: T | null; exists: boolean }>; set(key: string, value: string): Promise<unknown> };\nexport function createEcho(store: Store) { return async (input: { text?: unknown }) => { if (input.text === "smoke-sentinel") return { text: "smoke-sentinel" }; if (typeof input.text === "string") await store.set(${JSON.stringify(storageKey)}, input.text); const value = await store.get<string>(${JSON.stringify(storageKey)}); return { text: value.value ?? "" }; }; }\n`;
   const v4 = `import { defineExtension, serve } from "@ezcorp/sdk/v4";\nimport { Storage } from "@ezcorp/sdk/runtime";\nimport { createEcho } from "./handler";\nconst extension = defineExtension({ manifest: { schemaVersion: 4, name: ${JSON.stringify(name)}, version: "2.0.0", description: "adopted legacy sentinel", author: { name: "Upgrade verification" }, permissions: { storage: true }, tools: [{ name: "echo", description: "read the adopted sentinel", inputSchema: { type: "object", properties: { text: { type: "string" } }, additionalProperties: false }, outputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false } }], smokeTest: { tool: "echo", input: { text: "smoke-sentinel" }, expect: { textIncludes: "smoke-sentinel" } } }, tools: { echo: createEcho(new Storage("global")) } });\nawait serve(extension);\n`;
-  const test = `import { expect, test } from "bun:test";\nimport { createEcho } from "./handler";\ntest("writes then reads the retained global storage key", async () => { const values = new Map<string, string>(); const echo = createEcho({ async get(key) { return { value: values.get(key) ?? null, exists: values.has(key) }; }, async set(key, value) { values.set(key, value); } }); expect(await echo({ text: "feature-sentinel" })).toEqual({ text: "feature-sentinel" }); expect(await echo({})).toEqual({ text: "feature-sentinel" }); });\n`;
+  const test = `import { expect, test } from "bun:test";\nimport { createEcho } from "./handler";\ntest("writes then reads the retained global storage key", async () => { const values = new Map<string, string>(); const echo = createEcho({ async get<T>(key: string) { return { value: (values.get(key) ?? null) as T | null, exists: values.has(key) }; }, async set(key, value) { values.set(key, value); } }); expect(await echo({ text: "feature-sentinel" })).toEqual({ text: "feature-sentinel" }); expect(await echo({})).toEqual({ text: "feature-sentinel" }); });\n`;
   return { config, index, handler, v4, test };
 }
 
@@ -52,12 +53,14 @@ function operationStateCounts(states: InstallationState[]): Record<string, numbe
 
 async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNullable<Receipt["runnerCapacity"]>> {
   const deadline = Date.now() + 360_000;
+  const bootstrapNames = new Set((await listFirstPartyExtensionSources(process.cwd())).map(({ name }) => name));
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
   while (Date.now() < deadline) {
     const extensions = await client.listExtensions();
-    const lifecycleIds = extensions.filter(({ id }) => id !== legacyInstallationId).map(({ id }) => id);
+    const lifecycleIds = extensions.filter(({ id, name }) => id !== legacyInstallationId && bootstrapNames.has(name)).map(({ id }) => id);
+    assert.equal(lifecycleIds.length, bootstrapNames.size, "Candidate did not publish every controlled bootstrap installation");
     const states = await Promise.all(lifecycleIds.map((installationId) => client.extensionControl<InstallationState>("extensions_inspect", { installationId })));
     const pending = states.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
@@ -66,7 +69,7 @@ async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNulla
       idleChecks = 0;
     } else if (initialPending > 0) {
       idleChecks += 1;
-      if (idleChecks === 2) return { initialPending, maximumPending, terminalOperationStates: operationStateCounts(states) };
+      if (idleChecks === 2) return { bootstrapInstallations: lifecycleIds.length, initialPending, maximumPending, terminalOperationStates: operationStateCounts(states) };
     }
     await Bun.sleep(1_000);
   }
@@ -114,6 +117,19 @@ if (mode === "seed") {
   const legacyAttempt = await client.invokeExtensionTool(receipt.conversationId, receipt.installation.name, "echo");
   assert.equal(legacyAttempt.success, false, "Candidate ran a legacy extension before explicit v4 adoption");
   const runnerCapacity = await waitForRunnerIdle(receipt.installation.id);
+  const container = required("EZ_PRODUCTION_CONTAINER");
+  const source = await mkdtemp(join(tmpdir(), "ezcorp-adopted-v4-source-"));
+  try {
+    const files = legacyFiles(receipt.installation.name, receipt.installation.storageKey);
+    await Promise.all([writeFile(join(source, "handler.ts"), files.handler), writeFile(join(source, "extension.ts"), files.v4), writeFile(join(source, "extension.test.ts"), files.test)]);
+    await command("docker", ["exec", container, "rm", "-f", `${receipt.installation.installPath}/ezcorp.config.ts`, `${receipt.installation.installPath}/index.ts`]);
+    await command("docker", ["cp", `${source}/handler.ts`, `${container}:${receipt.installation.installPath}/handler.ts`]);
+    await command("docker", ["cp", `${source}/extension.ts`, `${container}:${receipt.installation.installPath}/extension.ts`]);
+    await command("docker", ["cp", `${source}/extension.test.ts`, `${container}:${receipt.installation.installPath}/extension.test.ts`]);
+    await command("docker", ["exec", container, "test", "!", "-e", `${receipt.installation.installPath}/ezcorp.config.ts`]);
+    await command("docker", ["exec", container, "test", "!", "-e", `${receipt.installation.installPath}/index.ts`]);
+    for (const file of ["extension.ts", "handler.ts", "extension.test.ts"]) await command("docker", ["exec", container, "test", "-f", `${receipt.installation.installPath}/${file}`]);
+  } finally { await rm(source, { recursive: true, force: true }); }
   await Bun.write(receiptPath, `${JSON.stringify({ ...receipt, runnerCapacity })}\n`);
   const imported = await session("/api/extensions/import-source", { kind: "local", path: receipt.installation.installPath, targetInstallationId: receipt.installation.id }) as { installation: { id: string; ownerId: string }; workspace: { id: string }; operation: LifecycleOperation };
   assert.equal(imported.installation.id, receipt.installation.id, "Adoption replaced the legacy installation ID");
