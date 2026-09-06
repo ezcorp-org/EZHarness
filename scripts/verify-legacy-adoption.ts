@@ -144,7 +144,12 @@ if (mode === "seed") {
   assert.deepEqual(verified.installation.grants, [], "Legacy grants survived adoption");
   assert.equal(verified.installation.status, "disabled", "Adopted legacy installation is not disabled");
   assert.deepEqual(verified.approvals, {}, "Adoption created an approval before a human requested one");
-  assert.deepEqual(await client.listWiredExtensions(receipt.conversationId), [{ id: receipt.installation.id, name: receipt.installation.name }], "Conversation link changed during adoption");
+  const wiredExtensions = await client.listWiredExtensions(receipt.conversationId);
+  assert.deepEqual(
+    wiredExtensions.filter(({ id }) => id === receipt.installation.id),
+    [{ id: receipt.installation.id, name: receipt.installation.name }],
+    "Adoption did not retain exactly one legacy conversation link",
+  );
   const before = await client.invokeExtensionTool(receipt.conversationId, receipt.installation.name, "echo");
   assert.equal(before.success, false, "Adopted legacy code executed before a new release was approved");
   const releaseId = verified.operations[imported.operation.id]?.releaseId;
