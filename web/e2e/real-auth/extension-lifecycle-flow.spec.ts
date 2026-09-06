@@ -122,8 +122,9 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/extensions/author");
     // The production Bun adapter defaults idle streaming responses to 10s.
-    // This controlled replay sets `IDLE_TIMEOUT=8` and crosses two idle
-    // windows. It must remain one live EventSource: a second request means
+    // Observe beyond that boundary. The controlled reproduction also sets
+    // `IDLE_TIMEOUT=8` to cross two windows. One EventSource must stay live:
+    // a second request means
     // the browser had to reconnect after a transport failure.
     await page.waitForTimeout(17_000);
     expect(consoleErrors).toEqual([]);
