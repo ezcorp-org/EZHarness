@@ -8,6 +8,7 @@
 ## Validation discipline
 
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
+- Match each new team to the model requested for that task; a previous Sol request does not override a later Terra request.
 - Read exact lifecycle and CI commands before selecting tests. A passing subset does not prove a full lane.
 - Match pinned Bun and required Node versions. First-install proof requires a new worktree with no dependencies.
 - Inspect screenshots and test assertions, not only pass counts or artifact existence.
@@ -34,3 +35,6 @@
 - When a focused coverage command uses `set -u` in a login shell, the system logout hook can replace a successful test exit. Avoid the login shell or capture and return the command status outside that hook.
 - Check an agent’s live state before assigning the next check. A message to a completed agent does not restart work; use a follow-up task and verify that it is running.
 - Run the pinned secret scan after final evidence edits. Name commit-hash fields explicitly; an ambiguous API field can trigger a false positive. Correct the metadata instead of adding a scanner exception.
+- Check all user triggers before calling a flow absent. A missing dedicated button does not rule out chat mentions, direct actions, or another supported path.
+- A visible input marker is not proof of extension execution. Assert a transformed result in the output area and verify the real invocation succeeds.
+- Before adding a test-only status endpoint, check whether an existing idempotent operation already returns the required terminal state.

@@ -32,7 +32,22 @@ The user authorized the push after the audit. The earlier restriction describes 
 - [x] Reproduce the hosted secret-scan finding with the pinned scanner and redacted output.
 - [x] Rename the ambiguous commit-hash field and update its evidence checksum.
 - [x] Verify the corrected evidence and secret scan.
-- [ ] Push the evidence correction with normal hooks.
-- [ ] Inspect all hosted results on the final pushed commit; record policy approval separately.
+- [x] Push the evidence correction with normal hooks.
+- [x] Inspect all hosted results on the final pushed commit; record policy approval separately.
 
 Review before the correction push: the pinned scanner reproduces one finding for a Git SHA in `final-ref-review.json`. Renaming its field to `live_pr_base_commit_sha` clears the finding without a scanner exception. The full evidence verifier and all54 parent checksums pass. Production code and tests are unchanged. The first hosted run passes dependency audit, PostgreSQL, type checks, web tests, and the completed backend lanes; remaining lanes are still running. Gate integrity still requires maintainer approval.
+
+Push result: `2fea009e` is on PR #246. All32 technical checks pass; Gate integrity alone fails with84 findings that require maintainer review.
+
+## Extension install, use, and removal — Terra team
+
+- [x] Map the current user paths and assign separate Terra worktrees.
+- [ ] Test new extension creation/import, approval, and installation through the real UI.
+- [ ] Use installed extensions and verify their actual output and stored state.
+- [ ] Test conversation add/remove, disable/enable, uninstall, reinstall, and failed updates.
+- [ ] Check desktop/mobile screens, browser errors, server errors, and cleanup.
+- [ ] Reproduce and repair defects; add tests that fail without the repair.
+- [ ] Review each agent's evidence and independently repeat the complete final flow.
+- [ ] Run the checks needed for changed files and record exact results and limits.
+
+Plan review: use owned local projects, files, and databases. Exercise current v4 approval and release paths. Existing audit results are context; this task needs fresh proof that a new extension can be installed, used, removed, and installed again.
