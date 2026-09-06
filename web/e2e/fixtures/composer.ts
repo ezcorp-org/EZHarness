@@ -128,13 +128,15 @@ export async function invokeExtensionToolFromComposer(
 	name: string,
 	input: Record<string, string>,
 ): Promise<void> {
+	const [firstField] = Object.keys(input);
+	if (!firstField) throw new Error("A visible extension tool invocation needs at least one input field.");
 	const chip = composer(scope).locator(
 		`[data-mention-kind="extension"][data-mention-name="${name}"]`,
 	);
-	if (!(await chip.isVisible().catch(() => false))) await selectExtensionMention(scope, name);
-	else if (!(await scope.locator("#field-text").isVisible().catch(() => false))) await chip.click();
+	const form = scope.locator("form").filter({ has: scope.locator(`#field-${firstField}`) });
+	if (!(await chip.isVisible())) await selectExtensionMention(scope, name);
+	else if (!(await form.isVisible())) await chip.click();
 
-	const form = scope.locator("form").filter({ has: scope.locator("#field-text") });
 	await expect(form).toBeVisible();
 	for (const [key, value] of Object.entries(input)) {
 		await form.locator(`#field-${key}`).fill(value);

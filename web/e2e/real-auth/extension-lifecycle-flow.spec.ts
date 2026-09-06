@@ -30,10 +30,17 @@ async function waitForVisibleBuild(page: Page): Promise<void> {
   }).toBe("verified");
 }
 
-async function expectInlineToolOutput(page: Page, name: string, output: string): Promise<void> {
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function expectInlineToolOutput(page: Page, output: string): Promise<void> {
   // A second invocation appears after re-enable. The last matching card is
-  // the one just submitted from the visible composer.
-  const completedCall = page.getByRole("button", { name: new RegExp(`${name} > echo --`) }).last();
+  // the one just submitted from the visible composer. The collapsed card
+  // labels tool name and a truncated output preview, not its extension name.
+  const completedCall = page.getByRole("button", {
+    name: new RegExp(`echo \\{\\"text\\":\\"${escapeRegex(output.slice(0, 32))}`),
+  }).last();
   await expect(completedCall).toBeVisible({ timeout: 90_000 });
   await completedCall.click();
   await expect(completedCall).toHaveAttribute("aria-expanded", "true");
@@ -63,6 +70,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
 	const name = `ui-lifecycle-${Date.now().toString(36)}`;
 	const expected = `browser-owned output ${crypto.randomUUID()}`;
+	const reenabledExpected = `reenabled output ${crypto.randomUUID()}`;
 	const mockScriptKey = `ui-lifecycle-${crypto.randomUUID()}`;
   let installationId = "";
 
@@ -135,7 +143,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(threadMessages(page).getByText("Mention wiring complete.", { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await invokeExtensionToolFromComposer(page, name, { text: expected });
-    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}`);
+    await expectInlineToolOutput(page, `UI lifecycle: ${expected}`);
     await captureEvidence(page, testInfo, "extension-lifecycle-live-output", { fullPage: true });
 
     // This visible control is a persisted per-conversation tool selection,
@@ -153,6 +161,17 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     const scopedOff = await request.get(`/api/tools?conversationId=${conversationId}`);
     expect(scopedOff.status(), await scopedOff.text()).toBe(200);
     expect(((await scopedOff.json()).tools as Array<{ extension: string }>).some(tool => tool.extension === name)).toBe(false);
+
+    // Exercise the normal browser entry point after selection is revoked. A
+    // user cannot reach the Add form because the extension is absent from the
+    // live mention choices for this conversation.
+    const composer = page.getByRole("group", { name: "Chat input with file drop zone" });
+    const composerInput = composer.locator("textarea.chat-textarea");
+    await composerInput.fill(`!${name}`);
+    const suggestions = page.locator("#mention-listbox");
+    await expect(suggestions).toBeHidden();
+    await expect(suggestions.getByText(name, { exact: false })).toHaveCount(0);
+    await composerInput.press("Escape");
 
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -185,8 +204,8 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
-    await invokeExtensionToolFromComposer(page, name, { text: `${expected}-reenabled` });
-    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}-reenabled`);
+    await invokeExtensionToolFromComposer(page, name, { text: reenabledExpected });
+    await expectInlineToolOutput(page, `UI lifecycle: ${reenabledExpected}`);
 
     await page.goto("/extensions");
     await card.getByTestId("ext-card-uninstall").click();
