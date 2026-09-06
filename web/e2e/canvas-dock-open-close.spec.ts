@@ -102,6 +102,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await assertDock(page);
 		releaseInitialToolHydration?.();
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
+		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await assertCanvasThemeTokens(page);
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-light");
 		await page.evaluate(() => {
