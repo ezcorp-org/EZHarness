@@ -86,10 +86,11 @@ test("rootless page rendering never shares a worker result or cache across authe
     httpDeps = deps;
     const sessions = new Map<string, string>([[crypto.randomUUID(), "alice"], [crypto.randomUUID(), "bob"]]);
     const cookies = Object.fromEntries([...sessions].map(([token, user]) => [user, `session=${token}`]));
-    server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request, bunServer) {
       const principal = sessions.get(request.headers.get("cookie")?.replace(/^session=/, "") ?? "");
       const event = createMockEvent({ url: request.url, params: { id: "ext:private-page:dashboard" }, ...(principal ? { user: { ...MEMBER_USER, id: principal }, authMethod: "session" } : {}) });
       event.request = request;
+      event.platform = { server: bunServer, request };
       const headers = new Headers();
       event.setHeaders = (values: Record<string, string>) => { for (const [name, value] of Object.entries(values)) headers.set(name, value); };
       try {
