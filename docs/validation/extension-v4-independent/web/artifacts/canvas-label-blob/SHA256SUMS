@@ -1,5 +1,4 @@
-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/SHA256SUMS
-d8894c8ebd444992153bbcbe4daf414481cb2f03dbed06981c7bee45b41b981c  docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-dark.png
-c0268755b49cc20e9bb00c603adbc7abc9b5f5aa722b88bd25801c131e779813  docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-light.png
-d1f55e18d7a56a336f406e98ad7390368e5843303616e06689e9a23a7e775bf9  docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-mobile-dark.png
-bc3d950fe449ffabb346e87bb1f2da5c00cc67c2ad11e0c766c8913c081d2a5e  docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/report-chromium-1e0e360.zip
+d8894c8ebd444992153bbcbe4daf414481cb2f03dbed06981c7bee45b41b981c  ./extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-dark.png
+c0268755b49cc20e9bb00c603adbc7abc9b5f5aa722b88bd25801c131e779813  ./extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-light.png
+d1f55e18d7a56a336f406e98ad7390368e5843303616e06689e9a23a7e775bf9  ./extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-mobile-dark.png
+bc3d950fe449ffabb346e87bb1f2da5c00cc67c2ad11e0c766c8913c081d2a5e  ./report-chromium-1e0e360.zip
