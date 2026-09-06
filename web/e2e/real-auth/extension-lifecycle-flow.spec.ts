@@ -35,6 +35,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   const failedApiResponses: Array<{ method: string; status: number; path: string }> = [];
+  let serverState: unknown = null;
   const appOrigin = new URL(baseURL!).origin;
   page.on("pageerror", error => pageErrors.push(error.message));
   page.on("console", message => {
@@ -169,6 +170,18 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     expect(missingTools.status()).toBe(404);
   } finally {
     if (installationId) {
+      const inspected = await request.post("/api/extensions/control", {
+        data: { tool: "extensions_inspect", input: { installationId } },
+      });
+      const inspectText = await inspected.text();
+      try {
+        serverState = { status: inspected.status(), value: JSON.parse(inspectText) };
+      } catch {
+        serverState = { status: inspected.status(), value: inspectText };
+      }
+      if (!inspected.ok()) {
+        failedApiResponses.push({ method: "POST", status: inspected.status(), path: "/api/extensions/control" });
+      }
       const cleanup = await request.delete(`/api/extensions/${installationId}`);
       if (![204, 404].includes(cleanup.status())) {
         failedApiResponses.push({ method: "DELETE", status: cleanup.status(), path: `/api/extensions/${installationId}` });
@@ -176,6 +189,10 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     }
     await testInfo.attach("extension-lifecycle-client-diagnostics", {
       body: JSON.stringify({ pageErrors, consoleErrors, failedApiResponses }, null, 2),
+      contentType: "application/json",
+    });
+    await testInfo.attach("extension-lifecycle-server-state", {
+      body: JSON.stringify(serverState, null, 2),
       contentType: "application/json",
     });
   }
