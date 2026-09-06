@@ -111,17 +111,19 @@ test("member imports verified marketplace source, an administrator approves it, 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
     const source = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: importedWorkspace.id });
     const permissionedEntrypoint = source.files["extension.ts"]!.replace('"permissions": {},', '"permissions": { "storage": true },');
-    expect(permissionedEntrypoint).not.toBe(source.files["extension.ts"]);
+    const storageOutputEntrypoint = permissionedEntrypoint.replace('"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": {\n            "type": "string"\n          }\n        },\n        "required": [\n          "text"\n        ],\n        "additionalProperties": false\n      }', '"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": { "type": "string" },\n          "sentinel": { "type": ["string", "null"] }\n        },\n        "required": ["text", "sentinel"],\n        "additionalProperties": false\n      }');
+    expect(storageOutputEntrypoint).not.toBe(source.files["extension.ts"]);
     const storageSentinel = `retained-storage-${crypto.randomUUID()}`;
     const permissionedWorkspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", {
       action: "edit", installationId: created.installation.id, workspaceId: importedWorkspace.id, expectedRevision: importedWorkspace.revision,
       writes: {
-        "extension.ts": permissionedEntrypoint,
-        "src/echo.ts": 'import { Storage } from "@ezcorp/sdk/runtime";\nexport function formatEcho(input: Record<string, unknown>, sentinel: string | null) { return { text: "Imported source output: " + String(input.text ?? ""), sentinel }; }\nexport async function echo(input: Record<string, unknown>) { const storage = new Storage("global"); const existing = await storage.get<string>("source-import-sentinel"); if (typeof input.text === "string" && input.text) await storage.set("source-import-sentinel", input.text); const sentinel = (await storage.get<string>("source-import-sentinel")).value ?? existing.value ?? null; return formatEcho(input, sentinel); }\n',
-        "src/echo.test.ts": 'import { expect, test } from "bun:test"; import { formatEcho } from "./echo"; test("formats the actual storage result", () => expect(formatEcho({ text: "value" }, "sentinel")).toEqual({ text: "Imported source output: value", sentinel: "sentinel" }));\n',
+        "extension.ts": storageOutputEntrypoint,
+        "src/format.ts": 'export function formatEcho(input: Record<string, unknown>, sentinel: string | null) { return { text: "Imported source output: " + String(input.text ?? ""), sentinel }; }\n',
+        "src/echo.ts": 'import { Storage } from "@ezcorp/sdk/runtime"; import { formatEcho } from "./format";\nexport async function echo(input: Record<string, unknown>) { const storage = new Storage("global"); const existing = await storage.get<string>("source-import-sentinel"); if (typeof input.text === "string" && input.text) await storage.set("source-import-sentinel", input.text); const sentinel = (await storage.get<string>("source-import-sentinel")).value ?? existing.value ?? null; return formatEcho(input, sentinel); }\n',
+        "src/echo.test.ts": 'import { expect, test } from "bun:test"; import { formatEcho } from "./format"; test("formats the actual storage result", () => expect(formatEcho({ text: "value" }, "sentinel")).toEqual({ text: "Imported source output: value", sentinel: "sentinel" }));\n',
       },
     });
-    const permissionedState = await buildWorkspace(client, { installation: created.installation, workspace: permissionedWorkspace, openUrl: staged.openUrl });
+    const permissionedState = await buildWorkspace(client, { installation: created.installation, workspace: permissionedWorkspace, openUrl: created.openUrl });
     const permissionedRelease = Object.values(permissionedState.releases).find(candidate => candidate.workspaceId === permissionedWorkspace.id && candidate.workspaceRevision === permissionedWorkspace.revision)!;
     expect(permissionedRelease.manifest.permissions.storage).toBe(true);
     const permissionedSeed = await context.request.post("/api/__test/marketplace-release", { data: { installationId: created.installation.id, releaseId: permissionedRelease.id } });
