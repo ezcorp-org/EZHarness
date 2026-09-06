@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { resolveBundledExtensions } from "../src/extensions/bundled";
+import { bundledInstallationId } from "../src/extensions/bundled-bootstrap";
 import type { InstallationState, LifecycleOperation } from "../src/extensions/v4/types";
 
 type Receipt = {
@@ -59,8 +60,9 @@ async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNulla
   let maximumPending = 0;
   while (Date.now() < deadline) {
     const extensions = await client.listExtensions();
-    const lifecycleIds = extensions.filter(({ id, name }) => id !== legacyInstallationId && bootstrapNames.has(name)).map(({ id }) => id);
-    assert.equal(lifecycleIds.length, bootstrapNames.size, "Candidate did not publish every controlled bootstrap installation");
+    const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
+    const lifecycleIds = [...bootstrapNames].map((name) => installationByName.get(name) ?? bundledInstallationId(name));
+    assert.equal(new Set(lifecycleIds).size, bootstrapNames.size, "Candidate bootstrap installation IDs are not unique");
     const states = await Promise.all(lifecycleIds.map((installationId) => client.extensionControl<InstallationState>("extensions_inspect", { installationId })));
     const pending = states.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
