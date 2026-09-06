@@ -1,81 +1,67 @@
 # Canvas dock pending-hydration receipt
 
-This receipt separates two cases found during the canvas-dock CI review.
-The hosted failure refreshed tool history after the live completion; its mock
-returned a static, non-persisting empty tool list. That is a fixture defect,
-not evidence that a later authoritative response must retain an older call.
+The hosted CI failure had a later tool-history refresh after live completion.
+Its mock returned a static, non-persisting empty tool list. That is a fixture
+defect. The controlled test below instead starts the held tool-history request
+before the live SSE events, which is the product race the revision boundary
+must handle.
 
-The controlled case below starts a tool-history request **before** the live
-SSE events. Its held response has no live dock row. That ordering can happen
-in the product and is the case covered by the revision boundary.
+Product source is `a4a4a9e1e60dc6456c7ab3267766121c7b24f340`. The refreshed
+test is `327977966b4f1ee928216f3a03661e6f00c1bcb5`.
 
-## Controlled red at the final integrated source
-
-- Product source: `a4a4a9e1e60dc6456c7ab3267766121c7b24f340`.
-- Source file SHA-256 before the fault:
+- Source SHA-256:
   `dd16237d3195d4ccfda5cc14484e29c9bc34ecf0d56d45a0ef0be204176add82`.
-  Test file SHA-256:
-  `8e9410ce7b56e0dff5323733df48d6e6cf8ecefcb2c9df56ec85e858164486d5`.
-- The locked Bash fault script replaced only the `newerLiveCalls` retention
-  expression in `hydrateToolCalls` with an empty array. Its faulted source
-  SHA-256 was
-  `914c7ee8a4b945988ee6517bacc3264c778e9495b4649e34ca645c90ad9c02a4`.
-  It left the loader and E2E test unchanged.
-- Exact outer command:
+- Test SHA-256:
+  `c6a8be51d65c0c078597bf7e3acd5ecede8dbb0c7a9db45f338287db55bb7899`.
+- Bun `1.3.14`; Node `v22.22.2`; all runs used the shared heavy lock.
 
-  ```sh
-  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock /tmp/terra-ui-canvas-retention-fault.sh
-  ```
+## Controlled sequence
 
-  The script used pinned Bun `1.3.14` and Node `v22.22.2`, then ran:
+The first `messages?withToolCalls=true` response is held before live
+`tool:start` and `tool:complete`. After the response is released, the test
+first requires its visible `hydration-sentinel-initial`, the dock controls,
+and desktop 640px padding. Every later response is held behind a second gate
+until those fault-sensitive assertions finish. It then returns the matching
+persisted `tc-dock-live` row and stable `hydration-sentinel-persisted` marker.
+This makes unrelated later refreshes harmless and unable to mask the initial
+replacement defect.
 
-  ```sh
-  bunx playwright test --config playwright.config.ts --project=chromium e2e/canvas-dock-open-close.spec.ts --grep 'live SSE tool completion'
-  ```
+## Green
 
-- Sequence: hold the first `messages?withToolCalls=true` response, emit
-  `tool:start` and `tool:complete` for `tc-dock-live`, verify the dock,
-  release the empty pre-event response, and first observe its visible orphan
-  sentinel. The following `Preview controls` assertion failed because the
-  fault removed the completed live call.
-- The saved Playwright exit was `1`; the locked outer command also exited
-  `1`. The exit trap restored the source to its original SHA-256 above before
-  the script ended. The worktree has no deliberate fault change.
-- Raw log: [fault red](raw/canvas-pending-hydration-fault-a4a4a9e1.log.gz),
-  SHA-256 `73ea06d33940fa71a44a134010d7fe78fd4e23f692dc0c3fb88a6655a60afd0f`.
+```sh
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock /tmp/terra-ui-canvas-refresh-green.sh
+```
 
-## Controlled green
+The Bash script ran:
 
-- Product source: `169200cd0b4adffce3d311401d298d2672560998` adds a
-  client-local live-update revision. The hydration request captures that
-  revision before fetch; a response retains only absent same-conversation
-  `agent-run` calls updated after that boundary. A later matching persisted
-  row still replaces the streamed call.
-- Test provenance: the uncommitted observation was committed unchanged as
-  `701b64ed7b8912cfd28b95ad6407d7cc8ff1e6e0`, followed only by formatting
-  commit `df156464ada7447cf1a0eccd19a1234d6cf5caf9`. Parent integrated the
-  identical test as `16bcc363` and `a4a4a9e1`.
-- Exact command:
+```sh
+bunx playwright test --config playwright.config.ts --project=chromium e2e/canvas-dock-open-close.spec.ts --grep 'live SSE tool completion'
+```
 
-  ```sh
-  export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
-  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock bunx playwright test --config playwright.config.ts --project=chromium e2e/canvas-dock-open-close.spec.ts --grep 'live SSE tool completion' > /tmp/terra-ui-canvas-hydration-followup2-node22.log 2>&1
-  ```
+It saved `PLAYWRIGHT_EXIT=0` and `OUTER_EXIT=0`; one test passed in 37.6
+seconds. [Green raw log](raw/canvas-pending-hydration-green-32797796.log.gz),
+SHA-256 `40412ac2cc68090a7ed946b3ce2485b74d43c5fe74fe59e9822dcbece1ce6950`.
 
-- Bun was `1.3.14`; Node was `v22.22.2`. Playwright reported `1 passed` in
-  37.5 seconds. The outer tool wrapper did not retain a post-command exit
-  marker, so this receipt claims the recorded Playwright result, not a shell
-  exit code.
-- Assertions first show that the held response applied through a visible
-  orphan-tool sentinel, then require the live dock and desktop 640px padding
-  to remain. A second, explicitly awaited `ez:agent_complete` refresh returns
-  the matching persisted `tc-dock-live` row and another visible sentinel.
-- Raw log: [green](raw/canvas-pending-hydration-green-169200cd.log.gz),
-  SHA-256 `762b15bdaceacf7c70af113c9f548c34017489a0f5a78236400998b711dd0160`.
+## Fault sensitivity
 
-The focused green's source and test file hashes match the final `a4a4a9e1`
-files listed above. Parent also ran the final visual mock lane at `a4a4a9e1`:
-all 180 tests, including this live-dock test, passed.
+The locked Bash script replaced only `newerLiveCalls` retention in
+`hydrateToolCalls` with `[]`; loader and E2E code stayed unchanged. It used
+the immediately prior barrier test `9e1ea3ed` (SHA-256
+`2909e647a58c962c514e5e47b5e957e599c9c39666ebc1ac8f7ce5d57482d3b9`).
+The final test only captures its initial-route boolean before awaits and reuses
+the marker string; it does not change the barrier ordering. Faulted source
+SHA-256 was
+`914c7ee8a4b945988ee6517bacc3264c778e9495b4649e34ca645c90ad9c02a4`.
+
+```sh
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock /tmp/terra-ui-canvas-retention-fault.sh
+```
+
+That barrier test saved `PLAYWRIGHT_EXIT=1` and `OUTER_EXIT=1`. After the initial
+sentinel proved hydration applied, `Preview controls` was absent. The exit
+trap restored the source to the original source SHA-256 before the command
+ended. [Fault raw log](raw/canvas-pending-hydration-fault-9e1ea3ed.log.gz),
+SHA-256 `6a464ac510570c425aff6d5dd1a79a9486fea9e3edf2a2bbaaa4e58c2d04f353`.
 
 The compressed logs contain no browser trace, session data, request bodies,
 authorization headers, cookies, passwords, bearer tokens, or API-key labels.
