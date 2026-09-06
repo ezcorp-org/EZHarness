@@ -2,9 +2,9 @@
 
 Date: 2026-09-05 (America/New_York)
 
-Final source freeze: `ac53921ce07db8569eb8895456eda8271d6aab3f`
+Final source freeze: `29d145cf222255de4110c067e2c07ca1ee42d405`
 
-Final source tree: `ead56e1b614b215f7790eab41195f7c6a6d901d1`
+Final source tree: `357e88be9f8efd7b779110de88fbfe4d89d38953`
 
 Audit ledger commit: `c760e1e2ab4e4a4aef87b8612d47df1399f50838`. Portable policy evidence commit: `4f9bc0af`. The final freeze includes both plus the runtime and web repairs.
 
@@ -19,7 +19,7 @@ Tools: Git 2.53.0; audit Bun 1.3.14 at `/tmp/ez-extension-bun-1.3.14/bun-linux-x
 | Revision | `git rev-parse HEAD HEAD^{tree} <base> <base>^{tree}` | 0 | Exact hashes above. |
 | Gate integrity | `env -u GATE_CHANGE_APPROVED BASE_REF=<base> <bun-1.3.14> scripts/gate-integrity.ts` | 1 | Expected policy failure: exactly 84 findings. No approval override was set. |
 | Ledger numbering | Parse numbered table rows in `src/__tests__/extension-v4-migration-coverage.md` | 0 | Every integer 1 through 84 occurs once. |
-| Final pools | Source `scripts/lib/test-file-sets.sh`; count `passfail_files`, `coverage_host_files`, `web_bunleg_files`, `residual_passfail_files`, and `critical_backend_files` | 0 | P: 1,561; C: 1,547; W: 221; residual: 14; critical: 38. |
+| Final pools | Source `scripts/lib/test-file-sets.sh`; count `passfail_files`, `coverage_host_files`, `web_bunleg_files`, `residual_passfail_files`, and `critical_backend_files` | 0 | P: 1,564; C: 1,550; W: 221; residual: 14; critical: 38. `C ∖ P` is empty. |
 | Moved discovery | Compare all 25 rename destinations with both current pools | 0 | No moved destination is absent from either pool. |
 | Moved skip scan | Scan 25 destinations for `.skip`, `.todo`, `.only`, `testIf`, and `describeIf` | 0 | No match. |
 | Moved assertions | Scan 25 destinations for `expect(` or `assert(` | 0 | 708 direct assertion call sites. This count is a review aid, not proof of assertion quality. |
@@ -30,7 +30,7 @@ The complete Gate integrity output is deterministic from the pinned hashes and t
 
 The original `2c73e6ba` checkpoint against base `65edc5bc` produced the same 84-finding split. Its candidate tree was `4a5c5c7a`; its P/C counts were 1,559/1,545. The latest-main fast-forward adds one discovered test to each pool and does not change any extension migration finding.
 
-Final source freeze `ac53921c` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The full raw gate output is in the policy artifact bundle.
+Final source freeze `29d145cf` against base `537f074e` also returns exit 1 with exactly 84 findings and `GATE_CHANGE_APPROVED` unset. The split remains 1 removed threshold, 27 deleted files, 25 renamed files, and 31 gutted files. The final raw gate output is `artifacts/final-gate-freeze3.log.gz`.
 
 The final focused visual-evidence runner check passed 7 tests with 23 assertions. It covered tier partitioning, the `__ALL__` fallback, failure aggregation, spawn failure, invalid selections, distinct report retention, stale-output removal, config selection, and the real-auth environment.
 

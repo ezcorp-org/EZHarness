@@ -6,7 +6,7 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 
 ## Receipt identity
 
-- Final source freeze: `ac53921ce07db8569eb8895456eda8271d6aab3f`; tree `ead56e1b614b215f7790eab41195f7c6a6d901d1`.
+- Final source freeze: `29d145cf222255de4110c067e2c07ca1ee42d405`; tree `357e88be9f8efd7b779110de88fbfe4d89d38953`.
 - Merged policy audit head used for portable reruns: `e24dc218a831bf1e3c2d0a9e86bd644110282ea7`.
 - Tree: `d9bd9d7b3170deedd4eec04446010abb5bc2447b`.
 - Current base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`.
@@ -25,7 +25,10 @@ Bundle SHA-256 and standalone mutation/source hashes are in `SHA256SUMS`. Verify
 - Final freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
 - Final freeze visual-evidence runner test stdout/stderr: 7 passed, 0 failed, 23 assertions.
 - Second-freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
+- Final integrated-freeze Gate integrity stdout/stderr: exit 1 with exactly 84 findings and no approval override.
 - Second-freeze controlled faults for the effective event-grant filter and todo root-denial propagation, plus the restored combined green run.
+
+`NESTED-SHA256SUMS` covers the independently added memory-list and File Organizer replay subdirectories. Verify it from the repository root with `sha256sum -c docs/validation/extension-v4-independent/policy/artifacts/NESTED-SHA256SUMS`.
 
 The second-freeze fault receipts are also stored as standalone compressed files beside this README. They came from the independently verified runtime evidence commit `7e53802e`; the policy bundle copies the same bytes. The event fault uses manifest declarations instead of effective grants and fails the denied drain. The todo fault removes root-denial propagation and fails because the tool reports success. The restored cohort passes 30 tests with 116 assertions. `freeze2-todo-root-denial-fault.diff` reconstructs the exact one-line todo mutation without changing the frozen source.
 

@@ -1,6 +1,6 @@
 # Migration policy reconciliation
 
-This report audits the 84 Gate integrity findings against final source freeze `ac53921c`. `verified` means the cited replacement exists, is in the required runner, and retains the stated invariant. `fixed and verified` means this audit corrected a concrete ledger defect and verified the correction. `blocked` identifies the external maintainer approval required by policy. `product decision pending` means a maintainer must decide whether the removed behavior is acceptable. Gate integrity remains red until a maintainer separately approves the migration dispositions.
+This report audits the 84 Gate integrity findings against final source freeze `29d145cf`. `verified` means the cited replacement exists, is in the required runner, and retains the stated invariant. `fixed and verified` means this audit corrected a concrete ledger defect and verified the correction. `blocked` identifies the external maintainer approval required by policy. `product decision pending` means a maintainer must decide whether the removed behavior is acceptable. Gate integrity remains red until a maintainer separately approves the migration dispositions.
 
 Proof keys: B = bundled bootstrap/source identity; L = lifecycle; I = source import/cutover; A = authoring; D = isolated definition/runtime; V = candidate verification; M = MCP staging; P = lazy worker delivery; R = required runner discovery. Each row has the same number as the direct old path and replacement mapping in `src/__tests__/extension-v4-migration-coverage.md`. Detailed old/new assertion and fixture comparisons for rows 2, 3, 5, 6, and 28–52 are in `docs/validation/extension-v4-independent/policy/moved-assertions.md`. Direct positive/denied-path replacement files for rows 54–84 are in `docs/validation/extension-v4-independent/policy/condensed-assertions.md`.
 
@@ -106,7 +106,7 @@ Proof keys: B = bundled bootstrap/source identity; L = lifecycle; I = source imp
 
 ## Current conclusion
 
-The numbered ledger accounts for all 84 Gate integrity findings and the moved tests are correctly discovered and coverage-measured. It is not a blanket equivalence proof. Rows 4, 17, 19, 24, 25, 53, 54, 56, 58, 64, 70, 75, 80, 81, 83, and 84 depend on unresolved product decisions. Row 37's ledger defect is corrected in this branch.
+The numbered ledger accounts for all 84 Gate integrity findings and the moved tests are correctly discovered and coverage-measured. The final pools are P=1,564, C=1,550, W=221, residual=14, and critical backend=38. It is not a blanket equivalence proof. Rows 4, 17, 19, 24, 25, 53, 54, 56, 58, 64, 70, 75, 80, 81, 83, and 84 depend on unresolved product decisions. Row 37's ledger defect is corrected in this branch.
 
 Technical tests cannot make Gate integrity green without the separate maintainer decision and label. No acceptance is inferred from the migration document or passing tests.
 
