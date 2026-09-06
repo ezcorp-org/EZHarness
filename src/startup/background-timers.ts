@@ -614,13 +614,7 @@ async function runScheduledSurfaceAudit(): Promise<void> {
   await runScheduledAudit(ctx as never);
 }
 
-/**
- * Resolve the file-organizer daemon's effective settings (single-operator
- * workspace model). Reads the manifest declared defaults, overlaid with
- * the first stored per-user settings row (the operator). Falls back to
- * the hardcoded DEFAULT_SETTINGS on any failure so the daemon's tick can
- * never crash on a settings read.
- */
+/** Serialize registry reloads so concurrent publications cannot start duplicates. */
 function reconcileFileOrganizerDaemon(): Promise<void> {
   fileOrganizerReconcile = fileOrganizerReconcile.then(
     reconcileFileOrganizerDaemonNow,
@@ -637,9 +631,10 @@ async function reconcileFileOrganizerDaemonNow(): Promise<void> {
     const shouldRun = Boolean(ext?.enabled && settings?.daemonEnabled);
 
     if (fileOrganizerDaemon && (!shouldRun || fileOrganizerExtensionId !== ext?.id)) {
-      fileOrganizerDaemon.stop();
+      const daemon = fileOrganizerDaemon;
       fileOrganizerDaemon = undefined;
       fileOrganizerExtensionId = undefined;
+      daemon.stop();
       log.info("FileOrganizerDaemon stopped after extension lifecycle change");
     }
     if (!shouldRun || !ext || !settings || fileOrganizerDaemon) {
@@ -670,6 +665,13 @@ async function reconcileFileOrganizerDaemonNow(): Promise<void> {
   }
 }
 
+/**
+ * Resolve the file-organizer daemon's effective settings (single-operator
+ * workspace model). Reads the manifest declared defaults, overlaid with
+ * the first stored per-user settings row (the operator). Falls back to
+ * the hardcoded DEFAULT_SETTINGS on any failure so the daemon's tick can
+ * never crash on a settings read.
+ */
 async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOrganizerSettings> {
   try {
     const [{ getDb }, { extensionSettingsUser, extensions }, { eq }] = await Promise.all([
