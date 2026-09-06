@@ -13,7 +13,7 @@ export async function resolveSourceTarget(actor: LifecycleActor, installationId:
     if (!state) state = await repository.read(installationId);
     if (state ? state.installation.ownerId !== actor.principalId : !projection || projection.creatorUserId !== actor.principalId) throw new LifecycleError("forbidden", "Source target not found or access denied");
     if (projection && projection.creatorUserId !== actor.principalId) throw new LifecycleError("forbidden", "Source target ownership requires review");
-    if (state?.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled. Import source without selecting it to create a new installation.");
+    if (state?.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled. Import source without selecting it to create a new installation. The previous extension name remains reserved; choose a new extension name before activation.");
     if (adopt && !state) {
       await repository.create({ installation: { id: installationId, ownerId: actor.principalId, scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled", grants: [], acknowledgedGeneration: 0 }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
       state = await repository.read(installationId);
