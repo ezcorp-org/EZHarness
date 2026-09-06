@@ -100,7 +100,7 @@ describe("GET /api/runtime-events", () => {
     expect(res.body).toBeInstanceOf(ReadableStream);
   });
 
-  test("emits a heartbeat before a short idle intermediary can close the stream", async () => {
+  test("emits a heartbeat before Bun's short idle timeout can close the stream", async () => {
     vi.useFakeTimers();
     const interval = vi.spyOn(globalThis, "setInterval");
     const clear = vi.spyOn(globalThis, "clearInterval");
