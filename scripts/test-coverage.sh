@@ -548,6 +548,7 @@ run_legs() {
       src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
       src/__tests__/pending-decisions-tray.component.test.ts \
       src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
+      src/__tests__/inline-tool-store.test.ts \
       src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
       src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
       src/__tests__/composer-suggest-logic.unit.test.ts \
@@ -899,6 +900,7 @@ run_legs() {
       --coverage.include='src/lib/tool-output.ts' \
       --coverage.include='src/lib/components/ui/format-map.ts' \
       --coverage.include='src/lib/inline-tool-store.svelte.ts' \
+      --coverage.include='src/lib/chat/historical-tool-calls.ts' \
       --coverage.include='src/routes/api/agent-configs/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/[id]/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/generate/+server.ts' \

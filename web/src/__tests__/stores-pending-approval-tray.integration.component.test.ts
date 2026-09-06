@@ -42,7 +42,7 @@ vi.mock("$lib/api", () => ({
 	fetchWorkflows: () => Promise.resolve([]),
 }));
 
-import { initStores, dismissPendingApproval, store } from "$lib/stores.svelte";
+import { closeDock, dismissPendingApproval, initStores, openDock, store } from "$lib/stores.svelte";
 
 function emit(type: string, data: unknown) {
 	if (!capturedSubscriber) throw new Error("subscriber not captured — initStores not called?");
@@ -66,6 +66,10 @@ describe("stores.svelte.ts — pending workflow approvals", () => {
 		capturedSubscriber = null;
 		initStores();
 		store.pendingApprovals = [];
+		store.dockState = {};
+		store.dismissedDocks = {};
+		store.sidebarCollapsed = false;
+		localStorage.clear();
 	});
 
 	test("a parked approval lands on the tray with its fields intact", () => {
@@ -116,5 +120,18 @@ describe("stores.svelte.ts — pending workflow approvals", () => {
 	test("a notice with no approvalId is ignored rather than rendered unanswerable", () => {
 		emit("workflow:approval_request", { ...NOTICE, approvalId: "" });
 		expect(store.pendingApprovals).toHaveLength(0);
+	});
+
+	test("reopening a dismissed dock clears its dismissal and opens that call", () => {
+		openDock("conv-dock", "tool-call-1");
+		closeDock("conv-dock");
+		expect(store.dismissedDocks["conv-dock"]?.["tool-call-1"]).toBe(true);
+
+		// This is the chat-history Canvas-open path. Without the clear in
+		// openDock, the reactive card sees the old dismissal and never reopens.
+		openDock("conv-dock", "tool-call-1");
+
+		expect(store.dismissedDocks["conv-dock"]?.["tool-call-1"]).toBeUndefined();
+		expect(store.dockState["conv-dock"]?.toolCallId).toBe("tool-call-1");
 	});
 });
