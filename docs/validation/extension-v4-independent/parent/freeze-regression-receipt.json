@@ -1,0 +1,14 @@
+{
+  "revision": "9ccce310facd28f0ad2898318fe081ef9f70e433",
+  "tree": "f4b0174bac5b121464d381da24b21022ac0f4c36",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "mergeBase": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "bun": "1.3.14",
+  "command": "bun test ./src/__tests__/run-visual-evidence.test.ts ./src/__tests__/coverage-leg-lcov-guard.test.ts ./packages/@ezcorp/sdk/src/v4/serve.test.ts ./packages/@ezcorp/sdk/src/v4/invocation-channel.test.ts",
+  "scheduling": "shared flock --close",
+  "exit": 0,
+  "testsPassed": 63,
+  "testsFailed": 0,
+  "assertions": 226,
+  "log": "freeze-regressions.log"
+}

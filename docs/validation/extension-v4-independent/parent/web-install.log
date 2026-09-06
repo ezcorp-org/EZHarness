@@ -1,0 +1,37 @@
+bun install v1.3.14 (0d9b296a)
+
+$ svelte-kit sync || echo ''
+
++ @axe-core/playwright@4.13.0
++ @playwright/test@1.62.1
++ @sveltejs/kit@2.70.3
++ @sveltejs/vite-plugin-svelte@7.3.0
++ @tailwindcss/vite@4.3.3
++ @testing-library/jest-dom@7.0.1
++ @testing-library/svelte@5.4.2
++ @types/jsdom@30.0.0
++ @typescript/native@7.0.2
++ @vitest/coverage-v8@4.1.11
++ jsdom@30.0.1
++ rollup-plugin-visualizer@7.1.1
++ svelte@5.57.0
++ svelte-check@4.7.6
++ tailwindcss@4.3.3
++ typescript@6.0.3
++ vite@8.2.2
++ vitest@4.1.11
++ @electric-sql/pglite@0.5.7
++ @electric-sql/pglite-pgvector@0.0.8
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ highlight.js@11.12.0
++ isomorphic-dompurify@3.22.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.11
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.5.2
+
+308 packages installed [882.00ms]

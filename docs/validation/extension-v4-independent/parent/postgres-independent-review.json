@@ -1,0 +1,20 @@
+{
+  "revision": "9ccce310facd28f0ad2898318fe081ef9f70e433",
+  "tree": "f4b0174bac5b121464d381da24b21022ac0f4c36",
+  "independentReview": "Coordinator read clean raw receipt and seven-fence implementation. proveFence observes actual pg_blocking_pids before admitted write; final proof row count is seven.",
+  "fences": [
+    "release",
+    "publication",
+    "owner",
+    "membership",
+    "service",
+    "delegation",
+    "service-run"
+  ],
+  "runtimeLockTests": 2,
+  "runtimeLockAssertions": 4,
+  "runtimeLockFailures": 0,
+  "commandExit": 0,
+  "rawSha256": "ae0b587e42b68a5456efcd7961dfcfe593e25a645d7eedf8abccc24f7377b0c3",
+  "limit": "Owned disposable PostgreSQL; no production database used. Initial login wrapper exit127 is preserved separately."
+}

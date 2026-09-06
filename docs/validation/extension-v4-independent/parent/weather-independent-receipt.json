@@ -1,0 +1,12 @@
+{
+  "revision": "9f15211ae2a873b9e8491a44ceb160cca39006e9",
+  "tree": "6e2cfb5d328c5e099b5d75a842ae987eb5c61efe",
+  "bun": "1.3.14",
+  "command": "bun test ./src/extensions/first-party-integration/weather-network.integration.test.ts --timeout 180000",
+  "exit": 0,
+  "passed": 2,
+  "failed": 0,
+  "assertions": 8,
+  "raw_sha256": "5413cd8f581e79a88c19fe2b2f52d92048cdc1e5688d48cdca788a6006d67ec1",
+  "scope": "Real rootless installed-release processes with production network broker; injected DNS and provider replies; host-denial propagation and same-process recovery. Weather also covers an omitted fixture allowlist. This is not live-provider evidence."
+}

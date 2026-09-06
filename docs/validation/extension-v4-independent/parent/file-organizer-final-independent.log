@@ -1,0 +1,231 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/security/file-organizer-journal-authority.test.ts:
+{"ts":"2026-09-06T00:33:27.573Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":1,"rolledBack":0,"refused":0}
+(pass) startup replay copy-done: allow authority [4.41ms]
+{"ts":"2026-09-06T00:33:27.575Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-DxeM3Z/watched/victim.txt","reason":"revoked"}
+{"ts":"2026-09-06T00:33:27.575Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-done: deny authority [1.10ms]
+{"ts":"2026-09-06T00:33:27.576Z","level":"warn","msg":"file-organizer filesystem mutation unexpectedly prompted — failing closed","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-fccHcL/watched/victim.txt"}
+{"ts":"2026-09-06T00:33:27.576Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-done: prompt authority [1.09ms]
+{"ts":"2026-09-06T00:33:27.577Z","level":"warn","msg":"journal replay entry failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-journal-authority-fM5Tvk/watched/victim.txt","error":"Error: permission service unavailable"}
+{"ts":"2026-09-06T00:33:27.577Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-done: error authority [1.01ms]
+{"ts":"2026-09-06T00:33:27.578Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":1,"rolledBack":0,"refused":0}
+(pass) startup replay unlink-pending: allow authority [0.99ms]
+{"ts":"2026-09-06T00:33:27.579Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-qMEnLu/watched/victim.txt","reason":"revoked"}
+{"ts":"2026-09-06T00:33:27.579Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay unlink-pending: deny authority [0.96ms]
+{"ts":"2026-09-06T00:33:27.580Z","level":"warn","msg":"file-organizer filesystem mutation unexpectedly prompted — failing closed","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-1SiIRJ/watched/victim.txt"}
+{"ts":"2026-09-06T00:33:27.580Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay unlink-pending: prompt authority [0.95ms]
+{"ts":"2026-09-06T00:33:27.581Z","level":"warn","msg":"journal replay entry failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-journal-authority-jw6AFE/watched/victim.txt","error":"Error: permission service unavailable"}
+{"ts":"2026-09-06T00:33:27.581Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay unlink-pending: error authority [0.87ms]
+{"ts":"2026-09-06T00:33:27.583Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":1,"refused":0}
+(pass) startup replay copy-pending: allow authority [2.17ms]
+{"ts":"2026-09-06T00:33:27.584Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-kAKvC2/watched/done/victim.txt","reason":"revoked"}
+{"ts":"2026-09-06T00:33:27.584Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-pending: deny authority [0.94ms]
+{"ts":"2026-09-06T00:33:27.585Z","level":"warn","msg":"file-organizer filesystem mutation unexpectedly prompted — failing closed","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-journal-authority-Lv0pH9/watched/done/victim.txt"}
+{"ts":"2026-09-06T00:33:27.585Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-pending: prompt authority [0.95ms]
+{"ts":"2026-09-06T00:33:27.586Z","level":"warn","msg":"journal replay entry failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-journal-authority-T6ctu9/watched/victim.txt","error":"Error: permission service unavailable"}
+{"ts":"2026-09-06T00:33:27.586Z","level":"info","msg":"file-organizer journal replayed","subsystem":"ext.file-organizer-daemon","finished":0,"rolledBack":0,"refused":1}
+(pass) startup replay copy-pending: error authority [1.11ms]
+
+ 12 pass
+ 0 fail
+ 48 expect() calls
+Ran 12 tests across 1 file. [458.00ms]
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/security/file-organizer-security.test.ts:
+(pass) file-organizer: no calls home (no network grant) > fetch() is denied in the sandbox (the extension declares no network) [25.33ms]
+(pass) file-organizer: no calls home (no network grant) > require('http') is denied in the sandbox [23.24ms]
+(pass) file-organizer: no calls home (no network grant) > require('dns') is denied (no DNS lookups either) [22.55ms]
+(pass) host applier: destination containment (only the host touches host folders) > a move whose destination escapes the watched root is BLOCKED [1.83ms]
+(pass) host applier: destination containment (only the host touches host folders) > a move targeting .ezcorp/data is BLOCKED (never write the DB/JWT dir) [0.74ms]
+{"ts":"2026-09-06T00:33:28.143Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-MV1PNF/watched/sub/a.txt","reason":"deny"}
+(pass) host applier: destination containment (only the host touches host folders) > engine deny ⇒ blocked (every apply re-authorizes; no stale-auth write) [0.89ms]
+{"ts":"2026-09-06T00:33:28.148Z","level":"warn","msg":"file-organizer watch root unreachable — skipping (fail-closed)","subsystem":"ext.file-organizer-daemon","path":"/tmp/fo-sec-T3DMwf/watched"}
+(pass) daemon: fail-closed (degraded mount never mass-quarantines) > a vanished watch root yields ZERO proposals (not a mass-delete) [6.21ms]
+{"ts":"2026-09-06T00:33:28.150Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-Hmra2s/.ezcorp/extension-data/file-organizer/.trash/p/junk.tmp","reason":"deny"}
+(pass) daemon: fail-closed (degraded mount never mass-quarantines) > an unwritable / missing trash root holds the delete (engine deny ⇒ blocked, file kept) [0.86ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a delete-quarantine whose src is inside .ezcorp/data is BLOCKED [0.60ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a delete-quarantine whose src is OUTSIDE the watched root is BLOCKED [0.48ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a move whose src climbs out with `..` is BLOCKED (no exfil into the watched root) [0.45ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a move whose src traverses a SYMLINKED ancestor is BLOCKED [0.50ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a lying snapshot (isSymlink:false on a real link) is still SKIPPED [0.69ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > an in-root move and an in-root quarantine still APPLY (guard is not a wall) [8.58ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a SYMLINKED watched root still applies an in-root move (canonical anchor) [6.28ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a symlinked watched root also applies into a not-yet-created subdir [6.16ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > an unresolvable watched root refuses the apply (fail-closed anchor) [0.52ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a src whose PARENT is gone is stale-source, not a crash [0.36ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a traversing quarantineId is BLOCKED before it can be recorded [0.58ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > an unresolvable trash root fails the quarantine (no anchor, no write) [1.52ms]
+{"ts":"2026-09-06T00:33:28.177Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"../../../.."}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a traversing id does NOT recursively delete the project root [0.47ms]
+{"ts":"2026-09-06T00:33:28.178Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"hop/victimdir"}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a `..`-free id that escapes through a planted symlink is REFUSED [0.49ms]
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a trash entry that IS a symlink unlinks the LINK, never its target [0.54ms]
+{"ts":"2026-09-06T00:33:28.179Z","level":"warn","msg":"file-organizer prune refused: trash root unresolvable","subsystem":"ext.file-organizer-applier","trashRoot":"/tmp/fo-sec-xnWjVL/no-such-trash"}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > an unresolvable trash root refuses the prune [0.31ms]
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a real quarantine dir is still removed, and an absent one is idempotent [0.61ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > a trashPath outside the trash root is BLOCKED [0.72ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > an unresolvable trash root refuses the restore [0.33ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > a genuine quarantine entry still restores [0.65ms]
+{"ts":"2026-09-06T00:33:28.182Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-0Jdv5v/outside/victim.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an out-of-anchor src is REFUSED and the file survives [1.04ms]
+{"ts":"2026-09-06T00:33:28.183Z","level":"warn","msg":"journal replay entry refused (destination outside every anchor)","subsystem":"ext.file-organizer-applier","dst":"/tmp/fo-sec-5rkRVe/outside/victim.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an out-of-anchor dst is REFUSED (copy-pending never rm's it) [0.77ms]
+{"ts":"2026-09-06T00:33:28.183Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-I5vSFz/watched/a.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > EMPTY anchors refuse everything (a journal we cannot anchor is not replayed) [0.59ms]
+{"ts":"2026-09-06T00:33:28.184Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-CXhddE/.ezcorp/data/ez-corp-db"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor src inside .ezcorp/data is REFUSED [0.62ms]
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor copy-done still finishes the unlink [0.78ms]
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor copy-pending still rolls the partial dst back [0.90ms]
+(pass) daemon: fail-closed on unset EZCORP_PROJECT_ROOT (host-side data dir) > a non-existent data dir ⇒ tick is a safe no-op [0.70ms]
+
+ 35 pass
+ 0 fail
+ 90 expect() calls
+Ran 35 tests across 1 file. [581.00ms]
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-applier.test.ts:
+(pass) applyProposal — move > copy+verify+unlink: dst written, src gone, audit row written [9.69ms]
+(pass) applyProposal — move > never overwrites — collision gets a (2) suffix [6.58ms]
+(pass) applyProposal — move > destination escaping the watched root is blocked [0.72ms]
+(pass) applyProposal — move > destination targeting .ezcorp/data is blocked [0.66ms]
+{"ts":"2026-09-06T00:33:28.693Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-applier-mazMnt/w/sub/a.txt","reason":"denied by test"}
+(pass) applyProposal — move > engine deny ⇒ blocked, original intact, no copy [0.88ms]
+{"ts":"2026-09-06T00:33:28.699Z","level":"warn","msg":"file-organizer move failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-applier-2q3cxr/w/a.txt","dst":"/tmp/fo-applier-2q3cxr/w/sub/a.txt","error":"Error: copy verify failed: expected 999 bytes, got 5"}
+(pass) applyProposal — move > size-mismatch (torn copy) aborts: original intact, dst removed [6.35ms]
+(pass) applyProposal — move > stale source ⇒ stale-source (no mutation) [0.65ms]
+(pass) applyProposal — move > an unclassified proposal is skipped (not directly applyable) [0.56ms]
+{"ts":"2026-09-06T00:33:28.701Z","level":"warn","msg":"file-organizer filesystem mutation unexpectedly prompted — failing closed","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-applier-UynxVE/w/sub/a.txt"}
+(pass) applyProposal — move > an engine 'prompt' decision fails closed (blocked, never applied) [0.74ms]
+(pass) applyProposal — move > symlink ⇒ skipped (never followed) [1.41ms]
+(pass) applyProposal — quarantine > moves to trash, audit row written, original gone [1.13ms]
+{"ts":"2026-09-06T00:33:28.704Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-applier-3KLORg/.ezcorp/extension-data/file-organizer/.trash/p/junk.tmp","reason":"denied by test"}
+(pass) applyProposal — quarantine > engine deny ⇒ blocked (file stays) [0.61ms]
+(pass) restoreFromQuarantine > restores to original (non-overwrite suffix on collision) [0.86ms]
+(pass) restoreFromQuarantine > missing trashed file ⇒ stale-source [0.37ms]
+(pass) restoreFromQuarantine > restore into .ezcorp/data ⇒ blocked [0.46ms]
+(pass) journal crash-replay > copy-done entry finishes the unlink idempotently [1.06ms]
+(pass) journal crash-replay > copy-pending entry rolls back the partial dst, keeps original [0.75ms]
+(pass) journal crash-replay > empty journal is a no-op [0.15ms]
+(pass) journal crash-replay > a corrupt (non-JSON) journal is read as empty (fail-safe) [0.25ms]
+(pass) journal crash-replay > a non-array journal payload is read as empty [0.21ms]
+(pass) hardDeleteTrash > removes a trash dir recursively [0.49ms]
+(pass) guards (unit) > isWithin / touchesProtectedDir (segment-bounded fallback) [0.26ms]
+(pass) guards (unit) > touchesProtectedDir anchors to the real dataDirRoot's project .ezcorp/data [0.40ms]
+(pass) guards (unit) > isQuarantineId accepts every host generator and refuses traversal [0.19ms]
+(pass) guards (unit) > canonicalRoot / resolveCreateTarget canonicalize through symlinks [0.45ms]
+(pass) guards (unit) > resolveNonOverwrite walks suffixes on disk [0.30ms]
+(pass) guards (unit) > resolveNonOverwrite handles dotfiles (no ext) and multi-dot names [0.44ms]
+
+ 27 pass
+ 0 fail
+ 82 expect() calls
+Ran 27 tests across 1 file. [504.00ms]
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-applier-exdev.test.ts:
+(pass) applyQuarantine — EXDEV fallback (copy+fsync+verify+unlink) > a cross-device rename falls back to copy; original is gone, trash holds the bytes [10.08ms]
+{"ts":"2026-09-06T00:33:29.186Z","level":"warn","msg":"file-organizer move failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-DPiscH/watched/a.txt","dst":"/tmp/fo-exdev-DPiscH/watched/sub/a.txt","code":"ENOSPC","error":"Error: ENOSPC: no space left on device"}
+(pass) applyMove — ENOSPC abort (disk full) leaves the original intact > a copy that fails with ENOSPC aborts the move; src kept, dst absent [2.46ms]
+(pass) restoreFromQuarantine — EXDEV fallback > a cross-device restore falls back to copy; trash emptied, file back [6.19ms]
+{"ts":"2026-09-06T00:33:29.194Z","level":"warn","msg":"file-organizer quarantine failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-uNkrVS/watched/junk.tmp","error":"Error: EACCES: permission denied, mkdir"}
+(pass) applyQuarantine — failure aborts with the original intact > an mkdir failure surfaces as 'failed' (outer catch) [0.79ms]
+{"ts":"2026-09-06T00:33:29.195Z","level":"warn","msg":"file-organizer restore failed","subsystem":"ext.file-organizer-applier","trashPath":"/tmp/fo-exdev-MU1GG5/.ezcorp/extension-data/file-organizer/.trash/q1/a.txt","error":"Error: EACCES: permission denied, mkdir"}
+(pass) restoreFromQuarantine — failure surfaces as 'failed' > an mkdir failure on the restore parent is caught [0.71ms]
+{"ts":"2026-09-06T00:33:29.196Z","level":"warn","msg":"file-organizer prune failed","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-mDfenY/.ezcorp/extension-data/file-organizer/.trash/stuck","error":"Error: EBUSY: resource busy or locked, rm"}
+(pass) hardDeleteTrash — rm failure returns false > a prune that can't remove the dir returns false (swallowed + logged) [0.73ms]
+{"ts":"2026-09-06T00:33:29.196Z","level":"warn","msg":"file-organizer prune refused: entry escapes the trash root","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-pFh3ol/.ezcorp/extension-data/file-organizer/.trash/escape-me"}
+(pass) hardDeleteTrash — rm failure returns false > an entry whose realpath fails the containment re-check is refused [0.50ms]
+{"ts":"2026-09-06T00:33:29.197Z","level":"warn","msg":"file-organizer prune failed to unlink a symlinked entry","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-JE38L8/.ezcorp/extension-data/file-organizer/.trash/linked","error":"Error: EPERM: operation not permitted, unlink"}
+(pass) hardDeleteTrash — rm failure returns false > a symlinked entry whose unlink fails returns false [0.47ms]
+(pass) resolveNonOverwrite — exhausted suffix loop falls back to a timestamp > when every candidate exists, the (timestamp) tail is returned [5.00ms]
+{"ts":"2026-09-06T00:33:29.204Z","level":"warn","msg":"journal replay entry failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-2vd2jp/watched/a.txt","error":"Error: EPERM: operation not permitted, unlink"}
+(pass) replayJournal — a per-entry failure is swallowed (continue) > an unlink that throws synchronously is caught; replay still completes [2.35ms]
+
+ 10 pass
+ 0 fail
+ 24 expect() calls
+Ran 10 tests across 1 file. [473.00ms]
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/background-timers.test.ts:
+(pass) startBackgroundTimers > first call schedules decay + 3 cleanup intervals + compaction interval [3.77ms]
+(pass) startBackgroundTimers > second call is a no-op (idempotent) [0.37ms]
+(pass) startBackgroundTimers > decay timer failure is logged but compaction still starts [0.49ms]
+(pass) startBackgroundTimers > getSetting failure leaves decay + cleanups running, logs compaction warning [0.32ms]
+(pass) startBackgroundTimers > custom compaction interval from settings is honored [0.35ms]
+(pass) startBackgroundTimers — ScheduleDaemon registry wiring > ScheduleDaemon is constructed with the registry singleton [0.28ms]
+(pass) startBackgroundTimers — ScheduleDaemon registry wiring > EZCORP_DISABLE_SCHEDULE_DAEMON=1 kill switch: never constructed [0.28ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > constructed, started, exposed — and arms no interval of its own here [0.30ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > EZCORP_DISABLE_WORKFLOW_RUNNER=1 kill switch: never constructed [0.27ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > start() resolving false: the handle is DROPPED, rest of boot ran [0.52ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > start() rejecting: handle dropped, no exception bubbles, boot continues [0.30ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > stopBackgroundTimers AWAITS the runner's stop and clears the handle [0.32ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > a REJECTING stop() is logged, the handle is still cleared, and teardown continues [0.53ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > happy-path bootstrap: BriefingDaemon is instantiated, started, and exposed [0.42ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > EZCORP_DISABLE_BRIEFING_DAEMON=1 kill switch: never constructed [0.41ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > start() resolving false: handle is dropped, rest of boot ran [0.34ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.40ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.39ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > happy-path bootstrap: constructed, started, and exposed [0.31ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > EZCORP_DISABLE_WEBHOOK_DAEMON=1 kill switch: never constructed [0.28ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.34ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > happy-path bootstrap: HostMaintenanceDaemon is instantiated and started [0.28ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot still ran [0.33ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.31ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > happy-path bootstrap: EmbedWorker is instantiated, started, and exposed [0.28ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot ran [0.29ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.30ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > stopBackgroundTimers() and _resetForTests() tear down the worker [0.32ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > activation starts once; disable and uninstall stop; reactivation restarts [0.41ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > shutdown waits for an active start and cancels its queued reload [0.43ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > happy-path: daemon constructed, started, exposed; no 5th interval [0.29ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > extension not installed: daemon never constructed, boot continues [0.28ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > extension installed but disabled: daemon never constructed [0.26ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > start() resolving false: handle dropped, boot continues [0.29ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > start() rejecting: handle dropped, log.warn carries the error [0.30ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.34ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > happy-path bootstrap: GithubProjectsDaemon is instantiated, started, and exposed [0.26ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > bootstrap uses the MODULE SINGLETON — the poll-now RPC path's accessor returns the SAME instance [0.25ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > boot reconciliation sweep runs exactly once, BEFORE the daemon start [0.28ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > sweep rejection does NOT prevent the daemon start (warn logged, boot continues) [0.30ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > start() returning false (kill-switch): handle is dropped, boot continues [0.27ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > start() throwing: handle is dropped, log.warn carries the error, no exception bubbles [0.29ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.33ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > happy-path bootstrap: PreviewPortWatcher is instantiated, started, and exposed [0.25ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot ran [0.27ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.30ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > stopBackgroundTimers() and _resetForTests() tear down the watcher [0.30ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > capability mode 'uid' selects ProcPortSource (not Netns) [0.29ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > capability mode 'static' selects NetnsPortSource (default fail-closed arm) [0.24ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > wires onIdleReap + defaults idleReapTicks to 30 when the env is unset [0.25ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > idleReapTicks "0" disables idle reaping (parsed to 0) [0.33ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > a non-numeric idleReapTicks ("abc") falls back to 30 [0.25ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > getPreviewPortWatcher() exposes the live watcher (production accessor) [0.25ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > an hourly tick sweeps audit_log with the 180-day default [2.59ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > EZCORP_AUDIT_RETENTION_DAYS overrides the window [1.46ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > a nonsense knob keeps the default rather than purging [1.50ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > a sweep failure is logged and does not crash the timer [2.47ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick reads settings and calls cleanupOldSdkCapabilityCalls with defaults [1.47ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick clamps a stray 0 setting to 1 (CR-3 — no implicit purge) [1.35ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick clamps an oversize 99999 setting to 3650 (CR-3 ceiling) [1.36ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > cleanup throw in tick is logged but does not crash the timer [2.41ms]
+(pass) startBackgroundTimers — embedding warm-up > warm-up is kicked exactly once and the boot log fires [0.37ms]
+(pass) startBackgroundTimers — embedding warm-up > repeated start() calls kick the warm-up only once (idempotent) [0.28ms]
+(pass) startBackgroundTimers — embedding warm-up > a throwing warm-up is logged but never blocks boot (timers + daemons still start) [0.29ms]
+
+ 64 pass
+ 0 fail
+ 264 expect() calls
+Ran 64 tests across 1 file. [484.00ms]
+PARENT_FILE_ORGANIZER_EXIT=0

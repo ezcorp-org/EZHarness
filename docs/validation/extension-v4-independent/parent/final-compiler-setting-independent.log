@@ -1,0 +1,111 @@
+$ bun test ./src/__tests__/background-timers.test.ts --timeout 30000
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/background-timers.test.ts:
+(pass) startBackgroundTimers > first call schedules decay + 3 cleanup intervals + compaction interval [6.77ms]
+(pass) startBackgroundTimers > second call is a no-op (idempotent) [1.08ms]
+(pass) startBackgroundTimers > decay timer failure is logged but compaction still starts [0.72ms]
+(pass) startBackgroundTimers > getSetting failure leaves decay + cleanups running, logs compaction warning [0.39ms]
+(pass) startBackgroundTimers > custom compaction interval from settings is honored [0.40ms]
+(pass) startBackgroundTimers — ScheduleDaemon registry wiring > ScheduleDaemon is constructed with the registry singleton [0.31ms]
+(pass) startBackgroundTimers — ScheduleDaemon registry wiring > EZCORP_DISABLE_SCHEDULE_DAEMON=1 kill switch: never constructed [0.34ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > constructed, started, exposed — and arms no interval of its own here [0.49ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > EZCORP_DISABLE_WORKFLOW_RUNNER=1 kill switch: never constructed [0.36ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > start() resolving false: the handle is DROPPED, rest of boot ran [0.77ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > start() rejecting: handle dropped, no exception bubbles, boot continues [0.68ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > stopBackgroundTimers AWAITS the runner's stop and clears the handle [0.40ms]
+(pass) startBackgroundTimers — WorkflowRunner bootstrap > a REJECTING stop() is logged, the handle is still cleared, and teardown continues [0.53ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > happy-path bootstrap: BriefingDaemon is instantiated, started, and exposed [0.37ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > EZCORP_DISABLE_BRIEFING_DAEMON=1 kill switch: never constructed [0.43ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > start() resolving false: handle is dropped, rest of boot ran [0.38ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.53ms]
+(pass) startBackgroundTimers — BriefingDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.47ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > happy-path bootstrap: constructed, started, and exposed [0.48ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > EZCORP_DISABLE_WEBHOOK_DAEMON=1 kill switch: never constructed [0.52ms]
+(pass) startBackgroundTimers — WebhookDeliveryDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.71ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > happy-path bootstrap: HostMaintenanceDaemon is instantiated and started [0.46ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot still ran [0.69ms]
+(pass) startBackgroundTimers — HostMaintenanceDaemon bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.50ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > happy-path bootstrap: EmbedWorker is instantiated, started, and exposed [0.37ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot ran [0.34ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.35ms]
+(pass) startBackgroundTimers — EmbedWorker bootstrap > stopBackgroundTimers() and _resetForTests() tear down the worker [0.44ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > daemon_enabled controls bootstrap, activation, and revocation [0.57ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > activation starts once; disable and uninstall stop; reactivation restarts [0.62ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > shutdown waits for an active start and cancels its queued reload [3.49ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > happy-path: daemon constructed, started, exposed; no 5th interval [0.40ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > extension not installed: daemon never constructed, boot continues [0.31ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > extension installed but disabled: daemon never constructed [0.33ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > start() resolving false: handle dropped, boot continues [0.30ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > start() rejecting: handle dropped, log.warn carries the error [0.38ms]
+(pass) startBackgroundTimers — FileOrganizerDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.40ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > happy-path bootstrap: GithubProjectsDaemon is instantiated, started, and exposed [0.30ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > bootstrap uses the MODULE SINGLETON — the poll-now RPC path's accessor returns the SAME instance [0.34ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > boot reconciliation sweep runs exactly once, BEFORE the daemon start [0.48ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > sweep rejection does NOT prevent the daemon start (warn logged, boot continues) [0.50ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > start() returning false (kill-switch): handle is dropped, boot continues [0.45ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > start() throwing: handle is dropped, log.warn carries the error, no exception bubbles [0.36ms]
+(pass) startBackgroundTimers — GithubProjectsDaemon bootstrap > stopBackgroundTimers() and _resetForTests() tear down the daemon [0.47ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > happy-path bootstrap: PreviewPortWatcher is instantiated, started, and exposed [0.39ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > start() resolving false: handle is dropped, no exception bubbles, rest of boot ran [0.37ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > start() rejecting: handle is dropped, log.warn carries the error, no exception bubbles [0.35ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > stopBackgroundTimers() and _resetForTests() tear down the watcher [0.40ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > capability mode 'uid' selects ProcPortSource (not Netns) [0.41ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > capability mode 'static' selects NetnsPortSource (default fail-closed arm) [0.28ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > wires onIdleReap + defaults idleReapTicks to 30 when the env is unset [0.34ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > idleReapTicks "0" disables idle reaping (parsed to 0) [0.28ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > a non-numeric idleReapTicks ("abc") falls back to 30 [0.30ms]
+(pass) startBackgroundTimers — PreviewPortWatcher bootstrap > idle-reap config wiring > getPreviewPortWatcher() exposes the live watcher (production accessor) [0.33ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > an hourly tick sweeps audit_log with the 180-day default [1.57ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > EZCORP_AUDIT_RETENTION_DAYS overrides the window [1.47ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > a nonsense knob keeps the default rather than purging [1.46ms]
+(pass) startBackgroundTimers — audit_log retention sweep (#206) > a sweep failure is logged and does not crash the timer [4.45ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick reads settings and calls cleanupOldSdkCapabilityCalls with defaults [1.54ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick clamps a stray 0 setting to 1 (CR-3 — no implicit purge) [1.54ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > hourly tick clamps an oversize 99999 setting to 3650 (CR-3 ceiling) [1.45ms]
+(pass) startBackgroundTimers — Phase 50 sdk-capability retention sweep > cleanup throw in tick is logged but does not crash the timer [2.43ms]
+(pass) startBackgroundTimers — embedding warm-up > warm-up is kicked exactly once and the boot log fires [0.36ms]
+(pass) startBackgroundTimers — embedding warm-up > repeated start() calls kick the warm-up only once (idempotent) [0.31ms]
+(pass) startBackgroundTimers — embedding warm-up > a throwing warm-up is logged but never blocks boot (timers + daemons still start) [0.33ms]
+
+ 65 pass
+ 0 fail
+ 271 expect() calls
+Ran 65 tests across 1 file. [812.00ms]
+
+exit=0
+$ bun test ./src/__tests__/mcp-seccomp-profile.test.ts --timeout 30000
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/mcp-seccomp-profile.test.ts:
+(pass) seccomp profile shape > the C compiler adds every declared rule to a default-deny filter [205.31ms]
+(pass) seccomp profile shape > mcp-seccomp.json: defaultAction is SCMP_ACT_ERRNO (post-Phase-58 enforce flip) [0.58ms]
+(pass) seccomp profile shape > mcp-seccomp.json: every syscalls[].action is SCMP_ACT_LOG [0.32ms]
+(pass) seccomp profile shape > mcp-seccomp.json: syscalls array has >=250 entries [0.21ms]
+(skip) seccomp profile shape > mcp-seccomp.bpf exists and is non-empty
+(skip) seccomp profile shape > openSeccompBpfFd returns a usable FD when the .bpf is present (Linux)
+(pass) seccomp profile shape > openSeccompBpfFd returns null on non-Linux platforms (loader contract) [0.19ms]
+(pass) seccomp profile shape > getSeccompBpfPath returns an absolute path ending in /mcp-seccomp.bpf [0.04ms]
+(pass) Dockerfile shape > Dockerfile apt-installs bubblewrap [0.36ms]
+(pass) Dockerfile shape > Dockerfile apt-installs libseccomp2 [0.19ms]
+(pass) Dockerfile shape > Dockerfile builds the BPF blob via gcc + libseccomp [0.33ms]
+
+ 9 pass
+ 2 skip
+ 0 fail
+ 421 expect() calls
+Ran 11 tests across 1 file. [909.00ms]
+
+exit=0
+$ bun test ./src/__tests__/mcp-seccomp-enforce-integration.test.ts --timeout 30000
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/mcp-seccomp-enforce-integration.test.ts:
+(skip) declared getpid is logged and undeclared io_uring_setup is denied in the production spawn envelope
+
+ 0 pass
+ 1 skip
+ 0 fail
+Ran 1 test across 1 file. [674.00ms]
+
+exit=0

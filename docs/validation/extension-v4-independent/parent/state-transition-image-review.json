@@ -1,0 +1,22 @@
+{
+  "artifacts/canvas-label-blob/extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-light.png": {
+    "sha256": "c0268755b49cc20e9bb00c603adbc7abc9b5f5aa722b88bd25801c131e779813",
+    "observation": "Light canvas and controls legible; range label separated from value; seeded colors correct."
+  },
+  "artifacts/canvas-label-blob/extracted/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-mobile-dark.png": {
+    "sha256": "d1f55e18d7a56a336f406e98ad7390368e5843303616e06689e9a23a7e775bf9",
+    "observation": "390px mobile dark controls fit without clipping; preview and controls legible."
+  },
+  "artifacts/final-blob/extracted/extension-author-flow.spec.ts__extension-uninstall-retains-data.png": {
+    "sha256": "ac496b78427d93c3471f8b55a89a82bf151381ccb8cafcc350ebd5af751fa821",
+    "observation": "Real-auth dialog clearly states removal stops tools/permissions and retains history, settings, secrets, data, files."
+  },
+  "artifacts/final-blob/extracted/extension-disable-hides-hub-page.spec.ts__uninstall-dialog-data-choice.png": {
+    "sha256": "dda25e821142d36af9b1b1cf648f5b55600138bff2cf318e72220027bc1fd25b",
+    "observation": "Mock dialog presents retention policy and distinct cancel/uninstall actions."
+  },
+  "artifacts/final-blob/extracted/extension-disable-hides-hub-page.spec.ts__hub-tab-bar-after-disable.png": {
+    "sha256": "d91d84cca6eb95be9d186094b5e2d598aa793b3a87ce52c7b7bee2bf811764da",
+    "observation": "DEFECT: only Briefing tab remains, but Notes Dashboard heading/content remains visible. Sent for repair; this screenshot is not a pass for removal of displayed extension content."
+  }
+}

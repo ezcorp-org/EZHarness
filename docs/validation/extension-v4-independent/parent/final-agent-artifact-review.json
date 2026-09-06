@@ -1,0 +1,29 @@
+{
+  "method": "Read every indexed byte; compare SHA-256; inspect each indexed raw build log inside its archive.",
+  "indexes": {
+    "docs/validation/extension-v4-independent/build/SHA256SUMS": 10,
+    "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/SHA256SUMS": 21,
+    "docs/validation/extension-v4-independent/policy/artifacts/NESTED-SHA256SUMS": 14,
+    "docs/validation/extension-v4-independent/policy/artifacts/SHA256SUMS": 15,
+    "docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/SHA256SUMS": 5,
+    "docs/validation/extension-v4-independent/runtime/artifacts/SHA256SUMS": 68,
+    "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/SHA256SUMS": 7,
+    "docs/validation/extension-v4-independent/web/artifacts/RAW-ARCHIVE-SHA256SUMS": 12,
+    "docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/SHA256SUMS": 4,
+    "docs/validation/extension-v4-independent/web/artifacts/final-blob/SHA256SUMS": 70,
+    "docs/validation/extension-v4-independent/web/artifacts/final2-blob/SHA256SUMS": 70,
+    "docs/validation/extension-v4-independent/web/artifacts/final3-blob/SHA256SUMS": 70,
+    "docs/validation/extension-v4-independent/web/screenshots/SHA256SUMS": 134,
+    "docs/validation/extension-v4-independent/web/screenshots/final3/SHA256SUMS": 67
+  },
+  "indexed_files": 567,
+  "build_raw_receipts": 29,
+  "supplemental_raw_receipts": 14,
+  "limit": "Integrity verifies retained bytes. Behavioral assertions and raw verdicts are reviewed separately.",
+  "migration_ledger": {
+    "blocked": 1,
+    "verified": 66,
+    "product decision pending": 16,
+    "fixed and verified": 1
+  }
+}

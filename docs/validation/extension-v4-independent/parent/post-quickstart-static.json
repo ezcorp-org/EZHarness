@@ -1,0 +1,27 @@
+{
+  "head": "b1043e2fcb7e3ca258dcb2ea2ed00ec9f665fc8e",
+  "tree": "b0304935553873caf78e9ab5b5ac5913c8e38ea9",
+  "bun": "1.3.14",
+  "utc": "2026-09-06T03:06:53.766407+00:00",
+  "commands": [
+    {
+      "argv": [
+        "bun",
+        "run",
+        "typecheck"
+      ],
+      "exit": 0
+    },
+    {
+      "argv": [
+        "bun",
+        "run",
+        "lint"
+      ],
+      "exit": 0
+    }
+  ],
+  "raw": "post-quickstart-static.log",
+  "sha256": "7f7206fb698c79c4f72663b24f81767f407756370d3ad44c3e3b5ba233dbacd7",
+  "limit": "Required typecheck under existing ratchet exclusions and lint after the final test-only quickstart change. Warnings remain visible in raw output."
+}

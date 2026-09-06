@@ -1,0 +1,14 @@
+{
+  "updated_main": {
+    "path": "/home/dev/work/EZCorp/pr-review-harness-main",
+    "head": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+    "status": []
+  },
+  "original_implementation": {
+    "path": "/home/dev/work/EZCorp/EZHarness-worktrees/extension-v4",
+    "head": "61ffa8fc8dc2c8d370616e46bed0e2d6a3b738ab",
+    "status": [
+      "?? docs/plans/extension-v4-independent-validation-handoff.md"
+    ]
+  }
+}

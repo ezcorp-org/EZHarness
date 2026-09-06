@@ -1,0 +1,54 @@
+$ bun test ./src/__tests__/price-chart.e2e.test.ts --timeout 120000
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/price-chart.e2e.test.ts:
+(pass) price-chart e2e — non-network paths > rejects empty ticker with toolError [99.39ms]
+(pass) price-chart e2e — non-network paths > rejects whitespace ticker [82.40ms]
+(pass) price-chart e2e — non-network paths > unknown tool name returns JSON-RPC error [82.85ms]
+(pass) price-chart e2e — installed v4 release + live network > get_stock_chart(AAPL) returns JSON with points + no iframeSrc [1025.51ms]
+(pass) price-chart e2e — installed v4 release + live network > get_crypto_chart(BTC) returns JSON with points + Bitcoin name [1135.34ms]
+(pass) price-chart e2e — through ToolExecutor (stub PDP) > ToolExecutor.executeToolCall returns JSON payload [910.26ms]
+(pass) price-chart e2e — chat-flow path (real PDP) > extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt) [882.73ms]
+
+ 7 pass
+ 0 fail
+ 33 expect() calls
+Ran 7 tests across 1 file. [10.71s]
+
+exit=0
+$ bun test ./src/extensions/first-party-integration/task-stack/e2e-server-pipeline.test.ts --timeout 120000
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/first-party-integration/task-stack/e2e-server-pipeline.test.ts:
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > add-task → list-tasks round-trip via real JSON-RPC transport [178.65ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > persistent process handles 5 sequential add-task calls without disconnection [170.82ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > concurrent add-task (Promise.all of 3) — createMutex preserves all writes [173.50ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > malformed tool args return isError:true without killing the subprocess [169.51ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > unknown tool returns JSON-RPC error → isError:true; process survives [170.92ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > store persists across sequential RPC calls — atomicRead/saveJSON round-trip [168.70ms]
+(pass) E2E: task-stack real ExtensionProcess (server pipeline) > start-task → get-active-task → finish-task lifecycle through one real process [175.15ms]
+
+ 7 pass
+ 0 fail
+ 43 expect() calls
+Ran 7 tests across 1 file. [1.62s]
+
+exit=0
+$ bun test ./src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts --timeout 120000
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts:
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > scan-todos on empty tree reports 'No TODO' through full RPC stack [175.15ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > scan-todos over seeded files returns markers (host-mediated fsList/fsRead flow) [174.63ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > priority filter flows through JSON-RPC args end-to-end [166.19ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > searchQuery filters seeded markers through JSON-RPC args end-to-end [161.80ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > root filesystem denial returns an error without project data, then the same process recovers [165.35ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > 3 sequential scan-todos calls on same persistent process — resetFailures counter rises [167.61ms]
+(pass) E2E: todo-tracker real ExtensionProcess (server pipeline) > unknown tool returns JSON-RPC error as isError:true; process recovers [168.68ms]
+
+ 7 pass
+ 0 fail
+ 33 expect() calls
+Ran 7 tests across 1 file. [1.62s]
+
+exit=0

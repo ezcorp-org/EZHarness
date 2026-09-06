@@ -1,0 +1,26 @@
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/sdk/src/v4/serve.test.ts:
+(pass) v4 protocol > host CAS conflicts preserve their stable public discriminator [77.98ms]
+(pass) v4 protocol > discovery returns immutable data and typed invocation enforces both schemas [0.69ms]
+(pass) v4 protocol > host requests bind exact invocation and expire after completion [0.41ms]
+(pass) v4 protocol > served invocation drains a direct admitted host call before replying [0.55ms]
+(pass) v4 protocol > served invocation preserves a handled host-request fallback [0.35ms]
+(pass) v4 protocol > served invocation rejects delayed credential calls while admitted effects drain [1.08ms]
+(pass) v4 protocol > cancellation interrupts handlers and late side effects fail [1.99ms]
+(pass) v4 protocol > deadline, concurrency, malformed frames and secret errors fail closed [0.59ms]
+(pass) v4 protocol > stream rejects oversized unterminated frames, malformed UTF8 and truncation [0.71ms]
+(pass) v4 protocol > host errors, pending cancellation and output failures settle requests [0.67ms]
+(pass) v4 protocol > real Bun process discovers and invokes through SDK stdin transport [206.13ms]
+
+packages/@ezcorp/sdk/src/v4/invocation-channel.test.ts:
+(pass) pure definitions use scoped helpers and reject retained channels after completion [5.95ms]
+(pass) pure definition notification failure rejects the invocation rather than racing its teardown [0.21ms]
+(pass) handler failure waits for an admitted notification before invocation teardown [0.34ms]
+(pass) notification failure waits for every admitted host effect [0.31ms]
+(pass) delayed callbacks cannot add notifications while admitted effects drain [0.27ms]
+
+ 16 pass
+ 0 fail
+ 51 expect() calls
+Ran 16 tests across 2 files. [750.00ms]

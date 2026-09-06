@@ -1,0 +1,10 @@
+{
+  "at": "2026-09-05T20:22:32.503746+00:00",
+  "reason": "User requested pull latest main during audit",
+  "initialHead": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+  "initialBase": "65edc5bc0e36c6147219631e9cf73f89529bdef3",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "head": "3093a3a5e327b5ca6fb585b9f1271817553804e8",
+  "tree": "e7d774a0d81983060dc60c2b92b9393ba464b05c",
+  "limits": "Initial hosted receipts remain initial-candidate evidence; final checks must use integrated source."
+}

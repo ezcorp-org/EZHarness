@@ -1,0 +1,38 @@
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9994502Z 76 |       while (!buffered.includes("\n")) {
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9994882Z 77 |         const chunk = await reader.read();
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9995584Z 78 |         if (chunk.done) throw new Error(`Container exited: ${await new Response(child!.stderr as ReadableStream).text()}`);
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9996139Z                                    ^
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9996699Z error: Container exited: [conmon:e]: Include journald in compilation path to log to systemd journal
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9997215Z Error: conmon failed: exit status 1
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9997395Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9997749Z       at frame (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/sdk/src/v4/mcp.test.ts:78:31)
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9998812Z       at async <anonymous> (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/sdk/src/v4/mcp.test.ts:89:29)
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:47.9999239Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0020905Z ##[error]
+Coverage extras (legs)	Run coverage legs	      at frame (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/sdk/src/v4/mcp.test.ts:78:31)
+Coverage extras (legs)	Run coverage legs	      at async <anonymous> (/home/runner/work/EZHarness/EZHarness/packages/@ezcorp/sdk/src/v4/mcp.test.ts:89:29)
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0029992Z (fail) MCP executable discovers and invokes in a networkless rootless container [1529.67ms]
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0030404Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0030710Z ##[endgroup]
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0030848Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0031160Z ##[group]packages/@ezcorp/sdk/src/v4/network.test.ts:
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0042634Z (pass) browser authors can pass a DOM Window without installing Node ambient types [1238.77ms]
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0042979Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0043236Z ##[endgroup]
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0043366Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0043474Z 1 tests failed:
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0043960Z (fail) MCP executable discovers and invokes in a networkless rootless container [1529.67ms]
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0044308Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0044406Z  1025 pass
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0044613Z  1 fail
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.0044835Z  2336 expect() calls
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1061997Z ^[[2m Test Files ^[[22m ^[[1m^[[32m277 passed^[[39m^[[22m^[[90m (277)^[[39m
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1062298Z ^[[2m      Tests ^[[22m ^[[1m^[[32m4551 passed^[[39m^[[22m^[[90m (4551)^[[39m
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1062479Z ^[[2m   Start at ^[[22m 19:13:35
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1063015Z ^[[2m   Duration ^[[22m 251.80s^[[2m (transform 25.50s, setup 118.25s, import 125.38s, tests 47.27s, environment 278.40s)^[[22m
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1063028Z 
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1063261Z tolerated leg exit codes (not gated): sdk=1 suggest=0
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1063478Z emitted 5 lcov shard(s) → coverage-shard
+Coverage extras (legs)	Run coverage legs	2026-09-05T19:17:48.1063599Z   1440 pass | 1 fail | legs
+Coverage extras (legs)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	﻿2026-09-05T19:17:48.1142490Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Coverage extras (legs)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-09-05T19:17:48.1142599Z with:

@@ -1,0 +1,39 @@
+{
+  "checked_utc": "2026-09-06T02:22:37.482066+00:00",
+  "image_source": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+  "image_id": "8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be",
+  "image_bpf_sha256": "4b9755245461ac5e8bed6bd3b9c3933faebd6cbc2638e50bbf6920d98efa2a1a",
+  "parent_review": "Read exact replay source, preserved evidence test, and raw result. Probe uses actual SYS_getpid and SYS_io_uring_setup, not printed fixture responses. Effect output appears after successful child exit and effect assertions.",
+  "allowed_effect": "getpid returned90 under declared LOG action; actual kernel log was not observed",
+  "denied_effect": "undeclared io_uring_setup(0,NULL) returned-1 errno38 (ENOSYS)",
+  "entire_opted_in_test": {
+    "passed": 0,
+    "failed": 1,
+    "assertions": 7,
+    "failed_assertion": "No exact-PID audit rows; expected LOG action in codes[]"
+  },
+  "environment": "Owned production-image container with NET_ADMIN, read-only Nix store and compiled probe mounts; explicit bwrap capability fixture, permission context, and filter on inherited child FD3. This is a controlled sandbox configuration, not a claim about every deployment default.",
+  "blocker": "Both user and root kernel-journal queries have no entries. Audit emission, ingestion, and PID attribution are unproved. Platform owner must replay on an audit-capable isolated Linux runner; no host-global logging setting was changed.",
+  "artifacts": [
+    {
+      "name": "seccomp-final-image-effect-audit.log.gz",
+      "sha256": "5b4d169d44240aa6fd5decabc9220385b55f70b5435c317a4ec7510a1ff8d440"
+    },
+    {
+      "name": "seccomp-final-journal-user.log.gz",
+      "sha256": "121447589ec7d872bd0d3d084b0eb002fc87a546a900a3e2fabdaaeeff55c0c6"
+    },
+    {
+      "name": "seccomp-final-journal-root.log.gz",
+      "sha256": "121447589ec7d872bd0d3d084b0eb002fc87a546a900a3e2fabdaaeeff55c0c6"
+    },
+    {
+      "name": "seccomp-final-image-replay.sh.txt",
+      "sha256": "6933b95e931cbf5d8fe5a9ee775057d3ee5c23042071f85d707cd642152d5d10"
+    },
+    {
+      "name": "seccomp-final-image-evidence.test.ts.txt",
+      "sha256": "5d0565424186c106d7334310079a86c01414d3498e30b59e79b76963c4c03136"
+    }
+  ]
+}

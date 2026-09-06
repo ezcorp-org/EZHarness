@@ -1,0 +1,38 @@
+{
+  "manifest": {
+    "pr": 246,
+    "headSha": "0b0a8293ac3bb35b4344f316a0f4b36f64790f30",
+    "runId": 0
+  },
+  "shots": 67,
+  "reports": {
+    "mock.zip": {
+      "tests": 42,
+      "status": {
+        "passed": 42
+      },
+      "end": {
+        "result": {
+          "status": "passed",
+          "startTime": 1788645592874,
+          "duration": 45159.224
+        }
+      },
+      "sha256": "54bb14d57bd8dd0bcbfb54c467149aa93e235c26166f6ee124437e3987634dc7"
+    },
+    "real-auth.zip": {
+      "tests": 7,
+      "status": {
+        "passed": 7
+      },
+      "end": {
+        "result": {
+          "status": "passed",
+          "startTime": 1788645639365,
+          "duration": 136076.715
+        }
+      },
+      "sha256": "118f4d8283184d984b60c92b91d955728f1bb5e86e53a199ac179453d70e1b95"
+    }
+  }
+}

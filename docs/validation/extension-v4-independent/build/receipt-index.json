@@ -352,7 +352,7 @@
       "start": "2026-09-06T02:56:39Z",
       "end": "2026-09-06T02:56:40Z",
       "exit": 0,
-      "result": "0 pass, 3 explicit live-provider skips, 0 fail",
+      "result": "0 pass, 1 explicit live test skip plus 2 skipped hooks, 0 fail",
       "command_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
       "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
     },

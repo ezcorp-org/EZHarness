@@ -1,0 +1,9 @@
+{
+  "recorded_at": "2026-09-05T21:35:01.247187+00:00",
+  "head": "ac53921ce07db8569eb8895456eda8271d6aab3f",
+  "tree": "ead56e1b614b215f7790eab41195f7c6a6d901d1",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "merge_base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "purpose": "Freeze2: combined runtime and browser fixes; full final checks dispatched to Sol owners",
+  "prior_freeze": "9ccce310facd28f0ad2898318fe081ef9f70e433"
+}

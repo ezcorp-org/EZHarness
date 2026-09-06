@@ -1,0 +1,14 @@
+{
+  "head": "b1043e2fcb7e3ca258dcb2ea2ed00ec9f665fc8e",
+  "tree": "b0304935553873caf78e9ab5b5ac5913c8e38ea9",
+  "executable_source": "69d9fd244918d1f7ddfe08dcb3ed451729d38651",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "command": "env -u GATE_CHANGE_APPROVED BASE_REF=origin/main bun scripts/gate-integrity.ts",
+  "bun": "1.3.14",
+  "gate_exit": 1,
+  "findings": 84,
+  "sha256": "3af863ae9e58df99efdd63cc8e5379da762e55872b9d0357ecad5c774aa4f5ce",
+  "raw": "final-policy-gate.log",
+  "utc": "2026-09-06T03:12:31.498450+00:00",
+  "limit": "Expected unresolved policy failure. The coordinator asserts exit1; this does not make the gate pass. No override or label applied."
+}

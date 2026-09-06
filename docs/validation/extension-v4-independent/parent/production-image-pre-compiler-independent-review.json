@@ -1,0 +1,41 @@
+{
+  "head": "19d9da92f771a5771d491234c9cff75eb104660b",
+  "tree": "5bf40268df5184c05cbdc1298e16fefc5fd33883",
+  "image": "localhost/ezcorp-extension-v4:audit-final-19d9da92-docker",
+  "image_id": "2d069cc64bc0bf06d5216517b0ee6724a865fe88ead28850f31219c2e2ade4de",
+  "digest": "sha256:11fec71d2a4f6cb0613499b528c6b262d2c14d3a4915a7cbcfba8ca77dd85297",
+  "format": "docker",
+  "build_exit": 0,
+  "verify_exit": 0,
+  "docker_load_exit": 0,
+  "healthcheck_in_podman_and_docker": true,
+  "checks": [
+    "production-boot",
+    "file-credential",
+    "real-isolated-build",
+    "human-approval",
+    "activation",
+    "tool-invocation",
+    "disable-denial",
+    "retained-history"
+  ],
+  "raw_logs": [
+    {
+      "member": "104-final-image-build.log",
+      "sha256": "06ba7e2f0cd3b0323c3bc6e6818d943b082ee09deb78d611c46adf4b3a979be8"
+    },
+    {
+      "member": "107-final-image-docker-format-build.log",
+      "sha256": "c6efe54279e0807d3fc4b8a6bb41ae9ebe4599e7258f9d7377f021ed44e1b449"
+    },
+    {
+      "member": "108-final-docker-format-healthcheck-verifier-8.log",
+      "sha256": "7cc8c91977413ad8ff4c503a291f013a08bee6868fee081dd8b6d7219883dd0c"
+    },
+    {
+      "member": "109-final-docker-format-load.log",
+      "sha256": "b3229f584508096ef800c3409529363c4284cd6af52453b4bef70f789a9bc0e8"
+    }
+  ],
+  "limits": "Parent read source assertions and exact raw results. OCI checkpoint104 discarded HEALTHCHECK and was rejected as final packaging.107/108/109 supersede it; browser12 has its own receipt."
+}

@@ -1,0 +1,58 @@
+{
+  "tested_source": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
+  "tested_tree": "5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83",
+  "checked_utc": "2026-09-06T02:02:17.532190+00:00",
+  "commands": [
+    {
+      "argv": [
+        "bun",
+        "test",
+        "./src/__tests__/background-timers.test.ts",
+        "--timeout",
+        "30000"
+      ],
+      "exit": 0,
+      "passed": 65,
+      "failed": 0,
+      "skipped": 0,
+      "assertions": 271
+    },
+    {
+      "argv": [
+        "bun",
+        "test",
+        "./src/__tests__/mcp-seccomp-profile.test.ts",
+        "--timeout",
+        "30000"
+      ],
+      "exit": 0,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 2,
+      "assertions": 421
+    },
+    {
+      "argv": [
+        "bun",
+        "test",
+        "./src/__tests__/mcp-seccomp-enforce-integration.test.ts",
+        "--timeout",
+        "30000"
+      ],
+      "exit": 0,
+      "passed": 0,
+      "failed": 0,
+      "skipped": 1,
+      "assertions": 0
+    }
+  ],
+  "totals": {
+    "passed": 74,
+    "failed": 0,
+    "skipped": 3,
+    "assertions": 692
+  },
+  "raw_log": "final-compiler-setting-independent.log",
+  "raw_sha256": "c2ac82f159bc2e5d0d1298bfe666fde6da1f5a2b63cee0e781356f2d33f00579",
+  "limit": "Actual C parser regression uses a controlled libseccomp adapter. BPF-dependent tests are explicitly skipped here; actual rebuilt image and real filter execution have separate receipts."
+}

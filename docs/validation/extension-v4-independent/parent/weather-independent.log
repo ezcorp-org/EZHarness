@@ -1,0 +1,14 @@
+9f15211ae2a873b9e8491a44ceb160cca39006e9
+6e2cfb5d328c5e099b5d75a842ae987eb5c61efe
+1.3.14
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/first-party-integration/weather-network.integration.test.ts:
+(pass) weather uses current sandbox fetch authority and recovers after denial [7125.75ms]
+(pass) city-conditions uses current sandbox fetch authority and recovers after denial [6381.85ms]
+
+ 2 pass
+ 0 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [14.02s]
+PARENT_WEATHER_EXIT=0

@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Replay the checked-in CI merge from curated raw producers. Run under the audit lock.
+Usage: python3 ci-coverage-replay.py.txt REPO RAW_ROOT_OR_ARCHIVE EVIDENCE_DIR
+An archive is extracted into an owned temporary directory. Set COVERAGE_ARCHIVE_SHA256
+to verify its expected digest. No producer is edited.
+"""
+import atexit
+import collections
+import datetime
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+repo, raw, evidence = [Path(p).resolve() for p in sys.argv[1:]]
+archive_metadata = None
+if raw.is_file():
+    archive = raw
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    expected_digest = os.environ.get('COVERAGE_ARCHIVE_SHA256')
+    if expected_digest:
+        assert digest == expected_digest, 'Coverage archive digest mismatch'
+    extracted = tempfile.TemporaryDirectory(prefix='parent-coverage-archive-', dir='/tmp')
+    atexit.register(extracted.cleanup)
+    data = subprocess.check_output(['zstd', '-dc', str(archive)])
+    with tarfile.open(fileobj=io.BytesIO(data)) as bundle:
+        members = bundle.getmembers()
+        for member in members:
+            name = Path(member.name)
+            assert not name.is_absolute() and '..' not in name.parts
+            assert member.isfile() or member.isdir() or member.islnk(), member.name
+            if member.islnk():
+                target = Path(member.linkname)
+                assert not target.is_absolute() and '..' not in target.parts
+        bundle.extractall(extracted.name, filter='data')
+    roots = list(Path(extracted.name).iterdir())
+    assert len(roots) == 1 and roots[0].is_dir()
+    raw = roots[0]
+    archive_metadata = {
+        'repo_path': str(archive.relative_to(repo)), 'sha256': digest,
+        'extracted_members': len(members), 'validated_from_archive': True,
+    }
+evidence.mkdir(parents=True, exist_ok=True)
+env = dict(os.environ)
+env['PATH'] = '/tmp/ez-extension-bun-1.3.14/bun-linux-x64:' + env['PATH']
+env['BASE_REF'] = 'origin/main'
+commands = []
+log_path = evidence / 'final-ci-coverage-replay.log'
+log = log_path.open('w')
+
+def run(args, stdin=None):
+    result = subprocess.run(args, cwd=repo, env=env, input=stdin, text=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    commands.append({'argv': args, 'exit': result.returncode})
+    log.write('$ ' + ' '.join(args) + '\n' + result.stdout + '\nexit=' + str(result.returncode) + '\n')
+    log.flush()
+    if result.returncode:
+        raise RuntimeError(f'Command failed: {args}')
+    return result.stdout
+
+source = run(['git', 'rev-parse', 'HEAD']).strip()
+tree = run(['git', 'rev-parse', 'HEAD^{tree}']).strip()
+base = run(['git', 'merge-base', 'HEAD', 'origin/main']).strip()
+assert base == '537f074e7303ecdf3cbef1a7af4fd60a3244b0a3', base
+assert run(['bun', '--version']).strip() == '1.3.14'
+host_text = run(['bash', '-c', 'source scripts/lib/test-file-sets.sh; coverage_host_files'])
+hosts = host_text.splitlines()
+assert hosts == (raw / 'maps/final-host-files.txt').read_text().splitlines()
+assert len(hosts) == len(set(hosts)) == 1550
+host_indexes = {name: index for index, name in enumerate(hosts)}
+expected_map = set((raw / 'maps/final-ci-12-group-map.tsv').read_text().splitlines())
+actual_map = set()
+raw_hashes = []
+for index in range(len(hosts)):
+    producer = raw / f'host/cov_{index}/lcov.info'
+    assert producer.is_file() and producer.stat().st_size > 0, producer
+    code = (raw / f'host/code_{index}').read_text().strip()
+    assert code == '0', (hosts[index], code)
+    raw_hashes.append((str(producer.relative_to(raw)), hashlib.sha256(producer.read_bytes()).hexdigest()))
+extras = sorted((raw / 'extras').glob('*.info')) + sorted((raw / 'security').glob('*.info'))
+assert len(extras) == 6, extras
+for producer in extras:
+    assert producer.stat().st_size > 0
+    raw_hashes.append((str(producer.relative_to(raw)), hashlib.sha256(producer.read_bytes()).hexdigest()))
+
+coverage = repo / 'coverage/lcov.info'
+original = coverage.read_bytes() if coverage.exists() else None
+stage = Path(tempfile.mkdtemp(prefix='parent-ci-coverage-', dir='/tmp'))
+bin_counts = []
+try:
+    stage2 = stage / 'stage2'
+    stage2.mkdir()
+    for group in range(12):
+        names = run(['bun', 'scripts/shard-plan.ts', str(group), '12'], stdin=host_text).splitlines()
+        assert names
+        bin_counts.append(len(names))
+        first = stage / f'group-{group}'
+        first.mkdir()
+        for name in names:
+            actual_map.add(f'{group}\t{name}')
+            index = host_indexes[name]
+            os.link(raw / f'host/cov_{index}/lcov.info', first / f'cov_{index}.info')
+        run(['bun', 'scripts/merge-lcov.ts', str(first / '*.info'), str(stage2 / f'lcov_shard_{group}.info')])
+    assert actual_map == expected_map and len(actual_map) == 1550
+    for index, producer in enumerate(extras):
+        os.link(producer, stage2 / f'extra_{index}.info')
+    run(['bun', 'scripts/merge-lcov.ts', str(stage2 / '*.info'), str(coverage)])
+    merged = coverage.read_bytes()
+    source_records = sum(line.startswith(b'SF:') for line in merged.splitlines())
+    threshold = run(['bun', 'scripts/check-coverage.ts'])
+    new_files = run(['bun', 'scripts/check-new-file-coverage.ts'])
+    patch = run(['bun', 'scripts/check-patch-coverage.ts'])
+    with gzip.GzipFile(filename='', mode='wb', fileobj=(evidence / 'final-ci-merged.lcov.gz').open('wb'), mtime=0) as gz:
+        gz.write(merged)
+    receipt = {
+        'checked_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'executed_by': 'parent coordinator', 'command_source': source, 'command_tree': tree,
+        'tested_source': source, 'full_pool_checkpoint': '19d9da92f771a5771d491234c9cff75eb104660b', 'base_and_merge_base': base,
+        'raw_producer_root': str(raw), 'host_producers': 1550, 'extra_and_security_producers': 6,
+        'regenerated_ci_groups': bin_counts, 'map_matches_supplied': True,
+        'merged_source_records': source_records, 'merged_sha256': hashlib.sha256(merged).hexdigest(),
+        'threshold_output': threshold.strip(), 'new_file_output': new_files.strip(),
+        'patch_output': patch.strip(), 'commands': commands,
+        'raw_producers': [{'path': name, 'sha256': digest} for name, digest in raw_hashes],
+        'limits': 'Replays the actual two-stage CI merge using the complete host pool with declared replacement producers for changed tests and same-source repeated extras/security. It does not claim a hosted CI run on the local audit branch.'
+    }
+    if archive_metadata:
+        receipt['portable_archive'] = archive_metadata
+    (evidence / 'final-ci-coverage-replay.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    print(json.dumps({k: receipt[k] for k in ['host_producers', 'extra_and_security_producers', 'regenerated_ci_groups', 'merged_source_records', 'threshold_output', 'new_file_output', 'patch_output']}, indent=2))
+finally:
+    if original is None:
+        coverage.unlink(missing_ok=True)
+    else:
+        coverage.write_bytes(original)
+    shutil.rmtree(stage)
+    log.close()

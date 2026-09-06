@@ -1,0 +1,14 @@
+{
+  "head": "19d9da92f771a5771d491234c9cff75eb104660b",
+  "tree": "5bf40268df5184c05cbdc1298e16fefc5fd33883",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "bun": "1.3.14",
+  "files": 7,
+  "pass": 207,
+  "fail": 0,
+  "assertions": 657,
+  "exit": 0,
+  "raw": "final-lock-provision-independent.log",
+  "sha256": "8999a69093229498bb1fc21d896ed0fdacc9fac4cf929fd80142593bfa9a252b",
+  "scope": "Separate-process replay authority, containment, applier, EXDEV, actual daemon lock handoff, background lifecycle, and production runner declaration build under long-TMPDIR fixture."
+}

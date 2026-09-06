@@ -1,0 +1,55 @@
+{
+  "checked_utc": "2026-09-06T02:11:50.456539+00:00",
+  "image_source": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+  "image_tree": "2ccafce2b65a9af89482e85e7168a5f01980051a",
+  "verifier_command_source": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+  "verifier_production_test_input_changes": [],
+  "tag": "localhost/ezcorp-extension-v4:audit-final-3ec53eaa",
+  "image_id": "8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be",
+  "manifest_digest": "sha256:7987b7e1fea72295d95a99b1cfdc43c5749e8173544cbf3ecf25f1555db48fca",
+  "format": "docker",
+  "healthcheck": {
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "StartPeriod": 60000000000,
+    "Interval": 30000000000,
+    "Timeout": 5000000000,
+    "Retries": 3
+  },
+  "checks": [
+    "production-boot",
+    "file-credential",
+    "real-isolated-build",
+    "human-approval",
+    "activation",
+    "tool-invocation",
+    "disable-denial",
+    "retained-history"
+  ],
+  "verifier_imports_actual_HarnessClient": true,
+  "loaded_docker_id_matches": true,
+  "raw_logs": [
+    {
+      "name": "123-final-validation-image-build.log",
+      "sha256": "6d791ef1788eb0df5da4f7d63ae2a868165124621a18b4b33210ab41bdbbf109",
+      "exit": 0
+    },
+    {
+      "name": "126-final-validation-image-verifier.log",
+      "sha256": "2f3e1709fe892dc99633547242809106d6f2f3ef534fb2eead79a0c395d46d61",
+      "exit": 0
+    },
+    {
+      "name": "127-final-validation-image-docker-load.log",
+      "sha256": "43be2928db985a74c58e97dc23d723425990f30a6a412a062ba762ba0185a64e",
+      "exit": 0
+    }
+  ],
+  "invalid_setup_attempts": [
+    "124-final-validation-image-verifier.log: missing conmon PATH and non-executable shell invocation; exit126",
+    "125-final-validation-image-verifier.log: missing host worktree dependencies; exit1"
+  ],
+  "limit": "Eight verifier checks and packaging proof. Real compiled-filter effects and the12-case browser lane have separate final receipts. Older2d069 image was rejected after its48-byte deny-all filter was found."
+}

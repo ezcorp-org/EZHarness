@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Read final image metadata and raw build results; run from the audit root."""
+from pathlib import Path
+import datetime
+import hashlib
+import json
+import re
+import subprocess
+
+TAG = "localhost/ezcorp-extension-v4:audit-final-ea445e9e"
+IMAGE = "abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962"
+SOURCE = "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+BPF = "4b9755245461ac5e8bed6bd3b9c3933faebd6cbc2638e50bbf6920d98efa2a1a"
+LOGS = Path(".cache/independent-audit/build")
+EVIDENCE = Path("docs/validation/extension-v4-independent/parent")
+
+podman, docker = [
+    json.loads(subprocess.check_output([engine, "image", "inspect", TAG], text=True))[0]
+    for engine in ["podman", "docker"]
+]
+assert podman["Id"].removeprefix("sha256:") == docker["Id"].removeprefix("sha256:") == IMAGE
+health = podman["Healthcheck"]
+assert health == docker["Config"]["Healthcheck"]
+assert health["Interval"] == 30000000000 and health["Retries"] == 3
+text = (LOGS / "145-ea-final-image-verifier.log").read_text()
+verdict = next(json.loads(line) for line in text.splitlines() if line.startswith('{"passed"'))
+assert verdict["passed"] and len(verdict["checks"]) == 8
+assert "bpf_bytes=2736" in text and BPF in text
+receipt = {
+    "checked_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "image_source": SOURCE,
+    "image_tree": "801704279706828fa0b9f958ae4446237f38e451",
+    "verifier_command_source": SOURCE,
+    "verifier_production_test_input_changes": [],
+    "tag": TAG, "image_id": IMAGE, "manifest_digest": podman["Digest"],
+    "format": "docker", "healthcheck": health, "checks": verdict["checks"],
+    "verifier_imports_actual_HarnessClient": True,
+    "loaded_docker_id_matches": True, "bpf_bytes": 2736, "bpf_sha256": BPF,
+    "raw_logs": [],
+    "limit": "Eight actual verifier checks and packaging proof. The earlier image8f722 syscall-effect receipt applies only to unchanged compiler/profile/spawn inputs and identical BPF bytes. Kernel audit output remains unproved. New production browser12 has a separate receipt.",
+}
+for name in ["144-ea-final-image-build.log", "145-ea-final-image-verifier.log", "146-ea-final-docker-load.log"]:
+    data = (LOGS / name).read_bytes()
+    assert re.search(rb"^exit=0$", data, re.M)
+    receipt["raw_logs"].append({"name": name, "sha256": hashlib.sha256(data).hexdigest(), "exit": 0})
+(EVIDENCE / "production-image-final-independent-review.json").write_text(json.dumps(receipt, indent=2) + "\n")
+print(json.dumps({"image": IMAGE, "digest": podman["Digest"], "checks": 8, "healthcheck": "matches both engines"}))

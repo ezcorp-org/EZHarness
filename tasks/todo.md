@@ -1,34 +1,24 @@
-# Extension v4 independent build audit
+# Extension v4 independent validation
 
-- [x] Read the independent handoff, repository rules, validation plans, gates, and prior lessons.
-- [x] Record candidate, tree, base, merge base, base tree, branch, and initial clean dependency state.
-- [x] Detect and invalidate the Bun 1.3.9 install receipt; record the correction in `tasks/lessons.md`.
-- [x] Prove clean installs again in a separate fresh exact-head worktree with pinned Bun 1.3.14.
-- [x] Run the first clean root frozen install and record compiler resolution and exit status.
-- [x] Run the first clean web frozen install and record compiler resolution and exit status.
-- [x] Run the full backend wrapper.
-- [x] Run the plain web wrapper and the Svelte/Vitest web runner.
-- [x] Run typecheck, lint, and Svelte check.
-- [x] Run full coverage and record both TESTS and COVERAGE verdicts.
-- [x] Run new-file and patch coverage against the pinned base.
-- [x] Run SDK default tests and the rootless MCP opt-in test separately.
-- [x] Run extension contract, runner, harness-client, and AI-kit suites.
-- [x] Audit first-clean SDK compiler independence and SDK invocation teardown behavior.
-- [x] Build an exact-head production image and record its immutable image ID.
-- [x] Run every current production-container verifier with a supported container log driver.
-- [x] Write sanitized durable evidence and the build-lane report.
-- [x] Recheck head, tree, base, and worktree state after validation.
-- [x] Reproduce and repair the coverage-only runner socket failure under a long inherited `TMPDIR`.
-
-## Applicable lessons
-
-- Read exact commands from current CI and scripts before selecting local checks.
-- Match the runtime used by CI; Bun and Node can differ.
-- Do not run full suites concurrently.
-- Wait for build processes to complete before another process writes generated output.
-- Earlier validation becomes checkpoint evidence after source or dependency changes; it is not final evidence.
-- A passing subset does not prove a full lane.
+- [x] Fetch PR and latest main; preserve original worktrees.
+- [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
+- [x] Complete clean/reused installs, package suites, backend, web, static, and coverage runs.
+- [x] Reproduce and repair SDK, browser, provider, memory, File Organizer, runner, and compiler defects.
+- [x] Verify all50 lifecycle records and all117 capability categories.
+- [x] Review all84 migration findings and six pending product decisions.
+- [x] Verify actual PostgreSQL fences, final image, full browser runs, screenshots, and parent regressions.
+- [x] Independently replay all1,556 coverage producers through the12-group CI merge.
+- [x] Verify final-image syscall effects and record the external kernel-audit blocker.
+- [x] Close seven preview Docker opt-ins and exact PostgreSQL migration assertions.
+- [x] Repair and verify AI-kit readiness false passes and outdated Price Chart E2E fixtures.
+- [x] Reconcile final named skips, hooks, retired tests, and precise external blockers.
+- [x] Recheck changed-source coverage/static checks and final evidence hashes.
+- [x] Finish tracked report and preserve worktree states.
+- [ ] Commit the final report and receipts with normal hooks.
 
 ## Review
 
-Validation completed. Build, test, coverage, static, package, and production-image receipts are indexed under `docs/validation/extension-v4-independent/build/`. The gate-integrity check remains red because 84 protected changes require the maintainer label; no bypass was used.
+Full checks and parent coverage replay pass. Gate integrity remains84 findings/exit1 without override. Six product decisions, provider inputs, and a suitable Linux security runner remain external inputs. No push, approval label, PR-ready change, or merge is authorized. Completion requires all remaining local test defects to be repaired or precisely classified; no skipped or vacuous case counts as a pass.
+
+
+Final review: completed independent Sol audit and parent verification. The final12-group coverage replay passes1,246/131/378 gates; exact final image passes8 verifier checks and12 browser cases; fresh installs and final static checks pass. Parent source and raw-evidence reviews caught and corrected overstated claims, outdated fixtures, unsafe assumptions about skipped checks, missing archive receipts, and client response defects. Report: `docs/extension-v4-independent-validation-report.md`. Remaining human, provider, and platform inputs are explicit; no approval labels, push, ready change, or PR merge occurred.

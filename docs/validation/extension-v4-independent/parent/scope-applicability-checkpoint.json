@@ -1,0 +1,20 @@
+{
+  "checked_revision": "71db8c0254a188193b9870808db28564ebf93988",
+  "checked_tree": "a274b0fcdf2c3469395edab12a2b245a4f74d1c2",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "unchanged_package_suite_inputs_since_freeze1": [],
+  "lifecycle_since_freeze2": {
+    "source_changes": [
+      "docs/extensions/examples/city-conditions/lib/open-meteo.ts",
+      "docs/extensions/examples/weather/index.ts"
+    ],
+    "changed_manifest_rows": [
+      "city-conditions",
+      "weather"
+    ],
+    "unchanged_manifest_rows": 48,
+    "replacement_receipt": "runtime/artifacts/weather-city-lifecycle.log.gz",
+    "other_receipt": "runtime/artifacts/all-first-party-lifecycle-freeze2.jsonl.gz"
+  },
+  "limits": "Whole backend/browser receipts require their own later-source coverage. This comparison does not extend them automatically."
+}
