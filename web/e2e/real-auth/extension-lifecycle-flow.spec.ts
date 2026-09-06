@@ -51,8 +51,9 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     }
   });
 
-  const name = `ui-lifecycle-${Date.now().toString(36)}`;
-  const expected = `browser-owned output ${crypto.randomUUID()}`;
+	const name = `ui-lifecycle-${Date.now().toString(36)}`;
+	const expected = `browser-owned output ${crypto.randomUUID()}`;
+	const mockScriptKey = `ui-lifecycle-${crypto.randomUUID()}`;
   let installationId = "";
 
   try {
@@ -96,6 +97,18 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     expect(seeded.status(), await seeded.text()).toBe(201);
     const { conversationId, projectId } = (await seeded.json()) as { conversationId: string; projectId: string };
 
+    // Test-only deterministic model setup. It replaces only the LLM HTTP
+    // boundary; the following browser mention/send still enters the real
+    // chat, mention-wiring, and extension runtime paths without a paid model.
+    const scripted = await request.post("/api/__test/mock-llm/script", {
+      data: { scriptKey: mockScriptKey, turns: [{ text: "Mention wiring complete." }] },
+    });
+    expect(scripted.status(), await scripted.text()).toBe(201);
+    const mockPinned = await request.put(`/api/conversations/${conversationId}`, {
+      data: { provider: "ezcorp-mock", model: `mock:${mockScriptKey}` },
+    });
+    expect(mockPinned.status(), await mockPinned.text()).toBe(200);
+
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
     // Select through the normal mention UI, close its immediate tool form,
     // then send the committed token. The server-side message path creates the
@@ -109,11 +122,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
       if (!wiring.ok()) return [];
       return (await wiring.json()).extensions as Array<{ id: string; name: string }>;
     }, { timeout: 30_000 }).toContainEqual({ id: installationId, name });
-    // The normal message can legitimately continue producing an assistant
-    // reply. Stop that unrelated reply after the mention has persisted its
-    // conversation wiring; the later Add form is the asserted tool output.
-    const stopGenerating = page.getByRole("button", { name: "Stop generating", exact: true });
-    if (await stopGenerating.isVisible().catch(() => false)) await stopGenerating.click();
+    await expect(threadMessages(page).getByText("Mention wiring complete.", { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await invokeExtensionToolFromComposer(page, name, { text: expected });
     await expect(threadMessages(page).getByText(`UI lifecycle: ${expected}`, { exact: false })).toBeVisible({ timeout: 90_000 });
@@ -207,5 +216,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   }
 
   expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
   expect(failedApiResponses).toEqual([]);
+  expect(ignoredApiResponses).toEqual([]);
 });
