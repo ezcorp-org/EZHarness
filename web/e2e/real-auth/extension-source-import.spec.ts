@@ -6,7 +6,7 @@ import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease,
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
 
-async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string): Promise<void> {
+async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string, expectedState: "active" | "failed" = "active"): Promise<void> {
   await page.goto(`/extensions/author?installation=${installationId}&workspace=${workspaceId}`);
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
   await expect(approve).toBeDisabled();
@@ -22,8 +22,10 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
   const activation = await activationResponse;
   expect(activation.status()).toBe(200);
-  expect(await activation.json()).toMatchObject({ kind: "activate", state: "active" });
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  const operation = await activation.json();
+  expect(operation).toMatchObject({ kind: "activate", state: expectedState });
+  if (expectedState === "active") await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  else expect(operation).toMatchObject({ diagnostics: [{ code: "extension_name_in_use", stage: "activate" }] });
 }
 
 function toolResult(output: unknown): Record<string, unknown> {
@@ -192,21 +194,28 @@ test("member imports verified marketplace source, an administrator approves it, 
     const reinstalledPermissioned = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: reinstalledWorkspace, openUrl: created.openUrl });
     const reinstalledRelease = Object.values(reinstalledPermissioned.releases).find(candidate => candidate.workspaceId === reinstalledWorkspace.id && candidate.workspaceRevision === reinstalledWorkspace.revision)!;
     await requestRelease(reinstalledClient, reinstalledPermissioned, reinstalledRelease.id);
-    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalledWorkspace.id);
-    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: reinstalledRelease.id });
+    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalledWorkspace.id, "failed");
+    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: false, activeReleaseId: null });
     await expect(reinstalledClient.extensionControl("extensions_release", { action: "activate", installationId: reinstalled.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ status: 404 });
+    const freshName = `${release.manifest.name}-fresh-${Date.now().toString(36)}`;
+    const freshWorkspace = await reinstalledClient.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: reinstalled.installation.id, workspaceId: reinstalledWorkspace.id, expectedRevision: reinstalledWorkspace.revision, writes: { ...permissionedWrites, "extension.ts": permissionedWrites["extension.ts"].replace(`"name": "${release.manifest.name}"`, `"name": "${freshName}"`) } });
+    const freshState = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: freshWorkspace, openUrl: created.openUrl });
+    const freshRelease = Object.values(freshState.releases).find(candidate => candidate.workspaceId === freshWorkspace.id && candidate.workspaceRevision === freshWorkspace.revision)!;
+    await requestRelease(reinstalledClient, freshState, freshRelease.id);
+    await approveAndActivate(adminPage, reinstalled.installation.id, freshWorkspace.id);
+    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: freshRelease.id });
     const reinstalledConversation = await request.post("/api/__test/seed", { data: { title: "Reinstalled marketplace source output" } });
     expect(reinstalledConversation.status(), await reinstalledConversation.text()).toBe(201);
     const { conversationId: reinstalledConversationId } = await reinstalledConversation.json();
-    expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [reinstalledRelease.manifest.name])).wired).toEqual([reinstalledRelease.manifest.name]);
-    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
+    expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [freshName])).wired).toEqual([freshName]);
+    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: "" });
     expect(reinstalledInvocation.success).toBe(true);
     expect(toolResult(reinstalledInvocation.output)).toMatchObject({ text: "Imported source output: ", sentinel: null });
     const freshSentinel = `fresh-storage-${crypto.randomUUID()}`;
-    const freshWrite = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: freshSentinel });
+    const freshWrite = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: freshSentinel });
     expect(freshWrite.success, JSON.stringify(freshWrite)).toBe(true);
     expect(toolResult(freshWrite.output)).toMatchObject({ sentinel: freshSentinel });
-    const freshRead = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
+    const freshRead = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: "" });
     expect(freshRead.success, JSON.stringify(freshRead)).toBe(true);
     expect(toolResult(freshRead.output)).toMatchObject({ sentinel: freshSentinel });
   } finally { await reinstalledCleanup?.(); await cleanup?.(); await context.close(); }
