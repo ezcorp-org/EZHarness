@@ -13,3 +13,4 @@ ac0225928ad81597995dcea884e2851dc570c4d222d0956ce554debf484de44c  docs/validatio
 35b12a17e686d946a1bb33b750b4c4b2183eead53952c09a1165cb268cb1e92a  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.compose.log.gz
 1fd7352bc91c66baa3118d64e061a87960157cf75363772f988b748000062f9c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.playwright.log.gz
 9fa6254ee16991d9b198d7888b0250eb5db634f777e0258cb460deb16a03e173  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.provenance.txt
+e3201dd2b0759d8c9b1a1bf6e93ce1c3d02d8d84feb82ecfd07f40e5c31a7053  docs/validation/extension-v4-flows/runtime/artifacts/production-image-runtime-events-idle-red-20260906.log

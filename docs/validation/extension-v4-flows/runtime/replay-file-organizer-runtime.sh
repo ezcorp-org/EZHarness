@@ -181,6 +181,20 @@ try {
   process.exitCode = 1;
 } finally {
   clearTimeout(deadline);
+  if (reader) {
+    try {
+      await reader.cancel();
+    } catch (error) {
+      const name = error instanceof Error ? error.name : "Unknown";
+      const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : "none";
+      console.log(`sse_cleanup_error_name=${name}`);
+      console.log(`sse_cleanup_error_code=${code}`);
+      passed = false;
+      process.exitCode = 1;
+    }
+  }
   console.log("sse_path=/api/runtime-events");
   console.log(`sse_connected_frames=${connectedFrames}`);
   console.log(`sse_heartbeat_frames=${heartbeatFrames}`);
@@ -188,11 +202,14 @@ try {
   console.log(`sse_heartbeat_at_ms=${heartbeatAtMs.join(",") || "none"}`);
   console.log(`sse_elapsed_ms=${Math.round(performance.now() - startedAt)}`);
   console.log(`sse_idle_check=${passed ? "passed" : "failed"}`);
-  if (reader) await reader.cancel();
 }
 EOF
+set +e
 EZ_RUNTIME_ORIGIN="http://localhost:${port}" EZ_RUNTIME_COOKIE_PATH="$session_cookie" bun "$run_root/check-idle-runtime-events.ts" > "$receipt_dir/runtime-events.log" 2>&1
-printf 'runtime_events_idle_exit=0\n' >> "$receipt_dir/command.log"
+runtime_events_code=$?
+set -e
+printf 'runtime_events_idle_exit=%s\n' "$runtime_events_code" >> "$receipt_dir/command.log"
+if [[ "$runtime_events_code" -ne 0 ]]; then exit "$runtime_events_code"; fi
 
 cd "$repo_root/web"
 set +e
