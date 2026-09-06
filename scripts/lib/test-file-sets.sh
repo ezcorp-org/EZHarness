@@ -385,6 +385,9 @@ web_bunleg_files() {
       # explicit entry in web/vitest.config.ts (kept at this basename so the
       # Gate-integrity test-rename check stays satisfied).
       printf '%s\n' web/src/lib/chat/page-handlers/__tests__/send-message.test.ts
+      # This broad loader suite runs under Node Vitest so its real module
+      # execution contributes to the web/src/lib coverage producer.
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/load-messages.test.ts
       # Same arrangement, same reason: vitest is the only coverage producer for
       # web/src/lib/**, and this suite is what covers context-usage-logic.ts.
       printf '%s\n' web/src/__tests__/context-usage-logic.test.ts

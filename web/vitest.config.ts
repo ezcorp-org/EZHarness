@@ -84,6 +84,10 @@ export default defineConfig({
 			// `web_bunleg_files()` keeps it in exactly one runner, explicitly —
 			// same mechanism relative-time.test.ts uses above.
 			"src/lib/chat/page-handlers/__tests__/send-message.test.ts",
+			// This suite drives the shipped load-messages module. It uses module
+			// mocks, so Bun can run its assertions but cannot produce the web/lib
+			// LCOV record that the canonical Node Vitest leg requires.
+			"src/lib/chat/page-handlers/__tests__/load-messages.test.ts",
 			// Same reason as send-message above: the vitest leg is the ONLY
 			// coverage producer for `web/src/lib/**`, and this suite is what
 			// covers `context-usage-logic.ts` (the context-indicator maths —
