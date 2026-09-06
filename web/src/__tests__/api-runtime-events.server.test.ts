@@ -96,35 +96,27 @@ describe("GET /api/runtime-events", () => {
     // with `no-transform` so caching proxies don't override.
     expect(res.headers.get("content-encoding")).toBe("identity");
     // Stream's start/cancel lifecycle is exercised in integration tests;
-    // the bus is fully mocked here, but close the body to clear its heartbeat.
+    // the bus is fully mocked here so no cleanup is needed.
     expect(res.body).toBeInstanceOf(ReadableStream);
+  });
+
+  test("disables Bun's idle timeout only for an authorized SSE stream", async () => {
+    const event = makeEvent({ locals: authedUser });
+    const timeout = vi.fn();
+    event.platform = { server: { timeout }, request: event.request } as never;
+
+    const res = await GET(event);
+    expect(timeout).toHaveBeenCalledWith(event.request, 0);
     await res.body!.cancel();
   });
 
-  test("emits a heartbeat before Bun's short idle timeout can close the stream", async () => {
-    vi.useFakeTimers();
-    const interval = vi.spyOn(globalThis, "setInterval");
-    const clear = vi.spyOn(globalThis, "clearInterval");
-    const res = await GET(makeEvent({ locals: authedUser }));
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
+  test("does not alter Bun's timeout before the authentication gate", async () => {
+    const event = makeEvent({});
+    const timeout = vi.fn();
+    event.platform = { server: { timeout }, request: event.request } as never;
 
-    let cancelled = false;
-    try {
-      expect(decoder.decode((await reader.read()).value)).toContain(": connected");
-      expect(interval).toHaveBeenCalledWith(expect.any(Function), 5_000);
-
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(decoder.decode((await reader.read()).value)).toContain(": heartbeat");
-      await reader.cancel();
-      cancelled = true;
-      expect(clear).toHaveBeenCalledTimes(1);
-    } finally {
-      if (!cancelled) await reader.cancel();
-      vi.useRealTimers();
-      interval.mockRestore();
-      clear.mockRestore();
-    }
+    await expectThrown(() => GET(event), 401);
+    expect(timeout).not.toHaveBeenCalled();
   });
 
   // Regression net (Daily Briefing Phase 2 fix loop): the briefing runner

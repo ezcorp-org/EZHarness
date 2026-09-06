@@ -48,6 +48,7 @@ declare global {
 		interface Platform {
 			server?: {
 				upgrade(request: Request): Promise<void>;
+				timeout?(request: Request, seconds: number): void;
 			};
 			request?: Request;
 		}
