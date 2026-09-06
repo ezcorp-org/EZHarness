@@ -49,3 +49,6 @@
 - A fake-timer heartbeat test proves enqueue timing, not the life of a real HTTP stream. Reproduce connection errors through the built server and browser, and verify the repair against the production image.
 - Inspect the server adapter's exposed platform API before changing global server settings. Long-lived authenticated streams should use the available per-request timeout control.
 - Click the exposed part of a backdrop as a user would. A forced click at its center can hit the panel it surrounds and produce a false drawer failure.
+- Compare request-start and event times before calling a response stale. A fresh response with old fixture data is a mock persistence defect; it must not justify weakening authoritative replacement.
+- Order live client updates with a local sequence. Server timestamps cannot safely define a browser request boundary.
+- Store archive filenames and their SHA-256 values in separate named fields. Auth-related filenames used as JSON keys can make the secret scanner misread checksum values as credentials.

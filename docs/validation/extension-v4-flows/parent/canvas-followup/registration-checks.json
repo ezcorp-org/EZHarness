@@ -1,0 +1,26 @@
+{
+  "source_commit": "26541024f2ebefc0822e3bc908c0c99625ce5027",
+  "lane_map_selector": {
+    "command": "bun test ./src/__tests__/e2e-lanes.test.ts ./src/__tests__/visual-evidence-covers.test.ts ./src/__tests__/visual-evidence-select.test.ts",
+    "passed": 43,
+    "failed": 0,
+    "exit": 0
+  },
+  "visual_gate": {
+    "command": "BASE_REF=origin/main bun scripts/check-visual-evidence.ts",
+    "visual_surface_files": 20,
+    "playwright_specs_in_diff": 38,
+    "exit": 0
+  },
+  "logs": [
+    {
+      "artifact": "raw/lane-map-green.log.gz",
+      "raw_sha256": "7e34f82498a09ceefd032b9272d72bd24ab4a8dbb705a23bd32e6ee0fc39c278"
+    },
+    {
+      "artifact": "raw/visual-gate.log.gz",
+      "raw_sha256": "6f176b990b14bb64d57402c061971f9836e69b1f0680bbc6b97a7fb50d6dbd93"
+    }
+  ],
+  "note": "The manifest correction adds the new test to evidence-soft and maps its actual source. The completed visual capture selected __ALL__ before this metadata correction and already ran the new case."
+}

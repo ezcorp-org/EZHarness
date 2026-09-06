@@ -1,0 +1,197 @@
+{
+  "tested_source_commit": "39a20c218e3bf0978a9973af2da5c8f7e636e69c",
+  "workflow_run": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966",
+  "checks": [
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101532638976",
+      "name": "Backend tests",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101532638896",
+      "name": "Per-file coverage gate",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101532348730",
+      "name": "Web tests (vitest)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959941",
+      "name": "Coverage shard 11",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959968",
+      "name": "Coverage shard 3",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959944",
+      "name": "Coverage shard 0",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959861",
+      "name": "Svelte check",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959961",
+      "name": "Web tests (bun-leg orphans)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959899",
+      "name": "Residual integration tests",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531960012",
+      "name": "Coverage shard 6",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959977",
+      "name": "Lint (biome)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069974/job/101531959720",
+      "name": "Dependency audit",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959907",
+      "name": "Gate integrity",
+      "state": "FAILURE"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959869",
+      "name": "Web tests shard 3",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959763",
+      "name": "E2E (mock, no Docker)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531960050",
+      "name": "Coverage shard 9",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531960011",
+      "name": "Coverage shard 8",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959856",
+      "name": "Coverage shard 4",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959811",
+      "name": "Coverage shard 7",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959900",
+      "name": "Coverage extras (legs)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959927",
+      "name": "Coverage shard 5",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959920",
+      "name": "Typecheck",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959955",
+      "name": "Coverage shard 2",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959958",
+      "name": "Coverage shard 10",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959848",
+      "name": "Web tests shard 1",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959894",
+      "name": "Web tests shard 2",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959839",
+      "name": "Web security coverage",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959904",
+      "name": "Backend critical (strict pass/fail)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959971",
+      "name": "Coverage shard 1",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959885",
+      "name": "Visual evidence",
+      "state": "FAILURE"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959830",
+      "name": "E2E (real auth + real DB)",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069966/job/101531959865",
+      "name": "Manifest lockfile drift check",
+      "state": "SUCCESS"
+    },
+    {
+      "link": "https://github.com/ezcorp-org/EZHarness/actions/runs/34050069980/job/101531959733",
+      "name": "External Postgres (Bun.sql)",
+      "state": "SUCCESS"
+    }
+  ],
+  "results": {
+    "technical_passed": 31,
+    "technical_failed": 1,
+    "policy_findings": 84,
+    "mock_visual_passed": 178,
+    "mock_visual_failed": 1,
+    "real_visual_passed": 9,
+    "full_real_auth_passed": 57
+  },
+  "failed_case": "web/e2e/canvas-dock-open-close.spec.ts: live SSE tool completion opens the dock and renders its opaque iframe",
+  "cause": "The dock opens and the first theme assertion passes. A later refresh returns original mock history without the live tool call. Hydration correctly treats that newer response as authoritative and removes the live call. The fixture did not persist the new state. The second theme assertion finds no dock; reserved dock padding also remains.",
+  "trace_local_sha256": "1611de32a86f32a24d242ab19b2647f0937d0e841559ce1c028f355ee1846294",
+  "failure_log_sha256": "9dec046b4343ab2198254ff7583fb5bb1809f6561c6883cad0a9271f679c275b",
+  "privacy": "The raw trace and authenticated setup/session data stay in ignored local storage. This receipt includes only diagnosis, checks, and hashes.",
+  "policy_comparison": "All 84 finding lines match the preceding run after removing job and timestamp prefixes. No override was applied.",
+  "chronology_ms": {
+    "initial_all_request": 96889,
+    "initial_all_response": 97034,
+    "initial_tools_request": 97346,
+    "initial_tools_response": 97352,
+    "message_post_response": 97991,
+    "live_completion_approx": 98200,
+    "later_all_request": 108095,
+    "later_tools_request": 108131
+  },
+  "separate_regression": "A controlled request beginning before live events tests actual stale-response reconciliation. This is distinct from the hosted mock persistence failure."
+}

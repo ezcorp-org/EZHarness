@@ -1,0 +1,52 @@
+{
+  "tested_source_commit": "b9a042fa6a6c1f3c5f0077072672a291aec9bfb6",
+  "versions": [
+    "1.3.14",
+    "v22.22.2"
+  ],
+  "command": "CI=1 node ./node_modules/vitest/vitest.mjs run --coverage --coverage.include=src/lib/inline-tool-store.svelte.ts --coverage.include=src/lib/chat/page-handlers/load-messages.ts --coverage.include=src/lib/stores.svelte.ts --coverage.include=src/lib/components/tool-cards/DockHost.svelte --coverage.reporter=lcov --coverage.reporter=json-summary --coverage.reportsDirectory=<owned receipt directory>",
+  "component_results": {
+    "files_passed": 544,
+    "tests_passed": 7099,
+    "tests_failed": 0,
+    "exit": 0,
+    "duration_seconds": 44.05
+  },
+  "runner_registration": {
+    "command": "bun test ./src/__tests__/ci-test-set-drift.test.ts ./src/__tests__/coverage-leg-lcov-guard.test.ts --timeout 30000",
+    "passed": 52,
+    "failed": 0,
+    "exit": 0
+  },
+  "coverage": {
+    "inline_tool_store_lines_percent": 100,
+    "message_loader_lines_percent": 100,
+    "generic_store_lines_percent": 54.83,
+    "dock_host_lines_percent": 82.17,
+    "all_changed_executable_lines_in_four_product_modules_covered": true
+  },
+  "artifacts": [
+    {
+      "artifact": "raw/component-full.log.gz",
+      "raw_sha256": "3db9cfb63a5ad30b5fb868e39d57564b49e71b1b232f4c7e9a15727cb0865462"
+    },
+    {
+      "artifact": "raw/runner-registration.log.gz",
+      "raw_sha256": "9aa74047207ea85fc6f7b0a45b437a2516a4d7d5804930665dae0da8de64e35c"
+    },
+    {
+      "artifact": "raw/lane-registration-red.log.gz",
+      "raw_sha256": "2acad87c605708a96d62b72b7191a6512a4996e5cc33a8f61fe6cdca7f048bb3"
+    },
+    {
+      "artifact": "raw/component-lcov.info.gz",
+      "raw_sha256": "7a10c3c297af80cfe7270c33f23248ced0ea11979bddd22e846c57a75fac3ccc"
+    }
+  ],
+  "notes": [
+    "The full component suite passes. Coverage is collected for the four modified product modules; this does not replace the full PR coverage gate.",
+    "Later canvas test changes affect only Playwright setup and observation. Product and component-test source remains identical.",
+    "Expected injected error and denial logs are retained.",
+    "The lane registration failure is a separate reproduced manifest defect; its correction has its own receipt."
+  ]
+}

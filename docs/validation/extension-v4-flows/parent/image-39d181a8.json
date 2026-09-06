@@ -1,9 +1,9 @@
 {
-  "source_commit": "26541024f2ebefc0822e3bc908c0c99625ce5027",
+  "source_commit": "39d181a8d15f13f7e6c373f040bab5ff82b98df2",
   "context": "git archive of the exact source commit, supplied to podman build on stdin",
-  "image_tag": "localhost/ezcorp-extension-v4:terra-final-26541024",
-  "image_id": "d99e219b30c7a99812fc2188657cc28eb81d56446e7e2a3bc26b90868a403e32",
-  "image_digest": "sha256:2deafc8dda33ed6510e9fa38ab4c8c9cca40a23bf25ca109392e3ea31a1faea9",
+  "image_tag": "localhost/ezcorp-extension-v4:terra-final-39d181a8",
+  "image_id": "2c49d4b0a78693e0882a557c478b88c605d734eed4a1230052b0e9ba2fbd2f0f",
+  "image_digest": "sha256:c64a3d30c5db619daa89f72b3e7757d6f1c4cee4e8f05739d5c32cd0cc3e6364",
   "healthcheck": {
     "Test": [
       "CMD-SHELL",
@@ -34,10 +34,10 @@
     ]
   },
   "production_browser": {
-    "test_source_commit": "26541024f2ebefc0822e3bc908c0c99625ce5027",
+    "test_source_commit": "39d181a8d15f13f7e6c373f040bab5ff82b98df2",
     "passed": 13,
     "failed": 0,
-    "duration": "3.5m",
+    "duration": "3.6m",
     "bun": "1.3.14",
     "node": "v22.22.2",
     "setup_http": "201",
@@ -52,47 +52,47 @@
     "sse_path": "/api/runtime-events",
     "sse_connected_frames": "1",
     "sse_heartbeat_frames": "3",
-    "sse_connected_at_ms": "10",
-    "sse_heartbeat_at_ms": "15008,30008,45008",
-    "sse_elapsed_ms": "45008",
+    "sse_connected_at_ms": "13",
+    "sse_heartbeat_at_ms": "15011,30011,45011",
+    "sse_elapsed_ms": "45011",
     "sse_idle_check": "passed"
   },
   "artifact_receipts": {
     "build": {
-      "artifact": "canvas-followup/raw/image-26541024-build.log.gz",
-      "raw_sha256": "dc8cb675135ba6901273363bdc1211d183ea059742750bfc5f51cb2aee515c2b"
+      "artifact": "ci-followup/raw/image-39d181a8-build.log.gz",
+      "raw_sha256": "245550cb7f4dad43ba5abbd0a0fe56338cf1739dd67768471604d4c192523ca6"
     },
     "verifier": {
-      "artifact": "canvas-followup/raw/image-26541024-verifier.log.gz",
-      "raw_sha256": "ba614d29da47c07710b4c20d9f0a98869b92b4c8718d757d52c472c040ef35d1"
+      "artifact": "ci-followup/raw/image-39d181a8-verifier.log.gz",
+      "raw_sha256": "2bc7ff14ea8270673a297022561333ec0875f637f8084a0bf7ce05090a15e936"
     },
     "playwright": {
-      "artifact": "canvas-followup/raw/image-26541024-playwright.log.gz",
-      "raw_sha256": "48b1e380ec6a50ca7cc23d76fea7874f7c57f60c10375072525f3ae0a4cf07b0"
+      "artifact": "ci-followup/raw/image-39d181a8-playwright.log.gz",
+      "raw_sha256": "584468d40d069004deafef4ae302edff4f950676b2491571bd6e860546c1025d"
     },
     "app": {
-      "artifact": "canvas-followup/raw/image-26541024-app.log.gz",
-      "raw_sha256": "3f455933b29c5e00d96947f91d251f1a21d0936f59172c5d2384018583287455"
+      "artifact": "ci-followup/raw/image-39d181a8-app.log.gz",
+      "raw_sha256": "3839d0e1fe9910f17789128140793a2e0f2e9efc96bec6c7dacd4432c4bbd0ca"
     },
     "runner": {
-      "artifact": "canvas-followup/raw/image-26541024-runner.log.gz",
+      "artifact": "ci-followup/raw/image-39d181a8-runner.log.gz",
       "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "commands": {
-      "artifact": "canvas-followup/raw/image-26541024-commands.log.gz",
+      "artifact": "ci-followup/raw/image-39d181a8-commands.log.gz",
       "raw_sha256": "1b3d1912f03b72419dc6e04199d62116180ac77bfb39c19acb38ae1e3e0e5181"
     },
     "provenance": {
-      "artifact": "canvas-followup/raw/image-26541024-provenance.log.gz",
-      "raw_sha256": "c01116ab9eee40246c319b6d6bdda1b7ef9ec7d15cace0a4b60fb232a1e9415b"
+      "artifact": "ci-followup/raw/image-39d181a8-provenance.log.gz",
+      "raw_sha256": "b014b9f45e4bf1da041afcc3f175792951c3c465a6c0fc8d8dbf5094343d512b"
     },
     "runtime-events": {
-      "artifact": "canvas-followup/raw/image-26541024-runtime-events.log.gz",
-      "raw_sha256": "d70637b8c8bb2c94bedaec75a623ca412950b641278e1dae3169a26c99dffc31"
+      "artifact": "ci-followup/raw/image-39d181a8-runtime-events.log.gz",
+      "raw_sha256": "ea0f13e4876181e98a7761a133151f92428f32a46817df52a10943693f779d95"
     }
   },
   "notes": [
-    "This image contains the verified canvas history repair, dock cleanup, runtime event timeout fix, and final label contrast correction.",
+    "This image contains the per-request runtime event timeout fix and the final Customized label contrast correction.",
     "Later changes are tests and validation documentation; the exact source is retained here.",
     "The app log contains known missing-local-embedding-model startup warnings. The extension flow and strict browser checks pass.",
     "Raw setup responses, session cookies, and authenticated browser traces are not published."

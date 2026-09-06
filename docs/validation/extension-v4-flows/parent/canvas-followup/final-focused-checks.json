@@ -1,0 +1,39 @@
+{
+  "final_focused_browser": {
+    "source_commit": "d424930317509c5caeffb45bf7bedd04c03caf8c",
+    "command": "CI=1 EZCORP_E2E_EVIDENCE=1 ./node_modules/.bin/playwright test --config playwright.config.ts --project=chromium e2e/canvas-dock-open-close.spec.ts --grep \"live SSE tool completion\"",
+    "passed": 1,
+    "failed": 0,
+    "exit": 0,
+    "duration": "38.4s",
+    "test_sha256": "c6a8be51d65c0c078597bf7e3acd5ecede8dbb0c7a9db45f338287db55bb7899",
+    "local_archive_sha256": "2e6304afd72f6854e38ea8bc81cb4f0890bdaab4e359c456c01b0f4000050ad5"
+  },
+  "full_web_bun": {
+    "source_commit": "18945c01df02aec45cbf16525213a5e4eb1cdbe0",
+    "command": "bash scripts/test-web.sh",
+    "files": 220,
+    "passed": 4079,
+    "failed": 0,
+    "exit": 0
+  },
+  "versions": [
+    "Bun 1.3.14",
+    "Node v22.22.2"
+  ],
+  "logs": [
+    {
+      "artifact": "raw/final-focused-browser.log.gz",
+      "raw_sha256": "44f0a4815a20081812cc0cde5a68129da839c5c5a4fe409650cddb789cecbb30"
+    },
+    {
+      "artifact": "raw/web-bun-full.log.gz",
+      "raw_sha256": "f92d9600061a9ce663e2b77dbbc952f01e30c8b42ca0b5ba741f5bbb527110d7"
+    }
+  ],
+  "notes": [
+    "The last Playwright change only improves test response ordering and observation. No product or shared fixture changed after the full browser/image checks.",
+    "Parent repeated the exact final test and captured its real exit. The three live-preview screenshots now come from this final test; the stale-slot screenshot remains from the complete visual capture.",
+    "The database-free mock preview retains the previously documented server-context startup error; real-auth lifecycle diagnostic arrays and production-image outcomes remain clean."
+  ]
+}
