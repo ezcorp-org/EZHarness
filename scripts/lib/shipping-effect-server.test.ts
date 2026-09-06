@@ -12,7 +12,14 @@ test("real held requests publish a durable barrier before release and serialize 
   const post = (path: string, body: unknown) => fetch(`${origin}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   try {
     const held = post("/hold", { key: "before", workerId: "worker-before", stage: "before-effect" });
-    const visible = await (await fetch(`${origin}/state`)).json() as { pending: string[]; arrivals: Array<{ key: string }> };
+    const deadline = Date.now() + 5_000;
+    let visible: { pending: string[]; arrivals: Array<{ key: string }> } | undefined;
+    while (Date.now() < deadline) {
+      const state = await (await fetch(`${origin}/state`)).json() as { pending: string[]; arrivals: Array<{ key: string }> };
+      if (state.pending.includes("before")) { visible = state; break; }
+      await Bun.sleep(10);
+    }
+    assert(visible, "The HTTP handler must publish the barrier before release");
     assert.deepEqual(visible.pending, ["before"]);
     assert.deepEqual(visible.arrivals.map(value => value.key), ["before"]);
     assert.equal((await post("/release", { key: "before" })).status, 200);
