@@ -136,6 +136,9 @@ const startedAt = performance.now();
 const controller = new AbortController();
 const deadline = setTimeout(() => controller.abort(), 20_000);
 let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+let connectedFrames = 0;
+let heartbeatFrames = 0;
+let passed = false;
 try {
   const response = await fetch(`${origin}/api/runtime-events`, {
     headers: { cookie },
@@ -147,8 +150,6 @@ try {
   reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffered = "";
-  let connectedFrames = 0;
-  let heartbeatFrames = 0;
   while (connectedFrames < 1 || heartbeatFrames < 3) {
     const { done, value } = await reader.read();
     if (done) throw new Error(`Runtime SSE closed after connected=${connectedFrames} heartbeat=${heartbeatFrames}`);
@@ -163,17 +164,20 @@ try {
   }
   await reader.cancel("idle SSE probe complete");
   reader = undefined;
+  passed = true;
+} catch (_error) {
+  process.exitCode = 1;
+} finally {
+  clearTimeout(deadline);
+  if (reader) await reader.cancel();
   console.log("sse_path=/api/runtime-events");
   console.log(`sse_connected_frames=${connectedFrames}`);
   console.log(`sse_heartbeat_frames=${heartbeatFrames}`);
   console.log(`sse_elapsed_ms=${Math.round(performance.now() - startedAt)}`);
-  console.log("sse_idle_check=passed");
-} finally {
-  clearTimeout(deadline);
-  if (reader) await reader.cancel();
+  console.log(`sse_idle_check=${passed ? "passed" : "failed"}`);
 }
 EOF
-EZ_RUNTIME_ORIGIN="http://localhost:${port}" EZ_RUNTIME_COOKIE_PATH="$session_cookie" bun "$run_root/check-idle-runtime-events.ts" > "$receipt_dir/runtime-events.log"
+EZ_RUNTIME_ORIGIN="http://localhost:${port}" EZ_RUNTIME_COOKIE_PATH="$session_cookie" bun "$run_root/check-idle-runtime-events.ts" > "$receipt_dir/runtime-events.log" 2>&1
 printf 'runtime_events_idle_exit=0\n' >> "$receipt_dir/command.log"
 
 cd "$repo_root/web"
