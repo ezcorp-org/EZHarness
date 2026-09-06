@@ -24,6 +24,7 @@ import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 let probeDir: string | undefined;
 let probeCPath: string;
 let probeBinPath: string;
+const externalProbe = process.env.EZCORP_SECCOMP_PROBE_BIN;
 const BPF_PATH = resolve(
   import.meta.dir,
   "..",
@@ -55,7 +56,8 @@ int main(void) {
 const GATE_REASONS: string[] = [];
 if (process.platform !== "linux") GATE_REASONS.push("non-linux platform");
 if (!Bun.which("bwrap")) GATE_REASONS.push("bwrap missing from PATH");
-if (!Bun.which("gcc")) GATE_REASONS.push("gcc missing from PATH");
+if (!externalProbe && !Bun.which("gcc")) GATE_REASONS.push("gcc missing from PATH");
+if (externalProbe && !existsSync(externalProbe)) GATE_REASONS.push("external probe missing");
 if (!existsSync(BPF_PATH)) GATE_REASONS.push("mcp-seccomp.bpf artifact absent (run docker build)");
 
 const SHOULD_SKIP = GATE_REASONS.length > 0;
@@ -64,6 +66,10 @@ beforeAll(async () => {
   if (SHOULD_SKIP) return;
   const { initDb } = await import("../db/connection");
   await initDb();
+  if (externalProbe) {
+    probeBinPath = externalProbe;
+    return;
+  }
   probeDir = mkdtempSync(join(tmpdir(), "ez-seccomp-probe-"));
   probeCPath = join(probeDir, "seccomp-probe.c");
   probeBinPath = join(probeDir, "seccomp-probe");
@@ -192,7 +198,7 @@ test.skipIf(SHOULD_SKIP)(
         child.exited,
         new Response(child.stderr).text(),
       ]);
-      expect(exitCode).toBe(0);
+      expect(exitCode, stderr).toBe(0);
       // getpid is explicitly logged. io_uring_setup is absent from the declared
       // list and receives the default ENOSYS action.
       expect(stderr).toMatch(/probe-getpid: r=[1-9]\d* errno=0\b/);
