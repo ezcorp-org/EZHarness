@@ -134,4 +134,5 @@ describe("MentionChip — sigil per kind", () => {
 
 		expect(byPalette.size).toBe(known.length);
 	});
+
 });
