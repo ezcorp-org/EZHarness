@@ -30,6 +30,7 @@ export function getHistoricalToolCalls(messageId: string): ToolCallState[] {
 		duration: c.duration,
 		extensionId: c.extensionName,
 		cardType: c.cardType,
+		source: c.source,
 		// Preserve cardLayout so ToolCallCard's `routeToDock` derived can fire
 		// for persisted dock-routed cards (canvas-dock-sdk.md §5).
 		cardLayout: c.cardLayout,
