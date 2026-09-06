@@ -8,6 +8,14 @@ receipt_dir=${EZ_RUNTIME_RECEIPT_DIR:?Set EZ_RUNTIME_RECEIPT_DIR to an empty own
 port=${EZ_RUNTIME_PORT:-4282}
 project=${EZ_RUNTIME_COMPOSE_PROJECT:-extension-v4-runtime-replay}
 container=${EZ_RUNTIME_APP_CONTAINER:-extension-v4-runtime-replay-app}
+container_uid=${EZ_RUNTIME_APP_UID:-$(id -u)}
+container_gid=${EZ_RUNTIME_APP_GID:-$(id -g)}
+runner_app_uid=${EZ_RUNTIME_RUNNER_APP_UID:-$(id -u)}
+bun_path=${EZ_RUNTIME_BUN_PATH:-/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun}
+node_path=${EZ_RUNTIME_NODE_PATH:-/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin/node}
+
+if [[ -x "$bun_path" ]]; then export PATH="$(dirname "$bun_path"):$PATH"; fi
+if [[ -x "$node_path" ]]; then export PATH="$(dirname "$node_path"):$PATH"; fi
 
 if [[ -e "$receipt_dir" && -n "$(find "$receipt_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   echo "Receipt directory must be empty: $receipt_dir" >&2
@@ -18,11 +26,11 @@ umask 077
 run_root=$(mktemp -d /tmp/ez-file-organizer-runtime-XXXXXXXX)
 compose="$run_root/compose.yml"
 mkdir -m 700 "$run_root/socket" "$run_root/app-data" "$run_root/extension-state"
-export RUN_ROOT="$run_root" APP_UID="$(id -u)" APP_GID="$(id -g)"
+export RUN_ROOT="$run_root" APP_UID="$container_uid" APP_GID="$container_gid"
 export EZ_EXTENSION_RUNNER_SOCKET="$run_root/socket/runner.sock"
 export EZ_EXTENSION_RUNNER_TOKEN_FILE="$run_root/token"
 export EZ_EXTENSION_RUNNER_STORE="$run_root/store"
-export EZ_EXTENSION_APP_UID="$APP_UID"
+export EZ_EXTENSION_APP_UID="$runner_app_uid"
 runner_pid=""
 run_code=1
 
@@ -74,6 +82,7 @@ EOF
 {
   printf 'source_commit=%s\n' "$(git -C "$repo_root" rev-parse HEAD)"
   printf 'image=%s\n' "$image"
+  printf 'host_uid=%s\ncontainer_uid=%s\ncontainer_gid=%s\nrunner_peer_uid=%s\n' "$(id -u)" "$container_uid" "$container_gid" "$runner_app_uid"
   printf 'bun_version=%s\n' "$(bun --version)"
   printf 'node_version=%s\n' "$(node --version)"
   docker image inspect "$image" --format 'image_id={{.Id}}'
