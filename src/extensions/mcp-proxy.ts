@@ -111,6 +111,9 @@ export interface McpProxyHandle {
   /** Bring up the listener. Idempotent — repeated calls return the
    *  same listener and are no-ops. */
   start(): Promise<void>;
+  /** Bind the same proxy port to a second local address. Stage 2 uses the
+   * bridge gateway; the regular MCP URL remains on loopback. */
+  startAdditionalListener(hostname: string): Promise<void>;
   /** Tear down the listener and close any active CONNECT tunnels.
    *  Idempotent. Called from `registry.killAll()` and on uninstall via
    *  `registry.reload()` (Phase 7 fix-pass C3). */
@@ -146,7 +149,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   // connection-counter for the 10-concurrent cap.
   const consumeBytes = createRateLimiter(BYTES_PER_SECOND);
 
-  let listenerHandle: { close: () => Promise<void> } | null = null;
+  let listenerHandles: Array<{ close: () => Promise<void> }> = [];
   // Track every active tunnel so `stop()` can rip them down.
   const activeTunnels = new Set<{ close: () => void }>();
   // Counters surfaced via `bytesTransferred()` / `connectionsCount()`.
@@ -157,16 +160,27 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   let boundAddress: { host: string; port: number } | null = null;
 
   async function start(): Promise<void> {
-    if (listenerHandle) return;
-    listenerHandle = await bindListener();
+    if (listenerHandles.length > 0) return;
+    listenerHandles = [await bindListener()];
+  }
+
+  async function startAdditionalListener(hostname: string): Promise<void> {
+    await start();
+    if (!boundAddress) throw new Error("proxy listener did not bind");
+    const listener = Bun.listen({
+      hostname,
+      port: boundAddress.port,
+      socket: buildSocketHandler(),
+    });
+    listenerHandles.push({ close: async () => { listener.stop(true); } });
   }
 
   async function stop(): Promise<void> {
-    if (!listenerHandle) return;
+    if (listenerHandles.length === 0) return;
     // Stop accepting new connections first so no race between
     // teardown and a new CONNECT.
-    await listenerHandle.close();
-    listenerHandle = null;
+    await Promise.all(listenerHandles.map((listener) => listener.close()));
+    listenerHandles = [];
 
     for (const t of activeTunnels) {
       try { t.close(); } catch { /* socket already torn down */ }
@@ -493,6 +507,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
 
   return {
     start,
+    startAdditionalListener,
     stop,
     proxyUrl,
     bytesTransferred: () => ({ rx: rxBytes, tx: txBytes }),

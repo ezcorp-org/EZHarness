@@ -939,6 +939,25 @@ export async function buildSandboxedMcpSpec(
     }
   }
 
+  // A Stage 2 MCP can only reach the proxy at the bridge gateway. Bind that
+  // exact address on the already-tokenized proxy port; never widen to all
+  // interfaces. A bind failure is an isolation failure and must release the
+  // veth before the existing degradation/refusal logic runs.
+  if (vethSetup !== null) {
+    try {
+      await proxyHandle.startAdditionalListener("10.42.0.1");
+    } catch (err) {
+      Bun.spawnSync({
+        cmd: ["ip", "link", "delete", vethSetup.hostSideName],
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      releaseVethSlot(vethSetup.slot);
+      vethSetup = null;
+      vethDegradeReason = `veth proxy gateway bind failed: ${(err as Error).message}`;
+    }
+  }
+
   // Fail-closed gate (Stage 2 runtime leg): under the require-sandbox
   // flag the static gate already guaranteed the veth CAPABILITY, so a
   // null `vethSetup` here means a runtime step failed (slot exhaustion,
