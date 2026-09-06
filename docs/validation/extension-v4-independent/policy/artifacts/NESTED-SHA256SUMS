@@ -5,3 +5,10 @@ abce4a105eade2e939a40e5c9490511588ced7456e5c45fe8dfa6d786d6766c0  docs/validatio
 5ee8dbb5eb406f845fed5a28ad12fe66096b1db9a9844c5761e6a76f2efeae42  docs/validation/extension-v4-independent/policy/artifacts/memory-list/README.md
 f03771fd09ecea8aaf60df4b2584abfc268f302179903bbd8846de75ba50f2b3  docs/validation/extension-v4-independent/policy/artifacts/memory-list/combined-green.txt.gz
 e4bda6ab93df540163905993adbae87b3faf99aa7554357ee42e1579cfcb5ac2  docs/validation/extension-v4-independent/policy/artifacts/memory-list/red.txt.gz
+e12cac14467e7b1f765e6fb5d248ffcb5dc2c7bf741d7c00fc769f898b24af26  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/README.md
+d717d8fd4bf35148231a98e1613442c084237f2c4609e4f476e8c753eb12a0c4  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/SHA256SUMS
+fe71c4b59fcf26c2c311e9d67891a787f7e2c59417afdc40dcb63c6aa46239e4  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/baseline.txt.gz
+6f8330acfc4f2d3dd59041f04016670c4f47121ca01a4aab4a34021934c1d289  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-compiler.txt.gz
+ba6c56fd9182812a510b230d203cecde25e910f2087d214b0c5c3b48438dde35  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-gate.txt.gz
+6f8330acfc4f2d3dd59041f04016670c4f47121ca01a4aab4a34021934c1d289  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/fixed-compiler.txt.gz
+8a8eee8bb0462071b8b8f2898dd9f14eddd4ca4250eaa04841d184bfe58f46ff  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/reproduce.sh.txt

@@ -1,10 +1,11 @@
 # Direct screenshot review
 
-I inspected all 67 clean selected-run PNGs in six contact sheets, then opened the high-risk images at original resolution. The final three canvas images were opened again after the label-spacing repair. `screenshots/SHA256SUMS` identifies the reviewed final files.
+I inspected all 67 clean selected-run PNGs in six contact sheets, then opened the high-risk images at original resolution. The final three canvas images and the Hub unavailable state were opened again after their repairs. `screenshots/final3/SHA256SUMS` identifies the reviewed final files.
 
 The final `hub-tab-bar-after-disable` capture shows the remaining Briefing tab,
 the host-owned unavailable-page message, and no stale Notes Dashboard content.
-Its full-run source is `artifacts/final2-blob/extracted/`.
+Its full-run source is `artifacts/final3-blob/extracted/`. The red title is
+legible on the light error surface and its rendered contrast passes WCAG AA.
 
 ## Results
 
@@ -22,5 +23,6 @@ Its full-run source is `artifacts/final2-blob/extracted/`.
 3. Undefined theme tokens made the light controls dark and made headings too dim. The controls now use the defined surface and text tokens.
 4. Range labels joined the name and value. Explicit whitespace now separates them.
 5. Two permission captures ended above their claimed evidence. Full-page framing now includes declared permissions and current grants.
+6. The Hub unavailable-page title used a pale dark-theme red on the light error surface. It now uses a theme-specific red, and the browser test measures the composited contrast.
 
 No remaining clipping, overlap, illegible text, empty color control, or incorrect captured state was found in the final reviewed set. The old mutable per-capability controls are absent from v4; that product decision remains explicit and is not presented as restored parity.

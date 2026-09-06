@@ -25,4 +25,8 @@
 - Fully qualify every external Dockerfile image reference so unattended Podman builds cannot stop at a short-name prompt.
 - Prefix an explicit Bun test path with `./`; without it, Bun treats a nested path as a name filter and runs nothing.
 - Calculate the complete private Unix-socket path used by a subprocess. A test-owned socket root must stay short even when a coverage wrapper exports a nested `TMPDIR`.
-- Trace parser cursors and the declared policy value before diagnosing a generated security artifact. Prove the production wrapper and file-descriptor handoff before attributing behavior to the compiler.
+
+- Match the required image format before certifying a production build. Inspect build warnings and the resulting health-check configuration; a successful boot verifier does not prove packaging preserved it.
+
+- A gated security test must run the production context and descriptor plumbing, and assert child exit and observed effect before checking audit records. Opening a filter file proves neither attachment nor enforcement.
+- Verify parser cursor claims with actual compiled output before changing production code. An expected denied call must agree with the declared profile; a permitted call cannot prove a deny boundary.

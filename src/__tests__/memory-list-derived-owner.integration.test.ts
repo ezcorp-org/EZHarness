@@ -15,8 +15,8 @@ mock.module("$lib/server/http-errors", () => ({ errorJson: (status: number, erro
 const { GET } = await import("../../web/src/routes/api/memories/+server");
 const { users, projects, projectMembers, conversations, memories, memoryProjects } = await import("../db/schema");
 
-const OWNER = { id: "memory-owner", email: "owner@memory.test", name: "Owner", role: "user" as const, status: "active" as const };
-const OTHER = { id: "memory-other", email: "other@memory.test", name: "Other", role: "user" as const, status: "active" as const };
+const OWNER = { id: "memory-owner", email: "owner@memory.test", name: "Owner", role: "member" as const, status: "active" as const };
+const OTHER = { id: "memory-other", email: "other@memory.test", name: "Other", role: "member" as const, status: "active" as const };
 const ADMIN = { id: "memory-admin", email: "admin@memory.test", name: "Admin", role: "admin" as const, status: "active" as const };
 
 beforeAll(async () => {
