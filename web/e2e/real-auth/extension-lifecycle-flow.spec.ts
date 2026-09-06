@@ -159,6 +159,12 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
       await expect(scopedTools.getByText("Conversation tools", { exact: true })).toBeVisible();
       await expect(extensionToggle).toBeVisible();
       await expect(page.getByTestId("conversation-tools-reset")).toBeVisible();
+      const triggerBox = await page.getByTestId("conversation-tools-trigger").boundingBox();
+      expect(triggerBox).not.toBeNull();
+      expect(triggerBox!.x).toBeGreaterThanOrEqual(0);
+      expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(width);
+      expect(triggerBox!.y).toBeGreaterThanOrEqual(0);
+      expect(triggerBox!.y + triggerBox!.height).toBeLessThanOrEqual(844);
       const popoverBox = await scopedTools.boundingBox();
       expect(popoverBox).not.toBeNull();
       expect(popoverBox!.x).toBeGreaterThanOrEqual(0);
