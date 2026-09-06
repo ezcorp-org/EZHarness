@@ -110,25 +110,25 @@ test("member imports verified marketplace source, an administrator approves it, 
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
     const source = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: importedWorkspace.id });
-    const permissionedEntrypoint = source.files["extension.ts"]!.replace('"permissions": {},', '"permissions": { "storage": true },');
+    const permissionedEntrypoint = source.files["extension.ts"]!
+      .replace('"permissions": {},', '"permissions": { "storage": true },')
+      .replace('"version": "1.0.0",', '"version": "1.0.1",');
     const storageOutputEntrypoint = permissionedEntrypoint.replace('"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": {\n            "type": "string"\n          }\n        },\n        "required": [\n          "text"\n        ],\n        "additionalProperties": false\n      }', '"outputSchema": {\n        "type": "object",\n        "properties": {\n          "text": { "type": "string" },\n          "sentinel": { "type": ["string", "null"] }\n        },\n        "required": ["text", "sentinel"],\n        "additionalProperties": false\n      }');
     expect(storageOutputEntrypoint).not.toBe(source.files["extension.ts"]);
     const storageSentinel = `retained-storage-${crypto.randomUUID()}`;
+    const permissionedWrites = {
+      "extension.ts": storageOutputEntrypoint,
+      "src/format.ts": 'export function formatEcho(input: Record<string, unknown>, sentinel: string | null) { return { text: "Imported source output: " + String(input.text ?? ""), sentinel }; }\n',
+      "src/echo.ts": 'import { Storage } from "@ezcorp/sdk/runtime"; import { formatEcho } from "./format";\nexport async function echo(input: Record<string, unknown>) { const storage = new Storage("global"); const existing = await storage.get<string>("source-import-sentinel"); if (typeof input.text === "string" && input.text) await storage.set("source-import-sentinel", input.text); const sentinel = (await storage.get<string>("source-import-sentinel")).value ?? existing.value ?? null; return formatEcho(input, sentinel); }\n',
+      "src/echo.test.ts": 'import { expect, test } from "bun:test"; import { formatEcho } from "./format"; test("formats the actual storage result", () => expect(formatEcho({ text: "value" }, "sentinel")).toEqual({ text: "Imported source output: value", sentinel: "sentinel" }));\n',
+    };
     const permissionedWorkspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", {
       action: "edit", installationId: created.installation.id, workspaceId: importedWorkspace.id, expectedRevision: importedWorkspace.revision,
-      writes: {
-        "extension.ts": storageOutputEntrypoint,
-        "src/format.ts": 'export function formatEcho(input: Record<string, unknown>, sentinel: string | null) { return { text: "Imported source output: " + String(input.text ?? ""), sentinel }; }\n',
-        "src/echo.ts": 'import { Storage } from "@ezcorp/sdk/runtime"; import { formatEcho } from "./format";\nexport async function echo(input: Record<string, unknown>) { const storage = new Storage("global"); const existing = await storage.get<string>("source-import-sentinel"); if (typeof input.text === "string" && input.text) await storage.set("source-import-sentinel", input.text); const sentinel = (await storage.get<string>("source-import-sentinel")).value ?? existing.value ?? null; return formatEcho(input, sentinel); }\n',
-        "src/echo.test.ts": 'import { expect, test } from "bun:test"; import { formatEcho } from "./format"; test("formats the actual storage result", () => expect(formatEcho({ text: "value" }, "sentinel")).toEqual({ text: "Imported source output: value", sentinel: "sentinel" }));\n',
-      },
+      writes: permissionedWrites,
     });
     const permissionedState = await buildWorkspace(client, { installation: created.installation, workspace: permissionedWorkspace, openUrl: created.openUrl });
     const permissionedRelease = Object.values(permissionedState.releases).find(candidate => candidate.workspaceId === permissionedWorkspace.id && candidate.workspaceRevision === permissionedWorkspace.revision)!;
     expect(permissionedRelease.manifest.permissions.storage).toBe(true);
-    const permissionedSeed = await context.request.post("/api/__test/marketplace-release", { data: { installationId: created.installation.id, releaseId: permissionedRelease.id } });
-    expect(permissionedSeed.status(), await permissionedSeed.text()).toBe(201);
-    const { versionId: permissionedVersionId } = await permissionedSeed.json();
     await requestRelease(client, permissionedState, permissionedRelease.id);
     await test.step("administrator expands the permission evidence before review", async () => {
       await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
@@ -167,7 +167,7 @@ test("member imports verified marketplace source, an administrator approves it, 
 
     await adminPage.goto("/extensions/import-source");
     await adminPage.getByLabel("Source type").selectOption("marketplace");
-    await adminPage.getByLabel("Marketplace version ID").fill(permissionedVersionId);
+    await adminPage.getByLabel("Marketplace version ID").fill(versionId);
     const reimportResponse = adminPage.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await adminPage.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const reimport = await reimportResponse;
@@ -176,10 +176,12 @@ test("member imports verified marketplace source, an administrator approves it, 
     const { client: reinstalledClient } = await extensionClient(request, baseURL!);
     reinstalledCleanup = () => reinstalledClient.extensionControl("extensions_release", { action: "uninstall", installationId: reinstalled.installation.id, idempotencyKey: crypto.randomUUID() });
     expect(reinstalled.installation.id).not.toBe(created.installation.id);
-    const reinstalledState = await waitForExtensionBuild(reinstalledClient, reinstalled.installation.id, reinstalled.operation.id);
-    const reinstalledRelease = reinstalledState.releases[reinstalledState.operations[reinstalled.operation.id]!.releaseId!]!;
-    await requestRelease(reinstalledClient, reinstalledState, reinstalledRelease.id);
-    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalled.workspace.id);
+    await waitForExtensionBuild(reinstalledClient, reinstalled.installation.id, reinstalled.operation.id);
+    const reinstalledWorkspace = await reinstalledClient.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: reinstalled.installation.id, workspaceId: reinstalled.workspace.id, expectedRevision: reinstalled.workspace.revision, writes: permissionedWrites });
+    const reinstalledPermissioned = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: reinstalledWorkspace, openUrl: created.openUrl });
+    const reinstalledRelease = Object.values(reinstalledPermissioned.releases).find(candidate => candidate.workspaceId === reinstalledWorkspace.id && candidate.workspaceRevision === reinstalledWorkspace.revision)!;
+    await requestRelease(reinstalledClient, reinstalledPermissioned, reinstalledRelease.id);
+    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalledWorkspace.id);
     expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: reinstalledRelease.id });
     await expect(reinstalledClient.extensionControl("extensions_release", { action: "activate", installationId: reinstalled.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ status: 404 });
     const reinstalledConversation = await request.post("/api/__test/seed", { data: { title: "Reinstalled marketplace source output" } });

@@ -20,7 +20,11 @@
   ],
   "web/e2e/real-auth/extension-lifecycle-flow.spec.ts": [
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
-    "web/src/lib/components/ToolCallCard.svelte"
+    "web/src/lib/components/ToolCallCard.svelte",
+    "web/src/lib/components/ConversationToolsSelector.svelte",
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/MentionChip.svelte",
+    "web/src/app.css"
   ],
   "web/e2e/real-auth/extension-release-gate.spec.ts": [
     "web/src/routes/(app)/extensions/author/+page.svelte",

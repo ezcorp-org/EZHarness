@@ -154,6 +154,25 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(scopedTools).toBeVisible();
     const extensionToggle = page.getByTestId(`conv-ext-toggle-${installationId}`);
     await expect(extensionToggle).toBeChecked();
+    const expectToolsPopoverInViewport = async (width: number) => {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(scopedTools.getByText("Conversation tools", { exact: true })).toBeVisible();
+      await expect(extensionToggle).toBeVisible();
+      await expect(page.getByTestId("conversation-tools-reset")).toBeVisible();
+      const triggerBox = await page.getByTestId("conversation-tools-trigger").boundingBox();
+      expect(triggerBox).not.toBeNull();
+      expect(triggerBox!.x).toBeGreaterThanOrEqual(0);
+      expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(width);
+      expect(triggerBox!.y).toBeGreaterThanOrEqual(0);
+      expect(triggerBox!.y + triggerBox!.height).toBeLessThanOrEqual(844);
+      const popoverBox = await scopedTools.boundingBox();
+      expect(popoverBox).not.toBeNull();
+      expect(popoverBox!.x).toBeGreaterThanOrEqual(0);
+      expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(width);
+      expect(popoverBox!.y).toBeGreaterThanOrEqual(0);
+      expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(844);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    };
     const selectionSaved = page.waitForResponse(response => response.request().method() === "PUT" && response.url().endsWith(`/api/conversations/${conversationId}`) && response.ok());
     await extensionToggle.uncheck();
     await selectionSaved;
@@ -173,9 +192,17 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(suggestions.getByText(name, { exact: false })).toHaveCount(0);
     await composerInput.press("Escape");
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expectToolsPopoverInViewport(390);
     await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile", { fullPage: true });
+    await expectToolsPopoverInViewport(320);
+    await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile-narrow", { fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const desktopTriggerBox = await page.getByTestId("conversation-tools-trigger").boundingBox();
+    const desktopPopoverBox = await scopedTools.boundingBox();
+    expect(desktopTriggerBox).not.toBeNull();
+    expect(desktopPopoverBox).not.toBeNull();
+    expect(Math.abs(desktopPopoverBox!.x - desktopTriggerBox!.x)).toBeLessThanOrEqual(1);
+    await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-desktop-after-mobile", { fullPage: true });
     const selectionReset = page.waitForResponse(response => response.request().method() === "PUT" && response.url().endsWith(`/api/conversations/${conversationId}`) && response.ok());
     await page.getByTestId("conversation-tools-reset").click();
     await selectionReset;
