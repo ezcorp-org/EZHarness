@@ -87,6 +87,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   test.setTimeout(360_000);
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
+  const runtimeEventConnections: string[] = [];
   const failedApiResponses: Array<{ method: string; status: number; path: string }> = [];
   const ignoredApiResponses: Array<{ method: string; status: number; path: string }> = [];
   let serverState: unknown = null;
@@ -94,6 +95,12 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   page.on("pageerror", error => pageErrors.push(error.message));
   page.on("console", message => {
     if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.origin === appOrigin && url.pathname === "/api/runtime-events") {
+      runtimeEventConnections.push(url.href);
+    }
   });
   page.on("response", response => {
     const url = new URL(response.url());
@@ -114,6 +121,13 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     // Create + author source entirely through the visible workspace.
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto("/extensions/author");
+    // The production Bun adapter defaults idle streaming responses to 10s.
+    // This controlled replay sets `IDLE_TIMEOUT=8` and crosses two idle
+    // windows. It must remain one live EventSource: a second request means
+    // the browser had to reconnect after a transport failure.
+    await page.waitForTimeout(17_000);
+    expect(consoleErrors).toEqual([]);
+    expect(runtimeEventConnections).toHaveLength(1);
 		await expectDesktopSidebarRowsDoNotShrink(page);
 		await expectDesktopSidebarCanReachLastRow(page);
 		await expectDesktopSidebarRowsDoNotShrink(page);
