@@ -46,9 +46,16 @@ test("private browser cancellation reaches the actual HTTP worker and prevents l
     const acknowledged = await cancelled;
     expect(acknowledged.status()).toBe(200);
     expect((await acknowledged.json()).state).toBe("cancel_requested");
+    const cancellation = acknowledged.request().postDataJSON();
+    const cancellationPath = new URL(acknowledged.url()).pathname;
+    await expect.poll(async () => {
+      const status = await request.post(cancellationPath, { data: cancellation, headers: { Origin: baseURL! } });
+      const body = await status.json();
+      expect(status.status(), JSON.stringify(body)).toBe(200);
+      return body.state;
+    }, { timeout: 10000, intervals: [100], message: "The cancelled browser request must drain before later effects are checked." }).toBe("cancelled");
     const released = await client.invokeExtensionTool(conversationId, name, "release", {});
     expect(released.success, JSON.stringify(released)).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 5000));
     const final = await client.invokeExtensionTool(conversationId, name, "read", {});
     expect(final.success).toBe(true);
     expect(JSON.parse(String(final.output)).late).toEqual({ value: null, exists: false });
