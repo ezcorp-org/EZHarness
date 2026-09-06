@@ -93,7 +93,11 @@ test("member imports verified marketplace source, an administrator approves it, 
     const output = `Imported source output: ${marker}`;
     await memberPage.goto(`/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(memberPage, release.manifest.name, { text: marker });
-    await expect(memberPage.getByRole("button", { name: new RegExp(`${release.manifest.name} > echo --`) })).toContainText(output, { timeout: 90_000 });
+    const completedCall = memberPage.getByRole("button", { name: new RegExp(`${release.manifest.name} > echo --`) });
+    await expect(completedCall).toBeVisible({ timeout: 90_000 });
+    await completedCall.click();
+    await expect(completedCall).toHaveAttribute("aria-expanded", "true");
+    await expect(memberPage.getByText(output, { exact: false })).toBeVisible();
     await captureEvidence(memberPage, testInfo, "extension-source-import-visible-output");
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
