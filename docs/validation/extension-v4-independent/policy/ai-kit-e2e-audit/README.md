@@ -24,3 +24,10 @@ Source checkpoint: `c9407b86`. Bun: `1.3.14`. Heavy commands used `flock --close
 - The owned subprocess proof passes 4 tests and 17 assertions. See `local-obo-after.txt.gz`.
 
 No provider credential, paid API, production database, or persistent service was used. The fanout and quickstart provider-dependent paths remain unexecuted in this bounded audit; their configured setup can no longer count an unreachable target or missing fixture as a pass.
+
+## Follow-up at source `352ca47c`
+
+- Health normalization accepts both production `healthy` and `degraded` statuses. It returns `{ok:false}` for degraded and rejects malformed status values.
+- The same fresh owned server passed the on-behalf-of check: 1 test and 2 assertions. Doctor plus internal-auth passed 6 tests and 7 assertions. See `owned-server-on-behalf.txt.gz`.
+- The current immutable image plus a real rootless extension runner did not contain an `ai-kit` installation after first-run setup. The configured bundled check correctly failed instead of silently passing. This does not verify its two positive assertions and is a concrete mismatch with the test's auto-install claim. See `owned-server-bundled.txt.gz`.
+- The first focused lifecycle attempt caught a test type error and exited 1. After correction, the isolated AI-kit lifecycle passed 1/1 with source digest `09dd062a299fdca243be73e42fa8b7caec55c4ede6c6586d0a6c691421e700d0`, artifact digest `29d7544f76bcf1f6af44b93f4e9b44854254d185ee6853837c0f8328427a12f4`, and release digest `907169814c0366f56bf00c21e71f0ed8b8d8cde8da79bf1debb9b912b0f47677`. See `ai-kit-lifecycle.txt.gz` and `ai-kit-lifecycle-after.txt.gz`.
