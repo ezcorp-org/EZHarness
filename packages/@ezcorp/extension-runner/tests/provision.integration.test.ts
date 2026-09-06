@@ -1,12 +1,28 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
 import { provisionToolchain } from "../src/provision";
 import { RunnerClient } from "../src/client";
 import { buildLimits, filesDigest } from "../src";
 import { source } from "./helpers";
 import { workspaceText } from "@ezcorp/extension-contract";
+
+async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
+  const inheritedTmp = process.env.TMPDIR;
+  const longTmpOwner = await mkdtemp("/tmp/ez-long-tmp-");
+  const longTmp = join(longTmpOwner, "extension-runner-coverage-inherited-temporary-directory");
+  await mkdir(longTmp, { recursive: true });
+  process.env.TMPDIR = longTmp;
+  try {
+    // The service adds a private gateway socket below this root. Keep the owned
+    // root short so a long inherited TMPDIR cannot exceed Linux's socket limit.
+    return await mkdtemp("/tmp/ez-runner-decl-");
+  } finally {
+    if (inheritedTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = inheritedTmp;
+    await rm(longTmpOwner, { recursive: true, force: true });
+  }
+}
 
 test("runner provision preserves type-only exports and their declaration closure", async () => {
   const { sdkFiles } = await provisionToolchain();
@@ -19,8 +35,8 @@ test("runner provision preserves type-only exports and their declaration closure
   expect(sdkFiles["node_modules/@ezcorp/extension-contract/dist/entities.d.ts"]).toBeDefined();
 });
 
-test("production runner entrypoint starts and builds a source with public declaration imports", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "runner-declaration-start-"));
+test("production runner entrypoint starts with a long inherited TMPDIR and builds public declaration imports", async () => {
+  const directory = await createRunnerRootWithLongInheritedTmp();
   const socketPath = join(directory, "runner.sock");
   const tokenFile = join(directory, "token");
   const child = Bun.spawn(["bash", "scripts/start-extension-runner-e2e.sh"], {
