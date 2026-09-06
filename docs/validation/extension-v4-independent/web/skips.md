@@ -77,14 +77,14 @@ its seccomp profile so the existing user/mount namespace setup could run.
 The first exact run proved the PID assertion but exposed a container fixture
 conflict in the two tmpfs assertions: device nodes made by bwrap's `--dev`
 mount returned `EACCES`, including `/dev/zero`. This occurred even in an owned
-privileged container. The green run kept the repository and production image
-read-only and overlaid only a temporary copy of the test. It replaced the two
-zero-producing `dd` inputs with an unbounded `yes` stream and `iflag=fullblock`;
-the tested byte counts, private tmpfs, 64 MiB cap, ENOSPC result, and PID
-relationship were unchanged.
+privileged container. The test now generates deterministic userspace bytes
+with an unbounded `yes` stream and `iflag=fullblock`, avoiding that unrelated
+device permission. The tested byte counts, private tmpfs, 64 MiB cap, ENOSPC
+result, and PID relationship are unchanged. The green run mounted the committed
+repository read-only without a fixture overlay.
 
 Pinned Bun 1.3.14 passed all 3 named tests with 7 expectations, 0 failures, and
 6 filtered tests. The command exited 0. This is kernel behavior evidence from a
 test-only container envelope; the normal production image continues to select
-Landlock under Docker. See `artifacts/mcp-bwrap-optins-command.txt`,
-`artifacts/mcp-bwrap-optins-fixture.patch`, and the red/green gzip logs.
+Landlock under Docker. See `artifacts/mcp-bwrap-optins-command.txt` and the
+red/green gzip logs.
