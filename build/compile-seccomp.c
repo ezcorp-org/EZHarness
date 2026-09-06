@@ -204,11 +204,17 @@ static char *next_string(const char **p, const char *end) {
     return out;
 }
 
-/* Skip whitespace + JSON structural tokens between values. */
-static void skip_ws(const char **p, const char *end) {
-    while (*p < end && (**p == ' ' || **p == '\n' || **p == '\r' || **p == '\t' ||
-                        **p == ',' || **p == ':' || **p == '[' || **p == ']' ||
-                        **p == '{' || **p == '}'))
+/* Skip separators before an array while preserving the opening bracket. */
+static void skip_key_separator(const char **p, const char *end) {
+    while (*p < end && (**p == ' ' || **p == '\n' || **p == '\r' ||
+                        **p == '\t' || **p == ':'))
+        (*p)++;
+}
+
+/* Skip separators between array values while preserving the closing bracket. */
+static void skip_array_separator(const char **p, const char *end) {
+    while (*p < end && (**p == ' ' || **p == '\n' || **p == '\r' ||
+                        **p == '\t' || **p == ','))
         (*p)++;
 }
 
@@ -301,7 +307,7 @@ int main(int argc, char **argv) {
             entry_start, entry_end, default_errno_ret);
 
         p = names_key + 7;  /* past `"names"` */
-        skip_ws(&p, end);
+        skip_key_separator(&p, end);
         if (p >= end || *p != '[') {
             /* Defensive: skip malformed entry by advancing past key. */
             continue;
@@ -309,7 +315,7 @@ int main(int argc, char **argv) {
         p++;  /* past '[' */
         /* Read consecutive quoted strings until ']'. */
         while (p < end && *p != ']') {
-            skip_ws(&p, end);
+            skip_array_separator(&p, end);
             if (p >= end || *p == ']') break;
             if (*p != '"') { p++; continue; }
             char *name = next_string(&p, end);
