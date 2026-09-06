@@ -16,8 +16,8 @@ All heavy commands were serialized with `flock --close /home/dev/work/EZCorp/ext
 - Bwrap opt-in closure used the same final image with a read-only repository,
   owned tmpfs, and a disposable test-only namespace envelope. The initial run
   passed the PID case and failed both `/dev/zero` cases with `EACCES`. A
-  temporary fixture overlay changed only the byte source, then the same three
-  named assertions passed 3/3 with 7 expectations and exit 0. See
+  committed test changed only the byte source, then the same three named
+  assertions passed 3/3 with 7 expectations and exit 0. See
   `artifacts/mcp-bwrap-optins-command.txt` and the associated red/green logs.
 
 `artifacts/final3-blob/` preserves the canonical clean two-group reports, its 67-shot manifest, extracted PNGs, and hashes. `screenshots/final3/` is copied from that final run. The older `final-blob/`, `final2-blob/`, and `screenshots/final/` sets are historical.

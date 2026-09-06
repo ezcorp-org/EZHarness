@@ -5,8 +5,7 @@
 62c49ddd3f8308fe302e4bcc0f51382ed5fc79e89dcdabc61b2b54ea3b2c8602  docs/validation/extension-v4-independent/web/artifacts/web-test-entrypoint-failure-propagation.txt
 c35e67067efbee1be311156cbf1ef35ca15700b8b7a0a63dd9530efb49c9f6d5  docs/validation/extension-v4-independent/web/artifacts/preview-docker-optins-final.log.gz
 da987a16d785b26deb6f17628b2cb379ebd2b85992b39ae1cd3c3402f64f3bbd  docs/validation/extension-v4-independent/web/artifacts/preview-docker-optins-command.txt
-b804cd4d25a6555ab5ffd492fb0b491e32150022e411c83027728f8f68c94448  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-command.txt
-ab58cb3bac23727c77b54c12af04b2852b917d171a350f56bab239117b54d1ea  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-fixture.patch
 d066009fddd0cf83b9805dc9b9adacc4f07af4841ab482160d7e8a3350ccabb9  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-red.log.gz
 b55a0ffae010c55a7f7c2d7165e65bb1710b27d3960791e89c0f468c94230057  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-device-diagnostic.log.gz
 e8c9946482cad6f48d2823d96f8db92401726d13a2a0e1e6bdb1c94658ac5af3  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-green.log.gz
+cf32d6358c7a346939b6737fcaf166e164453a94967f9487e1ea9750cc494616  docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-command.txt
