@@ -1,0 +1,7 @@
+web/e2e/chat-context-compaction.spec.ts
+web/e2e/chip-reorder.spec.ts
+web/e2e/extension-author-install-round-trip.spec.ts
+web/e2e/goal-feature.spec.ts
+web/e2e/preview-consent.spec.ts
+web/e2e/preview-static.spec.ts
+web/e2e/session-history-producer.spec.ts

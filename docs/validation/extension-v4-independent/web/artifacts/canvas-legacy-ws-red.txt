@@ -1,0 +1,6 @@
+Legacy transport reproduction before repair
+Revision: 3093a3a5e327b5ca6fb585b9f1271817553804e8 plus the first evidence mapping edit
+Command: EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium e2e/canvas-dock-open-close.spec.ts
+Event path: emitWs tool:start -> emitWs tool:complete
+Result: 1 failed; locator getByTestId("dock-host") was not found within 2000 ms.
+Cause: runtime tool events now arrive through EventSource/SSE (`ws.ts` -> stores.svelte.ts). The fake WebSocket injection did not reach that subscription. Existing passing SSE extension-tool specs confirm the current contract. The repaired regression initializes a chat stream, asserts the dock is absent after tool:start, then sends tool:complete through emitSse and requires the dock plus opaque iframe.

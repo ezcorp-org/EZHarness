@@ -1,0 +1,24 @@
+# Browser validation receipts
+
+Candidate after browser repairs: `0b0a8293ac3bb35b4344f316a0f4b36f64790f30`; final canvas spacing: `8d7a530dcd41f92763ca5923386fce65de8e85d1`. Final combined coordinator: `bca9fb0a` (tree `eb44bdba92c411106d1db1839820d05973a25cfb`) (base `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`). Pinned Bun: 1.3.14. Selected visual runner: Node 22.22.2.
+
+All heavy commands were serialized with `flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock`.
+
+- Mock CI gate: canonical arguments from `bun scripts/e2e-lane-args.ts mock-gate`; exit 0; 210 passed, 12 skipped, 222 collected; `artifacts/mock-gate.log`.
+- Full real-auth: `PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts`; exit 0; 54 passed; `artifacts/real-auth-full.log`. This earlier full run used Node 24.14.1 and remains applicable to later mock-only UI and fixture changes.
+- Selected visual: `bun scripts/run-visual-evidence.ts artifacts/evidence-specs-final.txt`; exit 0; mock 42 passed and real-auth 7 passed. The selector listed exactly 29 spec files. See `artifacts/visual-selected-final-green.log` and `artifacts/final-blob/`.
+- Canvas object-output regression: deep `$state` guard exit 1 with `effect_update_depth_exceeded`; `$state.raw` guard 25/25 passed. See `artifacts/design-canvas-object-output-red.log` and `artifacts/design-canvas-object-output-green.log`.
+- Long Nix `TMPDIR` runner regression: actual Node 22 environment failed with `ECONNRESET`; the short owned socket root passed and the production-launch regression passed 3/3. See `artifacts/runner-playwright-env-probe.log`, `artifacts/runner-nix-long-tmpdir-green.log`, and `artifacts/runner-socket-path-green.log`.
+- Final canvas label/theme scope: component 25/25 and live SSE plus saved hydration 2/2; `artifacts/canvas-label-spacing-green.log` and `artifacts/canvas-label-blob/`.
+- Production File Organizer closure: exact image `sha256:0f04d6307db27e6259c27e01d77f2962e7c967d502a66ac51954440c62f28c60` ran with a fresh owned database, human-session approval, project binding, and the external rootless runner. `DOCKER_TEST=1 ... playwright test e2e/file-organizer-real.spec.ts --project=chromium` exited 0 with 12 passed and 0 skipped in 3.4 minutes. The controlled old `.tmp` input produced a real daemon proposal, which the event route accepted. See `artifacts/file-organizer-real-production.log`, `artifacts/file-organizer-compose.log`, `artifacts/file-organizer-runner.log`, and `artifacts/file-organizer-real-production.zip`.
+- Final broad browser reruns after the stale disabled-page repair: the canonical mock gate passed 210 with the expected 12 Docker-suite skips (`artifacts/mock-gate-final.log`); full real-auth passed 54 with no skips (`artifacts/real-auth-full-final.log`).
+- Final selected visual rerun used Node 22.22.2 and Bun 1.3.14; the mock group passed 42 and the real-auth group passed 7. `artifacts/final2-blob/` retains both zips, a 67-shot manifest, all 67 extracted PNGs, and hashes.
+
+`artifacts/final-blob/` preserves the clean two-group reports, its 67-shot manifest, extracted PNGs, and hashes. `screenshots/final/` contains the reviewed PNG set with the final three canvas captures replacing their pre-spacing versions.
+
+The clean selected run was recorded at the browser repair tree before the final
+weather/city transport merge. That later merge changes two first-party handler
+sources, their runtime tests, and `manifest.lock.json`; none is an input to the
+selected browser fixtures or browser UI. Runtime owns the transport replacement
+proof. The post-spacing canvas component and its live/saved browser spec were
+rerun on the final browser source.
