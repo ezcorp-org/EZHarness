@@ -1,9 +1,9 @@
 /**
  * A browser-owned extension lifecycle.
  *
- * The only test-surface call creates a deterministic owner conversation. Every
- * lifecycle transition, conversation add, invocation, and tool selection uses
- * a human browser session.
+ * Test-only calls create the owner conversation and choose a deterministic
+ * mock LLM for normal chat. Every lifecycle transition, conversation add,
+ * invocation, and tool selection uses a human browser session.
  */
 import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures/hydration.js";
