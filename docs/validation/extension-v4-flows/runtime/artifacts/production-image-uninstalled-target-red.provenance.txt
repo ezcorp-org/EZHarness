@@ -1,0 +1,4 @@
+source_commit=0d6678aeca11a756f3d402802a362241cb67c251
+image=localhost/ezcorp-extension-v4:audit-final-ea445e9e
+image_id=sha256:abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962
+094fa8a4f0767de72119b13c894abd4575a52c54bf793636e7713eb85e4c1131  /home/dev/work/EZCorp/extension-v4-flow-runtime/web/e2e/file-organizer-real.spec.ts
