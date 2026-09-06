@@ -84,6 +84,10 @@ Those failures are not part of the batch-settings fixture change and are not
 claimed as a complete visual-lane result. Their full mock-only receipt is
 retained for the responsible UI owner.
 
+Follow-up: all four failures were corrected in f950d27d. The complete 38-case
+replay now passes; see drawer-contract-correction-20260906.txt for causes,
+the unchanged product behavior, and the final green receipt.
+
 Artifacts
 ---------
 

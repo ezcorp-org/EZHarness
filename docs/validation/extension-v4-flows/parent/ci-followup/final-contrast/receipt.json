@@ -1,0 +1,28 @@
+{
+  "sourceCommit": "68333d8955c1c062930e7908a316a422940916ba",
+  "executor": "Terra UI agent",
+  "reviewer": "Parent inspected both captured images and source diff",
+  "command": "PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4281 IDLE_TIMEOUT=8 EZCORP_E2E_EVIDENCE=1 bunx playwright test --config playwright.real.config.ts --project=chromium e2e/real-auth/extension-lifecycle-flow.spec.ts",
+  "cwd": "web",
+  "passed": 1,
+  "failed": 0,
+  "exit": 0,
+  "duration": "1.2m",
+  "images": [
+    {
+      "file": "tools-mobile-320.png",
+      "sha256": "8bf9dec8f979a2167fd8cb552c301751ccae024629972bb8761bb75e1773c17a"
+    },
+    {
+      "file": "tools-desktop.png",
+      "sha256": "84cbce6a543d488e306d3ffe38746926c791cf815150d1d38b9be7de28a049ee"
+    }
+  ],
+  "log": "../raw/contrast-lifecycle.log.gz",
+  "rawLogSha256": "ca91981a09e056389768f081d20f354e50686de3d13b2902bf37a1ad201180e8",
+  "notes": [
+    "This exact source changes only Customized label colors from the preceding fully validated product source.",
+    "The replay retains the quiet 17-second single-connection check and all four final browser error assertions.",
+    "The final production image also contains this color correction."
+  ]
+}

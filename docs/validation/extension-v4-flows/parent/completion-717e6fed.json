@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-06",
+  "production_source_commit": "717e6fed2807ff61b44d3a8402c4b91d35d74e17",
+  "secret_scan": {
+    "exit": 0,
+    "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+    "scope": "Staged tracked source in an isolated export, plus decompressed extension-v4-flows logs. Existing .gitleaks.toml unchanged.",
+    "log": "raw/secret-scan.log.gz",
+    "raw_log_sha256": "1d3f0090b293bb16247d7a5319951745251483de188d929b84683c3ab7da4472",
+    "normalization": "Six non-secret idempotency UUID fields in two diagnostic snapshots use the explicit published label operationDeduplicationUuid. Production APIs unchanged; original snapshots retained locally."
+  },
+  "evidence_manifest": "../SHA256SUMS",
+  "evidence_checksum_exit": 0,
+  "publication": "Remote head and hosted results are reported separately after this evidence is committed."
+}

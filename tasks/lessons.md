@@ -45,3 +45,7 @@
 - Do not release a retained extension name to make a fresh installation pass. Check name-keyed secrets, hooks, and permissions, and distinguish a new installation from an explicit restore operation.
 - Generated extension tests must exercise actual code. A placeholder assertion is not valid build evidence.
 - Wait for the resulting UI state, not a fixed number of resolved promises or an element that was already present before the action.
+- When changing a client request contract, search every browser fixture that overrides the old endpoint. Run the canonical visual selection as well as the standard mock lane; their test sets differ.
+- A fake-timer heartbeat test proves enqueue timing, not the life of a real HTTP stream. Reproduce connection errors through the built server and browser, and verify the repair against the production image.
+- Inspect the server adapter's exposed platform API before changing global server settings. Long-lived authenticated streams should use the available per-request timeout control.
+- Click the exposed part of a backdrop as a user would. A forced click at its center can hit the panel it surrounds and produce a false drawer failure.

@@ -1,0 +1,33 @@
+{
+  "run": 34047007752,
+  "branchCommit": "05a8539f951f08c113ca948434d137cc1d467bb0",
+  "traceSha256": "a5752868eeb1428db93bcdc722468c81871b2b97e49e1bc886f1db18391b9010",
+  "failures": [
+    {
+      "job": "E2E (real auth + real DB)",
+      "jobId": 101523751909,
+      "spec": "web/e2e/real-auth/extension-lifecycle-flow.spec.ts",
+      "assertion": "consoleErrors is empty",
+      "error": "Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING",
+      "urlPath": "/api/runtime-events"
+    },
+    {
+      "job": "Visual evidence",
+      "jobId": 101523752078,
+      "spec": "web/e2e/chat-graph-evidence.spec.ts",
+      "assertion": "Inspect observability button exists",
+      "cause": "Fixture still overrides GET /api/settings/global:showObservability; production now requests GET /api/settings."
+    },
+    {
+      "job": "Visual evidence",
+      "jobId": 101523752078,
+      "spec": "web/e2e/real-auth/extension-lifecycle-flow.spec.ts",
+      "assertion": "consoleErrors is empty",
+      "error": "Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING",
+      "urlPath": "/api/runtime-events"
+    }
+  ],
+  "otherTechnicalChecks": 30,
+  "policyFindings": 84,
+  "rawAuthenticatedTracePublished": false
+}

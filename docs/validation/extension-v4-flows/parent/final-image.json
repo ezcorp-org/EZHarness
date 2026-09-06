@@ -1,9 +1,9 @@
 {
-  "source_commit": "717e6fed2807ff61b44d3a8402c4b91d35d74e17",
+  "source_commit": "39d181a8d15f13f7e6c373f040bab5ff82b98df2",
   "context": "git archive of the exact source commit, supplied to podman build on stdin",
-  "image_tag": "localhost/ezcorp-extension-v4:terra-final-717e6fed",
-  "image_id": "154766486a932f0d7c760a337ca94ddf3756c187efaf8cc6685318f9cacfa059",
-  "image_digest": "sha256:570c729854ddaacc21aad31d201ac329a260c1d88672b84921a772794bca9e53",
+  "image_tag": "localhost/ezcorp-extension-v4:terra-final-39d181a8",
+  "image_id": "2c49d4b0a78693e0882a557c478b88c605d734eed4a1230052b0e9ba2fbd2f0f",
+  "image_digest": "sha256:c64a3d30c5db619daa89f72b3e7757d6f1c4cee4e8f05739d5c32cd0cc3e6364",
   "healthcheck": {
     "Test": [
       "CMD-SHELL",
@@ -34,51 +34,67 @@
     ]
   },
   "production_browser": {
-    "test_source_commit": "7f6abe892688136042ab182e62ee753250f3843e",
+    "test_source_commit": "39d181a8d15f13f7e6c373f040bab5ff82b98df2",
     "passed": 13,
     "failed": 0,
     "duration": "3.6m",
     "bun": "1.3.14",
     "node": "v22.22.2",
     "setup_http": "201",
+    "runtime_events_idle_exit": "0",
     "playwright_exit": "0",
     "app_log_exit": "0",
     "owned_cleanup_exit": "0"
   },
+  "authenticated_event_stream": {
+    "global_timeout_override": false,
+    "exit": 0,
+    "sse_path": "/api/runtime-events",
+    "sse_connected_frames": "1",
+    "sse_heartbeat_frames": "3",
+    "sse_connected_at_ms": "13",
+    "sse_heartbeat_at_ms": "15011,30011,45011",
+    "sse_elapsed_ms": "45011",
+    "sse_idle_check": "passed"
+  },
   "artifact_receipts": {
-    "final-image-build.log": {
-      "artifact": "raw/image-717e6fed-final-image-build.log.gz",
-      "raw_sha256": "48033f126bb4281893ddc717463d4e13802bb18a21eea86c51a1a20d79929185"
+    "build": {
+      "artifact": "ci-followup/raw/image-39d181a8-build.log.gz",
+      "raw_sha256": "245550cb7f4dad43ba5abbd0a0fe56338cf1739dd67768471604d4c192523ca6"
     },
-    "final-image-verifier.log": {
-      "artifact": "raw/image-717e6fed-final-image-verifier.log.gz",
-      "raw_sha256": "ba614d29da47c07710b4c20d9f0a98869b92b4c8718d757d52c472c040ef35d1"
+    "verifier": {
+      "artifact": "ci-followup/raw/image-39d181a8-verifier.log.gz",
+      "raw_sha256": "2bc7ff14ea8270673a297022561333ec0875f637f8084a0bf7ce05090a15e936"
     },
-    "runtime-playwright.log": {
-      "artifact": "raw/image-717e6fed-runtime-playwright.log.gz",
-      "raw_sha256": "1c6eb8444cd91077aded5d51fa837de1953330eac67624ca4276ed311e252afe"
+    "playwright": {
+      "artifact": "ci-followup/raw/image-39d181a8-playwright.log.gz",
+      "raw_sha256": "584468d40d069004deafef4ae302edff4f950676b2491571bd6e860546c1025d"
     },
-    "runtime-compose.log": {
-      "artifact": "raw/image-717e6fed-runtime-compose.log.gz",
-      "raw_sha256": "350ad88979b9a250fff7eb5ca876571b94da39a8d1d209b0e897485c8255bbd3"
+    "app": {
+      "artifact": "ci-followup/raw/image-39d181a8-app.log.gz",
+      "raw_sha256": "3839d0e1fe9910f17789128140793a2e0f2e9efc96bec6c7dacd4432c4bbd0ca"
     },
-    "runtime-runner.log": {
-      "artifact": "raw/image-717e6fed-runtime-runner.log.gz",
+    "runner": {
+      "artifact": "ci-followup/raw/image-39d181a8-runner.log.gz",
       "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
-    "runtime-command.log": {
-      "artifact": "raw/image-717e6fed-runtime-command.log.gz",
-      "raw_sha256": "fb5c4bca622669ec319100f5d27744cf38d78ca407114ae0a42d9555c408c86c"
+    "commands": {
+      "artifact": "ci-followup/raw/image-39d181a8-commands.log.gz",
+      "raw_sha256": "1b3d1912f03b72419dc6e04199d62116180ac77bfb39c19acb38ae1e3e0e5181"
     },
-    "runtime-provenance.txt": {
-      "artifact": "raw/image-717e6fed-runtime-provenance.txt.gz",
-      "raw_sha256": "f150c9609567e4a00d160cdbf91f35a3291cd8e0c267c15dbff567a64470c471"
+    "provenance": {
+      "artifact": "ci-followup/raw/image-39d181a8-provenance.log.gz",
+      "raw_sha256": "b014b9f45e4bf1da041afcc3f175792951c3c465a6c0fc8d8dbf5094343d512b"
+    },
+    "runtime-events": {
+      "artifact": "ci-followup/raw/image-39d181a8-runtime-events.log.gz",
+      "raw_sha256": "ea0f13e4876181e98a7761a133151f92428f32a46817df52a10943693f779d95"
     }
   },
   "notes": [
-    "The image contains the final production source. Subsequent changes are documentation, evidence, and a removed blank line in a test.",
-    "The browser-test source has only a later evidence commit than the image source; the File Organizer spec hash is preserved in provenance.",
-    "The app log has existing missing-local-embedding-model startup warnings. No extension lifecycle error was logged.",
-    "Raw setup responses and authenticated browser traces are not published."
+    "This image contains the per-request runtime event timeout fix and the final Customized label contrast correction.",
+    "Later changes are tests and validation documentation; the exact source is retained here.",
+    "The app log contains known missing-local-embedding-model startup warnings. The extension flow and strict browser checks pass.",
+    "Raw setup responses, session cookies, and authenticated browser traces are not published."
   ]
 }

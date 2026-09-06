@@ -1,5 +1,7 @@
 # Parent verification receipts
 
+The [hosted browser follow-up](ci-followup/README.md) records the later event-stream and fixture repairs, full independent browser replays, and final label contrast. The final production image is now source `39d181a8`; the checks below are earlier checkpoints.
+
 The parent reviewed the Terra changes and repeated the combined tests. [Combined checks](combined-checks.json) records source commits, commands, versions, exits, and raw log hashes. [Coverage inputs](coverage-inputs.json) records each input to the canonical merge, including the preserved full coverage and the five updated coverage legs.
 
 - Full real-auth suite: 57 passed at `64a8f0f3`.

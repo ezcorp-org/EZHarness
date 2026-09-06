@@ -59,3 +59,19 @@ Review: the parent repeated all 57 real-auth browser cases, the exact mock lane 
 - [x] Verify final evidence checksums and scan the staged source and expanded flow logs for secrets.
 
 Publication and hosted checks are recorded in the final response after this review is committed. Policy approval remains separate; no approval label or merge is authorized.
+
+## Hosted browser follow-up — 2026-09-06
+
+Hosted run `34047007752` passed 30 technical checks. Two browser checks failed: the real event stream closed during an idle period, and the observability visual test still mocked the old settings endpoint. Gate integrity retains its 84 policy findings.
+
+- [x] Reproduce the idle event-stream failure; repair its cause and keep strict browser error checks.
+- [x] Reproduce and update the observability fixture to the current batch settings contract.
+- [x] Independently verify the team changes and run the complete diff-selected visual capture and affected real-auth flows.
+- [x] Run source checks and production image verification required by the final changes.
+- [x] Update evidence, review results, checksums, and the secret scan.
+
+Publication follows this committed review: push with normal hooks, inspect every hosted check on the new commit, and report the actual remote result in the final response.
+
+Plan review: use the CI traces to identify failed requests, reproduce each failure before editing, and retain zero retries and strict error assertions. No gate exceptions or policy approvals are part of this repair.
+
+Review: parent replays passed all 179 mock evidence cases, nine real evidence cases, 57 full real-auth cases, 38 corrected mock cases, 12 route unit cases, and both canonical Bun route-producer cases. The final image at `39d181a8` passed its eight checks, three authenticated heartbeats over 45 seconds, and all 13 File Organizer cases. A focused real lifecycle also verifies the final status-label contrast. Main remains `537f074e`; no gate override or merge approval was applied.
