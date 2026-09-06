@@ -116,7 +116,7 @@ async function writeJournal(path: string, entries: JournalEntry[]): Promise<void
 }
 
 /** Containment anchors for a journal replay (see {@link replayJournal}). */
-export interface ReplayAnchors {
+export interface ReplayAnchors extends Pick<ApplierContext, "engine" | "extensionId" | "userId" | "conversationId"> {
   /**
    * ALREADY realpath'd roots an entry may touch: the configured watched
    * folders plus the trash root. An entry outside every one of them is
@@ -152,7 +152,9 @@ async function replayPathAllowed(p: string, anchors: ReplayAnchors): Promise<boo
  * Every entry is containment-checked against `anchors` FIRST: replay is
  * a boot-time unlink/rm driven by an on-disk file, so an entry naming a
  * path outside the watched roots + trash root is refused and dropped
- * rather than executed. The journal is still cleared afterwards (a
+ * rather than executed. Each mutation then re-runs the same PermissionEngine
+ * fs.write authorization as a normal apply. Deny, prompt, or engine failure
+ * leaves the file unchanged. The journal is still cleared afterwards (a
  * refused entry must not be retried on the next boot).
  */
 export async function replayJournal(
@@ -173,6 +175,10 @@ export async function replayJournal(
       if (e.phase === "copy-done" || e.phase === "unlink-pending") {
         // Destination is fully written — remove the original to complete the move.
         if (await pathExists(e.src)) {
+          if ((await authorizeWrite(anchors, e.src)) === null) {
+            refused++;
+            continue;
+          }
           await unlink(e.src).catch(() => {});
         }
         finished++;
@@ -182,12 +188,17 @@ export async function replayJournal(
       } else {
         // copy-pending: drop a possibly-partial destination; keep original.
         if (e.dst && (await pathExists(e.dst))) {
+          if ((await authorizeWrite(anchors, e.dst)) === null) {
+            refused++;
+            continue;
+          }
           await rm(e.dst, { force: true }).catch(() => {});
         }
         rolledBack++;
       }
     } catch (err) {
       log.warn("journal replay entry failed", { src: e.src, error: String(err) });
+      refused++;
     }
   }
   if (entries.length > 0) await writeJournal(journalPath, []);
@@ -351,19 +362,22 @@ async function resolveNonOverwrite(desired: string): Promise<string> {
  * auto-allows, but this writes the audit row every destructive action
  * needs. Returns the auditId on allow, or null on deny (caller → blocked).
  */
-async function authorizeWrite(ctx: ApplierContext, value: string): Promise<string | null> {
+async function authorizeWrite(
+  ctx: Pick<ApplierContext, "engine" | "extensionId" | "userId" | "conversationId">,
+  value: string,
+): Promise<string | null> {
   const decision = await ctx.engine.authorize(
     { extensionId: ctx.extensionId, userId: ctx.userId, conversationId: ctx.conversationId },
     [{ kind: "fs.write", value }],
   );
   if (decision.decision === "deny") {
-    log.warn("file-organizer apply denied by engine", { value, reason: decision.reason });
+    log.warn("file-organizer filesystem mutation denied by engine", { value, reason: decision.reason });
     return null;
   }
   if (decision.decision === "prompt") {
     // Bundled auto-allow means we should never land here; treat as deny
     // (fail-closed — never apply on an unresolved prompt).
-    log.warn("file-organizer apply unexpectedly prompted — failing closed", { value });
+    log.warn("file-organizer filesystem mutation unexpectedly prompted — failing closed", { value });
     return null;
   }
   return decision.auditId;

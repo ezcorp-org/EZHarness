@@ -319,8 +319,15 @@ describe("replayJournal — a per-entry failure is swallowed (continue)", () => 
     // Must not reject — the entry error is logged + swallowed (the throw
     // happens before `finished++`, so neither counter advances), and the
     // journal is still cleared at the end.
-    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
-    expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 0 });
+    const res = await replayJournal(journalPath, {
+      roots: [watched],
+      dataDirRoot: dataDir,
+      engine: fakeEngine(),
+      extensionId: "ext-fo",
+      userId: null,
+      conversationId: null,
+    });
+    expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
     forceUnlinkSyncThrow = false;
     expect(await _applierInternals.readJournal(journalPath)).toHaveLength(0);
   });
