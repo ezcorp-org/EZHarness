@@ -168,7 +168,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     const composerInput = composer.locator("textarea.chat-textarea");
     await composerInput.fill(`!${name}`);
     const suggestions = page.locator("#mention-listbox");
-    await expect(suggestions).toBeVisible();
+    await expect(suggestions).toBeHidden();
     await expect(suggestions.getByText(name, { exact: false })).toHaveCount(0);
     await composerInput.press("Escape");
 
