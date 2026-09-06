@@ -118,14 +118,15 @@ let lastFileOrgDaemonInstance: object | undefined;
 // Returns the installed+enabled file-organizer extension row by default so
 // the happy path constructs; re-pointable per-test (null = not installed).
 let fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
-let fileOrgSettings = {
+const defaultFileOrgSettings = () => ({
   daemonEnabled: true,
   defaultMode: "ask-everything",
   quarantineTtlDays: 30,
   quarantineCapGb: 5,
   scanIntervalSec: 45,
   stabilityTicks: 2,
-};
+});
+let fileOrgSettings = defaultFileOrgSettings();
 
 // GithubProjectsDaemon stub instrumentation. Same capture-mock pattern as the
 // daemons above: the bootstrap reads `new GithubProjectsDaemon()` then
@@ -379,7 +380,7 @@ function installModuleMocks(): void {
     },
     // The bootstrap's resolveFileOrganizerSettings() delegates to this pure
     // helper. Return enabled defaults so the happy-path daemon-construct arm
-    // fires; the daemon-disabled gate is covered by re-pointing fileOrgExtMock.
+    // fires; tests can replace fileOrgSettings to cover the settings gate.
     mergeFileOrganizerSettings: () => fileOrgSettings,
   }));
   mock.module("../db/queries/extensions", () => ({
@@ -563,14 +564,7 @@ beforeEach(async () => {
   fileOrgDaemonStopMock = mock(() => {});
   lastFileOrgDaemonInstance = undefined;
   fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
-  fileOrgSettings = {
-    daemonEnabled: true,
-    defaultMode: "ask-everything",
-    quarantineTtlDays: 30,
-    quarantineCapGb: 5,
-    scanIntervalSec: 45,
-    stabilityTicks: 2,
-  };
+  fileOrgSettings = defaultFileOrgSettings();
   githubDaemonCtorMock = mock(() => {});
   githubDaemonStartMock = mock<() => boolean>(() => true);
   githubDaemonStopMock = mock(() => {});
@@ -1238,7 +1232,7 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
 // assertion from the prior daemon-wiring incident: the daemon's stub
 // registers NO setInterval, so intervalCalls stays at 5.
 describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
-  test("daemon_enabled controls bootstrap, activation, and awaited revocation", async () => {
+  test("daemon_enabled controls bootstrap, activation, and revocation", async () => {
     fileOrgSettings.daemonEnabled = false;
     installModuleMocks();
 
