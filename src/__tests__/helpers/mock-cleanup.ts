@@ -344,6 +344,10 @@ const MODULE_PATHS = [
   // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
   "../../extensions/mcp-sandbox",
+  // mcp-sandbox-require-sandbox.test.ts substitutes the Stage 2 proxy with a
+  // host-safe fake. Restore the real proxy after the suite so a later MCP
+  // test cannot inherit its fake listener or token state.
+  "../../extensions/mcp-proxy",
   // mcp-sandbox-require-sandbox.test.ts (EZCORP_MCP_REQUIRE_SANDBOX
   // fail-closed gate) and preview-netns.test.ts mock the kernel-probe
   // module to drive capability branches deterministically. Snapshot so

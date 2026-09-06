@@ -143,6 +143,32 @@ test("a repeated recovery entry replaces its prior wake-up timer", async () => {
   }
 });
 
+test("recovery reports and rejects an immediate lifecycle failure", async () => {
+  const fixture = recoveryFixture(false);
+  const failure = new Error("recover failed");
+  fixture.services.lifecycle.recover = async () => { throw failure; };
+  try {
+    await expect(recoverInstallation(fixture.services, installation.id)).rejects.toBe(failure);
+    expect(fixture.setTimer).not.toHaveBeenCalled();
+  } finally {
+    fixture.setTimer.mockRestore();
+    fixture.clearTimer.mockRestore();
+  }
+});
+
+test("deferred recovery contains a later lifecycle failure", async () => {
+  const fixture = recoveryFixture(false);
+  try {
+    await recoverInstallation(fixture.services, installation.id);
+    fixture.services.lifecycle.recover = async () => { throw new Error("deferred recover failed"); };
+    await expect(fixture.timers[0]!()).resolves.toBeUndefined();
+    expect(fixture.recoverCalls()).toBe(1);
+  } finally {
+    fixture.setTimer.mockRestore();
+    fixture.clearTimer.mockRestore();
+  }
+});
+
 test("recovery wake-up selects the earliest live recoverable lease only", () => {
   const operation = (id: string, state: "building" | "verified" | "activating", until: number) => ({ id, kind: state === "activating" ? "activate" as const : "build" as const, state, idempotencyKey: id, inputDigest: id, diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: id, fence: 1, until } });
   const state = {
