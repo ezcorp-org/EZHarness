@@ -2,7 +2,7 @@
 
 ## Revision
 
-- Final browser-run checkpoint: `19d9da92f771a5771d491234c9cff75eb104660b` (tree `5bf40268df5184c05cbdc1298e16fefc5fd33883`)
+- Final production browser checkpoint: `3ec53eaa66409a39d66b502f79d74139ec94dcf2` (tree `2ccafce2b65a9af89482e85e7168a5f01980051a`)
 - Browser runner and evidence repair: `0b0a8293ac3bb35b4344f316a0f4b36f64790f30`
 - Final canvas label spacing: `8d7a530dcd41f92763ca5923386fce65de8e85d1`
 - Updated base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`
