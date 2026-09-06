@@ -1,0 +1,6 @@
+github_rate_limit=PASS
+open_meteo_geocode=PASS
+KEYLESS_CHECK_EXIT=0
+pricecharting_search=PASS
+PRICECHARTING_CHECK_EXIT=0
+pricecharting_search=PASS curl_exit=0
