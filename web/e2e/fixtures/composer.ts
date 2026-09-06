@@ -13,6 +13,11 @@ import { expect } from "./hydration.js";
  */
 export type ComposerScope = Pick<Page | Locator, "getByRole" | "locator">;
 
+export type ComposerSendOptions = {
+	/** Keep a committed mention chip and add ordinary message text after it. */
+	append?: boolean;
+};
+
 /**
  * The chat thread's message list — the correct scope for "did my message land
  * in the conversation?".
@@ -72,6 +77,7 @@ export function threadMessages(scope: ComposerScope): Locator {
 export async function sendComposerMessage(
 	scope: ComposerScope,
 	text: string,
+	options: ComposerSendOptions = {},
 ): Promise<void> {
 	const sendBtn = scope.getByRole("button", { name: "Send message" });
 	// 1. Composer is hydrated and has resolved a model (NOT SSR-satisfiable).
@@ -79,8 +85,55 @@ export async function sendComposerMessage(
 		timeout: 20_000,
 	});
 	// 2. Now the textarea is a live component, so the value will stick.
-	await scope.locator("textarea").fill(text);
+	const textarea = scope.locator("textarea");
+	if (options.append) await textarea.pressSequentially(text);
+	else await textarea.fill(text);
 	// 3. Prove it stuck before clicking — a lost value fails here, loudly.
 	await expect(sendBtn).toBeEnabled({ timeout: 10_000 });
 	await sendBtn.click();
+}
+
+/**
+ * Select an extension through the normal chat mention menu.
+ *
+ * Selection commits the structured mention token and opens the extension's
+ * inline tool UI. Callers can either send the committed token to wire it to
+ * the conversation, or fill the visible inline form to invoke its tool.
+ */
+export async function selectExtensionMention(
+	scope: ComposerScope,
+	name: string,
+): Promise<Locator> {
+	const textarea = scope.locator("textarea.chat-textarea");
+	await expect(textarea).toBeVisible({ timeout: 30_000 });
+	await textarea.click();
+	await textarea.pressSequentially(`!${name}`, { delay: 15 });
+	const suggestions = scope.locator("#mention-listbox");
+	await expect(suggestions).toBeVisible({ timeout: 20_000 });
+	await suggestions.getByText(name, { exact: false }).first().click();
+	const chip = scope.locator(
+		`[data-mention-kind="extension"][data-mention-name="${name}"]`,
+	);
+	await expect(chip).toBeVisible();
+	return chip;
+}
+
+/** Run a single extension tool through the user-visible mention and Add form. */
+export async function invokeExtensionToolFromComposer(
+	scope: ComposerScope,
+	name: string,
+	input: Record<string, string>,
+): Promise<void> {
+	const chip = scope.locator(
+		`[data-mention-kind="extension"][data-mention-name="${name}"]`,
+	);
+	if (!(await chip.isVisible().catch(() => false))) await selectExtensionMention(scope, name);
+	else if (!(await scope.locator("#field-text").isVisible().catch(() => false))) await chip.click();
+
+	const form = scope.locator("form").filter({ has: scope.locator("#field-text") });
+	await expect(form).toBeVisible();
+	for (const [key, value] of Object.entries(input)) {
+		await form.locator(`#field-${key}`).fill(value);
+	}
+	await form.getByRole("button", { name: "Add", exact: true }).click();
 }
