@@ -6,13 +6,12 @@
  * that the host's PriceChartCard renders client-side.
  *
  * Layers exercised:
- *   1. Direct subprocess via `ExtensionProcess.callTool` — validates the
- *      sandbox env wiring + fetch wrapper for the price-chart subprocess.
- *   2. Through `ToolExecutor.executeToolCall` with a stub PDP — proves
- *      the registry/executor wiring.
- *   3. Through `extensionToAgentTool.execute` with the REAL DB-backed
- *      PermissionEngine — proves the chat-flow path. Gated on
- *      `EZCORP_E2E_REAL_PDP=1` since it needs a writable Postgres.
+ *   1. Validation errors use the legacy direct subprocess because they do
+ *      not request a capability.
+ *   2. Network paths use a built v4 release and the host network broker.
+ *   3. ToolExecutor runs the same release with a stub PDP.
+ *   4. `extensionToAgentTool.execute` runs it with the real DB-backed
+ *      PermissionEngine and proves the chat-flow path.
  *
  * Run: bun test src/__tests__/price-chart.e2e.test.ts
  * Live network: EZCORP_E2E_NETWORK=1 bun test ...
@@ -162,7 +161,7 @@ async function seedMessage(conversationId: string) {
   return id;
 }
 
-describeNetwork("price-chart e2e — live subprocess + network", () => {
+describeNetwork("price-chart e2e — installed v4 release + live network", () => {
   test(
     "get_stock_chart(AAPL) returns JSON with points + no iframeSrc",
     async () => {
@@ -235,8 +234,7 @@ describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
 });
 
 // Drives the same path the chat flow uses (extensionToAgentTool +
-// real DB-backed PermissionEngine). Requires `DATABASE_URL` pointing
-// at a writable PG.
+// real DB-backed PermissionEngine). The test owns a migrated PGlite DB.
 const REAL_PDP = process.env.EZCORP_E2E_REAL_PDP === "1" && NETWORK;
 const describeRealPdp = REAL_PDP ? describe : describe.skip;
 
