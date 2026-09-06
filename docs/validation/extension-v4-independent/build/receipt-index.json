@@ -2,7 +2,6 @@
   "schema": 1,
   "created": "2026-09-06T02:23:00Z",
   "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
-  "production_source_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
   "final_validation_head": "37593411323ba33faf4563413b9e673c865052f7",
   "final_validation_tree": "b7c570a262e25559a2739cfecf52efbf4541e50e",
   "tools": {
@@ -31,7 +30,8 @@
       "end": "2026-09-06T01:22:04Z",
       "exit": 0,
       "result": "24608 pass, 0 fail, 1564 files",
-      "source_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
     },
     {
       "log": "111-final-node22-full-coverage.log",
@@ -41,7 +41,8 @@
       "end": "2026-09-06T01:32:28Z",
       "exit": 0,
       "result": "TESTS PASS; COVERAGE PASS; host 25873 pass; Vitest 4551 pass",
-      "source_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
     },
     {
       "log": "112-final-node22-extras-replacement.log",
@@ -51,7 +52,8 @@
       "end": "2026-09-06T01:34:36Z",
       "exit": 0,
       "result": "1443 pass, 0 fail; five LCOV legs",
-      "source_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
     },
     {
       "log": "113-final-security-coverage-replacement.log",
@@ -61,7 +63,8 @@
       "end": "2026-09-06T01:34:45Z",
       "exit": 0,
       "result": "18 suites; 10 LCOV records",
-      "source_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
     },
     {
       "log": "116-final-background-timers-replacement.log",
@@ -71,7 +74,8 @@
       "end": "2026-09-06T01:46:18Z",
       "exit": 0,
       "result": "65 pass, 271 assertions",
-      "source_head": "428a8145680f5ef5693bced4a35bc536ee64c71d"
+      "declared_input_head": "428a8145680f5ef5693bced4a35bc536ee64c71d",
+      "command_head": "428a8145680f5ef5693bced4a35bc536ee64c71d"
     },
     {
       "log": "119-final-seccomp-fixed-image-build.log",
@@ -81,7 +85,8 @@
       "end": "2026-09-06T02:05:34Z",
       "exit": 0,
       "result": "compiler 333 added/74 skipped; BPF 2736 bytes",
-      "source_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c"
+      "declared_input_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
+      "command_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c"
     },
     {
       "log": "122-final-validation-typecheck.log",
@@ -91,7 +96,10 @@
       "end": "2026-09-06T02:07:15Z",
       "exit": 0,
       "result": "backend, web, backend-tests, web-e2e pass",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "123-final-validation-image-build.log",
@@ -101,7 +109,8 @@
       "end": "2026-09-06T02:08:40Z",
       "exit": 0,
       "result": "image 8f722e76d30f...; healthcheck retained",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "124-final-validation-image-verifier.log",
@@ -111,7 +120,8 @@
       "end": "2026-09-06T02:08:52Z",
       "exit": 126,
       "result": "invalid: script invoked without bash and conmon executable name wrong",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "125-final-validation-image-verifier.log",
@@ -121,7 +131,8 @@
       "end": "2026-09-06T02:09:06Z",
       "exit": 1,
       "result": "invalid: host runner dependencies absent",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "126-final-validation-image-verifier.log",
@@ -131,7 +142,10 @@
       "end": "2026-09-06T02:09:37Z",
       "exit": 0,
       "result": "8/8 named production checks pass",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "127-final-validation-image-docker-load.log",
@@ -141,7 +155,8 @@
       "end": "2026-09-06T02:10:10Z",
       "exit": 0,
       "result": "same immutable image ID loaded; healthcheck retained",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "129-final-affected-coverage-producers.log",
@@ -151,7 +166,10 @@
       "end": "2026-09-06T02:14:39Z",
       "exit": 0,
       "result": "12 pass, 3 skip, 0 fail across three files",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "131-final-curated-coverage-gates.log",
@@ -161,7 +179,10 @@
       "end": "2026-09-06T02:16:10Z",
       "exit": 0,
       "result": "1392 SF; threshold1246; new131; patch378",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "132-final-static-gates.log",
@@ -171,7 +192,10 @@
       "end": "2026-09-06T02:17:02Z",
       "exit": 1,
       "result": "all pass except expected gate-integrity: 84 protected changes lack approval label",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "133-final-web-unit-runners.log",
@@ -181,7 +205,10 @@
       "end": "2026-09-06T02:18:05Z",
       "exit": 1,
       "result": "wrapper defect 4686 pass/17 fail; Vitest 7046/543 pass",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
     },
     {
       "log": "134-final-web-bun-rerun.log",
@@ -191,7 +218,8 @@
       "end": "2026-09-06T02:18:34Z",
       "exit": 1,
       "result": "same 4686 pass/17 fail; fixed later by canonical delegation",
-      "source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab"
     },
     {
       "log": "135-final-enforce-producer.log",
@@ -201,7 +229,8 @@
       "end": "2026-09-06T02:19:07Z",
       "exit": 0,
       "result": "0 pass, 1 explicit absent-BPF skip; image envelope separately exercised",
-      "source_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17"
+      "declared_input_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17",
+      "command_head": "e5b57ca57453999117bc0e47074d717cb1caffd8"
     },
     {
       "log": "137-final-gitleaks-docker.log",
@@ -211,7 +240,8 @@
       "end": "2026-09-06T02:19:51Z",
       "exit": 0,
       "result": "60.48 MB scanned; no leaks",
-      "source_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17"
+      "declared_input_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17",
+      "command_head": "e5b57ca57453999117bc0e47074d717cb1caffd8"
     },
     {
       "log": "138-final-post-wrapper-lint.log",
@@ -221,7 +251,12 @@
       "end": "2026-09-06T02:22:07Z",
       "exit": 0,
       "result": "3992 files; 100 warnings; 11 infos; no errors",
-      "source_head": "37593411323ba33faf4563413b9e673c865052f7"
+      "declared_input_head": "37593411323ba33faf4563413b9e673c865052f7",
+      "command_head": "c6acc60fd55a16c72b9bfbf5384b95e98f2c3d38"
     }
-  ]
+  ],
+  "production_code_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
+  "production_code_tree": "5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83",
+  "image_source_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+  "image_source_tree": "2ccafce2b65a9af89482e85e7168a5f01980051a"
 }
