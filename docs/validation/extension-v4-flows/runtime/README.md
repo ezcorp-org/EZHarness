@@ -86,3 +86,10 @@ the actual `node --version` result.
 The historical red command receipt uses the label `runner_log_exit`; that
 value is the exit from `docker compose logs`, not the runner process. The
 replay script records the corrected `app_log_exit` label.
+
+`artifacts/production-image-runtime-events-idle-red-20260906.log` is a
+sanitized old-image SSE receipt. The authenticated stream sent its connected
+frame, then closed after 12,004 ms with zero heartbeats and `ECONNRESET`.
+Setup, app-log collection, and owned cleanup completed. The file retains only
+counts, timings, exit codes, image/source identity, and SHA-256 values for the
+private raw logs; it contains no session cookie or response body.
