@@ -57,6 +57,26 @@ const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
 // is untouched.
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 
+const browserProjects = {
+  chromium: { browserName: "chromium" as const, channel: "chromium" },
+  firefox: { browserName: "firefox" as const },
+  webkit: { browserName: "webkit" as const },
+};
+
+// The complete real-auth tier remains Chromium by default. Shipping jobs can
+// opt into the supported engine set without multiplying every real-auth test:
+// PI_E2E_REAL_BROWSER_PROJECTS=chromium,firefox,webkit.
+// Fail closed for a misspelled project; silently falling back to Chromium
+// would make an engine claim meaningless.
+const requestedBrowserProjects = (process.env.PI_E2E_REAL_BROWSER_PROJECTS ?? "chromium")
+  .split(",")
+  .map(project => project.trim())
+  .filter(Boolean);
+
+if (requestedBrowserProjects.length === 0 || requestedBrowserProjects.some(project => !(project in browserProjects))) {
+  throw new Error(`PI_E2E_REAL_BROWSER_PROJECTS must contain only ${Object.keys(browserProjects).join(", ")}.`);
+}
+
 export default defineConfig({
   testDir: "./e2e/real-auth",
   fullyParallel: false,
@@ -106,9 +126,7 @@ export default defineConfig({
   // NB: this is a mitigation, not a root-cause fix. The upstream null-deref is
   // not ours to fix and does not reproduce on a fast dev machine (15 clean
   // local runs); it only shows up on the 4-vCPU CI runner.
-  projects: [
-    { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
-  ],
+  projects: requestedBrowserProjects.map(name => ({ name, use: browserProjects[name as keyof typeof browserProjects] })),
   webServer: {
     // Pinning `cwd: web/` means `process.cwd()` at boot points at
     // `web/`, which would have broken the legacy `getProjectRoot()`

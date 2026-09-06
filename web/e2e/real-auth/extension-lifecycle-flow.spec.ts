@@ -5,9 +5,10 @@
  * mock LLM for normal chat. Every lifecycle transition, conversation add,
  * invocation, and tool selection uses a human browser session.
  */
-import type { Page } from "@playwright/test";
-import { test, expect } from "../fixtures/hydration.js";
+import type { Page, Request, TestInfo } from "@playwright/test";
+import { test, expect, waitForHydration } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
+import { buildWorkspace, extensionClient, requestRelease, waitForExtensionBuild, type CreatedWorkspace } from "../fixtures/extension-v4";
 import {
   invokeExtensionToolFromComposer,
   selectExtensionMention,
@@ -15,19 +16,92 @@ import {
   threadMessages,
 } from "../fixtures/composer";
 
+type FailedApiResponse = { method: string; status: number; path: string };
+
+type BrowserDiagnostics = {
+  pageErrors: string[];
+  consoleErrors: string[];
+  failedApiResponses: FailedApiResponse[];
+  failedApiRequests: Array<FailedApiResponse & { error: string }>;
+  ignoredApiResponses: FailedApiResponse[];
+};
+
+function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnostics {
+  const diagnostics: BrowserDiagnostics = { pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [] };
+  const appOrigin = new URL(baseURL).origin;
+  const completedExtensionDeletes = new WeakSet<Request>();
+  page.on("pageerror", error => diagnostics.pageErrors.push(error.message));
+  page.on("console", message => {
+    if (message.type() === "error") diagnostics.consoleErrors.push(message.text());
+  });
+  page.on("response", response => {
+    const url = new URL(response.url());
+    if (url.origin === appOrigin && url.pathname.startsWith("/api/extensions/") && response.request().method() === "DELETE" && response.status() === 204) {
+      completedExtensionDeletes.add(response.request());
+    }
+    if (url.origin !== appOrigin || !url.pathname.startsWith("/api/") || response.status() < 400) return;
+    const record = { method: response.request().method(), status: response.status(), path: url.pathname };
+    if (/^\/api\/(extensions|conversations|tools|tool-calls|chat)(?:\/|$)/.test(url.pathname)) diagnostics.failedApiResponses.push(record);
+    else diagnostics.ignoredApiResponses.push(record);
+  });
+  page.on("requestfailed", request => {
+    // Chromium reports this exact completed 204 DELETE as ERR_ABORTED after
+    // its response event. Every other transport failure remains strict.
+    if (completedExtensionDeletes.has(request) && request.failure()?.errorText === "net::ERR_ABORTED") return;
+    const url = new URL(request.url());
+    if (url.origin === appOrigin && url.pathname.startsWith("/api/")) {
+      diagnostics.failedApiRequests.push({ method: request.method(), path: url.pathname, status: 0, error: request.failure()?.errorText ?? "unknown transport failure" });
+    }
+  });
+  return diagnostics;
+}
+
+async function attachBrowserDiagnostics(testInfo: TestInfo, name: string, diagnostics: BrowserDiagnostics): Promise<void> {
+  await testInfo.attach(name, { body: JSON.stringify(diagnostics, null, 2), contentType: "application/json" });
+}
+
+function expectCleanBrowserDiagnostics(
+  diagnostics: BrowserDiagnostics,
+  allowed: { consoleErrorVariants?: string[][]; apiFailures?: FailedApiResponse[] } = {},
+): void {
+  expect(diagnostics.pageErrors).toEqual([]);
+  expect(allowed.consoleErrorVariants ?? [[]]).toContainEqual(diagnostics.consoleErrors);
+  expect(diagnostics.failedApiResponses).toEqual(allowed.apiFailures ?? []);
+  expect(diagnostics.failedApiRequests).toEqual([]);
+  expect(diagnostics.ignoredApiResponses).toEqual([]);
+}
+
 function echoSource(prefix: string): string {
   return `export function echo(input: Record<string, unknown>) { return { text: ${JSON.stringify(prefix)} + input.text }; }\n`;
 }
 
-async function waitForVisibleBuild(page: Page): Promise<void> {
+async function waitForVisibleOperationState(page: Page, expected: "verified" | "failed"): Promise<void> {
   await expect.poll(async () => {
     await page.getByRole("button", { name: "Refresh status", exact: true }).click();
     return (await page.locator(".operation strong").allTextContents())[0] ?? "";
   }, {
     timeout: 240_000,
     intervals: [1_000],
-    message: "The browser-visible candidate build must finish after Refresh status.",
-  }).toBe("verified");
+    message: `The browser-visible build must become ${expected} after Refresh status.`,
+  }).toBe(expected);
+}
+
+async function observePendingBuild(page: Page): Promise<string> {
+  // The async build must still be pending when the reload occurs. This is a
+  // causal UI barrier, not a delay: the current operation state is rendered
+  // by the same Refresh status control a person uses to recover a closed tab.
+  await expect.poll(async () => {
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    const row = page.locator(".operation").first();
+    return { id: (await row.locator("code").textContent())?.trim() ?? "", state: (await row.locator("strong").textContent())?.trim() ?? "" };
+  }, {
+    timeout: 30_000,
+    intervals: [100],
+    message: "A new browser-started build must visibly enter a pending state before reload.",
+  }).toMatchObject({ id: expect.any(String), state: expect.stringMatching(/^(queued|building|verifying)$/) });
+  const operationId = (await page.locator(".operation").first().locator("code").textContent())?.trim() ?? "";
+  expect(operationId).not.toBe("");
+  return operationId;
 }
 
 function escapeRegex(value: string): string {
@@ -39,12 +113,12 @@ async function expectInlineToolOutput(page: Page, output: string): Promise<void>
   // the one just submitted from the visible composer. The collapsed card
   // labels tool name and a truncated output preview, not its extension name.
   const completedCall = page.getByRole("button", {
-    name: new RegExp(`echo \\{\\"text\\":\\"${escapeRegex(output.slice(0, 32))}`),
+    name: new RegExp(`echo\\s*(?:--\\s*)?\\{\\"text\\":\\"${escapeRegex(output.slice(0, 32))}`),
   }).last();
   await expect(completedCall).toBeVisible({ timeout: 90_000 });
   await completedCall.click();
   await expect(completedCall).toHaveAttribute("aria-expanded", "true");
-	await expect(threadMessages(page).getByText(output, { exact: false })).toBeVisible();
+	await expect(threadMessages(page).getByText(output, { exact: false }).last()).toBeVisible();
 }
 
 async function expectDesktopSidebarRowsDoNotShrink(page: Page): Promise<void> {
@@ -150,11 +224,13 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await page.getByRole("button", { name: "Save revision", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Saved revision");
     await page.getByRole("button", { name: "Save and build", exact: true }).click();
-    await waitForVisibleBuild(page);
+    await waitForVisibleOperationState(page, "verified");
 
     // A human sees the review screen, acknowledges the exact release, then
     // explicitly activates it. No API key can perform this approval.
-    await page.getByRole("button", { name: "Request approval", exact: true }).click();
+    const requestApprovalAfterEnable = page.getByRole("button", { name: "Request approval", exact: true });
+    await expect(requestApprovalAfterEnable).toBeEnabled();
+    await requestApprovalAfterEnable.click();
     const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
     await expect(approve).toBeDisabled();
     await page.getByText("Permissions and test evidence", { exact: true }).click();
@@ -244,8 +320,10 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     const composerInput = composer.locator("textarea.chat-textarea");
     await composerInput.fill(`!${name}`);
     const suggestions = page.locator("#mention-listbox");
-    await expect(suggestions).toBeHidden();
+    // Firefox keeps an empty mention list open while Chromium closes it. The
+    // author-facing invariant is that the revoked extension cannot be chosen.
     await expect(suggestions.getByText(name, { exact: false })).toHaveCount(0);
+    await captureEvidence(page, testInfo, "extension-lifecycle-revoked-mention-list");
     await composerInput.press("Escape");
 
     await expectToolsPopoverInViewport(390);
@@ -280,7 +358,9 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     expect(((await disabledTools.json()).tools as Array<{ extension: string }>).some(tool => tool.extension === name)).toBe(false);
     await card.getByRole("button", { name: "Enable", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/extensions/author\\?installation=${installationId}`));
-    await page.getByRole("button", { name: "Request approval", exact: true }).click();
+    const requestApprovalAfterReload = page.getByRole("button", { name: "Request approval", exact: true });
+    await expect(requestApprovalAfterReload).toBeEnabled();
+    await requestApprovalAfterReload.click();
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
     await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
@@ -331,4 +411,227 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   expect(consoleErrors).toEqual([]);
   expect(failedApiResponses).toEqual([]);
   expect(ignoredApiResponses).toEqual([]);
+});
+
+test("reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence", async ({ page, request, baseURL }, testInfo) => {
+  test.setTimeout(360_000);
+  const browserDiagnostics = observeBrowserDiagnostics(page, baseURL!);
+  const name = `ui-recovery-${Date.now().toString(36)}`;
+  const firstOutput = `before repair ${crypto.randomUUID()}`;
+  const retainedOutput = `retained after failed update ${crypto.randomUUID()}`;
+  const repairedOutput = `after repair ${crypto.randomUUID()}`;
+  let installationId = "";
+
+  try {
+    await page.goto("/extensions/author");
+    await page.getByLabel("Extension name").fill(name);
+    await page.getByRole("button", { name: "Create workspace", exact: true }).click();
+    await page.waitForURL(/\/extensions\/author\?installation=[^&]+&workspace=[^&]+/);
+    installationId = new URL(page.url()).searchParams.get("installation") ?? "";
+    expect(installationId).not.toBe("");
+
+    await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
+    await page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true }).fill(echoSource("Recovery v1: "));
+    await page.getByRole("button", { name: "src/echo.test.ts", exact: true }).click();
+    await page.getByRole("textbox", { name: "Source: src/echo.test.ts", exact: true }).fill(
+      `import { expect, test } from "bun:test"; import { echo } from "./echo"; test("echoes", () => expect(echo({ text: "value" })).toEqual({ text: "Recovery v1: value" }));\n`,
+    );
+    await page.getByRole("button", { name: "Save and build", exact: true }).click();
+    const pendingOperationId = await observePendingBuild(page);
+    const operationsBeforeReload = await page.locator(".operation").count();
+
+    await page.reload();
+    await waitForHydration(page);
+    await expect(page.locator(".operation").filter({ hasText: pendingOperationId })).toBeVisible();
+    await expect(page.locator(".operation")).toHaveCount(operationsBeforeReload);
+    await waitForVisibleOperationState(page, "verified");
+    const requestApproval = page.getByRole("button", { name: "Request approval", exact: true });
+    await expect(requestApproval).toBeEnabled();
+    await requestApproval.click();
+    await page.getByLabel("I reviewed this release and its permissions.").check();
+    await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+
+    const seeded = await request.post("/api/__test/seed", { data: { title: "Browser build recovery" } });
+    expect(seeded.status(), await seeded.text()).toBe(201);
+    const { conversationId, projectId } = (await seeded.json()) as { conversationId: string; projectId: string };
+    const wired = await request.post(`/api/conversations/${conversationId}/extensions`, { data: { names: [name] } });
+    expect(wired.status(), await wired.text()).toBe(200);
+    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await invokeExtensionToolFromComposer(page, name, { text: retainedOutput });
+    await expectInlineToolOutput(page, `Recovery v1: ${retainedOutput}`);
+
+    await page.goto(`/extensions/author?installation=${installationId}`);
+    await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
+    await page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true }).fill("export function echo( {");
+    await page.getByRole("button", { name: "Save and build", exact: true }).click();
+    await waitForVisibleOperationState(page, "failed");
+    const diagnostics = page.locator(".operation").first().locator(".diagnostic");
+    await expect(diagnostics).not.toHaveCount(0);
+    await captureEvidence(page, testInfo, "extension-browser-build-diagnostics", { fullPage: true });
+
+    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await invokeExtensionToolFromComposer(page, name, { text: firstOutput });
+    await expectInlineToolOutput(page, `Recovery v1: ${firstOutput}`);
+
+    await page.goto(`/extensions/author?installation=${installationId}`);
+    await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
+    await page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true }).fill(echoSource("Recovery v2: "));
+    await page.getByRole("button", { name: "src/echo.test.ts", exact: true }).click();
+    await page.getByRole("textbox", { name: "Source: src/echo.test.ts", exact: true }).fill(
+      `import { expect, test } from "bun:test"; import { echo } from "./echo"; test("echoes", () => expect(echo({ text: "value" })).toEqual({ text: "Recovery v2: value" }));\n`,
+    );
+    await page.getByRole("button", { name: "Save and build", exact: true }).click();
+    await waitForVisibleOperationState(page, "verified");
+    const repairedRelease = page.locator(".release").filter({ hasText: "Verified" }).first();
+    const repairedRequestApproval = repairedRelease.getByRole("button", { name: "Request approval", exact: true });
+    await expect(repairedRequestApproval).toBeEnabled();
+    await repairedRequestApproval.click();
+    const repairedDigest = (await repairedRelease.locator("dd code").first().textContent())!.trim();
+    const repairedApproval = page.locator(".approval").filter({ hasText: repairedDigest });
+    await repairedApproval.getByLabel("I reviewed this release and its permissions.").check();
+    await repairedApproval.getByRole("button", { name: "Approve exact release", exact: true }).click();
+    await repairedApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+
+    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await invokeExtensionToolFromComposer(page, name, { text: repairedOutput });
+    await expectInlineToolOutput(page, `Recovery v2: ${repairedOutput}`);
+    await captureEvidence(page, testInfo, "extension-browser-repaired-output", { fullPage: true });
+  } finally {
+    await attachBrowserDiagnostics(testInfo, "extension-browser-recovery-client-diagnostics", browserDiagnostics);
+    if (installationId) {
+      const cleanup = await request.delete(`/api/extensions/${installationId}`);
+      expect([204, 404]).toContain(cleanup.status());
+    }
+  }
+  expectCleanBrowserDiagnostics(browserDiagnostics);
+});
+
+test("same-session stale tabs cannot replace a new active release or restore an uninstall", async ({ page, request, baseURL }, testInfo) => {
+  test.setTimeout(360_000);
+  const pageDiagnostics = observeBrowserDiagnostics(page, baseURL!);
+  const name = `ui-stale-${Date.now().toString(36)}`;
+  const { client } = await extensionClient(request, baseURL!);
+  const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
+  const first = await buildWorkspace(client, created);
+  const releaseOne = Object.values(first.releases)[0]!;
+  const installationId = created.installation.id;
+  const stalePage = await page.context().newPage();
+  const stalePageDiagnostics = observeBrowserDiagnostics(stalePage, baseURL!);
+
+  try {
+    await requestRelease(client, first, releaseOne.id);
+    await page.goto(created.openUrl);
+    await page.getByLabel("I reviewed this release and its permissions.").check();
+    await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+
+    // B approves R2 while R1 is active and retains the rendered R2 activation.
+    // A then activates separately-approved R3, so B's R2 action is stale.
+    const fork = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "fork", installationId, releaseId: releaseOne.id });
+    const edited = await client.extensionControl<CreatedWorkspace["workspace"]>("extensions_workspace", {
+      action: "edit", installationId, workspaceId: fork.workspace.id, expectedRevision: fork.workspace.revision,
+      writes: { "src/echo.ts": echoSource("Stale tab v2: "), "src/echo.test.ts": `import { expect, test } from "bun:test"; import { echo } from "./echo"; test("echoes", () => expect(echo({ text: "value" })).toEqual({ text: "Stale tab v2: value" }));\n` },
+    });
+    const operation = await client.extensionControl<{ id: string }>("extensions_build", {
+      installationId, workspaceId: edited.id, expectedRevision: edited.revision, idempotencyKey: crypto.randomUUID(),
+    });
+    const second = await waitForExtensionBuild(client, installationId, operation.id);
+    const releaseTwo = second.releases[second.operations[operation.id]!.releaseId!]!;
+    await requestRelease(client, second, releaseTwo.id);
+    await stalePage.goto(`/extensions/author?installation=${installationId}&workspace=${edited.id}`);
+    await waitForHydration(stalePage);
+    const secondApproval = stalePage.locator(".approval").filter({ hasText: releaseTwo.releaseDigest });
+    await secondApproval.getByLabel("I reviewed this release and its permissions.").check();
+    await secondApproval.getByRole("button", { name: "Approve exact release", exact: true }).click();
+    await expect(secondApproval.getByRole("button", { name: "Activate approved release", exact: true })).toBeVisible();
+
+    const forkThree = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "fork", installationId, releaseId: releaseOne.id });
+    const editedThree = await client.extensionControl<CreatedWorkspace["workspace"]>("extensions_workspace", {
+      action: "edit", installationId, workspaceId: forkThree.workspace.id, expectedRevision: forkThree.workspace.revision,
+      writes: { "src/echo.ts": echoSource("Stale tab v3: "), "src/echo.test.ts": `import { expect, test } from "bun:test"; import { echo } from "./echo"; test("echoes", () => expect(echo({ text: "value" })).toEqual({ text: "Stale tab v3: value" }));\n` },
+    });
+    const operationThree = await client.extensionControl<{ id: string }>("extensions_build", {
+      installationId, workspaceId: editedThree.id, expectedRevision: editedThree.revision, idempotencyKey: crypto.randomUUID(),
+    });
+    const third = await waitForExtensionBuild(client, installationId, operationThree.id);
+    const releaseThree = third.releases[third.operations[operationThree.id]!.releaseId!]!;
+    await requestRelease(client, third, releaseThree.id);
+
+    await page.goto(`/extensions/author?installation=${installationId}&workspace=${editedThree.id}`);
+    const thirdApproval = page.locator(".approval").filter({ hasText: releaseThree.releaseDigest });
+    await thirdApproval.getByLabel("I reviewed this release and its permissions.").check();
+    await thirdApproval.getByRole("button", { name: "Approve exact release", exact: true }).click();
+    await thirdApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect.poll(async () => {
+      const current = await client.extensionControl<{ installation: { activeReleaseId: string } }>("extensions_inspect", { installationId });
+      return current.installation.activeReleaseId;
+    }, { timeout: 30_000, intervals: [250] }).toBe(releaseThree.id);
+
+    await secondApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect(stalePage.getByRole("alert")).toContainText(/stale|no longer matches/i);
+    await captureEvidence(stalePage, testInfo, "extension-stale-tab-denial", { fullPage: true });
+    const unchanged = await client.extensionControl<{ installation: { activeReleaseId: string } }>("extensions_inspect", { installationId });
+    expect(unchanged.installation.activeReleaseId).toBe(releaseThree.id);
+    await page.goto("/extensions");
+    const card = page.locator(`[data-testid="ext-card"][data-ext-id="${installationId}"]`);
+    await card.getByTestId("ext-card-uninstall").click();
+    const uninstallResponse = page.waitForResponse(response =>
+      response.request().method() === "DELETE"
+      && new URL(response.url()).pathname === `/api/extensions/${installationId}`,
+    );
+    await page.getByTestId("uninstall-dialog").getByTestId("uninstall-confirm").click();
+    expect((await uninstallResponse).status()).toBe(204);
+    await expect(card).toHaveCount(0);
+
+    // B still has the pre-uninstall DOM. Its action must fail and reload must
+    // show removal; retained history/data are intentionally not treated as a
+    // restored installation.
+    await secondApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
+    await expect(stalePage.getByRole("alert")).toContainText(/stale|missing|uninstall/i);
+    await stalePage.reload();
+    await waitForHydration(stalePage);
+    // Retained author history is projected as disabled after uninstall; the
+    // removed card and 404 tool lookup below prove it is not reactivated.
+    await expect(stalePage.locator(".state-badge")).toContainText("disabled");
+    await expect(stalePage.getByRole("button", { name: "Activate approved release", exact: true })).toHaveCount(0);
+    await expect(stalePage.getByRole("button", { name: "Request approval", exact: true }).first()).toBeDisabled();
+    const removed = await client.extensionControl<{ installation: { status: string; enabled: boolean; uninstalled: boolean; activeReleaseId: string; grants: unknown[] } }>("extensions_inspect", { installationId });
+    expect(removed.installation).toMatchObject({
+      status: "disabled",
+      enabled: false,
+      uninstalled: true,
+      activeReleaseId: releaseThree.id,
+      grants: [],
+    });
+    const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
+    expect(tools.status()).toBe(404);
+    await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall", { fullPage: true });
+  } finally {
+    await attachBrowserDiagnostics(testInfo, "extension-stale-tab-primary-client-diagnostics", pageDiagnostics);
+    await attachBrowserDiagnostics(testInfo, "extension-stale-tab-secondary-client-diagnostics", stalePageDiagnostics);
+    await stalePage.close();
+    if (installationId) await request.delete(`/api/extensions/${installationId}`);
+  }
+  expectCleanBrowserDiagnostics(pageDiagnostics);
+  // Both denied clicks are intentional stale mutations. The UI displays each
+  // 409 as an alert, and no other browser errors or failed API calls are valid.
+  expectCleanBrowserDiagnostics(stalePageDiagnostics, {
+    // Chromium logs rejected fetches; Firefox does not. Both paths send the
+    // same two browser-visible 409 denial responses asserted below.
+    consoleErrorVariants: [
+      [],
+      [
+        "Failed to load resource: the server responded with a status of 409 (Conflict)",
+        "Failed to load resource: the server responded with a status of 409 (Conflict)",
+      ],
+    ],
+    apiFailures: [
+      { method: "POST", status: 409, path: "/api/extensions/control" },
+      { method: "POST", status: 409, path: "/api/extensions/control" },
+    ],
+  });
 });
