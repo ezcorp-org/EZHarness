@@ -95,7 +95,10 @@ test("unknown targets and mismatched persisted owners stay opaque, while an owne
   await expect(resolveSourceTarget(owner, "missing", true)).rejects.toThrow("access denied");
   const created = await lifecycle.createWorkspace(owner, { files });
   await repository.transact(created.installation.id, (state) => { state.installation.uninstalled = true; });
-  await expect(resolveSourceTarget(owner, created.installation.id, true)).rejects.toMatchObject({ code: "uninstalled" });
+  await expect(resolveSourceTarget(owner, created.installation.id, true)).rejects.toMatchObject({
+    code: "uninstalled",
+    message: "This installation has been uninstalled. Import source without selecting it to create a new installation. The previous extension name remains reserved; choose a new extension name before activation.",
+  });
   await expect(resolveSourceTarget({ ...owner, principalId: "stranger" }, created.installation.id, true)).rejects.toThrow("access denied");
   const previous = await legacy();
   await resolveSourceTarget(owner, previous.id, true);
