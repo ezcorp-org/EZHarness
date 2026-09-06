@@ -1,6 +1,9 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { PGlite } from "@electric-sql/pglite";
 import { HarnessClient } from "@ezcorp/harness-client";
+import { APP_DATABASE } from "../../src/db/datadir-upgrade";
 import type { InstallationRecord, InstallationState, LifecycleApproval, LifecycleOperation, WorkspaceRecord } from "../../src/extensions/v4/types";
 
 export function required(name: string): string {
@@ -26,6 +29,26 @@ export async function readSessionCookie(file: string): Promise<string> {
   });
   assert(cookies.length, "The launcher must provide a human session cookie");
   return cookies.join("; ");
+}
+
+/** Read only the launcher's owned database after its app has stopped. */
+export async function readStoppedProductionDatabase<T>(read: (database: PGlite) => Promise<T>): Promise<T> {
+  const container = required("EZ_PRODUCTION_CONTAINER");
+  assert.equal(await command("docker", ["inspect", container, "--format", "{{.State.Running}}"]), "false", "Stop the owned app before opening its PGlite database");
+  const dataRoot = join(required("EZ_PRODUCTION_RUN_ROOT"), "app-data");
+  const mounts = JSON.parse(await command("docker", ["inspect", container, "--format", "{{json .Mounts}}"]));
+  assert(mounts.some((mount: { Destination: string; Source: string }) => mount.Destination === "/app/data" && mount.Source === dataRoot), "Owned app data mount differs from the launcher state root");
+  const dataDir = join(dataRoot, "ezcorp");
+  assert((await readFile(join(dataDir, "PG_VERSION"), "utf8")).trim(), "The owned production database must already exist");
+  const [{ PGlite }, { vector }, { pg_trgm }] = await Promise.all([
+    import("@electric-sql/pglite"), import("@electric-sql/pglite-pgvector"), import("@electric-sql/pglite/contrib/pg_trgm"),
+  ]);
+  const database = new PGlite({ dataDir, database: APP_DATABASE, extensions: { vector, pg_trgm } });
+  try {
+    await database.waitReady;
+    await database.exec("SET default_transaction_read_only = on");
+    return await read(database);
+  } finally { await database.close(); }
 }
 
 type SessionRequest = { method?: string; body?: unknown; headers?: Record<string, string> };
