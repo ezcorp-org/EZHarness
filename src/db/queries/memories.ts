@@ -1,7 +1,7 @@
 import { eq, desc, sql, and, ne, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import type { DbTransaction } from "../connection";
-import { memories, memoryAuditLog, memoryProjects } from "../schema";
+import { conversations, memories, memoryAuditLog, memoryProjects } from "../schema";
 import type { Memory, NewMemory } from "../schema";
 import type { MemoryConfidence, MemoryProvenance, MemoryStatus } from "../../memory/types";
 import { toVectorLiteral } from "../../memory/vector-utils";
@@ -73,6 +73,14 @@ export async function getProjectIdsForMemories(memoryIds: string[]): Promise<Map
 }
 
 // ── Core memory CRUD ──────────────────────────────────────────────
+
+/**
+ * A memory belongs to a user through either direct attribution or its
+ * source conversation. Fully unattributed rows match no user.
+ */
+export function memoryOwnedByUser(userId: string) {
+  return sql`(${memories.userId} = ${userId} OR (${memories.userId} IS NULL AND EXISTS (SELECT 1 FROM ${conversations} WHERE ${conversations.id} = ${memories.conversationId} AND ${conversations.userId} = ${userId})))`;
+}
 
 export async function insertMemory(data: NewMemory & { projectIds?: string[] }): Promise<Memory> {
   const db = getDb();
@@ -218,7 +226,7 @@ export async function listMemories(opts?: {
   const conditions = [];
   if (opts?.projectId) conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
   if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
-  if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
+  if (opts?.userId) conditions.push(memoryOwnedByUser(opts.userId));
 
   const query = db
     .select()
@@ -260,7 +268,7 @@ export async function searchMemories(opts?: {
     conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
   }
   if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
-  if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
+  if (opts?.userId) conditions.push(memoryOwnedByUser(opts.userId));
 
   // Default: exclude archived
   if (opts?.status) {
