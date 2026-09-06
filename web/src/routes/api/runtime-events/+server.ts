@@ -160,7 +160,7 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
       // Send a heartbeat every 5s. The adapter starts Bun with its default
       // 10s idle timeout, which closes a quiet streamed response. Five seconds
       // keeps the connection active without changing that global timeout or
-      // adding meaningful bandwidth cost (4 bytes per frame).
+      // adding meaningful bandwidth cost.
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encodeFrame(": heartbeat\n\n"));
