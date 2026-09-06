@@ -356,7 +356,7 @@
 		<SkeletonLoader type="lines" lines={6} statusText="Loading page…" />
 	{:else if errorMsg}
 		<div class="rounded-lg border border-red-500/30 bg-red-500/10 p-4" data-testid="hub-error-card">
-			<div class="text-sm font-medium text-red-300">Couldn't load this page</div>
+			<div class="text-sm font-medium text-red-700 dark:text-red-300" data-testid="hub-error-title">Couldn't load this page</div>
 			<p class="mt-1 text-xs text-[var(--color-text-muted)]">{errorMsg}</p>
 			<button
 				type="button"
