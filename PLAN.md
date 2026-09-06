@@ -116,3 +116,19 @@ Types34 and lint12 pass (lint has warnings). Backend9 is running. Web6 and compo
 - All nine actual authenticated extension browser specifications pass together. Desktop and mobile use genuine pointer input after scrolling ends. Explicit browser-channel selection fixes the inherited test-launch setting; no production isolation or input behavior is weakened. Final desktop/mobile screenshots are reviewed.
 - Typecheck45, Svelte check2, lint20, component11, production build5, source lock, actual PostgreSQL, native transport, runner isolation, all-50 baseline plus three-candidate delta, and final production image verification pass. Warning counts and source snapshots are recorded in `docs/extension-v4-validation.md`.
 - Gate integrity is still not green: 84 mapped migration findings require a maintainer decision. A draft PR provides that review surface; no approval label or gate bypass is self-issued. The compatibility choices remain explicit, and required CI plus non-author review must pass before merge.
+
+## Shipping confidence implementation — 2026-09-06
+
+User authorized all additions from docs/plans/extension-v4-shipping-test-gaps.md and a fresh Terra team. Base: 232cad4a; fetched main remains 537f074e. Existing public browser/API/container boundaries are approved.
+
+Contracts and ownership:
+- terra_ship_upgrade: scripts/verify-docker-upgrade.sh, shared production-image lifecycle launcher, CI/release workflow wiring. Owns gates/shipping-upgrade.md. Preserve legacy fresh approval and v4 identity rules.
+- terra_ship_runtime: new crash/revocation/resource fixtures and scripts plus minimum runtime fixes. Owns gates/shipping-runtime.md. Coordinate any shared image harness with upgrade owner; no workflow edits.
+- terra_ship_browser: real-auth browser specs/fixtures, browser engine setup, affected web fixes. Owns gates/shipping-browser.md. Send workflow requirements to upgrade owner.
+- terra_ship_security: Stage2/security checks, seccomp runner checks, provider input inventory. Owns gates/shipping-security.md. No privilege changes outside owned isolated test environments.
+- queued terra_ship_import: interrupted acquisition and owner-deactivation integration; owns gates/shipping-import.md and associated import files.
+- parent: integration, coverage registrations, tasks/lessons, final report/evidence, independent verification, push and hosted CI. Owns gates/shipping-root.md.
+
+All agents use separate new worktrees. They are not alone; no reverting others. Only parent updates shared PLAN.md/tasks. Pin Bun1.3.14 and Node22.22.2 for tests and hooks, login:false. Heavy builds/browser/full suites use flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock. Test source changes use explicit observed barriers, no retries or sleep-based ordering, no reduced gates. Capture exact source, commands/exits and bounded logs, no credentials/raw authenticated artifacts. Replace manual gates with actual CHECK/EXPECT commands once their executable exists. No approval labels, merge, deploy, or messages to other people.
+
+Status: gates written; implementation begins with four fresh Terra agents and import queued for the next available slot.

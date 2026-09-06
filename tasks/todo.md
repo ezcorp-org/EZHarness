@@ -90,3 +90,27 @@ Hosted run `34050069966` passed 31 technical checks. Visual evidence exposed a m
 Plan review: keep the actual live event flow and strict assertions. Do not compare server timestamps with the browser clock. A pending history response must not erase a newer live update, and a later authoritative response must still remove an absent entry. Publish with normal hooks and inspect every hosted check on the final commit.
 
 Review: all 7,099 component tests, 4,079 web Bun tests, 180 mock evidence cases, nine real evidence cases, 57 full real-auth cases, and 210 shared mock cases pass. The image from `26541024` passes eight container checks, three stream heartbeats over 45 seconds, and all 13 File Organizer cases. Parent repeated the final canvas test after the E2E-only marker refinement. Both controlled production faults fail at their intended assertions and restore source bytes. The final staged scan and evidence checksums are checked before commit; publication and hosted results follow without a policy override.
+
+## Shipping confidence — test gap review
+
+- [x] Compare current tests with recovery, upgrade, authority, and browser risks.
+- [x] Have Terra agents check separate areas; verify each proposed gap against existing tests.
+- [x] Rank useful additions by release risk and define observable pass criteria.
+- [x] Record what can run locally and what requires a product decision or external runner.
+
+Plan review: inspect the pushed `232cad4a` source. Existing normal flows and all 32 technical CI checks pass. Propose tests at the already used browser, public API, and production container boundaries. Do not treat coverage percentages as proof of crash recovery or replace missing live checks with mock results. Implementation scope is pending the user's optional preference; complete the ranked review regardless.
+
+Review: four Terra reviews and parent source checks identify real-version upgrade, app/runner process death, revocation during a paused invocation, and stale browser state as the strongest additions. Current upgrade smoke builds one source twice; current PR CI omits the production-image File Organizer cases. Parent corrected proposed legacy migration assertions: explicit adoption retains identity/data, clears grants, and requires fresh approval; it must not silently preserve legacy execution. Ranked plan: `docs/plans/extension-v4-shipping-test-gaps.md`. This turn adds a test plan only; no new product test pass is claimed.
+
+## Shipping confidence implementation — fresh Terra team
+
+- [ ] Implement real-version upgrade and restore proof; enforce production-image suite in CI.
+- [ ] Implement actual app/worker crash, in-flight revocation, and measured lifecycle resource checks.
+- [ ] Implement stale-tab, pending-build reload, visible error recovery, and browser-engine checks.
+- [ ] Implement interrupted source acquisition/retry and owner-deactivation integration.
+- [ ] Replace Stage2 TODOs with real checks; verify kernel/provider prerequisites and available cases.
+- [ ] Integrate and independently review/replay team changes; repair observed failures.
+- [ ] Verify complete relevant regressions, final image, screenshots/logs, coverage, secret scan and evidence.
+- [ ] Push with normal hooks and inspect all hosted jobs; report remaining external decisions precisely.
+
+Plan review: the user approved all ranked additions. Work continues through the gates in gates/shipping-root.md and each shipping leaf; no permission request is needed for the agreed browser/API/container tests. Existing 84 policy findings require maintainer review independently.
