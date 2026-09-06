@@ -105,12 +105,12 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 				durationMs: 1,
 				status: "success",
 			};
-		await route.fulfill({
-			json: {
-				messages: [userMsg, assistantMsg],
-				orphanedToolCalls: [...completedToolCall, hydrationSentinel],
-			},
-		});
+			await route.fulfill({
+				json: {
+					messages: [userMsg, assistantMsg],
+					orphanedToolCalls: [...completedToolCall, hydrationSentinel],
+				},
+			});
 		});
 		await routePreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
