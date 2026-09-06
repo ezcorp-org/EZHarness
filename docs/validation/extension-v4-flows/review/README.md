@@ -11,9 +11,10 @@ extension control flows. It covers the existing browser tests named below and
 source review of wiring, uninstall, and reinstall paths. It does not modify
 production lifecycle code or CI gates.
 
-This evidence directory contains only this Markdown record. Playwright traces,
-blob reports, screenshots, request bodies, and headers remain outside the
-worktree because real-auth artifacts can contain session material.
+This evidence directory contains Markdown and a sanitized diagnostic receipt.
+Playwright traces, blob reports, screenshots, request bodies, and headers
+remain outside the worktree because real-auth artifacts can contain session
+material.
 
 ## Behavior matrix
 
@@ -66,7 +67,7 @@ and the authenticated rootless extension runner. Build output included existing
 Svelte accessibility/state warnings and local embedding-model load warnings;
 the four tests still passed and no browser/server test error was emitted.
 
-## Cancellation drain and fault sensitivity
+## Cancellation drain verification
 
 The cancellation test formerly used a fixed five-second delay. Test commit
 `66b38e6436b671241e021c031e1c33690bb67e35` replaces it with an observed
@@ -76,7 +77,11 @@ acknowledgement proves the invocation had started and entered
 and return the current request state. The test requires `cancelled` before it
 releases the extension's pending work and reads storage.
 
-The exact replay command below exited `0`: **1 passed (50.2s)**.
+An initial replay of this committed test exited `0`: **1 passed (50.2s)**.
+After restoration from the controlled production fault, the same test exited
+`0`: **1 passed (50.3s)**. Its secret-safe diagnostic receipt, local raw-log
+paths, and SHA-256 checksums are in
+[`cancellation-restored-green-20260906.txt`](receipts/cancellation-restored-green-20260906.txt).
 
 ```sh
 cd /home/dev/work/EZCorp/extension-v4-flow-review/web
@@ -88,9 +93,21 @@ flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/valida
   e2e/real-auth/extension-browser-cancel.spec.ts
 ```
 
-Fault sensitivity was checked by temporarily changing the terminal expectation
-from `cancelled` to `finished`. The same command exited `1`; its direct
-assertion was:
+An assertion sanity check temporarily changed the expected terminal state from
+`cancelled` to `finished`; it failed with `Expected: "finished"` and
+`Received: "cancelled"`. This verifies that the expectation is active. It is
+not a fault-sensitivity result.
+
+The controlled production fault removed the one SQL update that persists the
+new cancellation state in `BrowserInvocationStore.cancel()`. With the browser
+test unchanged, the same command exited `1` because the normal cancel route
+continued to return `cancel_requested` and the test could not observe terminal
+`cancelled`. The source was restored before the final green replay. The
+secret-safe diagnostic receipt, raw-local paths, SHA-256 checksums, exact
+mutation, command, and result are in
+[`cancellation-production-fault-20260906.txt`](receipts/cancellation-production-fault-20260906.txt).
+
+The fault run reported:
 
 ```text
 The cancelled browser request must drain before later effects are checked.
@@ -99,8 +116,7 @@ Received: "cancelled"
 Timeout 10000ms exceeded
 ```
 
-The committed expectation was restored and the final green replay above ran
-against the restored source. No test endpoint or production seam was added.
+No test endpoint or production seam was added.
 
 ## Visual inspection
 
@@ -124,7 +140,10 @@ file list, checkbox, and disabled decision buttons clearly. The 390px mobile
 view has no horizontal overflow and keeps the review checkbox and decisions
 readable. The chat screenshots show two independent real release outputs, then
 the new release output after activation. No visible clipping or layout defect
-was found in this review.
+was found in this review. The current local report paths are
+`/tmp/ez-terra-visual-report-20260906/index.html` and its four PNGs under
+`/tmp/ez-terra-visual-report-20260906/data/`; those files, the blob ZIP, and
+the original authenticated runner output are not committed.
 
 ## Remaining product gaps
 

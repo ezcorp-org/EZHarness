@@ -1,0 +1,58 @@
+Sanitized diagnostic receipt. This is not a Playwright trace or a raw HTTP
+capture. The original raw runner console log remains outside the worktree at:
+
+  /tmp/extension-v4-cancel-production-fault-20260906.log
+  sha256 912b48715f04885c8f2fff2a278b497e3db7330a7d91618f3024392fa26a3b50
+
+The separately preserved exit receipt is:
+
+  /tmp/extension-v4-cancel-production-fault-20260906.exit
+  sha256 4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865
+
+The raw console log was inspected before this receipt was written. It has no
+Authorization header, Cookie, Bearer token, API-key, password, or secret value.
+Trace ZIP, screenshot, error-context, request bodies, and response bodies were
+not copied because the run used real authentication.
+
+Temporary uncommitted production mutation
+------------------------------------------
+
+From BrowserInvocationStore.cancel(), omit only this persistence operation:
+
+  await transaction.execute(sql`UPDATE extension_browser_requests SET state=${state} WHERE id=${requestId}`);
+
+The browser test source was unchanged. The mutation was restored before the
+restored-source replay.
+
+Command
+-------
+
+cd /home/dev/work/EZCorp/extension-v4-flow-review/web
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+  env PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH \
+  PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4284 \
+  CONMON=/tmp/ez-audit-ci-conmon \
+  bunx playwright test --config playwright.real.config.ts \
+  e2e/real-auth/extension-browser-cancel.spec.ts
+
+Result
+------
+
+COMMAND_EXIT=1
+
+Running 1 test using 1 worker
+
+1) private browser cancellation reaches the actual HTTP worker and prevents later effects
+
+  Error: The cancelled browser request must drain before later effects are checked.
+
+  expect(received).toBe(expected) // Object.is equality
+
+  Expected: "cancelled"
+  Received: "cancel_requested"
+
+  Call Log:
+  - Timeout 10000ms exceeded while waiting on the predicate
+
+The omitted update leaves each cancel request read as `running`, so the route
+returns `cancel_requested` again but finish cannot persist terminal `cancelled`.
