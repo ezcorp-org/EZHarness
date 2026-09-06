@@ -598,30 +598,37 @@ ROADMAP Success Criterion #2 requires: "20 concurrent MCPs × 1000
 requests, 24h, `nf_conntrack_count` stays below 50% of
 `nf_conntrack_max`, no `nf_conntrack: table full` line in dmesg."
 
-This is too large for the standard CI pipeline. The MCP-05 split:
+The CI and operator commands share `scripts/stage2-conntrack-soak.mjs`:
 
-- **CI proxy (5 min):** `src/__tests__/mcp-stage2-conntrack-soak.test.ts`
-  runs a scaled 4-concurrent × 100-request synthetic load — same
-  density as the operator scenario, 50× shorter. Gates regression but
-  cannot prove the absolute 24h × 20 × 1000 criterion. Default-skipped
-  to avoid CI bloat; opt-in via `EZCORP_RUN_CONNTRACK_SOAK=1`.
+- **CI (5 min):** `src/__tests__/mcp-stage2-conntrack-soak.test.ts` runs
+  four concurrent workers with 100 successful requests each. Set
+  `EZCORP_STAGE2_PROOF=1` and `EZCORP_STAGE2_PROOF_IMAGE` to the candidate
+  image to enable it. A separate process-kill control must fail the same
+  load checker. This shorter run does not prove the 24-hour criterion.
+- **Operator (24h):** `scripts/mcp-conntrack-soak-24h.sh` runs 20 workers
+  with 1,000 requests each, paced over 86,400 seconds. An explicit shorter
+  duration verifies only that interval.
 
-- **Operator fallback (24h):** `scripts/mcp-conntrack-soak-24h.sh` on
-  a staging host. Default duration 24h (86400s); pass a shorter
-  duration as `$1` for local smoke tests. Output: peak conntrack count,
-  peak ratio, dmesg table-full count, PASS/FAIL verdict. Exit code 0
-  = PASS (RC#2 satisfied).
+```bash
+export EZCORP_STAGE2_PROOF_IMAGE=your-candidate-image
+bash scripts/mcp-conntrack-soak-24h.sh       # Full 24-hour run
+bash scripts/mcp-conntrack-soak-24h.sh 300   # Five-minute operator smoke
+```
 
-  ```bash
-  # Full 24h validation:
-  bash scripts/mcp-conntrack-soak-24h.sh
+Requirements: Linux, rootless Podman with user/network namespace support,
+the candidate image in its local store, Node.js, and a readable kernel
+journal (`journalctl -k`). The test adds network controls only inside owned
+containers. Each worker runs the production launcher and proxy in separate
+network namespaces against an owned echo destination. Its controlled policy
+boundary allows that destination and rejects a second destination.
 
-  # 5-minute smoke test:
-  bash scripts/mcp-conntrack-soak-24h.sh 300
-  ```
-
-Requirements: `CAP_NET_ADMIN` + ~2 GB free RAM + the synthetic-MCP
-fixture (`tests/fixtures/synthetic-mcp/loop.ts`).
+Every request must return the expected bytes. Accepting observation chains
+in each owned gateway activate connection tracking without changing the
+child's production rules. The report records measured duration, completed
+requests, baseline/peak/final counters, and each worker's exit. It requires
+positive observed tracking below half the maximum, no new kernel
+`nf_conntrack: table full` messages, and no remaining owned containers.
+Failed workers, missing counters, and unreadable kernel logs fail the check.
 
 ## MCP_SECCOMP_VIOLATION metadata.code shift (Phase 55 → Phase 58)
 

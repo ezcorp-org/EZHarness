@@ -24,6 +24,10 @@ let tempDir;
 let handshakeFd;
 let executedLauncher = launcher;
 let faultDisableCommandsRemoved = [];
+let sampleTimer;
+let sampleError;
+const conntrackSamples = [];
+let conntrackMaximum;
 let proxy;
 let upstream;
 const upstreamSockets = new Set();
@@ -33,11 +37,12 @@ const allowedHost = "93.184.216.34";
 const deniedHost = "93.184.216.35";
 const echoMarker = "stage2-owned-proxy-output";
 
-function command(file, args) {
-  return execFileSync(file, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+function command(file, args, input) {
+  return execFileSync(file, args, { input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
 function cleanup() {
+  clearInterval(sampleTimer);
   if (child && child.exitCode === null) child.kill("SIGKILL");
   if (handshakeFd !== undefined) closeSync(handshakeFd);
   try { command("nft", ["delete", "table", "inet", "mcp-egress"]); } catch {}
@@ -89,7 +94,22 @@ async function childProbe() {
       responses.allowed.output !== echoMarker) throw new Error("Production proxy authentication, policy or data flow failed");
   let rawConnect = null;
   let ipv6 = null;
-  if (mode.startsWith("--ipv6")) {
+  let soak = null;
+  if (mode === "--soak") {
+    const requests = Number(process.env.EZCORP_STAGE2_SOAK_REQUESTS);
+    const durationMs = Number(process.env.EZCORP_STAGE2_SOAK_SECONDS) * 1_000;
+    if (!Number.isSafeInteger(requests) || requests < 1 || requests > 100_000) throw new Error("Invalid soak request count");
+    const started = performance.now();
+    for (let index = 1; index <= requests; index += 1) {
+      // Pace actual requests across the measured load window. Every response
+      // must complete with the owned echo before the next request can run.
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, durationMs * index / requests - (performance.now() - started))));
+      const response = await proxyRequest(allowedHost, token, true);
+      if (response.output !== echoMarker) throw new Error("Soak request lost its expected output");
+      if (index === 1 && process.env.EZCORP_STAGE2_KILL_WORKER === "1") process.kill(process.pid, "SIGKILL");
+    }
+    soak = { requests, durationMs, elapsedMs: Math.round(performance.now() - started) };
+  } else if (mode.startsWith("--ipv6")) {
     const route = require("node:child_process").spawnSync("ip", ["-6", "route", "get", "fd00:42::1"], { encoding: "utf8" });
     ipv6 = {
       eth0Disable: readFileSync("/proc/sys/net/ipv6/conf/eth0/disable_ipv6", "utf8").trim(),
@@ -108,7 +128,7 @@ async function childProbe() {
       socket.setTimeout(850, () => finish("TIMEOUT"));
     });
   }
-  console.log(JSON.stringify({ rawConnect, ipv6, proxy: responses }));
+  console.log(JSON.stringify({ rawConnect, ipv6, proxy: responses, soak }));
 }
 
 function waitForChildNetns(pid) {
@@ -167,6 +187,22 @@ async function main() {
   command("ip", ["link", "set", forbiddenHost, "up"]);
   command("ip", ["addr", "add", "10.42.0.2/24", "dev", forbiddenPeer]);
   command("ip", ["link", "set", forbiddenPeer, "up"]);
+
+  if (mode === "--soak") {
+    // Observe connection tracking on the test-owned gateway. These accepting
+    // chains activate tracking without changing the child's production rules.
+    command("nft", ["-f", "-"], "table inet proof_tracking { chain input { type filter hook input priority 0; policy accept; ct state new,established,related counter; }\n chain output { type filter hook output priority 0; policy accept; ct state new,established,related counter; }\n }\n");
+    conntrackMaximum = Number(readFileSync("/proc/sys/net/netfilter/nf_conntrack_max", "utf8"));
+    const sample = () => {
+      try {
+        const count = Number(readFileSync("/proc/sys/net/netfilter/nf_conntrack_count", "utf8"));
+        if (!Number.isSafeInteger(count) || count < 0) throw new Error("Invalid conntrack counter");
+        conntrackSamples.push(count);
+      } catch (error) { sampleError = error; }
+    };
+    sample();
+    sampleTimer = setInterval(sample, 250);
+  }
 
   listener = createServer((socket) => {
     acceptedConnections += 1;
@@ -232,17 +268,28 @@ async function main() {
   // child exits so that open cannot wait for a new writer after the byte.
   const exit = await childExit(child);
   const output = stdout.trim().split("\n").at(-1) || "NO_RESULT";
-  if (exit.code !== 0 || exit.signal !== null) throw new Error("Stage2 child failed: " + stderr);
-  const { rawConnect, ipv6, proxy: proxyResponses } = JSON.parse(output);
+  if (exit.code !== 0 || exit.signal !== null) throw new Error("Stage2 child failed: " + JSON.stringify(exit) + " " + stderr);
+  const { rawConnect, ipv6, proxy: proxyResponses, soak } = JSON.parse(output);
+  clearInterval(sampleTimer);
+  if (soak) {
+    if (sampleError) throw sampleError;
+    const peak = Math.max(...conntrackSamples);
+    if (!Number.isSafeInteger(conntrackMaximum) || conntrackMaximum < 1 || peak < 1 || peak >= conntrackMaximum / 2) throw new Error("Conntrack load was not observed or reached half of its maximum");
+    Object.assign(soak, { maximum: conntrackMaximum, baseline: conntrackSamples[0], peak, final: conntrackSamples.at(-1), samples: conntrackSamples.length });
+  }
   await proxy.stop();
   for (const socket of upstreamSockets) socket.destroy();
   await new Promise(resolve => upstream.close(resolve));
-  if (upstreamConnections !== 1 || policyHosts.join(",") !== deniedHost + "," + allowedHost) throw new Error("Proxy bypassed destination policy or opened an unexpected upstream connection");
+  const expectedConnections = 1 + (soak?.requests ?? 0);
+  if (upstreamConnections !== expectedConnections ||
+      policyHosts.length !== expectedConnections + 1 ||
+      policyHosts[0] !== deniedHost || policyHosts.slice(1).some(host => host !== allowedHost)) throw new Error("Proxy bypassed destination policy or opened an unexpected upstream connection");
   await closeListener();
-  const receipt = { mode, launcher, sourceSha256, listener: `${listenerAddress}:${listenerPort}`, childPid: child.pid, childExit: exit.code, childSignal: exit.signal, rawConnect, ipv6, faultDisableCommandsRemoved, proxy: proxyResponses, upstreamConnections, policyHosts, acceptedConnections, openConnections: listenerSockets.size, stderr: stderr.trim() };
+  const receipt = { mode, launcher, sourceSha256, listener: `${listenerAddress}:${listenerPort}`, childPid: child.pid, childExit: exit.code, childSignal: exit.signal, rawConnect, ipv6, faultDisableCommandsRemoved, soak, proxy: proxyResponses, upstreamConnections, policyHosts, acceptedConnections, openConnections: listenerSockets.size, stderr: stderr.trim() };
   console.log(JSON.stringify(receipt));
   cleanup();
   if (exit.code !== 0 || exit.signal !== null) process.exit(43);
+  if (mode === "--soak" && soak.requests > 0 && soak.elapsedMs >= soak.durationMs && acceptedConnections === 0 && listenerSockets.size === 0) process.exit(0);
   if (mode === "--ipv6-on" && ipv6.eth0Disable === "1" && ipv6.loDisable === "1" && !ipv6.eth0HasSeed && !ipv6.loHasSeed && ipv6.routeExit !== 0 && /network is unreachable/i.test(ipv6.routeStderr)) process.exit(0);
   if (mode === "--ipv6-off" && ipv6.eth0Disable !== "1" && ipv6.loDisable !== "1" && ipv6.eth0HasSeed && ipv6.loHasSeed && ipv6.routeExit === 0) {
     console.error("IPV6_ASSERTION_FAILED: removing only disable commands preserved IPv6 routing");
