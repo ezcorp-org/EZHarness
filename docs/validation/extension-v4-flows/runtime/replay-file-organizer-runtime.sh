@@ -169,12 +169,12 @@ try {
   process.exitCode = 1;
 } finally {
   clearTimeout(deadline);
-  if (reader) await reader.cancel();
   console.log("sse_path=/api/runtime-events");
   console.log(`sse_connected_frames=${connectedFrames}`);
   console.log(`sse_heartbeat_frames=${heartbeatFrames}`);
   console.log(`sse_elapsed_ms=${Math.round(performance.now() - startedAt)}`);
   console.log(`sse_idle_check=${passed ? "passed" : "failed"}`);
+  if (reader) await reader.cancel();
 }
 EOF
 EZ_RUNTIME_ORIGIN="http://localhost:${port}" EZ_RUNTIME_COOKIE_PATH="$session_cookie" bun "$run_root/check-idle-runtime-events.ts" > "$receipt_dir/runtime-events.log" 2>&1
