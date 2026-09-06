@@ -570,6 +570,45 @@ describe("daemon — lifecycle", () => {
     expect(await Bun.file(join(dataDir, ".daemon.pid")).exists()).toBe(false);
   });
 
+  test("stop completion keeps a delayed release from deleting a successor lock", async () => {
+    await writeConfig();
+    const releaseEntered = Promise.withResolvers<void>();
+    const releaseGate = Promise.withResolvers<void>();
+    const lock = join(dataDir, ".daemon.pid");
+    const first = new FileOrganizerDaemon({
+      dataDir,
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      getSettings: async () => ({ ...DEFAULT_SETTINGS }),
+      wakeIntervalMsOverride: 50_000,
+      releaseLockfile: async (path) => {
+        releaseEntered.resolve();
+        await releaseGate.promise;
+        await _fileOrganizerDaemonInternals.releaseLockfile(path);
+      },
+    });
+    expect(await first.start(DEFAULT_SETTINGS)).toBe(true);
+    let stopped = false;
+    const stopping = Promise.resolve(first.stop()).then(() => { stopped = true; });
+    await releaseEntered.promise;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stopped).toBe(false);
+    releaseGate.resolve();
+    await stopping;
+
+    const successor = new FileOrganizerDaemon({
+      dataDir,
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      getSettings: async () => ({ ...DEFAULT_SETTINGS }),
+      wakeIntervalMsOverride: 50_000,
+    });
+    expect(await successor.start(DEFAULT_SETTINGS)).toBe(true);
+    expect(await Bun.file(lock).exists()).toBe(true);
+    await successor.stop();
+    expect(await Bun.file(lock).exists()).toBe(false);
+  });
+
   test("the armed interval actually fires a tick", async () => {
     await writeConfig({ presets: ["junk-sweep"] });
     await writeFile(join(watched, "j.tmp"), "x");
