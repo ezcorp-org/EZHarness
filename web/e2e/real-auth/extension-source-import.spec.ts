@@ -16,6 +16,12 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 }
 
+function toolResult(output: unknown): Record<string, unknown> {
+  if (typeof output === "string") return JSON.parse(output) as Record<string, unknown>;
+  if (output && typeof output === "object") return output as Record<string, unknown>;
+  throw new Error("The extension must return a structured tool result.");
+}
+
 test("member imports verified marketplace source, an administrator approves it, and the installed release works @evidence", async ({ browser, page: adminPage, request, baseURL }, testInfo) => {
   test.setTimeout(720000);
   const email = `source-import-${Date.now()}@example.test`;
@@ -57,7 +63,7 @@ test("member imports verified marketplace source, an administrator approves it, 
     expect(await memberPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await captureEvidence(memberPage, testInfo, "extension-source-import-mobile", { fullPage: true });
     await memberPage.setViewportSize({ width: 1280, height: 900 });
-    const importedResponse = memberPage.waitForResponse((response) => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    const importedResponse = memberPage.waitForResponse((response) => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await memberPage.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const imported = await importedResponse;
     expect(imported.status(), await imported.text()).toBe(200);
@@ -99,20 +105,34 @@ test("member imports verified marketplace source, an administrator approves it, 
     await expect(completedCall).toBeVisible({ timeout: 90_000 });
     await completedCall.click();
     await expect(completedCall).toHaveAttribute("aria-expanded", "true");
-    await expect(memberPage.getByText(output, { exact: false })).toBeVisible();
+    await expect(completedCall.locator("xpath=..").getByText(output, { exact: false })).toBeVisible({ timeout: 30_000 });
     await captureEvidence(memberPage, testInfo, "extension-source-import-visible-output");
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
     const source = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: importedWorkspace.id });
     const permissionedEntrypoint = source.files["extension.ts"]!.replace('"permissions": {},', '"permissions": { "storage": true },');
     expect(permissionedEntrypoint).not.toBe(source.files["extension.ts"]);
-    const permissionedWorkspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: created.installation.id, workspaceId: importedWorkspace.id, expectedRevision: importedWorkspace.revision, writes: { "extension.ts": permissionedEntrypoint } });
+    const storageSentinel = `retained-storage-${crypto.randomUUID()}`;
+    const permissionedWorkspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", {
+      action: "edit", installationId: created.installation.id, workspaceId: importedWorkspace.id, expectedRevision: importedWorkspace.revision,
+      writes: {
+        "extension.ts": permissionedEntrypoint,
+        "src/echo.ts": 'import { Storage } from "@ezcorp/sdk/runtime";\nexport function formatEcho(input: Record<string, unknown>, sentinel: string | null) { return { text: "Imported source output: " + String(input.text ?? ""), sentinel }; }\nexport async function echo(input: Record<string, unknown>) { const storage = new Storage("global"); const existing = await storage.get<string>("source-import-sentinel"); if (typeof input.text === "string" && input.text) await storage.set("source-import-sentinel", input.text); const sentinel = (await storage.get<string>("source-import-sentinel")).value ?? existing.value ?? null; return formatEcho(input, sentinel); }\n',
+        "src/echo.test.ts": 'import { expect, test } from "bun:test"; import { formatEcho } from "./echo"; test("formats the actual storage result", () => expect(formatEcho({ text: "value" }, "sentinel")).toEqual({ text: "Imported source output: value", sentinel: "sentinel" }));\n',
+      },
+    });
     const permissionedState = await buildWorkspace(client, { installation: created.installation, workspace: permissionedWorkspace, openUrl: staged.openUrl });
     const permissionedRelease = Object.values(permissionedState.releases).find(candidate => candidate.workspaceId === permissionedWorkspace.id && candidate.workspaceRevision === permissionedWorkspace.revision)!;
     expect(permissionedRelease.manifest.permissions.storage).toBe(true);
+    const permissionedSeed = await context.request.post("/api/__test/marketplace-release", { data: { installationId: created.installation.id, releaseId: permissionedRelease.id } });
+    expect(permissionedSeed.status(), await permissionedSeed.text()).toBe(201);
+    const { versionId: permissionedVersionId } = await permissionedSeed.json();
     await requestRelease(client, permissionedState, permissionedRelease.id);
-    await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
-    await adminPage.getByText('"storage": true', { exact: true }).scrollIntoViewIfNeeded();
+    await test.step("administrator expands the permission evidence before review", async () => {
+      await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
+      await adminPage.getByText("Permissions and test evidence", { exact: true }).click();
+      await expect(adminPage.getByText('"storage": true', { exact: true })).toBeVisible({ timeout: 30_000 });
+    });
     await captureEvidence(adminPage, testInfo, "extension-source-import-permission-update");
     await adminPage.getByLabel("I reviewed this release and its permissions.").check();
     await adminPage.getByRole("button", { name: "Approve exact release", exact: true }).click();
@@ -121,15 +141,18 @@ test("member imports verified marketplace source, an administrator approves it, 
     const permissionedActive = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(permissionedActive.installation.activeReleaseId).toBe(permissionedRelease.id);
     expect(permissionedActive.installation.grants).not.toEqual(active.installation.grants);
+    const storedOutput = await client.invokeExtensionTool(conversationId, release.manifest.name, "echo", { text: storageSentinel });
+    expect(storedOutput.success, JSON.stringify(storedOutput)).toBe(true);
+    expect(toolResult(storedOutput.output)).toMatchObject({ text: `Imported source output: ${storageSentinel}`, sentinel: storageSentinel });
 
     const invalidWorkspace = await client.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: created.installation.id, workspaceId: permissionedWorkspace.id, expectedRevision: permissionedWorkspace.revision, writes: { "src/echo.test.ts": 'import { expect, test } from "bun:test"; test("fails", () => expect(false).toBe(true));' } });
     const failedUpdate = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId: created.installation.id, workspaceId: invalidWorkspace.id, expectedRevision: invalidWorkspace.revision, idempotencyKey: crypto.randomUUID() });
     await expect.poll(async () => (await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id, operationId: failedUpdate.id, waitMs: 1000 })).operations[failedUpdate.id]!.state, { timeout: 180_000, intervals: [1000] }).toBe("failed");
     const retained = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(retained.installation.activeReleaseId).toBe(permissionedRelease.id);
-    const retainedOutput = await client.invokeExtensionTool(conversationId, release.manifest.name, "echo", { text: marker });
+    const retainedOutput = await client.invokeExtensionTool(conversationId, release.manifest.name, "echo", { text: "" });
     expect(retainedOutput.success).toBe(true);
-    expect(JSON.stringify(retainedOutput.output)).toContain(output);
+    expect(toolResult(retainedOutput.output)).toMatchObject({ text: "Imported source output: ", sentinel: storageSentinel });
 
     await adminPage.goto(`/extensions/${created.installation.id}`);
     await adminPage.getByTestId("extension-detail-uninstall-button").click();
@@ -142,8 +165,8 @@ test("member imports verified marketplace source, an administrator approves it, 
 
     await adminPage.goto("/extensions/import-source");
     await adminPage.getByLabel("Source type").selectOption("marketplace");
-    await adminPage.getByLabel("Marketplace version ID").fill(versionId);
-    const reimportResponse = adminPage.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    await adminPage.getByLabel("Marketplace version ID").fill(permissionedVersionId);
+    const reimportResponse = adminPage.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await adminPage.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const reimport = await reimportResponse;
     expect(reimport.status(), await reimport.text()).toBe(200);
@@ -161,9 +184,16 @@ test("member imports verified marketplace source, an administrator approves it, 
     expect(reinstalledConversation.status(), await reinstalledConversation.text()).toBe(201);
     const { conversationId: reinstalledConversationId } = await reinstalledConversation.json();
     expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [reinstalledRelease.manifest.name])).wired).toEqual([reinstalledRelease.manifest.name]);
-    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: marker });
+    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
     expect(reinstalledInvocation.success).toBe(true);
-    expect(JSON.stringify(reinstalledInvocation.output)).toContain(output);
+    expect(toolResult(reinstalledInvocation.output)).toMatchObject({ text: "Imported source output: ", sentinel: null });
+    const freshSentinel = `fresh-storage-${crypto.randomUUID()}`;
+    const freshWrite = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: freshSentinel });
+    expect(freshWrite.success, JSON.stringify(freshWrite)).toBe(true);
+    expect(toolResult(freshWrite.output)).toMatchObject({ sentinel: freshSentinel });
+    const freshRead = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
+    expect(freshRead.success, JSON.stringify(freshRead)).toBe(true);
+    expect(toolResult(freshRead.output)).toMatchObject({ sentinel: freshSentinel });
   } finally { await reinstalledCleanup?.(); await cleanup?.(); await context.close(); }
 });
 
@@ -181,7 +211,7 @@ test("administrator imports a host-owned local source directory through the visi
     await page.getByLabel("Source type").selectOption("local");
     await page.getByLabel("Source directory").fill(source);
     await captureEvidence(page, testInfo, "extension-source-import-local-form");
-    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const response = await responsePromise;
     expect(response.status(), await response.text()).toBe(200);
@@ -206,7 +236,7 @@ test("administrator imports a pinned public GitHub source through the visible so
     await page.getByLabel("GitHub repository").fill("ezcorp-org/EZHarness");
     await page.getByLabel("Branch, tag, or commit optional").fill("2fea009e0a3015d6aec73eec35bbe45555edbb7c");
     await page.getByLabel("Subdirectory optional").fill("docs/extensions/examples/harness-smoke-test");
-    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const response = await responsePromise;
     expect(response.status(), await response.text()).toBe(200);
