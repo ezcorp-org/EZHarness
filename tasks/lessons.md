@@ -38,3 +38,10 @@
 - Check all user triggers before calling a flow absent. A missing dedicated button does not rule out chat mentions, direct actions, or another supported path.
 - A visible input marker is not proof of extension execution. Assert a transformed result in the output area and verify the real invocation succeeds.
 - Before adding a test-only status endpoint, check whether an existing idempotent operation already returns the required terminal state.
+- Do not amend a commit after another worktree has reviewed or merged its SHA. Add a new commit so integration history stays stable.
+- An HTTP 200 lifecycle response can contain a failed operation. Check the operation state and diagnostics before reading installation state.
+- Verify both a floating panel and its trigger against the viewport bounds. Document scroll width does not detect clipped overlays or overflowing toolbar controls.
+- Inspect final screenshots before building the final image. A green browser test can miss a visible layout defect.
+- Do not release a retained extension name to make a fresh installation pass. Check name-keyed secrets, hooks, and permissions, and distinguish a new installation from an explicit restore operation.
+- Generated extension tests must exercise actual code. A placeholder assertion is not valid build evidence.
+- Wait for the resulting UI state, not a fixed number of resolved promises or an element that was already present before the action.

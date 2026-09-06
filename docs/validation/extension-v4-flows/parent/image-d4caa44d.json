@@ -1,0 +1,19 @@
+{
+  "source_commit": "d4caa44d9a8a717e560ca0295d63017dbd44a7c0",
+  "source_tree": "7352cd3a398b850818175eb0fca1e3d867d272e0",
+  "image_tag": "localhost/ezcorp-extension-v4:terra-flow-d4caa44d",
+  "image_id": "11a4feb205dd49cbbdec2e4d80201ee496947641c6ad2aa3ac06c7c507fa7a85",
+  "image_digest": "sha256:790037693b73ed1766e4ed6947c6a29d2595dd5a90631aadff267f36a64a3de5",
+  "healthcheck": {
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "StartPeriod": 60000000000,
+    "Interval": 30000000000,
+    "Timeout": 5000000000,
+    "Retries": 3
+  },
+  "build_exit": 0,
+  "status": "runtime checkpoint; UI flow review remains active"
+}

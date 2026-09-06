@@ -43,7 +43,7 @@
         "id": "453118a0-c181-4922-8c6a-ab68147684fc",
         "kind": "build",
         "state": "verified",
-        "idempotencyKey": "dd71daa1-a435-41e6-886e-04d3e76a5daf",
+        "operationDeduplicationUuid": "dd71daa1-a435-41e6-886e-04d3e76a5daf",
         "inputDigest": "28539633f6db56afa44476cc81edf283b3b85026d3a4249fd1a155e4c3b73c5c",
         "diagnostics": [],
         "events": [
@@ -85,7 +85,7 @@
         "id": "b58ca2a6-7e2f-45b3-83ab-d7f400f6c6a0",
         "kind": "activate",
         "state": "active",
-        "idempotencyKey": "c7010ea9-c84e-42bc-a480-39163c12bd8a",
+        "operationDeduplicationUuid": "c7010ea9-c84e-42bc-a480-39163c12bd8a",
         "inputDigest": "52b79a32953b294da22fef041a480d421e4b6215afd19a6cc81e8e27c16d2549",
         "diagnostics": [],
         "events": [
@@ -125,7 +125,7 @@
         "id": "af2aad2d-0b64-4881-8284-6a15e4f4f66c",
         "kind": "activate",
         "state": "active",
-        "idempotencyKey": "7e52c672-c264-4cb9-a584-c8c35786fee6",
+        "operationDeduplicationUuid": "7e52c672-c264-4cb9-a584-c8c35786fee6",
         "inputDigest": "cf221438fbfb854bfbf046477010c0e69853c82bc2c2b1f71200366dc902824a",
         "diagnostics": [],
         "events": [

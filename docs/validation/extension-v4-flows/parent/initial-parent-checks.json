@@ -1,0 +1,17 @@
+{
+  "source_adoption": {
+    "exit": 0,
+    "tests_passed": 8,
+    "assertions": 38,
+    "tested_code_commit": "0d6678aeca11a756f3d402802a362241cb67c251",
+    "replay_command": "bun test --timeout 30000 ./src/extensions/__tests__/source-adoption.test.ts"
+  },
+  "control_routes": {
+    "exit": 0,
+    "tests_passed": 7,
+    "node": "22.22.2",
+    "replay_command": "vitest run src/__tests__/extension-control-routes.server.test.ts"
+  },
+  "images_note": "Both images are checkpoints. They predate the inline tool-output fix. Each verifier passed all eight checks; neither is the final combined-flow image.",
+  "command_note": "Replay commands identify the checked suites; the retained raw logs preserve the actual test verdicts."
+}

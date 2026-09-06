@@ -27,6 +27,7 @@ material.
 | Disable denies new calls | `extension-control-flow.spec.ts` invokes after `disable` and requires rejection. | Pass |
 | Uninstall removes live catalog visibility and denies routes | `extension-control-flow.spec.ts` checks the list, name/id routes, and retained lifecycle history after uninstall. | Pass |
 | Same-name fresh installation after uninstall | Reopening an uninstalled v4 installation is deliberately rejected: `ExtensionLifecycle.createWorkspace` throws `uninstalled`; source adoption rejects an uninstalled target. A real-auth replay reached the fresh, administrator-owned installation's human approval and activation; it returned a failed activation with diagnostic `extension_name_in_use` / `Another installation owns this extension name`. This is the intended name-reservation boundary: source imports require an exact target id and names never auto-match or transfer ownership. | Expected denial observed; same-name fresh reinstall is unsupported |
+| Distinct-name fresh installation after uninstall | The source-import replay at `6c7ce08a`, then the parent's full real-auth replay at `64a8f0f3`, approved the exact fresh release, rejected an old approval, and verified empty storage followed by a new write/read. | Pass |
 | Failed update retains prior active release | `extension-control-flow.spec.ts` and `extension-release-gate.spec.ts` build invalid source, assert a failed operation, preserve the active release, and invoke the old real output. | Pass |
 | Browser cancellation prevents a delayed effect | `extension-browser-cancel.spec.ts` observes the running request, requires the first real cancel acknowledgement to be `cancel_requested`, then repeats that same normal cancel request until the existing idempotent route reports terminal `cancelled`. Only then does it release the blocked extension and prove `late` storage was not written. | Pass |
 
@@ -86,6 +87,8 @@ Coverage emitted two non-fatal Rolldown parse notices for byte-identical,
 generated `web/.svelte-kit/.svelte-check` mirrors of route TypeScript files.
 They were excluded during remapping and did not represent unmeasured product
 source; no coverage configuration was changed.
+
+After producer registration in `95eb923b`, the five canonical coverage legs were rerun and merged with the preserved full coverage above. The parent independently repeated the canonical merge and gates at `5898793a`: 1,247 file thresholds, 131 new files, and 381 changed files passed against `origin/main`. [Parent receipts and exact input hashes](../parent/combined-checks.json) preserve this final result.
 
 ## Cancellation drain verification
 
@@ -193,5 +196,6 @@ Conversation extension removal is absent from the API, query layer, harness,
 and visible UI, so post-detach denial cannot yet be exercised. Reopening an
 uninstalled v4 installation is deliberately unsupported, as is a same-name
 fresh installation: names reserve their original installation and cannot become
-an ownership-transfer mechanism. Distinct-name fresh-install stale-approval and
-storage-isolation validation remains pending its complete real-auth replay.
+an ownership-transfer mechanism. The completed source-import replay and the
+parent's full real-auth replay verify distinct-name activation, stale-approval
+denial, and fresh storage isolation.

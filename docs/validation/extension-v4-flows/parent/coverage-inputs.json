@@ -1,0 +1,36 @@
+{
+  "inputs": [
+    {
+      "name": "baseline.info",
+      "raw_sha256": "2e717d6aa6849a6b35e01f2468eed0da8b715f85c55b16b20022f7f0dbe7eb67",
+      "artifact": "raw/coverage-input-baseline.info.gz"
+    },
+    {
+      "name": "lcov_x_cov_aikit.info",
+      "raw_sha256": "2e717d6aa6849a6b35e01f2468eed0da8b715f85c55b16b20022f7f0dbe7eb67",
+      "artifact": "raw/coverage-input-lcov_x_cov_aikit.info.gz"
+    },
+    {
+      "name": "lcov_x_cov_hc.info",
+      "raw_sha256": "cd433a1dd55b94f9cec3754f61f61107132fe1c0b52cc48bcccfb6ec2cc138aa",
+      "artifact": "raw/coverage-input-lcov_x_cov_hc.info.gz"
+    },
+    {
+      "name": "lcov_x_cov_sdk.info",
+      "raw_sha256": "d25bb8e3810e1213b75c96ee7d666c54803e69ec32e2a320f502e2f26f699fb6",
+      "artifact": "raw/coverage-input-lcov_x_cov_sdk.info.gz"
+    },
+    {
+      "name": "lcov_x_cov_suggest.info",
+      "raw_sha256": "3dd975615323ce3982e50e3ca2a91b94ccdb10ff5f6af8f9bd605d67358816c6",
+      "artifact": "raw/coverage-input-lcov_x_cov_suggest.info.gz"
+    },
+    {
+      "name": "lcov_x_cov_vitest.info",
+      "raw_sha256": "02ad8306ddc774da3aadc33323c04dfaa993a8ba5d53aaebc7cfccd81b4f7ec5",
+      "artifact": "raw/coverage-input-lcov_x_cov_vitest.info.gz"
+    }
+  ],
+  "final_lcov_raw_sha256": "f8e61edf267c539f209fa04268a40b2e045b46f7fbeace7eff673790448873bc",
+  "baseline": "Full coverage at03733367; five canonical legs replayed after95eb923b. No host source changed between those runs."
+}

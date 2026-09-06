@@ -42,12 +42,20 @@ Push result: `2fea009e` is on PR #246. All32 technical checks pass; Gate integri
 ## Extension install, use, and removal — Terra team
 
 - [x] Map the current user paths and assign separate Terra worktrees.
-- [ ] Test new extension creation/import, approval, and installation through the real UI.
-- [ ] Use installed extensions and verify their actual output and stored state.
-- [ ] Test conversation add/remove, disable/enable, uninstall, reinstall, and failed updates.
-- [ ] Check desktop/mobile screens, browser errors, server errors, and cleanup.
-- [ ] Reproduce and repair defects; add tests that fail without the repair.
-- [ ] Review each agent's evidence and independently repeat the complete final flow.
-- [ ] Run the checks needed for changed files and record exact results and limits.
+- [x] Test new extension creation/import, approval, and installation through the real UI.
+- [x] Use installed extensions and verify their actual output and stored state.
+- [x] Test conversation tool selection, disable/enable, uninstall, reserved-name denial, fresh distinct-name installation, and failed updates.
+- [x] Check desktop/mobile screens, browser errors, server errors, and cleanup.
+- [x] Reproduce and repair defects; add tests that fail without the repair.
+- [x] Review each agent's evidence and independently repeat the complete final flow.
+- [x] Run the checks needed for changed files and record exact results and limits.
 
 Plan review: use owned local projects, files, and databases. Exercise current v4 approval and release paths. Existing audit results are context; this task needs fresh proof that a new extension can be installed, used, removed, and installed again.
+
+Scope review: conversation tool selection can hide tools, but there is no conversation detach operation. Uninstall retains the installation history, data, and name reservation. A new installation must use a distinct name and fresh approval. The tests verify these current rules; they do not claim same-name restoration.
+
+Review: the parent repeated all 57 real-auth browser cases, the exact mock lane (210 pass; 13 Docker-only skips), and all 7,050 component tests. The final committed-source image at `717e6fed` passed its eight runtime checks and all 13 real File Organizer cases. Fresh source imports, actual tool output, storage isolation, disable/reapproval, uninstall, 320/390 px controls, and 720 px desktop scrolling are verified. Coverage gates pass for 1,247 file thresholds, 131 new files, and 381 changed files. Report: `docs/extension-v4-flow-validation-report.md`. Expected denial responses and pre-existing mock/model warnings are recorded separately.
+
+- [x] Verify final evidence checksums and scan the staged source and expanded flow logs for secrets.
+
+Publication and hosted checks are recorded in the final response after this review is committed. Policy approval remains separate; no approval label or merge is authorized.

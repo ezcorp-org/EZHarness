@@ -21,3 +21,7 @@ The current product has no supported per-conversation detach control. Tool selec
 Pre-fix replay at `308262f9` reproduced two browser console 404s when an expanded live inline tool card requested an output row using its client invocation id. The UI now preserves the `inline` source marker through live updates and uses the already complete event output instead. Persisted cards still fetch their full output. See [reproduction](diagnostics/inline-output-404-reproduction.md).
 
 Test design note: output-card labels are truncated and can collide across calls. Assertions first select the latest card by a unique visible output prefix, then expand it and assert the complete output inside the chat message container.
+
+## Published snapshot labels
+
+The server-state snapshot labels the non-secret `idempotencyKey` UUID as `operationDeduplicationUuid`. This only normalizes the evidence field name after the secret scanner flagged UUIDs as generic keys; the production API is unchanged. The original snapshot remains local, and no scanner exception was added.

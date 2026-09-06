@@ -1,0 +1,16 @@
+{
+  "source_commit": "1834fe362ff046bb6558fd7be158412076d028cd",
+  "image_id": "b891fd9a0e395e40820b11a50f46b8f1125f12fb023adbf6dd2ba20fb3cac29f",
+  "image_digest": "sha256:bf6c78b0230d35149c7c31a63954d84773c26cd24cafbb51630483451d669d7b",
+  "healthcheck": {
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "StartPeriod": 60000000000,
+    "Interval": 30000000000,
+    "Timeout": 5000000000,
+    "Retries": 3
+  },
+  "build_exit": 0
+}
