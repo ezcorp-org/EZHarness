@@ -615,6 +615,41 @@ describe("createMcpProxy — quota", () => {
 });
 
 describe("createMcpProxy — lifecycle", () => {
+  test("stop closes a gateway listener requested in the same turn", async () => {
+    const { proxy } = makeProxy();
+    await proxy.start();
+    const port = Number(new URL(proxy.proxyUrl()).port);
+    try {
+      const adding = proxy.startAdditionalListener("127.0.0.2");
+      const stopping = proxy.stop();
+      await Promise.all([adding, stopping]);
+      // Rebinding proves that stop released the actual listening socket.
+      // No timer or mock chooses the start/stop boundary.
+      const reclaimed = Bun.listen({ hostname: "127.0.0.2", port, socket: { data() {} } });
+      reclaimed.stop(true);
+    } finally {
+      await proxy.stop();
+    }
+  });
+
+  test("gateway listener shares authentication and stops with the primary listener", async () => {
+    const { proxy } = makeProxy();
+    await proxy.startAdditionalListener("127.0.0.2");
+    const url = new URL(proxy.proxyUrl());
+    const port = Number(url.port);
+    try {
+      const response = await rawClient("127.0.0.2", port, "CONNECT api.example.com:443 HTTP/1.1\r\n\r\n");
+      expect(response.responseStr).toContain("407 Proxy Authentication Required");
+      await proxy.stop();
+      for (const hostname of [url.hostname, "127.0.0.2"]) {
+        const reclaimed = Bun.listen({ hostname, port, socket: { data() {} } });
+        reclaimed.stop(true);
+      }
+    } finally {
+      await proxy.stop();
+    }
+  });
+
   test("start() is idempotent; stop() unbinds and stop()ing again no-ops", async () => {
     const { proxy } = makeProxy();
     await proxy.start();

@@ -66,11 +66,16 @@ mock.module("../db/queries/audit-log", () => ({
 // the module boundary so the full-capability shape test can verify the exact
 // Stage 2 gateway bind without opening 10.42.0.1 on the test host.
 const proxyBinds: string[] = [];
+let proxyBindFailure: Error | null = null;
+let proxyStops = 0;
 mock.module("../extensions/mcp-proxy", () => ({
   createMcpProxy: () => ({
     start: async () => {},
-    startAdditionalListener: async (hostname: string) => { proxyBinds.push(hostname); },
-    stop: async () => {},
+    startAdditionalListener: async (hostname: string) => {
+      proxyBinds.push(hostname);
+      if (proxyBindFailure) throw proxyBindFailure;
+    },
+    stop: async () => { proxyStops += 1; },
     proxyUrl: () => "http://_:test-token@127.0.0.1:43123",
     bytesTransferred: () => ({ rx: 0, tx: 0 }),
     connectionsCount: () => 0,
@@ -213,6 +218,8 @@ const JAIL_ROOT = realpathSync(mkdtempSync(join(tmpdir(), "ez-rs-jail-")));
 
 beforeEach(() => {
   auditCalls.length = 0;
+  proxyBindFailure = null;
+  proxyStops = 0;
   resetState();
   for (const k of ENV_KEYS) delete process.env[k];
   // Skip the conntrack pressure pre-check deterministically.
@@ -551,6 +558,29 @@ describe("flag on — degraded host is refused", () => {
     }
     expect(state.releasedSlots).toEqual([1]);
     expect(refusalRows()).toHaveLength(1);
+  });
+
+  test("gateway listener failure refuses execution and releases the veth, proxy and filter", async () => {
+    const fd = openSync("/dev/null", "r");
+    state.seccompFd = fd;
+    proxyBindFailure = new Error("gateway address unavailable");
+    const commands: string[][] = [];
+    const spy = fakeIpSpawnSync((cmd) => {
+      commands.push(cmd);
+      return { success: true, exitCode: 0 };
+    });
+    try {
+      await expect(build("ext-rs-gateway-bind")).rejects.toThrow(/veth proxy gateway bind failed: gateway address unavailable/);
+      expect(proxyBinds).toEqual(["10.42.0.1"]);
+      expect(commands.some(cmd => cmd.slice(0, 3).join(" ") === "ip link delete")).toBe(true);
+      expect(state.releasedSlots).toEqual([1]);
+      expect(proxyStops).toBe(1);
+      expect(() => closeSync(fd)).toThrow();
+      expect(refusalRows()).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+      try { closeSync(fd); } catch { /* required refusal closed it */ }
+    }
   });
 });
 

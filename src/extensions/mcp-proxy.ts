@@ -149,7 +149,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   // connection-counter for the 10-concurrent cap.
   const consumeBytes = createRateLimiter(BYTES_PER_SECOND);
 
-  let listenerHandles: Array<{ close: () => Promise<void> }> = [];
+  let listenerHandles: Array<{ close: () => void }> = [];
   // Track every active tunnel so `stop()` can rip them down.
   const activeTunnels = new Set<{ close: () => void }>();
   // Counters surfaced via `bytesTransferred()` / `connectionsCount()`.
@@ -159,28 +159,35 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
   // Concrete bind result captured at start(). Used by `proxyUrl()`.
   let boundAddress: { host: string; port: number } | null = null;
 
-  async function start(): Promise<void> {
+  function ensureStarted(): void {
     if (listenerHandles.length > 0) return;
-    listenerHandles = [await bindListener()];
+    listenerHandles = [bindListener()];
+  }
+
+  async function start(): Promise<void> {
+    ensureStarted();
   }
 
   async function startAdditionalListener(hostname: string): Promise<void> {
-    await start();
+    // Bun binds and closes listeners synchronously. Keep this transition in
+    // one turn so stop cannot run between binding and recording the handle.
+    ensureStarted();
     if (!boundAddress) throw new Error("proxy listener did not bind");
     const listener = Bun.listen({
       hostname,
       port: boundAddress.port,
       socket: buildSocketHandler(),
     });
-    listenerHandles.push({ close: async () => { listener.stop(true); } });
+    listenerHandles.push({ close: () => { listener.stop(true); } });
   }
 
   async function stop(): Promise<void> {
     if (listenerHandles.length === 0) return;
     // Stop accepting new connections first so no race between
     // teardown and a new CONNECT.
-    await Promise.all(listenerHandles.map((listener) => listener.close()));
+    for (const listener of listenerHandles) listener.close();
     listenerHandles = [];
+    boundAddress = null;
 
     for (const t of activeTunnels) {
       try { t.close(); } catch { /* socket already torn down */ }
@@ -188,7 +195,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
     activeTunnels.clear();
   }
 
-  async function bindListener() {
+  function bindListener() {
     // `bindAddress` is always `host:port` (post-fix-pass — UDS removed
     // because `http+unix://...` HTTPS_PROXY is unparseable by stdlib
     // HTTP clients). Default host to 127.0.0.1 if unspecified.
@@ -205,7 +212,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
     // the listening address to "0.0.0.0" / "::" in some configs, which
     // produces an unreachable HTTPS_PROXY URL for the MCP child.
     boundAddress = { host: hostname, port: listener.port };
-    return { close: async () => { listener.stop(true); } };
+    return { close: () => { listener.stop(true); } };
   }
 
   function buildSocketHandler() {

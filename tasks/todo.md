@@ -107,10 +107,12 @@ Review: four Terra reviews and parent source checks identify real-version upgrad
 - [ ] Implement real-version upgrade and restore proof; enforce production-image suite in CI.
 - [ ] Implement actual app/worker crash, in-flight revocation, and measured lifecycle resource checks.
 - [ ] Implement stale-tab, pending-build reload, visible error recovery, and browser-engine checks.
-- [ ] Implement interrupted source acquisition/retry and owner-deactivation integration.
+- [x] Implement interrupted source acquisition/retry and owner-deactivation integration.
 - [ ] Replace Stage2 TODOs with real checks; verify kernel/provider prerequisites and available cases.
 - [ ] Integrate and independently review/replay team changes; repair observed failures.
 - [ ] Verify complete relevant regressions, final image, screenshots/logs, coverage, secret scan and evidence.
 - [ ] Push with normal hooks and inspect all hosted jobs; report remaining external decisions precisely.
 
 Plan review: the user approved all ranked additions. Work continues through the gates in gates/shipping-root.md and each shipping leaf; no permission request is needed for the agreed browser/API/container tests. Existing 84 policy findings require maintainer review independently.
+
+Parent review in progress: import whole-file replay passes 11 cases. A live socket regression reproduced a new gateway-listener shutdown leak; synchronous listener transitions fix it, with all 31 proxy cases passing. The gateway-bind failure case also verifies veth slot, filter descriptor and proxy cleanup. Remaining shipping gates stay open.
