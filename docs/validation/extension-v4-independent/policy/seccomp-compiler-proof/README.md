@@ -34,3 +34,26 @@ action, so a repaired compiler must not retain the legacy expectation that
 
 Raw sanitized output is `baseline.txt.gz`. The stronger adversarial execution
 path was not used.
+
+## Parser repair review
+
+Runtime repair `548f6ab3c71745612e5e8e5e328f8c7366436085` separates key separators
+from array separators, so neither array bracket is consumed by whitespace
+handling. An independent compile produced:
+
+- Tiny profile: `added=2`, `skipped=0`, 72 bytes. The BPF contains ALLOW for
+  both declared syscalls and retains default `SCMP_ACT_ERRNO(38)`.
+- Production profile: 407 unique declared names, `added=333`, `skipped=74`,
+  2,736 bytes, 342 BPF instructions.
+- Production RET actions include `SCMP_ACT_LOG` and `SCMP_ACT_ERRNO(38)`.
+- `getpid` is explicitly LOG and `io_uring_setup` is absent from the profile.
+- Fixed production BPF SHA-256:
+  `4b9755245461ac5e8bed6bd3b9c3933faebd6cbc2638e50bbf6920d98efa2a1a`.
+
+The old production image still contains the baseline SHA and must be rebuilt.
+The compiler regression invokes the real C compiler with a fake libseccomp,
+requires `added=2`, and inspects the default and rule actions. The baseline C
+source produces `added=0`, so the regression detects restoration of the cursor
+bug. The focused regression passed with 4 assertions on Bun 1.3.14.
+
+Sanitized repair output is `fixed-compiler.txt.gz`.
