@@ -274,9 +274,7 @@ test.describe("Mobile Chat", () => {
 		await page.setViewportSize(mobile);
 		await mockApi({
 			...baseMockOpts(),
-			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
-			},
+			settings: { "global:showObservability": true },
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Hello from mobile!")).toBeVisible({ timeout: 5000 });
