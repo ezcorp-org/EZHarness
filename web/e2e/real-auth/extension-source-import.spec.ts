@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
-import { invokeExtensionToolFromComposer, threadMessages } from "../fixtures/composer";
+import { invokeExtensionToolFromComposer } from "../fixtures/composer";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string): Promise<void> {
@@ -93,7 +93,7 @@ test("member imports verified marketplace source, an administrator approves it, 
     const output = `Imported source output: ${marker}`;
     await memberPage.goto(`/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(memberPage, release.manifest.name, { text: marker });
-    await expect(threadMessages(memberPage).getByText(output, { exact: false })).toBeVisible({ timeout: 90_000 });
+    await expect(memberPage.getByRole("button", { name: new RegExp(`${release.manifest.name} > echo --`) })).toContainText(output, { timeout: 90_000 });
     await captureEvidence(memberPage, testInfo, "extension-source-import-visible-output");
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
