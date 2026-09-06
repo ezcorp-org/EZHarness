@@ -6,14 +6,28 @@ import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease,
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
 
-async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string): Promise<void> {
+async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string, approval: { id: string; releaseId: string; releaseDigest: string }, expectedState: "active" | "failed" = "active"): Promise<Record<string, unknown>> {
   await page.goto(`/extensions/author?installation=${installationId}&workspace=${workspaceId}`);
-  const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
+  const approvalCard = page.locator("article.approval").filter({ hasText: approval.releaseDigest });
+  const approve = approvalCard.getByRole("button", { name: "Approve exact release", exact: true });
   await expect(approve).toBeDisabled();
-  await page.getByLabel("I reviewed this release and its permissions.").check();
+  await approvalCard.getByLabel("I reviewed this release and its permissions.").check();
+  const approvalResponse = page.waitForResponse(response => response.url().endsWith(`/api/extensions/releases/${installationId}/approve`) && response.request().method() === "POST", { timeout: 30_000 });
   await approve.click();
-  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  expect((await approvalResponse).status()).toBe(200);
+  const activationResponse = page.waitForResponse(response => {
+    if (!response.url().endsWith("/api/extensions/control") || response.request().method() !== "POST") return false;
+    const body = response.request().postData() ?? "";
+    return body.includes('"action":"activate"') && body.includes(installationId);
+  }, { timeout: 30_000 });
+  await approvalCard.getByRole("button", { name: "Activate approved release", exact: true }).click();
+  const activation = await activationResponse;
+  expect(activation.status()).toBe(200);
+  const operation = await activation.json() as Record<string, unknown>;
+  expect(operation).toMatchObject({ kind: "activate", state: expectedState, approvalId: approval.id, releaseId: approval.releaseId });
+  if (expectedState === "active") await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  else expect(operation).toMatchObject({ diagnostics: [{ code: "extension_name_in_use", stage: "activate" }] });
+  return operation;
 }
 
 function toolResult(output: unknown): Record<string, unknown> {
@@ -23,7 +37,7 @@ function toolResult(output: unknown): Record<string, unknown> {
 }
 
 test("member imports verified marketplace source, an administrator approves it, and the installed release works @evidence", async ({ browser, page: adminPage, request, baseURL }, testInfo) => {
-  test.setTimeout(720000);
+  test.setTimeout(360000);
   const email = `source-import-${Date.now()}@example.test`;
   const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
   expect(invitation.status(), await invitation.text()).toBe(201);
@@ -90,7 +104,7 @@ test("member imports verified marketplace source, an administrator approves it, 
     // The marketplace version is published from this test's own ephemeral
     // workspace through the opt-in local test surface. No external repository
     // or marketplace account is used by this browser flow.
-    await approveAndActivate(adminPage, created.installation.id, staged.workspace.id);
+    await approveAndActivate(adminPage, created.installation.id, staged.workspace.id, approval);
     const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(active.installation).toMatchObject({ enabled: true, activeReleaseId: release.id });
     const seededConversation = await context.request.post("/api/__test/seed", { data: { title: "Marketplace source import output" } });
@@ -129,17 +143,15 @@ test("member imports verified marketplace source, an administrator approves it, 
     const permissionedState = await buildWorkspace(client, { installation: created.installation, workspace: permissionedWorkspace, openUrl: created.openUrl });
     const permissionedRelease = Object.values(permissionedState.releases).find(candidate => candidate.workspaceId === permissionedWorkspace.id && candidate.workspaceRevision === permissionedWorkspace.revision)!;
     expect(permissionedRelease.manifest.permissions.storage).toBe(true);
-    await requestRelease(client, permissionedState, permissionedRelease.id);
+    const permissionedApproval = await requestRelease(client, permissionedState, permissionedRelease.id);
     await test.step("administrator expands the permission evidence before review", async () => {
       await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
-      await adminPage.getByText("Permissions and test evidence", { exact: true }).click();
-      await expect(adminPage.getByText('"storage": true', { exact: true })).toBeVisible({ timeout: 30_000 });
+      const permissionedReleaseCard = adminPage.locator("article.release").filter({ hasText: permissionedRelease.releaseDigest });
+      await permissionedReleaseCard.getByText("Permissions and test evidence", { exact: true }).click();
+      await expect(permissionedReleaseCard.locator("details pre")).toContainText('"storage": true', { timeout: 30_000 });
     });
     await captureEvidence(adminPage, testInfo, "extension-source-import-permission-update");
-    await adminPage.getByLabel("I reviewed this release and its permissions.").check();
-    await adminPage.getByRole("button", { name: "Approve exact release", exact: true }).click();
-    await adminPage.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(adminPage.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await approveAndActivate(adminPage, created.installation.id, permissionedWorkspace.id, permissionedApproval);
     const permissionedActive = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(permissionedActive.installation.activeReleaseId).toBe(permissionedRelease.id);
     expect(permissionedActive.installation.grants).not.toEqual(active.installation.grants);
@@ -180,22 +192,30 @@ test("member imports verified marketplace source, an administrator approves it, 
     const reinstalledWorkspace = await reinstalledClient.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: reinstalled.installation.id, workspaceId: reinstalled.workspace.id, expectedRevision: reinstalled.workspace.revision, writes: permissionedWrites });
     const reinstalledPermissioned = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: reinstalledWorkspace, openUrl: created.openUrl });
     const reinstalledRelease = Object.values(reinstalledPermissioned.releases).find(candidate => candidate.workspaceId === reinstalledWorkspace.id && candidate.workspaceRevision === reinstalledWorkspace.revision)!;
-    await requestRelease(reinstalledClient, reinstalledPermissioned, reinstalledRelease.id);
-    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalledWorkspace.id);
-    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: reinstalledRelease.id });
+    const reinstalledApproval = await requestRelease(reinstalledClient, reinstalledPermissioned, reinstalledRelease.id);
+    await approveAndActivate(adminPage, reinstalled.installation.id, reinstalledWorkspace.id, reinstalledApproval, "failed");
+    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: false, activeReleaseId: null });
     await expect(reinstalledClient.extensionControl("extensions_release", { action: "activate", installationId: reinstalled.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ status: 404 });
+    const freshName = `${release.manifest.name}-fresh-${Date.now().toString(36)}`;
+    const freshWorkspace = await reinstalledClient.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: reinstalled.installation.id, workspaceId: reinstalledWorkspace.id, expectedRevision: reinstalledWorkspace.revision, writes: { ...permissionedWrites, "extension.ts": permissionedWrites["extension.ts"].replace(`"name": "${release.manifest.name}"`, `"name": "${freshName}"`) } });
+    const freshState = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: freshWorkspace, openUrl: created.openUrl });
+    const freshRelease = Object.values(freshState.releases).find(candidate => candidate.workspaceId === freshWorkspace.id && candidate.workspaceRevision === freshWorkspace.revision)!;
+    expect(freshRelease.manifest.name).toBe(freshName);
+    const freshApproval = await requestRelease(reinstalledClient, freshState, freshRelease.id);
+    await approveAndActivate(adminPage, reinstalled.installation.id, freshWorkspace.id, freshApproval);
+    expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: freshRelease.id });
     const reinstalledConversation = await request.post("/api/__test/seed", { data: { title: "Reinstalled marketplace source output" } });
     expect(reinstalledConversation.status(), await reinstalledConversation.text()).toBe(201);
     const { conversationId: reinstalledConversationId } = await reinstalledConversation.json();
-    expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [reinstalledRelease.manifest.name])).wired).toEqual([reinstalledRelease.manifest.name]);
-    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
+    expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [freshName])).wired).toEqual([freshName]);
+    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: "" });
     expect(reinstalledInvocation.success).toBe(true);
     expect(toolResult(reinstalledInvocation.output)).toMatchObject({ text: "Imported source output: ", sentinel: null });
     const freshSentinel = `fresh-storage-${crypto.randomUUID()}`;
-    const freshWrite = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: freshSentinel });
+    const freshWrite = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: freshSentinel });
     expect(freshWrite.success, JSON.stringify(freshWrite)).toBe(true);
     expect(toolResult(freshWrite.output)).toMatchObject({ sentinel: freshSentinel });
-    const freshRead = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: "" });
+    const freshRead = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, freshName, "echo", { text: "" });
     expect(freshRead.success, JSON.stringify(freshRead)).toBe(true);
     expect(toolResult(freshRead.output)).toMatchObject({ sentinel: freshSentinel });
   } finally { await reinstalledCleanup?.(); await cleanup?.(); await context.close(); }
