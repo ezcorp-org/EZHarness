@@ -105,12 +105,12 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 				durationMs: 1,
 				status: "success",
 			};
-			await route.fulfill({
-				json: {
-					messages: [userMsg, { ...assistantMsg, toolCalls: [hydrationSentinel] }],
-					orphanedToolCalls: completedToolCall,
-				},
-			});
+		await route.fulfill({
+			json: {
+				messages: [userMsg, assistantMsg],
+				orphanedToolCalls: [...completedToolCall, hydrationSentinel],
+			},
+		});
 		});
 		await routePreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -133,9 +133,9 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		});
 		await assertDock(page);
 		releaseInitialToolHydration?.();
-		// The sentinel is anchored to the existing assistant message and renders
-		// only after the delayed hydration reaches the transcript and store.
-		await expect(page.getByText("hydration-sentinel-1", { exact: true })).toBeVisible();
+		// The orphaned sentinel mounts only when the delayed response reaches the
+		// store, so this proves the empty pre-event snapshot was applied.
+		await expect(page.getByRole("button", { name: /hydration-sentinel-1/ })).toBeVisible();
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await assertCanvasThemeTokens(page);
@@ -162,7 +162,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await persistedRefresh;
 		// The later refresh started after completion, so it must contain the
 		// matching persisted row. The second sentinel confirms it was applied.
-		await expect(page.getByText("hydration-sentinel-2", { exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: /hydration-sentinel-2/ })).toBeVisible();
 		await expect(page.getByTestId("dock-host")).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await page.getByTestId("dock-close").click();
