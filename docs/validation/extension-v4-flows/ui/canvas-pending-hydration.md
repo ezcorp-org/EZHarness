@@ -9,22 +9,40 @@ The controlled case below starts a tool-history request **before** the live
 SSE events. Its held response has no live dock row. That ordering can happen
 in the product and is the case covered by the revision boundary.
 
-## Controlled red
+## Controlled red at the final integrated source
 
-- Provenance: red started at 14:11 EDT from the working tree before source
-  commit `da1cc299` and test commit `cbaa5089`; those later commits are the
-  closest recoverable source and test snapshots. The exact uncommitted tree
-  and shell command were not retained, so this receipt does not assign either
-  SHA as an exact red product snapshot or invent a shell exit code.
-- Runner evidence: local Chromium with `playwright.config.ts`, one canvas
-  test. The raw runner result is `1 failed`.
+- Product source: `a4a4a9e1e60dc6456c7ab3267766121c7b24f340`.
+- Source file SHA-256 before the fault:
+  `dd16237d3195d4ccfda5cc14484e29c9bc34ecf0d56d45a0ef0be204176add82`.
+  Test file SHA-256:
+  `8e9410ce7b56e0dff5323733df48d6e6cf8ecefcb2c9df56ec85e858164486d5`.
+- The locked Bash fault script replaced only the `newerLiveCalls` retention
+  expression in `hydrateToolCalls` with an empty array. Its faulted source
+  SHA-256 was
+  `914c7ee8a4b945988ee6517bacc3264c778e9495b4649e34ca645c90ad9c02a4`.
+  It left the loader and E2E test unchanged.
+- Exact outer command:
+
+  ```sh
+  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock /tmp/terra-ui-canvas-retention-fault.sh
+  ```
+
+  The script used pinned Bun `1.3.14` and Node `v22.22.2`, then ran:
+
+  ```sh
+  bunx playwright test --config playwright.config.ts --project=chromium e2e/canvas-dock-open-close.spec.ts --grep 'live SSE tool completion'
+  ```
+
 - Sequence: hold the first `messages?withToolCalls=true` response, emit
-  `tool:start` and `tool:complete` for `tc-dock-live`, verify the dock, then
-  release the empty pre-event response.
-- Failed assertion: `Preview controls` was no longer visible after release.
-  This proves the pre-event response replaced the completed live call.
-- Raw log: [red](raw/canvas-pending-hydration-red-pre-da1cc299.log.gz),
-  SHA-256 `b021894141b4061bf984d7c77a3f7bec0e35e96f48ff2b4aee77a896134c4fa6`.
+  `tool:start` and `tool:complete` for `tc-dock-live`, verify the dock,
+  release the empty pre-event response, and first observe its visible orphan
+  sentinel. The following `Preview controls` assertion failed because the
+  fault removed the completed live call.
+- The saved Playwright exit was `1`; the locked outer command also exited
+  `1`. The exit trap restored the source to its original SHA-256 above before
+  the script ended. The worktree has no deliberate fault change.
+- Raw log: [fault red](raw/canvas-pending-hydration-fault-a4a4a9e1.log.gz),
+  SHA-256 `73ea06d33940fa71a44a134010d7fe78fd4e23f692dc0c3fb88a6655a60afd0f`.
 
 ## Controlled green
 
@@ -54,6 +72,10 @@ in the product and is the case covered by the revision boundary.
   the matching persisted `tc-dock-live` row and another visible sentinel.
 - Raw log: [green](raw/canvas-pending-hydration-green-169200cd.log.gz),
   SHA-256 `762b15bdaceacf7c70af113c9f548c34017489a0f5a78236400998b711dd0160`.
+
+The focused green's source and test file hashes match the final `a4a4a9e1`
+files listed above. Parent also ran the final visual mock lane at `a4a4a9e1`:
+all 180 tests, including this live-dock test, passed.
 
 The compressed logs contain no browser trace, session data, request bodies,
 authorization headers, cookies, passwords, bearer tokens, or API-key labels.
