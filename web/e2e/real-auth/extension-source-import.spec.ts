@@ -23,7 +23,7 @@ function toolResult(output: unknown): Record<string, unknown> {
 }
 
 test("member imports verified marketplace source, an administrator approves it, and the installed release works @evidence", async ({ browser, page: adminPage, request, baseURL }, testInfo) => {
-  test.setTimeout(720000);
+  test.setTimeout(360000);
   const email = `source-import-${Date.now()}@example.test`;
   const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
   expect(invitation.status(), await invitation.text()).toBe(201);
@@ -134,7 +134,7 @@ test("member imports verified marketplace source, an administrator approves it, 
       await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
       const permissionedReleaseCard = adminPage.locator("article.release").filter({ hasText: permissionedRelease.releaseDigest });
       await permissionedReleaseCard.getByText("Permissions and test evidence", { exact: true }).click();
-      await expect(permissionedReleaseCard.getByText('"storage": true', { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(permissionedReleaseCard.locator("details pre")).toContainText('"storage": true', { timeout: 30_000 });
     });
     await captureEvidence(adminPage, testInfo, "extension-source-import-permission-update");
     await adminPage.getByLabel("I reviewed this release and its permissions.").check();
