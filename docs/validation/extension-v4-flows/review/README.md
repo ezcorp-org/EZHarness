@@ -22,11 +22,11 @@ material.
 | --- | --- | --- |
 | A fresh built release cannot run before approval | `extension-release-gate.spec.ts` asserts disabled state before the browser human approval, then renders the real tool output only after activation. | Pass |
 | Exact approval installs and activates the tested release | `extension-release-gate.spec.ts` checks the review checkbox gate, active release id, and real chat output. `extension-project-authority.spec.ts` checks the separate human project review control. | Pass |
-| Adding a release to a conversation permits real use | `extension-control-flow.spec.ts` and `extension-release-gate.spec.ts` call `wireExtensions`, then invoke the isolated tool and assert its returned marker/output. The normal visible add path is also the sent extension mention in `src/runtime/mention-wiring.ts`; its browser proof is owned by the UI review. | API flow passes; UI proof delegated |
+| Adding a release to a conversation permits real use | `extension-control-flow.spec.ts` and `extension-release-gate.spec.ts` call `wireExtensions`, then invoke the isolated tool and assert its returned marker/output. The UI lifecycle replay also selects the normal sent extension mention, verifies the persisted conversation wiring, and invokes the real extension output. | Pass |
 | Removing a release from a conversation revokes use | No API, harness client method, query helper, or visible UI removes a `conversation_extensions` row. Existing flows do not prove a post-detach denial. | Product/implementation gap |
 | Disable denies new calls | `extension-control-flow.spec.ts` invokes after `disable` and requires rejection. | Pass |
 | Uninstall removes live catalog visibility and denies routes | `extension-control-flow.spec.ts` checks the list, name/id routes, and retained lifecycle history after uninstall. | Pass |
-| Uninstall then reinstall does not revive former approval authority | Reopening the same v4 installation is deliberately rejected: `ExtensionLifecycle.createWorkspace` throws `uninstalled`; source adoption rejects an uninstalled target. The proposed same-name source-import flow at `9e4a3dbd` asserts a fresh installation id and rejects the old approval id, but its real-auth run timed out before uninstall/reimport. It also has no storage write/read action. | Same-installation flow unsupported; new-install assertions are source-reviewed, not executed proof |
+| Same-name fresh installation after uninstall | Reopening an uninstalled v4 installation is deliberately rejected: `ExtensionLifecycle.createWorkspace` throws `uninstalled`; source adoption rejects an uninstalled target. A real-auth replay reached the fresh, administrator-owned installation's human approval and activation; it returned a failed activation with diagnostic `extension_name_in_use` / `Another installation owns this extension name`. This is the intended name-reservation boundary: source imports require an exact target id and names never auto-match or transfer ownership. | Expected denial observed; same-name fresh reinstall is unsupported |
 | Failed update retains prior active release | `extension-control-flow.spec.ts` and `extension-release-gate.spec.ts` build invalid source, assert a failed operation, preserve the active release, and invoke the old real output. | Pass |
 | Browser cancellation prevents a delayed effect | `extension-browser-cancel.spec.ts` observes the running request, requires the first real cancel acknowledgement to be `cancel_requested`, then repeats that same normal cancel request until the existing idempotent route reports terminal `cancelled`. Only then does it release the blocked extension and prove `late` storage was not written. | Pass |
 
@@ -66,6 +66,26 @@ It exited `0`: **4 passed (1.5m)**. The run used a fresh real PGlite database
 and the authenticated rootless extension runner. Build output included existing
 Svelte accessibility/state warnings and local embedding-model load warnings;
 the four tests still passed and no browser/server test error was emitted.
+
+## Full backend and coverage receipts
+
+The earlier full backend wrapper exited `0`: **24,613 pass, 0 fail, 1,564
+files**. Its compressed raw receipt is
+[`extension-v4-review-backend-final-20260906.log.gz`](raw/extension-v4-review-backend-final-20260906.log.gz)
+(SHA-256 `db0244f3f9b6b06bb2a48a80d1ac23770cd6fde5b7e2fed7a210ca3de07ebf14`).
+
+The final locked coverage wrapper ran at
+`03733367da65a51d77b80145c5b6fb729e3f4c38` with Bun `1.3.14` and Node
+`v22.22.2`. It exited `0`: **25,880 pass, 0 fail, 1,551 shards**; all
+**1,246** enforced coverage files met their thresholds. The compressed raw
+receipt is
+[`extension-v4-review-backend-coverage-20260906.log.gz`](raw/extension-v4-review-backend-coverage-20260906.log.gz)
+(SHA-256 `7f248251c8c70323e3647cedcfa8acf1f9c6e571f858fc32b504677d9da6687b`).
+
+Coverage emitted two non-fatal Rolldown parse notices for byte-identical,
+generated `web/.svelte-kit/.svelte-check` mirrors of route TypeScript files.
+They were excluded during remapping and did not represent unmeasured product
+source; no coverage configuration was changed.
 
 ## Cancellation drain verification
 
@@ -111,8 +131,8 @@ The fault run reported:
 
 ```text
 The cancelled browser request must drain before later effects are checked.
-Expected: "finished"
-Received: "cancelled"
+Expected: "cancelled"
+Received: "cancel_requested"
 Timeout 10000ms exceeded
 ```
 
@@ -171,7 +191,7 @@ Its trace is transient and was not copied because it used real authentication.
 
 Conversation extension removal is absent from the API, query layer, harness,
 and visible UI, so post-detach denial cannot yet be exercised. Reopening an
-uninstalled v4 installation is deliberately unsupported. The new-install
-stale-approval assertion has not completed a real-auth run, and no test writes
-then reads retained storage across uninstall/reimport, so those semantics remain
-unverified.
+uninstalled v4 installation is deliberately unsupported, as is a same-name
+fresh installation: names reserve their original installation and cannot become
+an ownership-transfer mechanism. Distinct-name fresh-install stale-approval and
+storage-isolation validation remains pending its complete real-auth replay.
