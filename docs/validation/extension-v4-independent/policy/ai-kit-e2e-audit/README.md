@@ -31,3 +31,16 @@ No provider credential, paid API, production database, or persistent service was
 - The same fresh owned server passed the on-behalf-of check: 1 test and 2 assertions. Doctor plus internal-auth passed 6 tests and 7 assertions. See `owned-server-on-behalf.txt.gz`.
 - The current immutable image plus a real rootless extension runner did not contain an `ai-kit` installation after first-run setup. The configured bundled check correctly failed instead of silently passing. This does not verify its two positive assertions and is a concrete mismatch with the test's auto-install claim. See `owned-server-bundled.txt.gz`.
 - The first focused lifecycle attempt caught a test type error and exited 1. After correction, the isolated AI-kit lifecycle passed 1/1 with source digest `09dd062a299fdca243be73e42fa8b7caec55c4ede6c6586d0a6c691421e700d0`, artifact digest `29d7544f76bcf1f6af44b93f4e9b44854254d185ee6853837c0f8328427a12f4`, and release digest `907169814c0366f56bf00c21e71f0ed8b8d8cde8da79bf1debb9b912b0f47677`. See `ai-kit-lifecycle.txt.gz` and `ai-kit-lifecycle-after.txt.gz`.
+
+## Final local-provider closure
+
+The v4 lifecycle deliberately stages bundled sources as disabled releases after an active administrator exists. `src/extensions/v4/README.md` requires authenticated human approval, and the harness cannot approve. Therefore the old assumption that AI-kit and orchestration are automatically active contradicts the new approval boundary. Automatic activation is **product decision pending** and was not restored.
+
+A fresh owned image and database registered `gemma4:e2b` as the only rung in every routing tier and created owned researcher, writer, and auto-spin team records. Results:
+
+- `spawn_chats` passed. The assignment endpoint routing check passed.
+- The agent-mention and team auto-spin checks failed with zero children. The production log confirms exact name resolution and local Ollama use, then reports `Orchestration extension not installed`. Under v4, the required orchestration release cannot become active without human review. The agent case also depends on the model choosing `invoke_agent`; the test does not control that selection. Both rows are **product decision pending**, not externally blocked.
+- Quickstart first reproduced a subscription race: the local Ollama turn completed before the test's SSE subscription. Commit `4d41cfae` opens the real SSE connection before POST. The unchanged product flow then passed 1 test and 4 assertions using `ollama/gemma4:e2b`.
+- Final AI-kit package result is 220 tests and 540 assertions passed.
+
+See `fanout-local-ollama*.txt.gz`, `quickstart-local-ollama*.txt.gz`, `package-final.txt.gz`, and the sanitized owned fixture command.
