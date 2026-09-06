@@ -11,8 +11,19 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
   await expect(approve).toBeDisabled();
   await page.getByLabel("I reviewed this release and its permissions.").check();
+  const approvalResponse = page.waitForResponse(response => response.url().endsWith(`/api/extensions/releases/${installationId}/approve`) && response.request().method() === "POST", { timeout: 30_000 });
   await approve.click();
+  expect((await approvalResponse).status()).toBe(200);
+  const activationResponse = page.waitForResponse(response => {
+    if (!response.url().endsWith("/api/extensions/control") || response.request().method() !== "POST") return false;
+    try {
+      const body = response.request().postDataJSON() as { action?: unknown; installationId?: unknown };
+      return body.action === "activate" && body.installationId === installationId;
+    } catch { return false; }
+  }, { timeout: 30_000 });
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+  expect((await activationResponse).status()).toBe(200);
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 }
 
 function toolResult(output: unknown): Record<string, unknown> {
