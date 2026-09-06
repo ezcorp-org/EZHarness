@@ -626,7 +626,11 @@ describe("createMcpProxy — lifecycle", () => {
       // Rebinding proves that stop released the actual listening socket.
       // No timer or mock chooses the start/stop boundary.
       const reclaimed = Bun.listen({ hostname: "127.0.0.2", port, socket: { data() {} } });
-      reclaimed.stop(true);
+      try {
+        expect(reclaimed.port).toBe(port);
+      } finally {
+        reclaimed.stop(true);
+      }
     } finally {
       await proxy.stop();
     }
