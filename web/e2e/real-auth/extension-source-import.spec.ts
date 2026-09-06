@@ -176,7 +176,7 @@ test("member imports verified marketplace source, an administrator approves it, 
     const { client: reinstalledClient } = await extensionClient(request, baseURL!);
     reinstalledCleanup = () => reinstalledClient.extensionControl("extensions_release", { action: "uninstall", installationId: reinstalled.installation.id, idempotencyKey: crypto.randomUUID() });
     expect(reinstalled.installation.id).not.toBe(created.installation.id);
-    const reinstalledState = await waitForExtensionBuild(reinstalledClient, reinstalled.installation.id, reinstalled.operation.id);
+    await waitForExtensionBuild(reinstalledClient, reinstalled.installation.id, reinstalled.operation.id);
     const reinstalledWorkspace = await reinstalledClient.extensionControl<WorkspaceRecord>("extensions_workspace", { action: "edit", installationId: reinstalled.installation.id, workspaceId: reinstalled.workspace.id, expectedRevision: reinstalled.workspace.revision, writes: permissionedWrites });
     const reinstalledPermissioned = await buildWorkspace(reinstalledClient, { installation: reinstalled.installation, workspace: reinstalledWorkspace, openUrl: created.openUrl });
     const reinstalledRelease = Object.values(reinstalledPermissioned.releases).find(candidate => candidate.workspaceId === reinstalledWorkspace.id && candidate.workspaceRevision === reinstalledWorkspace.revision)!;
