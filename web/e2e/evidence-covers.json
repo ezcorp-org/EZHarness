@@ -3,6 +3,10 @@
     "web/src/lib/components/tool-cards/DesignCanvasCard.svelte",
     "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte"
   ],
+  "web/e2e/canvas-dock-stale-slot.spec.ts": [
+    "web/src/lib/components/tool-cards/DockHost.svelte",
+    "web/src/lib/stores.svelte.ts"
+  ],
   "web/e2e/import-wizard.spec.ts": [
     "web/src/routes/(app)/import/+page.svelte"
   ],

@@ -1,0 +1,15 @@
+Canvas dock stale-slot lane and evidence-map correction
+
+Change
+- Registered `web/e2e/canvas-dock-stale-slot.spec.ts` once in `evidence-soft`.
+- Added its required evidence-covers entry:
+  - `web/src/lib/components/tool-cards/DockHost.svelte` (rendered dock host)
+  - `web/src/lib/stores.svelte.ts` (dock slot state exercised by the flow)
+- The app layout was not listed because it was observed but not changed by this repair.
+
+Validation (pinned Bun 1.3.14, Node 22.22.2)
+`bun test src/__tests__/e2e-lanes.test.ts src/__tests__/visual-evidence-covers.test.ts src/__tests__/visual-evidence-select.test.ts`
+- Exit 0: 43 passed, 0 failed, 119 assertions.
+
+`BASE_REF=origin/main bun scripts/visual-evidence/select-specs.ts`
+- Exit 0: `__ALL__` (the current full integrated diff includes unmapped visual changes, so fail-open full capture is correct).
