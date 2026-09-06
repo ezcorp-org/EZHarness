@@ -175,7 +175,7 @@ describe("the share round trip", () => {
 				),
 			],
 		});
-		const { findByText, getByRole } = render(KnowledgeBaseTab, {
+		const { findByText, findByRole, getByRole } = render(KnowledgeBaseTab, {
 			props: { projectId: "proj-1" },
 		});
 		await findByText("Shared by you");
@@ -185,7 +185,10 @@ describe("the share round trip", () => {
 
 		await waitFor(() => expect(api.calls).toContain("DELETE /api/knowledge-base/kb-1/share"));
 		await findByText("handbook.md");
-		expect(getByRole("button", { name: "Share" })).toBeTruthy();
+		// The existing filename is still present while the DELETE is pending.
+		// The re-listed Share control proves the mutation settled and the server
+		// supplied its new affordance.
+		expect(await findByRole("button", { name: "Share" })).toBeTruthy();
 	});
 
 	test("a refusal surfaces the server's message and does not claim success", async () => {

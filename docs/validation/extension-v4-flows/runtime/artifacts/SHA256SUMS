@@ -6,6 +6,7 @@ ae66c5818ed0528508f1b02a4a36f1f6c0a6156700ef720ea01862e9e21f07be  docs/validatio
 35493f95b9b7efa820c7d185c0b293bd092da3cdd5685955865c73e0170225b0  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.playwright.log.gz
 ac0225928ad81597995dcea884e2851dc570c4d222d0956ce554debf484de44c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.provenance.txt
 74cac6f53c160a2a573831ad16c8f38eacdcd93952265c78283e8617da6702d7  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.runner.log.gz
+342b1f3040f3845b7b4c26d21b5ee239f29904b041b740d970ebc4b655c0edc3  docs/validation/extension-v4-flows/runtime/artifacts/web-component-race-node22-vitest-20260906.log
 46e9d3cd059f5b4cdbb92458ecd218ae139e68c91995f5ecaa988f4f337de981  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.compose.log.gz
 5111f45c4e70a592b450f13e4bb60032598c6e19f0407f1fe4c6ba8989d4401e  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.playwright.log.gz
 19b038c3de507d977f891fe90d2549265a02d7e8b1fa3582ad6d27de33116da8  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.command.log
