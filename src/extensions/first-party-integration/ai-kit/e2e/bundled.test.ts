@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../../../../packages/@ezcorp/ai-kit/src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** Validates that ai-kit auto-installs on every EZCorp boot by default.
  *  Operators opt out by setting `EZCORP_DISABLE_AI_KIT=1`. Skipped cleanly
@@ -19,31 +19,22 @@ import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ez
  *  EZCORP_DISABLE_AI_KIT=1 against a fresh DB; this test will skip cleanly.
  */
 
-let ready = false;
 let aiKitPresent = false;
 
-beforeAll(async () => {
-  ready = (await e2eReady()) && Boolean(E2E_API_KEY);
-  if (!ready) return;
-  const client = new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
-  const exts = (await client.listExtensions().catch(() => [])) as Array<{ name: string }>;
-  aiKitPresent = exts.some((e) => e.name === "ai-kit");
-});
-
 describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: bundled ai-kit", () => {
+  beforeAll(async () => {
+    await requireE2eReady();
+    const client = new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
+    const exts = (await client.listExtensions()) as Array<{ name: string }>;
+    aiKitPresent = exts.some((e) => e.name === "ai-kit");
+    expect(aiKitPresent, "configured server must have bundled ai-kit installed").toBe(true);
+  });
+
   test("ai-kit is registered as an installed extension", () => {
-    if (!ready) return;
-    if (!aiKitPresent) {
-      console.log(
-        "[skip] ai-kit not found in /api/extensions — server likely booted with EZCORP_DISABLE_AI_KIT=1, or is using an older DB snapshot that predates the default",
-      );
-      return;
-    }
     expect(aiKitPresent).toBe(true);
   });
 
   test("ai-kit's tools are reachable via /api/extensions/ai-kit/tools", async () => {
-    if (!ready || !aiKitPresent) return;
     const res = await fetch(new URL("/api/extensions/ai-kit/tools", E2E_BASE_URL!), {
       headers: { Authorization: `Bearer ${E2E_API_KEY!}` },
     });
@@ -58,7 +49,6 @@ describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: bundled ai-kit", () => {
   }, 10_000);
 
   test("sending ![ext:ai-kit] into a chat wires the tools", async () => {
-    if (!ready || !aiKitPresent) return;
     const client = new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
     const conv = await client.createConversation({
       projectId: "global",

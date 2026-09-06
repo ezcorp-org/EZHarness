@@ -1,19 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../../../../packages/@ezcorp/ai-kit/src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "../../../../../packages/@ezcorp/ai-kit/test/e2e/_guard";
 
 /** Live-server counterpart to `docs/quickstart-curl.md`. Runs the auth →
  *  create conversation → send message → stream → run:complete recipe against
  *  a real bun --hot server. */
 
-let ready = false;
-beforeAll(async () => {
-  ready = (await e2eReady()) && Boolean(E2E_API_KEY);
-});
-
 describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: quickstart", () => {
+  beforeAll(requireE2eReady);
+
   test("create conversation → send message → stream until run:complete", async () => {
-    if (!ready) return;
     const client = new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
 
     const health = await client.health();

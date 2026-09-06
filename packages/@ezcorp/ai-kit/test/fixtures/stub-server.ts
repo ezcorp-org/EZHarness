@@ -89,7 +89,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
       const url = new URL(req.url);
       const p = url.pathname;
 
-      if (p === "/api/health") return json({ ok: true });
+      if (p === "/api/health") return json({ status: "healthy" });
 
       // Redirect test routes: a 3xx the client must refuse to follow (no
       // bearer-token replay). The target is a REACHABLE same-origin route
@@ -109,7 +109,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
       if (!authOk(req)) return new Response("unauthorized", { status: 401 });
 
       if (p === "/api/auth/me")
-        return json({ id: "stub-user", name: "Stub", email: "stub@example.com", role: "admin" });
+        return json({ user: { id: "stub-user", name: "Stub", email: "stub@example.com", role: "admin" } });
 
       const projectByIdMatch = p.match(/^\/api\/projects\/([^/]+)$/);
       if (projectByIdMatch && req.method === "GET") {

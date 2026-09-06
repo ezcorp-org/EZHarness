@@ -30,3 +30,4 @@
 
 - A gated security test must run the production context and descriptor plumbing, and assert child exit and observed effect before checking audit records. Opening a filter file proves neither attachment nor enforcement.
 - Verify parser cursor claims with actual compiled output before changing production code. An expected denied call must agree with the declared profile; a permitted call cannot prove a deny boundary.
+- When passing explicit files to `bun test`, prefix each path with `./`; otherwise Bun treats them as name filters and can report that no files matched.
