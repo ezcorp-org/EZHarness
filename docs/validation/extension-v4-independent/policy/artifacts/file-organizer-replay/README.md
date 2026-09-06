@@ -56,3 +56,15 @@ Artifacts:
 
 - `red.txt.gz`: `6bbed61b226e819f9e48d2db53346e4904554a445e9b056aa2792afd2b66d9e6`
 - `green.txt.gz`: `abce4a105eade2e939a40e5c9490511588ced7456e5c45fe8dfa6d786d6766c0`
+
+## Authorization matrix follow-up
+
+The final focused fixture covers `copy-done`, `unlink-pending`, and
+`copy-pending` with allow, deny, prompt, and engine-error outcomes. Each case
+asserts the exact installation identity, null background principal fields, and
+the exact `fs.write` mutation target received by the live engine. Allowed
+recovery performs only the intended mutation. Every other decision preserves
+both files. Result: 12 passed, 48 assertions, 0 failures.
+
+- Test source: `54a6a5e158321fb696e8e69790bce9ea5cd7911ecc89504b1d6e51b78d0e5cd2`
+- `matrix-green.txt.gz`: `1d33b694c7affc03d8665f57dae2285c615298b22e67d9026ae56e1b094eb55f`
