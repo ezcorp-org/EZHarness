@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
-import { users, extensions, projects, projectMembers, extensionStorage } from "../../db/schema";
+import { auditLog, users, extensions, projects, projectMembers, extensionStorage } from "../../db/schema";
 import { getUserById, updateUserStatus } from "../../db/queries/users";
 import { getExtension, getExtensionByName } from "../../db/queries/extensions";
 import { getStorageValue, setStorageValue } from "../../db/queries/extension-storage";
@@ -88,6 +88,53 @@ test("owner source adoption preserves exact legacy identity, owner and namespace
   const repeated = await stageExtensionSourceFiles(owner, files, { kind: "github", repository: "owner/repository" }, { targetInstallationId: previous.id });
   expect(repeated.workspace.id).toBe(staged.workspace.id);
   expect(repeated.operation.id).toBe(staged.operation.id);
+});
+
+test("historical installer audit adopts only its matching local, GitHub, or git source", async () => {
+  for (const [source, sourceKind] of [["local:/never-read-this-source", "local"], ["github:owner/repository", "github"], ["git:https://example.test/repository", "git"]] as const) {
+    const previous = await legacy();
+    await getTestDb().update(extensions).set({ creatorUserId: null, source }).where(eq(extensions.id, previous.id));
+    await getTestDb().insert(auditLog).values({ userId: owner.principalId, action: "ext:permission-granted", target: previous.id, metadata: { actor: owner.principalId, permission: "install", source: sourceKind, reason: `admin-install from source=${sourceKind}` } });
+    await resolveSourceTarget(owner, previous.id);
+    expect((await getExtension(previous.id))?.creatorUserId).toBeNull();
+    await resolveSourceTarget(owner, previous.id, true);
+    expect((await getExtension(previous.id))?.creatorUserId).toBe(owner.principalId);
+    await expect(resolveSourceTarget({ ...owner, principalId: "admin" }, previous.id, true)).rejects.toThrow("access denied");
+  }
+});
+
+test("null-owner adoption rejects all provenance mismatches without mutation", async () => {
+  const invalidAudits = [
+    undefined,
+    { userId: owner.principalId, action: "extension:confirmed", metadata: { actor: owner.principalId, permission: "install", source: "local", reason: "admin-install from source=local" } },
+    { userId: owner.principalId, action: "ext:permission-granted", metadata: { actor: "admin", permission: "install", source: "local", reason: "admin-install from source=local" } },
+    { userId: owner.principalId, action: "ext:permission-granted", metadata: { actor: owner.principalId, permission: "install", source: "github", reason: "admin-install from source=github" } },
+    { userId: owner.principalId, action: "ext:permission-granted", metadata: { actor: owner.principalId, source: "local", reason: "admin-install from source=local" } },
+    { userId: "admin", action: "ext:permission-granted", metadata: { actor: "admin", permission: "install", source: "local", reason: "admin-install from source=local" } },
+  ];
+  for (const audit of invalidAudits) {
+    const previous = await legacy();
+    await getTestDb().update(extensions).set({ creatorUserId: null, source: "local:/never-read-this-source" }).where(eq(extensions.id, previous.id));
+    if (audit) await getTestDb().insert(auditLog).values({ ...audit, target: previous.id });
+    await expect(resolveSourceTarget(owner, previous.id, true)).rejects.toThrow("access denied");
+    expect((await getExtension(previous.id))?.creatorUserId).toBeNull();
+    expect(await repository.read(previous.id)).toBeNull();
+  }
+  const previous = await legacy();
+  await getTestDb().update(extensions).set({ creatorUserId: null, source: "local:/never-read-this-source" }).where(eq(extensions.id, previous.id));
+  await getTestDb().insert(auditLog).values({ userId: owner.principalId, action: "ext:permission-granted", target: crypto.randomUUID(), metadata: { actor: owner.principalId, permission: "install", source: "local", reason: "admin-install from source=local" } });
+  await expect(resolveSourceTarget(owner, previous.id, true)).rejects.toThrow("access denied");
+  expect((await getExtension(previous.id))?.creatorUserId).toBeNull();
+  expect(await repository.read(previous.id)).toBeNull();
+});
+
+test("a null-owner projection cannot bypass an existing lifecycle state", async () => {
+  const previous = await legacy();
+  await getTestDb().update(extensions).set({ creatorUserId: null, source: "local:/never-read-this-source" }).where(eq(extensions.id, previous.id));
+  await getTestDb().insert(auditLog).values({ userId: owner.principalId, action: "ext:permission-granted", target: previous.id, metadata: { actor: owner.principalId, permission: "install", source: "local", reason: "admin-install from source=local" } });
+  await repository.create({ installation: { id: previous.id, ownerId: owner.principalId, scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled", grants: [], acknowledgedGeneration: 0 }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
+  await expect(resolveSourceTarget(owner, previous.id, true)).rejects.toThrow("ownership requires review");
+  expect((await getExtension(previous.id))?.creatorUserId).toBeNull();
 });
 
 test("target ownership is checked before any source collection, including administrator requests", async () => {
