@@ -78,7 +78,7 @@ test("shipping suite normalizes engine image IDs, retains later proof receipts, 
     expect(result.code).toBe(1);
     const summary = await readFile(join(receipt, "summary.tsv"), "utf8");
     expect(summary).toContain("runtime\t7\t");
-    for (const proof of ["delivery", "revocation", "runtime-resources", "historical-upgrade"]) {
+    for (const proof of ["delivery", "revocation", "runtime-resources", "historical-upgrade", "legacy-adoption"]) {
       expect(summary).toContain(`${proof}\t0\t`);
       expect(await Bun.file(join(receipt, proof, "controller.log")).exists()).toBe(true);
     }

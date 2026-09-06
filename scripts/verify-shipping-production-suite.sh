@@ -93,6 +93,16 @@ run_proof historical-upgrade 30m \
   env "VERIFY_UPGRADE_SKIP_BUILD=1" "VERIFY_UPGRADE_CANDIDATE_IMAGE=$candidate" \
   "VERIFY_UPGRADE_CANDIDATE_SOURCE=${VERIFY_UPGRADE_CANDIDATE_SOURCE:?Set the immutable candidate source SHA}" \
   "EZ_UPGRADE_APP_UID=$app_uid" "EZ_UPGRADE_APP_GID=$app_gid" \
+  "VERIFY_UPGRADE_RECEIPT_ROOT=$receipt_root/historical-upgrade/upgrade" \
   bash scripts/verify-docker-upgrade.sh
+
+run_proof legacy-adoption 35m \
+  env "VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE=$candidate" \
+  "VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE_ID=$podman_id" \
+  "VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE=${VERIFY_UPGRADE_CANDIDATE_SOURCE:?Set the immutable candidate source SHA}" \
+  "VERIFY_LEGACY_ADOPTION_RECEIPT_DIR=$receipt_root/legacy-adoption/legacy" \
+  "EZ_LEGACY_ADOPTION_APP_UID=$app_uid" "EZ_LEGACY_ADOPTION_APP_GID=$app_gid" \
+  "EZ_PRODUCTION_RUNNER_APP_UID=$runner_uid" \
+  bash scripts/verify-legacy-adoption.sh
 
 exit "$status"

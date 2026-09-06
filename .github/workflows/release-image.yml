@@ -15,7 +15,7 @@ jobs:
     name: Verify then publish Docker image to GHCR
     runs-on: ubuntu-latest
     # Includes the same bounded candidate-image lifecycle suite as CI.
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,10 +114,13 @@ jobs:
       - name: Load the verified candidate into the extension runner store
         run: docker save ezcorp:verify | podman load
 
+      - name: Verify Docker engine builder for local archival bases
+        run: docker buildx inspect default | awk '/Driver:/ { found = ($2 == "docker") } END { exit !found }'
+
       - name: Run all required candidate-image production proofs
         shell: bash
         run: |
-          EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:verify \
+          BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:verify \
             EZ_SHIPPING_RECEIPT_ROOT=.cache/release-production-lifecycle \
             EZ_SHIPPING_APP_UID="$(id -u)" EZ_SHIPPING_APP_GID="$(id -g)" \
             EZ_SHIPPING_RUNNER_APP_UID=1001 \

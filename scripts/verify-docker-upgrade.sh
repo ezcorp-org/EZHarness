@@ -20,6 +20,8 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/build-archived-image.sh
+source scripts/lib/build-archived-image.sh
 
 # 3ec53e is a retained historical v4 candidate, not a published release.
 # Its committed source differs from the current candidate. This baseline
@@ -32,6 +34,10 @@ RUN_ID="$(openssl rand -hex 6)"
 CONTAINER="ezcorp-upgrade-verify-${RUN_ID}"
 VOLUME="ezcorp-upgrade-verify-data-${RUN_ID}"
 RESTORE_VOLUME="ezcorp-upgrade-verify-restore-${RUN_ID}"
+UPGRADE_RECEIPT_ROOT="${VERIFY_UPGRADE_RECEIPT_ROOT:-}"
+[[ -z "$UPGRADE_RECEIPT_ROOT" || ! -e "$UPGRADE_RECEIPT_ROOT" ]] || { echo "Upgrade receipt root must not already exist: $UPGRADE_RECEIPT_ROOT" >&2; exit 2; }
+[[ -z "$UPGRADE_RECEIPT_ROOT" ]] || mkdir -p "$UPGRADE_RECEIPT_ROOT"
+export VERIFY_ARCHIVED_IMAGE_RECEIPT_ROOT="${UPGRADE_RECEIPT_ROOT:-/tmp}"
 STATE_ROOT="$(mktemp -d /tmp/ezcorp-upgrade-state-XXXXXXXX)"
 RESTORE_STATE_ROOT="$(mktemp -d /tmp/ezcorp-upgrade-restore-state-XXXXXXXX)"
 STATE_FILE="$STATE_ROOT/upgrade-state.json"
@@ -63,6 +69,7 @@ cleanup() {
       docker volume rm "$owned_volume" >/dev/null 2>&1 || cleanup_status=1
     fi
   done
+  if [[ -n "$UPGRADE_RECEIPT_ROOT" && -f "$STATE_FILE" ]]; then cp "$STATE_FILE" "$UPGRADE_RECEIPT_ROOT/upgrade-state.json" || cleanup_status=1; fi
   rm -rf "$STATE_ROOT" "$RESTORE_STATE_ROOT" || cleanup_status=1
   printf 'upgrade_command_exit=%s upgrade_cleanup_exit=%s\n' "$status" "$cleanup_status"
   trap - EXIT
@@ -114,20 +121,8 @@ snapshot_count() {
 }
 
 [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-f]{40}$ ]] || die "Previous source must be a full immutable commit"
-if ! git cat-file -e "${PREVIOUS_SOURCE}^{commit}" 2>/dev/null; then
-  git fetch --no-tags origin "$PREVIOUS_SOURCE" || die "Cannot fetch the pinned previous source"
-fi
-git cat-file -e "${PREVIOUS_SOURCE}^{commit}" || die "Previous source is not a committed tree: ${PREVIOUS_SOURCE}"
+ensure_archived_image "$PREVIOUS_SOURCE" "$IMAGE_A" "upgrade-${RUN_ID}-previous" || die "Historical build failed"
 [[ "$PREVIOUS_SOURCE" != "$SOURCE_B" ]] || die "Previous and candidate source are identical"
-if ! docker image inspect "$IMAGE_A" >/dev/null 2>&1; then
-  section "Build missing historical image from ${PREVIOUS_SOURCE}"
-  previous_version="$(git show "$PREVIOUS_SOURCE:package.json" | jq -er .version)"
-  previous_created="$(git show -s --format=%cI "$PREVIOUS_SOURCE")"
-  git archive "$PREVIOUS_SOURCE" | docker build --load \
-    --build-arg VERSION="$previous_version" --build-arg REVISION="$PREVIOUS_SOURCE" \
-    --build-arg CREATED="$previous_created" -t "$IMAGE_A" - \
-    >"/tmp/ezcorp-upgrade-${RUN_ID}-previous-build.log" 2>&1 || die "Historical build failed: /tmp/ezcorp-upgrade-${RUN_ID}-previous-build.log"
-fi
 IMAGE_A_SOURCE="$(docker image inspect "$IMAGE_A" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 IMAGE_A_ID="$(docker image inspect "$IMAGE_A" --format '{{.Id}}' | sed 's/^sha256://')"
 if [[ -n "$IMAGE_A_SOURCE" && "$IMAGE_A_SOURCE" != "<no value>" && "$IMAGE_A_SOURCE" != "unknown" ]]; then
@@ -168,8 +163,9 @@ fi
 pass "Previous image source=$PREVIOUS_SOURCE; candidate image source=$IMAGE_B_SOURCE; driver source=$SOURCE_B"
 
 run_lifecycle_state() {
-  local image="$1" mode="$2" state_root="$3" port="$4" project="${5}-${RUN_ID}" receipt status
-  receipt="$(mktemp -d /tmp/ezcorp-upgrade-receipt-XXXXXXXX)"
+  local image="$1" mode="$2" state_root="$3" port="$4" phase="$5" project="${6}-${RUN_ID}" receipt status
+  receipt="${UPGRADE_RECEIPT_ROOT:+$UPGRADE_RECEIPT_ROOT/$mode-$phase}"
+  [[ -n "$receipt" ]] || receipt="$(mktemp -d /tmp/ezcorp-upgrade-receipt-XXXXXXXX)"
   set +e
   EZ_PRODUCTION_IMAGE="$image" \
   EZ_PRODUCTION_RECEIPT_DIR="$receipt" \
@@ -186,17 +182,17 @@ run_lifecycle_state() {
 }
 
 section "Semantic lifecycle seed on the previous image"
-run_lifecycle_state "$IMAGE_A" seed "$STATE_ROOT" 13004 ezcorp-upgrade-semantic-old
+run_lifecycle_state "$IMAGE_A" seed "$STATE_ROOT" 13004 previous ezcorp-upgrade-semantic-old
 [[ -s "$STATE_FILE" ]] || die "Previous image did not persist lifecycle sentinel"
 pass "Previous image created user-owned extension, exact human approval, conversation and tool sentinel"
 
 section "Semantic lifecycle upgrade to the candidate"
 tar -C "$STATE_ROOT" --exclude=socket -cf - . | tar -C "$RESTORE_STATE_ROOT" -xf -
-run_lifecycle_state "$IMAGE_B" assert "$STATE_ROOT" 13005 ezcorp-upgrade-semantic-candidate
+run_lifecycle_state "$IMAGE_B" assert "$STATE_ROOT" 13005 candidate ezcorp-upgrade-semantic-candidate
 pass "Candidate preserved exact installation, active release, human approval, conversation and tool sentinel"
 
 section "Semantic backup restore into a separate owned candidate instance"
-run_lifecycle_state "$IMAGE_B" assert "$RESTORE_STATE_ROOT" 13006 ezcorp-upgrade-semantic-restore
+run_lifecycle_state "$IMAGE_B" assert "$RESTORE_STATE_ROOT" 13006 restore ezcorp-upgrade-semantic-restore
 pass "Separate restored instance preserved the same lifecycle sentinel"
 
 if [[ "${VERIFY_UPGRADE_SEMANTIC_ONLY:-0}" == "1" ]]; then

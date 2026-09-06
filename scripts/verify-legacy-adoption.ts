@@ -11,6 +11,7 @@ type Receipt = {
   owner: { id: string; email: string; name: string; role: string };
   installation: { id: string; name: string; ownerId: string; source: string; installPath: string; storageKey: string; value: string };
   conversationId: string;
+  runnerCapacity?: { initialPending: number; maximumPending: number; terminalOperationStates: Record<string, number> };
 };
 
 const mode = process.env.EZ_LEGACY_ADOPTION_MODE;
@@ -41,6 +42,35 @@ function legacyFiles(name: string, storageKey: string) {
 function outputText(value: unknown): string | undefined {
   if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text;
   if (typeof value === "string") { try { const parsed = JSON.parse(value) as { text?: unknown }; return typeof parsed.text === "string" ? parsed.text : value; } catch { return value; } }
+}
+
+function operationStateCounts(states: InstallationState[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const state of states) for (const operation of Object.values(state.operations)) counts[operation.state] = (counts[operation.state] ?? 0) + 1;
+  return counts;
+}
+
+async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNullable<Receipt["runnerCapacity"]>> {
+  const deadline = Date.now() + 360_000;
+  let idleChecks = 0;
+  let initialPending = 0;
+  let maximumPending = 0;
+  while (Date.now() < deadline) {
+    const extensions = await client.listExtensions();
+    const lifecycleIds = extensions.filter(({ id }) => id !== legacyInstallationId).map(({ id }) => id);
+    const states = await Promise.all(lifecycleIds.map((installationId) => client.extensionControl<InstallationState>("extensions_inspect", { installationId })));
+    const pending = states.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
+    maximumPending = Math.max(maximumPending, pending);
+    if (pending > 0) {
+      if (initialPending === 0) initialPending = pending;
+      idleChecks = 0;
+    } else if (initialPending > 0) {
+      idleChecks += 1;
+      if (idleChecks === 2) return { initialPending, maximumPending, terminalOperationStates: operationStateCounts(states) };
+    }
+    await Bun.sleep(1_000);
+  }
+  throw new Error("Candidate bootstrap did not reach an observed terminal runner state before adoption");
 }
 
 if (mode === "seed") {
@@ -83,6 +113,8 @@ if (mode === "seed") {
   assert.deepEqual(owner(await session("/api/auth/me")), receipt.owner, "Owner identity changed across image upgrade");
   const legacyAttempt = await client.invokeExtensionTool(receipt.conversationId, receipt.installation.name, "echo");
   assert.equal(legacyAttempt.success, false, "Candidate ran a legacy extension before explicit v4 adoption");
+  const runnerCapacity = await waitForRunnerIdle(receipt.installation.id);
+  await Bun.write(receiptPath, `${JSON.stringify({ ...receipt, runnerCapacity })}\n`);
   const imported = await session("/api/extensions/import-source", { kind: "local", path: receipt.installation.installPath, targetInstallationId: receipt.installation.id }) as { installation: { id: string; ownerId: string }; workspace: { id: string }; operation: LifecycleOperation };
   assert.equal(imported.installation.id, receipt.installation.id, "Adoption replaced the legacy installation ID");
   assert.equal(imported.installation.ownerId, receipt.owner.id, "Adoption changed the legacy owner");
