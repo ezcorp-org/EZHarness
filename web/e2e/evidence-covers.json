@@ -22,6 +22,7 @@
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
     "web/src/lib/components/ToolCallCard.svelte",
     "web/src/lib/components/ConversationToolsSelector.svelte",
+    "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/MentionChip.svelte",
     "web/src/app.css"
   ],
