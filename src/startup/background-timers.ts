@@ -636,7 +636,7 @@ async function reconcileFileOrganizerDaemonNow(): Promise<void> {
       const daemon = fileOrganizerDaemon;
       fileOrganizerDaemon = undefined;
       fileOrganizerExtensionId = undefined;
-      daemon.stop();
+      await daemon.stop();
       log.info("FileOrganizerDaemon stopped after extension lifecycle change");
     }
     if (!shouldRun || !ext || !settings || fileOrganizerDaemon) {
@@ -659,7 +659,7 @@ async function reconcileFileOrganizerDaemonNow(): Promise<void> {
     });
     const didStart = await daemon.start(settings);
     if (!started) {
-      if (didStart) daemon.stop();
+      if (didStart) await daemon.stop();
       return;
     }
     if (didStart) {
@@ -781,7 +781,7 @@ export async function stopBackgroundTimers(): Promise<void> {
     embedWorker = undefined;
   }
   if (fileOrganizerDaemon) {
-    try { fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
+    try { await fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
     fileOrganizerDaemon = undefined;
     fileOrganizerExtensionId = undefined;
   }
