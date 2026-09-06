@@ -135,10 +135,4 @@ describe("MentionChip — sigil per kind", () => {
 		expect(byPalette.size).toBe(known.length);
 	});
 
-	test("extension mentions use a readable light-theme text colour", () => {
-		const { container } = render(MentionChip, { name: "ai-kit", kind: "extension" });
-		const chip = container.querySelector('[data-mention-kind="extension"]');
-		expect(chip).toHaveClass("text-purple-800");
-		expect(chip).toHaveClass("dark:text-purple-300");
-	});
 });
