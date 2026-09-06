@@ -49,6 +49,9 @@ let workflowRunner: WorkflowRunner | undefined;
 let embedWorker: EmbedWorker | undefined;
 let previewPortWatcher: PreviewPortWatcher | undefined;
 let fileOrganizerDaemon: FileOrganizerDaemon | undefined;
+let fileOrganizerExtensionId: string | undefined;
+let fileOrganizerReconcile = Promise.resolve();
+let fileOrganizerReloadDisposer: (() => void) | undefined;
 let githubProjectsDaemon: GithubProjectsDaemon | undefined;
 
 /**
@@ -105,6 +108,11 @@ export function _getEmbedWorkerForTests(): EmbedWorker | undefined {
  *  `_getEmbedWorkerForTests`. */
 export function _getFileOrganizerDaemonForTests(): FileOrganizerDaemon | undefined {
   return fileOrganizerDaemon;
+}
+
+/** Reconcile the daemon with the current published extension projection. */
+export async function _reconcileFileOrganizerDaemonForTests(): Promise<void> {
+  await reconcileFileOrganizerDaemon();
 }
 
 /** Test-only handle to the github-projects daemon singleton — mirrors
@@ -421,43 +429,8 @@ export async function startBackgroundTimers(): Promise<void> {
   // handle on a failed start; never block boot. When the extension isn't
   // installed (or the DB layer isn't ready), construction is skipped and
   // this is a logged no-op.
-  try {
-    const { getExtensionByName } = await import("../db/queries/extensions");
-    const ext = await getExtensionByName("file-organizer");
-    if (ext?.enabled) {
-      const settings = await resolveFileOrganizerSettings(ext.id);
-      if (settings.daemonEnabled) {
-        const { join } = await import("node:path");
-        const { getPermissionEngine } = await import("../extensions/permission-engine");
-        const { getPageCache } = await import("../extensions/page-cache");
-        const dataDir = join(
-          getProjectRoot(),
-          ".ezcorp",
-          "extension-data",
-          "file-organizer",
-        );
-        const pageCache = getPageCache();
-        fileOrganizerDaemon = new FileOrganizerDaemon({
-          dataDir,
-          engine: getPermissionEngine(),
-          extensionId: ext.id,
-          getSettings: () => resolveFileOrganizerSettings(ext.id),
-          invalidatePage: (pageId) => pageCache.invalidate(ext.id, pageId),
-        });
-        const ok = await fileOrganizerDaemon.start(settings);
-        if (ok) {
-          log.info("FileOrganizerDaemon started");
-        } else {
-          fileOrganizerDaemon = undefined;
-        }
-      } else {
-        log.info("FileOrganizerDaemon disabled via daemon_enabled setting");
-      }
-    }
-  } catch (e) {
-    log.warn("Failed to start FileOrganizerDaemon", { error: String(e) });
-    fileOrganizerDaemon = undefined;
-  }
+  fileOrganizerReloadDisposer = ExtensionRegistry.getInstance().onReload(reconcileFileOrganizerDaemon);
+  await reconcileFileOrganizerDaemon();
 
   // github-projects: GithubProjectsDaemon — host-side poller that turns
   // GitHub Projects board moves into proposals (+ optional auto-spawn). Sibling
@@ -642,6 +615,63 @@ async function runScheduledSurfaceAudit(): Promise<void> {
   await runScheduledAudit(ctx as never);
 }
 
+/** Serialize registry reloads so concurrent publications cannot start duplicates. */
+function reconcileFileOrganizerDaemon(): Promise<void> {
+  fileOrganizerReconcile = fileOrganizerReconcile.then(
+    reconcileFileOrganizerDaemonNow,
+    reconcileFileOrganizerDaemonNow,
+  );
+  return fileOrganizerReconcile;
+}
+
+async function reconcileFileOrganizerDaemonNow(): Promise<void> {
+  if (!started) return;
+  try {
+    const { getExtensionByName } = await import("../db/queries/extensions");
+    const ext = await getExtensionByName("file-organizer");
+    const settings = ext?.enabled ? await resolveFileOrganizerSettings(ext.id) : undefined;
+    const shouldRun = Boolean(ext?.enabled && settings?.daemonEnabled);
+
+    if (fileOrganizerDaemon && (!shouldRun || fileOrganizerExtensionId !== ext?.id)) {
+      const daemon = fileOrganizerDaemon;
+      fileOrganizerDaemon = undefined;
+      fileOrganizerExtensionId = undefined;
+      daemon.stop();
+      log.info("FileOrganizerDaemon stopped after extension lifecycle change");
+    }
+    if (!shouldRun || !ext || !settings || fileOrganizerDaemon) {
+      if (ext?.enabled && settings && !settings.daemonEnabled) {
+        log.info("FileOrganizerDaemon disabled via daemon_enabled setting");
+      }
+      return;
+    }
+
+    const { join } = await import("node:path");
+    const { getPermissionEngine } = await import("../extensions/permission-engine");
+    const { getPageCache } = await import("../extensions/page-cache");
+    const pageCache = getPageCache();
+    const daemon = new FileOrganizerDaemon({
+      dataDir: join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer"),
+      engine: getPermissionEngine(),
+      extensionId: ext.id,
+      getSettings: () => resolveFileOrganizerSettings(ext.id),
+      invalidatePage: (pageId) => pageCache.invalidate(ext.id, pageId),
+    });
+    const didStart = await daemon.start(settings);
+    if (!started) {
+      if (didStart) daemon.stop();
+      return;
+    }
+    if (didStart) {
+      fileOrganizerDaemon = daemon;
+      fileOrganizerExtensionId = ext.id;
+      log.info("FileOrganizerDaemon started");
+    }
+  } catch (e) {
+    log.warn("Failed to start FileOrganizerDaemon", { error: String(e) });
+  }
+}
+
 /**
  * Resolve the file-organizer daemon's effective settings (single-operator
  * workspace model). Reads the manifest declared defaults, overlaid with
@@ -694,6 +724,13 @@ async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOr
  * `stopBackgroundTimers()` then `_resetForTests()` is safe.
  */
 export async function stopBackgroundTimers(): Promise<void> {
+  // Release the boot guard before draining reconciliation. A queued reload
+  // then observes `started === false`, and an in-flight start stops its new
+  // daemon instead of publishing it after shutdown.
+  started = false;
+  fileOrganizerReloadDisposer?.();
+  fileOrganizerReloadDisposer = undefined;
+  await fileOrganizerReconcile;
   if (scheduleDaemon) {
     try {
       scheduleDaemon.stop();
@@ -746,6 +783,7 @@ export async function stopBackgroundTimers(): Promise<void> {
   if (fileOrganizerDaemon) {
     try { fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
     fileOrganizerDaemon = undefined;
+    fileOrganizerExtensionId = undefined;
   }
   if (githubProjectsDaemon) {
     try { githubProjectsDaemon.stop(); } catch (e) { log.warn("GithubProjectsDaemon.stop() failed", { error: String(e) }); }
@@ -770,16 +808,13 @@ export async function stopBackgroundTimers(): Promise<void> {
   }
   disposers.length = 0;
 
-  // Release the boot-once guard so a subsequent boot (test re-init, hot
-  // restart in dev) can re-arm the timers cleanly. Without resetting,
-  // the next `startBackgroundTimers()` would early-return and the host
-  // would silently run without decay sweeps, retention cleanup, etc.
-  started = false;
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */
 export function _resetForTests(): void {
   started = false;
+  fileOrganizerReloadDisposer?.();
+  fileOrganizerReloadDisposer = undefined;
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
@@ -809,6 +844,7 @@ export function _resetForTests(): void {
   if (fileOrganizerDaemon) {
     fileOrganizerDaemon.stop();
     fileOrganizerDaemon = undefined;
+    fileOrganizerExtensionId = undefined;
   }
   if (githubProjectsDaemon) {
     githubProjectsDaemon.stop();
