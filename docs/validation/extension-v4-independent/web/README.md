@@ -2,7 +2,7 @@
 
 ## Revision
 
-- Final browser-run checkpoint: `4b41933d` (tree `581e1ef7bc868e2042e5956d64d2879729497f5a`)
+- Final browser-run checkpoint: `19d9da92f771a5771d491234c9cff75eb104660b` (tree `5bf40268df5184c05cbdc1298e16fefc5fd33883`)
 - Browser runner and evidence repair: `0b0a8293ac3bb35b4344f316a0f4b36f64790f30`
 - Final canvas label spacing: `8d7a530dcd41f92763ca5923386fce65de8e85d1`
 - Updated base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`
@@ -79,15 +79,15 @@ A targeted opaque iframe capture passed and was inspected directly.
   with no skips, including a real daemon proposal and accepted file move.
 - The selected visual runner passed 42 mock and 7 real-auth tests in one clean
   two-group invocation. It retained both report zips and extracted 67 PNGs.
-- The final rerun after the disabled-page repair produced the same clean counts.
-  Its 67-shot manifest and reports are in `artifacts/final2-blob/`.
+- The final-tree rerun after the disabled-page and contrast repairs produced the
+  same clean counts. Its 67-shot manifest and reports are in `artifacts/final3-blob/`.
 - Direct screenshot inspection covered desktop and mobile approval, release,
   uninstall retention, project authority, scanner isolation, failed actions,
   disabled state, and canvas light/dark/mobile layouts. The final canvas controls
   use the active theme tokens, show seeded values, and do not overflow.
 - `commands.md` records commands, versions, exits, and applicability.
   `skips.md` records the exact runtime skip names and configuration exclusions.
-  `artifacts/final2-blob/` and `screenshots/final/` contain reports, PNGs, manifests,
+  `artifacts/final3-blob/` and `screenshots/final3/` contain reports, PNGs, manifests,
   and SHA-256 indexes.
 - `artifacts/browser-raw-logs.tar.gz` contains the sanitized red and green raw
   logs. `artifacts/file-organizer-real-production.zip` contains the exact

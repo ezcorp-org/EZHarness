@@ -2,9 +2,9 @@
 
 ## Executed browser lanes
 
-- The exact 30-spec mock gate collected 222 tests: 210 passed, 12 skipped, 0 failed, and 0 retried. The 12 names below are the complete actual skip set from `artifacts/mock-gate.log`.
-- The complete 29-spec real-auth configuration passed 54 tests with no skips, failures, or retries (`artifacts/real-auth-full.log`).
-- The required visual selection contained 29 spec files. Its mock group passed 42 evidence tests and its real-auth group passed 7; neither group skipped a test (`artifacts/visual-selected-final-green.log`).
+- The exact 30-spec mock gate collected 222 tests: 210 passed, 12 skipped, 0 failed, and 0 retried. The 12 names below are the complete actual skip set from member `mock-gate-final.log` in `artifacts/browser-raw-logs.tar.gz`.
+- The complete 29-spec real-auth configuration passed 54 tests with no skips, failures, or retries (member `real-auth-full-final.log` in `artifacts/browser-raw-logs.tar.gz`).
+- The required visual selection contained 29 spec files. Its mock group passed 42 evidence tests and its real-auth group passed 7; neither group skipped a test (member `visual-selected-final4-green.log` and `artifacts/final3-blob/`).
 
 ## Exact 12 mock-gate skips
 
@@ -27,7 +27,7 @@ The source used to conditionally skip test 7 when the daemon produced no applica
 
 ## Production replacement for the 12 mock skips
 
-The exact production-image run passed 12 tests, failed 0, and skipped 0. It used a fresh owned database and filesystem, imported and built the bundled File Organizer source through the external rootless runner, recorded human-session approval and activation, bound the exact release to the owned project, and restarted the app so the startup-owned daemon observed the active release. The proposal case enabled `include-existing`, created a controlled old `.tmp` input, observed the daemon-written proposal, and accepted it through the real event route. Evidence is in `artifacts/file-organizer-real-production.log`, `artifacts/file-organizer-compose.log`, `artifacts/file-organizer-runner.log`, and `artifacts/file-organizer-real-production.zip`.
+The exact Docker-format production-image run passed 12 tests, failed 0, and skipped 0. It used a fresh owned database and filesystem, imported and built the bundled File Organizer source through the external rootless runner, recorded human-session approval and activation, and bound the exact release to the owned project. Activation started the daemon without an app restart. The proposal case enabled `include-existing`, created a controlled old `.tmp` input, observed the daemon-written proposal, and accepted it through the real event route. `artifacts/file-organizer-real-production.zip` contains the raw logs, Playwright report, sanitized fixture, image identity, test exit, and cleanup exit.
 
 ## Declared browser lanes outside the required runs
 

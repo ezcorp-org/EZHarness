@@ -1,6 +1,6 @@
 services:
   app:
-    image: localhost/ezcorp-extension-v4:audit-final-cddb0627
+    image: localhost/ezcorp-extension-v4:audit-final-19d9da92-docker
     container_name: extension-v4-web-audit-app
     user: "${APP_UID}:${APP_GID}"
     ports:
