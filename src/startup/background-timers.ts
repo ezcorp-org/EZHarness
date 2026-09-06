@@ -51,6 +51,7 @@ let previewPortWatcher: PreviewPortWatcher | undefined;
 let fileOrganizerDaemon: FileOrganizerDaemon | undefined;
 let fileOrganizerExtensionId: string | undefined;
 let fileOrganizerReconcile = Promise.resolve();
+let fileOrganizerReloadDisposer: (() => void) | undefined;
 let githubProjectsDaemon: GithubProjectsDaemon | undefined;
 
 /**
@@ -428,7 +429,7 @@ export async function startBackgroundTimers(): Promise<void> {
   // handle on a failed start; never block boot. When the extension isn't
   // installed (or the DB layer isn't ready), construction is skipped and
   // this is a logged no-op.
-  disposers.push(ExtensionRegistry.getInstance().onReload(reconcileFileOrganizerDaemon));
+  fileOrganizerReloadDisposer = ExtensionRegistry.getInstance().onReload(reconcileFileOrganizerDaemon);
   await reconcileFileOrganizerDaemon();
 
   // github-projects: GithubProjectsDaemon — host-side poller that turns
@@ -624,6 +625,7 @@ function reconcileFileOrganizerDaemon(): Promise<void> {
 }
 
 async function reconcileFileOrganizerDaemonNow(): Promise<void> {
+  if (!started) return;
   try {
     const { getExtensionByName } = await import("../db/queries/extensions");
     const ext = await getExtensionByName("file-organizer");
@@ -655,7 +657,12 @@ async function reconcileFileOrganizerDaemonNow(): Promise<void> {
       getSettings: () => resolveFileOrganizerSettings(ext.id),
       invalidatePage: (pageId) => pageCache.invalidate(ext.id, pageId),
     });
-    if (await daemon.start(settings)) {
+    const didStart = await daemon.start(settings);
+    if (!started) {
+      if (didStart) daemon.stop();
+      return;
+    }
+    if (didStart) {
       fileOrganizerDaemon = daemon;
       fileOrganizerExtensionId = ext.id;
       log.info("FileOrganizerDaemon started");
@@ -717,6 +724,10 @@ async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOr
  * `stopBackgroundTimers()` then `_resetForTests()` is safe.
  */
 export async function stopBackgroundTimers(): Promise<void> {
+  started = false;
+  fileOrganizerReloadDisposer?.();
+  fileOrganizerReloadDisposer = undefined;
+  await fileOrganizerReconcile;
   if (scheduleDaemon) {
     try {
       scheduleDaemon.stop();
@@ -798,12 +809,13 @@ export async function stopBackgroundTimers(): Promise<void> {
   // restart in dev) can re-arm the timers cleanly. Without resetting,
   // the next `startBackgroundTimers()` would early-return and the host
   // would silently run without decay sweeps, retention cleanup, etc.
-  started = false;
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */
 export function _resetForTests(): void {
   started = false;
+  fileOrganizerReloadDisposer?.();
+  fileOrganizerReloadDisposer = undefined;
   if (scheduleDaemon) {
     scheduleDaemon.stop();
     scheduleDaemon = undefined;
