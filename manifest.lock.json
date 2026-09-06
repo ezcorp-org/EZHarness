@@ -348,8 +348,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 54,
-      "bytes": 424304,
-      "sourceDigest": "b810f2fe43b6b7c0b7b6d3cca72dc9adcbf7c5d7ba408009946e5e31751d21e3"
+      "bytes": 424745,
+      "sourceDigest": "985c9fc00bd7dfccab8a0a17a34df15850f061fd4e7bdee8a4d9c3021c84a648"
     }
   }
 }

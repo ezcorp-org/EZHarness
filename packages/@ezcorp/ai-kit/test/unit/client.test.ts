@@ -32,11 +32,21 @@ describe("EzcorpClient — auth + errors", () => {
   test("rejects malformed health and identity response envelopes", async () => {
     const malformed = new EzcorpClient({
       baseUrl: "http://stub.invalid",
-      fetch: async (input) =>
-        Response.json(String(input).endsWith("/api/health") ? { ok: true } : { id: "unwrapped" }),
+      fetch: (async (input) =>
+        Response.json(
+          String(input).endsWith("/api/health") ? { ok: true } : { id: "unwrapped" },
+        )) as unknown as typeof fetch,
     });
     await expect(malformed.health()).rejects.toThrow("Invalid /api/health response");
     await expect(malformed.me()).rejects.toThrow("Invalid /api/auth/me response");
+  });
+
+  test("maps the valid degraded health status to not ok", async () => {
+    const degraded = new EzcorpClient({
+      baseUrl: "http://stub.invalid",
+      fetch: (async () => Response.json({ status: "degraded" })) as unknown as typeof fetch,
+    });
+    expect(await degraded.health()).toEqual({ ok: false });
   });
 
   test("throws EzcorpApiError with status + url on non-2xx", async () => {

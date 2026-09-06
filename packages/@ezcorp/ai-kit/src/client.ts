@@ -221,8 +221,10 @@ export class EzcorpClient {
 
   async health(): Promise<{ ok: boolean }> {
     const response = await this.request<{ status?: unknown }>("/api/health");
-    if (response.status !== "healthy") throw new TypeError("Invalid /api/health response");
-    return { ok: true };
+    if (response.status !== "healthy" && response.status !== "degraded") {
+      throw new TypeError("Invalid /api/health response");
+    }
+    return { ok: response.status === "healthy" };
   }
 
   async me(): Promise<{ id: string; name: string; email: string; role: string }> {

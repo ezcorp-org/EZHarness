@@ -4,9 +4,8 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "../../../../../packa
 
 /** Validates that ai-kit auto-installs on every EZCorp boot by default.
  *  Operators opt out by setting `EZCORP_DISABLE_AI_KIT=1`. Skipped cleanly
- *  when:
- *    - EZCORP_E2E_BASE_URL is unset (whole e2e suite)
- *    - server was booted with EZCORP_DISABLE_AI_KIT=1 (ai-kit absent)
+ *  when EZCORP_E2E_BASE_URL or EZCORP_E2E_API_KEY is unset. A configured
+ *  target fails if it is unavailable or does not contain ai-kit.
  *
  *  To run locally:
  *    cd web && bun run dev   # default startup — ai-kit installs itself
@@ -15,8 +14,7 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "../../../../../packa
  *    export EZCORP_E2E_API_KEY=ez_...
  *    cd packages/@ezcorp/ai-kit && bun test test/e2e/bundled.test.ts
  *
- *  To verify opt-out works, re-run the dev server with
- *  EZCORP_DISABLE_AI_KIT=1 against a fresh DB; this test will skip cleanly.
+ *  To verify opt-out works, use the dedicated bundled-extension opt-out test.
  */
 
 let aiKitPresent = false;
