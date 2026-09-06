@@ -188,7 +188,7 @@ test("administrator imports a host-owned local source directory through the visi
     const staged = await response.json() as { installation: InstallationState["installation"]; operation: LifecycleOperation };
     installationId = staged.installation.id;
     const state = await waitForExtensionBuild(client, installationId, staged.operation.id);
-    expect(state.operations[staged.operation.id]!.state).toBe("succeeded");
+    expect(state.operations[staged.operation.id]!.state).toBe("verified");
     expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null });
   } finally {
     if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
@@ -213,7 +213,7 @@ test("administrator imports a pinned public GitHub source through the visible so
     const staged = await response.json() as { installation: InstallationState["installation"]; operation: LifecycleOperation };
     installationId = staged.installation.id;
     const state = await waitForExtensionBuild(client, installationId, staged.operation.id);
-    expect(state.operations[staged.operation.id]!.state).toBe("succeeded");
+    expect(state.operations[staged.operation.id]!.state).toBe("verified");
     expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null });
   } finally {
     if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
