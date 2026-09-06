@@ -112,8 +112,9 @@ test.describe("Mobile Chat", () => {
 		const drawer = page.getByTestId("swipe-drawer");
 		await expect(drawer).toBeVisible({ timeout: 3000 });
 
-		// Click the backdrop to close
-		await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
+		// Click the exposed strip of backdrop. The left drawer covers the default
+		// centre point, where a real user click belongs to the panel instead.
+		await page.getByTestId("swipe-drawer-backdrop").click({ position: { x: mobile.width - 8, y: 100 } });
 
 		// Drawer should close
 		await expect(drawer).not.toBeVisible({ timeout: 3000 });
