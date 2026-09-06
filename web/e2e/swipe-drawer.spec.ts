@@ -221,9 +221,7 @@ test.describe("Swipe Drawer", () => {
 		await page.setViewportSize(mobile);
 		await goToChat(page, mockApi, {
 			...baseMockOpts(),
-			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
-			},
+			settings: { "global:showObservability": true },
 		});
 
 		const obsBtn = page.locator("button[aria-label='Inspect observability']");
@@ -238,9 +236,7 @@ test.describe("Swipe Drawer", () => {
 		await page.setViewportSize(desktop);
 		await goToChat(page, mockApi, {
 			...baseMockOpts(),
-			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
-			},
+			settings: { "global:showObservability": true },
 		});
 
 		const obsBtn = page.locator("button[aria-label='Inspect observability']");
