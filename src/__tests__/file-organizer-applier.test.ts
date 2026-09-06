@@ -253,8 +253,15 @@ describe("restoreFromQuarantine", () => {
 describe("journal crash-replay", () => {
   /** Anchors covering the fixture's watched root (see the security suite
    *  for the refusal cases these must not fire on). */
-  function anchors(...roots: string[]): { roots: string[]; dataDirRoot: string } {
-    return { roots, dataDirRoot: join(root, ".ezcorp", "extension-data", "file-organizer") };
+  function anchors(...roots: string[]) {
+    return {
+      roots,
+      dataDirRoot: join(root, ".ezcorp", "extension-data", "file-organizer"),
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      userId: null,
+      conversationId: null,
+    };
   }
 
   test("copy-done entry finishes the unlink idempotently", async () => {

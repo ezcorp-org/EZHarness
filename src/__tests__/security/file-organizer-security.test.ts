@@ -110,6 +110,17 @@ function ctx(watchedRoot: string, engine?: PermissionEngine): ApplierContext {
   };
 }
 
+function replayAnchors(roots: string[]) {
+  return {
+    roots,
+    dataDirRoot: dataDir,
+    engine: fakeEngine("allow"),
+    extensionId: "ext-fo",
+    userId: "u1",
+    conversationId: null,
+  };
+}
+
 describe("host applier: destination containment (only the host touches host folders)", () => {
   test("a move whose destination escapes the watched root is BLOCKED", async () => {
     const src = join(watched, "a.txt");
@@ -511,7 +522,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     // `copy-done` ⇒ the replay's job is to unlink the src. Unanchored,
     // that is an arbitrary delete at server boot.
     await _applierInternals.writeJournal(journalPath, entry(victim, join(watched, "victim.txt"), "copy-done"));
-    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([watched]));
     expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
     expect(await readFile(victim, "utf8")).toBe("victim");
     // Still cleared — a refused entry must not be retried next boot.
@@ -526,7 +537,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     await writeFile(src, "a");
     const journalPath = join(dataDir, "journal.json");
     await _applierInternals.writeJournal(journalPath, entry(src, victim, "copy-pending"));
-    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([watched]));
     expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
     expect(await readFile(victim, "utf8")).toBe("victim");
   });
@@ -536,7 +547,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     await writeFile(src, "a");
     const journalPath = join(dataDir, "journal.json");
     await _applierInternals.writeJournal(journalPath, entry(src, join(watched, "sub", "a.txt"), "copy-done"));
-    const res = await replayJournal(journalPath, { roots: [], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([]));
     expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
     expect(await readFile(src, "utf8")).toBe("a");
   });
@@ -548,7 +559,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     const journalPath = join(dataDir, "journal.json");
     await _applierInternals.writeJournal(journalPath, entry(dbFile, join(root, "x.txt"), "copy-done"));
     // Anchor on the project root so only the protected-dir deny can refuse.
-    const res = await replayJournal(journalPath, { roots: [root], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([root]));
     expect(res).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
     expect(await readFile(dbFile, "utf8")).toBe("PGDATA");
   });
@@ -561,7 +572,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     await writeFile(dst, "data");
     const journalPath = join(dataDir, "journal.json");
     await _applierInternals.writeJournal(journalPath, entry(src, dst, "copy-done"));
-    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([watched]));
     expect(res).toEqual({ finished: 1, rolledBack: 0, refused: 0 });
     expect(await _applierInternals.pathExists(src)).toBe(false);
     expect(await readFile(dst, "utf8")).toBe("data");
@@ -575,7 +586,7 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     await writeFile(dst, "partial");
     const journalPath = join(dataDir, "journal.json");
     await _applierInternals.writeJournal(journalPath, entry(src, dst, "copy-pending"));
-    const res = await replayJournal(journalPath, { roots: [watched], dataDirRoot: dataDir });
+    const res = await replayJournal(journalPath, replayAnchors([watched]));
     expect(res).toEqual({ finished: 0, rolledBack: 1, refused: 0 });
     expect(await readFile(src, "utf8")).toBe("data");
     expect(await _applierInternals.pathExists(dst)).toBe(false);
