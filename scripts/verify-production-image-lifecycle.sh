@@ -157,7 +157,9 @@ printf 'setup_http=%s\nlogin_http=%s\nkey_http=%s\n' "$setup_code" "$login_code"
 export EZ_PRODUCTION_ORIGIN="$origin" EZ_PRODUCTION_CONTAINER="$container" EZ_PRODUCTION_RUN_ROOT="$state_root"
 export EZ_PRODUCTION_COOKIE_FILE="$cookie_file" EZ_PRODUCTION_API_KEY_FILE="$key_file" EZ_PRODUCTION_RUNNER_PID="$runner_pid"
 set +e
-"$@"
-command_exit=$?
+"$@" 2>&1 | tee "$receipt_dir/verification.log"
+verification_status=("${PIPESTATUS[@]}")
+command_exit="${verification_status[0]}"
+if [[ "$command_exit" -eq 0 && "${verification_status[1]}" -ne 0 ]]; then command_exit="${verification_status[1]}"; fi
 set -e
 exit "$command_exit"
