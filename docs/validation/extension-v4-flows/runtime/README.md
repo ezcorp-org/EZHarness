@@ -29,6 +29,21 @@ flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/valida
   docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
 ```
 
+For the rootless Podman socket, map the owned host directories to container
+root, which is the invoking host user in the rootless namespace:
+
+```sh
+DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock" \
+EZ_RUNTIME_APP_UID=0 EZ_RUNTIME_APP_GID=0 \
+EZ_RUNTIME_IMAGE=localhost/ezcorp-extension-v4:FINAL_TAG \
+EZ_RUNTIME_RECEIPT_DIR="$(mktemp -d /tmp/ez-runtime-receipt-XXXXXXXX)" \
+docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
+```
+
+Do not set `EZ_RUNTIME_RUNNER_APP_UID` for this normal rootless case. The
+runner validates the host peer UID, which remains the invoking user even when
+that user is container UID 0.
+
 The replay requires root and web frozen installs in the worktree. It uses only
 an owned rootless runner socket, owned database and extension-data directories,
 an owned Docker Compose project, and port 4282. It records source/image IDs,
@@ -54,6 +69,19 @@ runtime surface differs only in the AI-kit quickstart test.
 
 The final green production-image replay must use an image built from commit
 `0d6678aeca11a756f3d402802a362241cb67c251` or its integrated descendant.
+
+`artifacts/production-image-d4caa44d-green3.*` is the checkpoint result after
+the source fix: all 13 cases passed in 3.6 minutes, with setup, Playwright,
+application-log, and cleanup exits all zero. It used host UID `1001`, container
+UID/GID `0:0`, and runner peer UID `1001` through the rootless Podman socket.
+The container mapping makes the owned bind directories writable; the runner
+still validates the host peer identity.
+
+The checkpoint's provenance says Node 22 because it recorded the requested
+path, but its Playwright launcher inherited the system Node 24. It is valid
+runtime evidence, but not Node 22 launch evidence. The corrected replay adds
+the selected Node 22 directory to `PATH` before Playwright starts and records
+the actual `node --version` result.
 
 The historical red command receipt uses the label `runner_log_exit`; that
 value is the exit from `docker compose logs`, not the runner process. The
