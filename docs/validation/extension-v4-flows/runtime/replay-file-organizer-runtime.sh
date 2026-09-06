@@ -113,10 +113,10 @@ chmod 600 "$session_cookie"
 
 # The production image and the real preview both execute the generated
 # svelte-adapter-bun server. When IDLE_TIMEOUT is unset, that server uses
-# Bun's 10-second idle close. Require three authenticated heartbeat frames:
-# this crosses that close boundary, then cancels the reader deliberately.
+# Bun's 10-second idle close. Require three authenticated 15-second heartbeat
+# frames: this crosses that close boundary, then cancels the reader deliberately.
 # The cookie remains under run_root and is removed by cleanup; receipts only
-# record the route, frame counts, elapsed time, and result.
+# record the route, frame counts, frame arrival times, elapsed time, and result.
 cat > "$run_root/check-idle-runtime-events.ts" <<'EOF'
 const origin = process.env.EZ_RUNTIME_ORIGIN;
 const cookiePath = process.env.EZ_RUNTIME_COOKIE_PATH;
@@ -134,10 +134,12 @@ if (!cookie) throw new Error("Setup response did not write a session cookie");
 
 const startedAt = performance.now();
 const controller = new AbortController();
-const deadline = setTimeout(() => controller.abort(), 20_000);
+const deadline = setTimeout(() => controller.abort(), 60_000);
 let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 let connectedFrames = 0;
 let heartbeatFrames = 0;
+let connectedAtMs: number | undefined;
+const heartbeatAtMs: number[] = [];
 let passed = false;
 try {
   const response = await fetch(`${origin}/api/runtime-events`, {
@@ -158,9 +160,19 @@ try {
     while ((boundary = buffered.indexOf("\n\n")) >= 0) {
       const frame = buffered.slice(0, boundary);
       buffered = buffered.slice(boundary + 2);
-      if (frame === ": connected") connectedFrames += 1;
-      if (frame === ": heartbeat") heartbeatFrames += 1;
+      if (frame === ": connected") {
+        connectedFrames += 1;
+        connectedAtMs ??= Math.round(performance.now() - startedAt);
+      }
+      if (frame === ": heartbeat") {
+        heartbeatFrames += 1;
+        heartbeatAtMs.push(Math.round(performance.now() - startedAt));
+      }
     }
+  }
+  const elapsedMs = performance.now() - startedAt;
+  if (elapsedMs <= 10_000) {
+    throw new Error(`Runtime SSE did not remain open beyond Bun's default idle boundary: ${Math.round(elapsedMs)}ms`);
   }
   await reader.cancel("idle SSE probe complete");
   reader = undefined;
@@ -172,6 +184,8 @@ try {
   console.log("sse_path=/api/runtime-events");
   console.log(`sse_connected_frames=${connectedFrames}`);
   console.log(`sse_heartbeat_frames=${heartbeatFrames}`);
+  console.log(`sse_connected_at_ms=${connectedAtMs ?? "none"}`);
+  console.log(`sse_heartbeat_at_ms=${heartbeatAtMs.join(",") || "none"}`);
   console.log(`sse_elapsed_ms=${Math.round(performance.now() - startedAt)}`);
   console.log(`sse_idle_check=${passed ? "passed" : "failed"}`);
   if (reader) await reader.cancel();
