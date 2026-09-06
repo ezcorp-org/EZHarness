@@ -26,7 +26,7 @@ material.
 | Removing a release from a conversation revokes use | No API, harness client method, query helper, or visible UI removes a `conversation_extensions` row. Existing flows do not prove a post-detach denial. | Product/implementation gap |
 | Disable denies new calls | `extension-control-flow.spec.ts` invokes after `disable` and requires rejection. | Pass |
 | Uninstall removes live catalog visibility and denies routes | `extension-control-flow.spec.ts` checks the list, name/id routes, and retained lifecycle history after uninstall. | Pass |
-| Uninstall then reinstall does not revive former approval authority | Reopening the same v4 installation is deliberately rejected: `ExtensionLifecycle.createWorkspace` throws `uninstalled`; source adoption rejects an uninstalled target. A same-name new installation is possible but has no real-auth retained-data and stale-approval proof. | Unsupported as a same-installation flow; missing new-install proof |
+| Uninstall then reinstall does not revive former approval authority | Reopening the same v4 installation is deliberately rejected: `ExtensionLifecycle.createWorkspace` throws `uninstalled`; source adoption rejects an uninstalled target. The proposed same-name source-import flow at `9e4a3dbd` asserts a fresh installation id and rejects the old approval id, but its real-auth run timed out before uninstall/reimport. It also has no storage write/read action. | Same-installation flow unsupported; new-install assertions are source-reviewed, not executed proof |
 | Failed update retains prior active release | `extension-control-flow.spec.ts` and `extension-release-gate.spec.ts` build invalid source, assert a failed operation, preserve the active release, and invoke the old real output. | Pass |
 | Browser cancellation prevents a delayed effect | `extension-browser-cancel.spec.ts` observes the running request, requires the first real cancel acknowledgement to be `cancel_requested`, then repeats that same normal cancel request until the existing idempotent route reports terminal `cancelled`. Only then does it release the blocked extension and prove `late` storage was not written. | Pass |
 
@@ -145,10 +145,33 @@ was found in this review. The current local report paths are
 `/tmp/ez-terra-visual-report-20260906/data/`; those files, the blob ZIP, and
 the original authenticated runner output are not committed.
 
+## Related import replay
+
+The proposed same-name reinstall scenario at source
+`9e4a3dbd09da8470d9713e4ba394858652d3c13e` was started with the command below.
+It reached the test but was still on the permission review around 389 seconds,
+after its 360-second test budget. It was terminated at about 6:25 process time
+to release the shared validation lock. Its shell exit was `1`, so this is an
+incomplete run, not a pass or a behavioral result.
+
+```sh
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+  zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH; \
+  export PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4283 \
+  EZCORP_E2E_EVIDENCE=1; cd web && bunx playwright test \
+  --config playwright.real.config.ts \
+  e2e/real-auth/extension-source-import.spec.ts'
+```
+
+The incomplete runner log is at
+`/home/dev/work/EZCorp/extension-v4-flow-import/docs/validation/extension-v4-flows/import/raw/marketplace-lifecycle-9e4a3dbd.log`.
+Its trace is transient and was not copied because it used real authentication.
+
 ## Remaining product gaps
 
 Conversation extension removal is absent from the API, query layer, harness,
 and visible UI, so post-detach denial cannot yet be exercised. Reopening an
-uninstalled v4 installation is deliberately unsupported; a same-name new
-installation exists, but no real-auth flow proves how retained data and former
-approval authority behave for it.
+uninstalled v4 installation is deliberately unsupported. The new-install
+stale-approval assertion has not completed a real-auth run, and no test writes
+then reads retained storage across uninstall/reimport, so those semantics remain
+unverified.
