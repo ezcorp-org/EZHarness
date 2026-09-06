@@ -67,10 +67,24 @@ async function assertCanvasThemeTokens(page: Page): Promise<void> {
 test.describe("Canvas Dock — live open and persisted restore", () => {
 	test("live SSE tool completion opens the dock and renders its opaque iframe @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+		let releaseInitialToolHydration: (() => void) | undefined;
+		let initialToolHydrationStarted: (() => void) | undefined;
+		const initialToolHydration = new Promise<void>((resolve) => {
+			initialToolHydrationStarted = resolve;
+		});
+		const releaseInitialToolHydrationPromise = new Promise<void>((resolve) => {
+			releaseInitialToolHydration = resolve;
+		});
+		await page.route("**/api/conversations/conv-1/messages?withToolCalls=true", async (route) => {
+			initialToolHydrationStarted?.();
+			await releaseInitialToolHydrationPromise;
+			await route.fallback();
+		});
 		await routePreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		const textarea = page.locator("textarea.chat-textarea");
 		await expect(textarea).toBeEnabled({ timeout: 15_000 });
+		await initialToolHydration;
 		await textarea.pressSequentially("Open the planning canvas");
 		const sent = page.waitForResponse((response) => response.url().includes("/messages") && response.request().method() === "POST");
 		await textarea.press("Enter");
@@ -86,6 +100,8 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			data: { conversationId: "conv-1", extensionId: "claude-design", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify(payload) }] }, duration: 50, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-live" },
 		});
 		await assertDock(page);
+		releaseInitialToolHydration?.();
+		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await assertCanvasThemeTokens(page);
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-light");
 		await page.evaluate(() => {

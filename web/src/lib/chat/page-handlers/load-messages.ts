@@ -349,6 +349,9 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 	async function doHydrate(): Promise<void> {
 		const cid = host.convId();
 		try {
+			// The response is a snapshot at this request boundary. A tool event
+			// arriving while it is in flight cannot appear in the response.
+			const requestStartedAt = Date.now();
 			// Throttled + deduped by fetch-policy. Key is semantic
 			// (messages-tools:<cid>) so querystring reshuffles or new callers
 			// still collapse to one request.
@@ -363,7 +366,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 			const bundle = hydrateToolCallsFromApiData(data);
 
 			host.historicalToolCalls.set(bundle.historicalToolCalls);
-			inlineToolStore.hydrateToolCalls(cid, bundle.hydrateInput);
+			inlineToolStore.hydrateToolCalls(cid, bundle.hydrateInput, requestStartedAt);
 
 			if (bundle.subConversations) {
 				host.subConversations.set(bundle.subConversations);

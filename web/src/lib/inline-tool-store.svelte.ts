@@ -110,11 +110,10 @@ class InlineToolStore {
    * live without needing an HTTP refetch. Fields passed in the partial merge
    * shallowly, so repeated calls can walk the status from running → complete.
    *
-   * On a subsequent `hydrateToolCalls(convId, …)` (e.g. after page reload),
-   * the DB replacement semantics win: any streamed entry is removed and the
-   * persistent row takes over. Because the executor now persists tool_calls
-   * with id = event.toolCallId, the DB row ends up with the same id as the
-   * streamed entry — no duplicates.
+   * On a subsequent `hydrateToolCalls(convId, …)`, persisted rows replace
+   * streamed entries with the same id. A request can finish after a newer
+   * stream event, though, so hydration keeps only agent-run entries that
+   * started after the request snapshot and are absent from its response.
    */
   upsertStreaming(entry: {
     id: string;
@@ -161,8 +160,11 @@ class InlineToolStore {
   }
 
   /**
-   * Hydrate historical tool calls from API response.
-   * Replaces any existing calls for this conversation with DB-backed state.
+   * Hydrate historical tool calls from an API response.
+   *
+   * `requestStartedAt` marks the snapshot boundary. A live agent-run call
+   * that starts after that boundary cannot be in the response, so retain it
+   * until a later response includes its matching persisted row.
    */
   hydrateToolCalls(conversationId: string, toolCalls: Array<{
     id: string;
@@ -177,8 +179,7 @@ class InlineToolStore {
     cardType?: string | null;
     cardLayout?: string | null;
     fullOutput?: string | null;
-  }>): void {
-    // Remove existing calls for this conversation (streaming ones get replaced by DB state)
+  }>, requestStartedAt?: number): void {
     const otherCalls = this.calls.filter(c => c.conversationId !== conversationId);
     const hydrated: InlineToolCall[] = toolCalls.map(tc => ({
       id: tc.id,
@@ -198,7 +199,15 @@ class InlineToolStore {
       cardType: tc.cardType ?? undefined,
       cardLayout: tc.cardLayout === 'dock' ? 'dock' as const : tc.cardLayout === 'inline' ? 'inline' as const : undefined,
     }));
-    this.calls = [...otherCalls, ...hydrated];
+    const persistedIds = new Set(hydrated.map((call) => call.id));
+    const newerLiveCalls = requestStartedAt === undefined ? [] : this.calls.filter((call) =>
+      call.conversationId === conversationId &&
+      call.source === 'agent-run' &&
+      call.startedAt !== undefined &&
+      call.startedAt > requestStartedAt &&
+      !persistedIds.has(call.id),
+    );
+    this.calls = [...otherCalls, ...hydrated, ...newerLiveCalls];
   }
 }
 
