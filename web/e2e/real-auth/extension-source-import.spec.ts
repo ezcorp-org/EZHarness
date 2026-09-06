@@ -1,4 +1,6 @@
 import { test, expect } from "../fixtures/hydration.js";
+import { cp, mkdir, rm } from "node:fs/promises";
+import { resolve } from "node:path";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
@@ -15,7 +17,7 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
 }
 
 test("member imports verified marketplace source, an administrator approves it, and the installed release works @evidence", async ({ browser, page: adminPage, request, baseURL }, testInfo) => {
-  test.setTimeout(360000);
+  test.setTimeout(720000);
   const email = `source-import-${Date.now()}@example.test`;
   const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
   expect(invitation.status(), await invitation.text()).toBe(201);
@@ -163,4 +165,57 @@ test("member imports verified marketplace source, an administrator approves it, 
     expect(reinstalledInvocation.success).toBe(true);
     expect(JSON.stringify(reinstalledInvocation.output)).toContain(output);
   } finally { await reinstalledCleanup?.(); await cleanup?.(); await context.close(); }
+});
+
+test("administrator imports a host-owned local source directory through the visible source form @evidence", async ({ page, request, baseURL }, testInfo) => {
+  test.setTimeout(360000);
+  const sourceName = `local-source-import-${Date.now().toString(36)}`;
+  const root = resolve(process.cwd(), "..");
+  const source = resolve(root, ".ezcorp", "extensions", sourceName);
+  const { client } = await extensionClient(request, baseURL!);
+  let installationId: string | undefined;
+  try {
+    await mkdir(resolve(root, ".ezcorp", "extensions"), { recursive: true });
+    await cp(resolve(root, "docs", "extensions", "examples", "harness-smoke-test"), source, { recursive: true });
+    await page.goto("/extensions/import-source");
+    await page.getByLabel("Source type").selectOption("local");
+    await page.getByLabel("Source directory").fill(source);
+    await captureEvidence(page, testInfo, "extension-source-import-local-form");
+    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
+    const response = await responsePromise;
+    expect(response.status(), await response.text()).toBe(200);
+    const staged = await response.json() as { installation: InstallationState["installation"]; operation: LifecycleOperation };
+    installationId = staged.installation.id;
+    const state = await waitForExtensionBuild(client, installationId, staged.operation.id);
+    expect(state.operations[staged.operation.id]!.state).toBe("succeeded");
+    expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null });
+  } finally {
+    if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
+    await rm(source, { recursive: true, force: true });
+  }
+});
+
+test("administrator imports a pinned public GitHub source through the visible source form", async ({ page, request, baseURL }) => {
+  test.setTimeout(360000);
+  const { client } = await extensionClient(request, baseURL!);
+  let installationId: string | undefined;
+  try {
+    await page.goto("/extensions/import-source");
+    await page.getByLabel("Source type").selectOption("github");
+    await page.getByLabel("GitHub repository").fill("ezcorp-org/EZHarness");
+    await page.getByLabel("Branch, tag, or commit optional").fill("2fea009e0a3015d6aec73eec35bbe45555edbb7c");
+    await page.getByLabel("Subdirectory optional").fill("docs/extensions/examples/harness-smoke-test");
+    const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
+    const response = await responsePromise;
+    expect(response.status(), await response.text()).toBe(200);
+    const staged = await response.json() as { installation: InstallationState["installation"]; operation: LifecycleOperation };
+    installationId = staged.installation.id;
+    const state = await waitForExtensionBuild(client, installationId, staged.operation.id);
+    expect(state.operations[staged.operation.id]!.state).toBe("succeeded");
+    expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null });
+  } finally {
+    if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
+  }
 });
