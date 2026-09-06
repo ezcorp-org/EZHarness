@@ -593,6 +593,7 @@ run_legs() {
       src/__tests__/api-models-capabilities.server.test.ts \
       src/__tests__/provider-availability.server.test.ts \
       src/lib/chat/page-handlers/__tests__/send-message.test.ts \
+      src/lib/chat/page-handlers/__tests__/load-messages.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
       src/__tests__/api-write-scope-gates.server.test.ts \
@@ -754,6 +755,7 @@ run_legs() {
       --coverage.include='src/routes/api/models/capabilities/+server.ts' \
       --coverage.include='src/lib/server/provider-availability.ts' \
       --coverage.include='src/lib/chat/page-handlers/send-message.ts' \
+      --coverage.include='src/lib/chat/page-handlers/load-messages.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
       --coverage.include='src/lib/save-flash.svelte.ts' \
       --coverage.include='src/lib/admin-guard.ts' \

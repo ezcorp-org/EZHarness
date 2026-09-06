@@ -18,57 +18,45 @@
  * dedicated `last-model` test suite already covers that helper.
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, vi } from "vitest";
 import type { Conversation, Message, Mode } from "$lib/api.js";
 import type { SubConvoRecord } from "$lib/sub-convo-agent-state.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 
-const backgroundFetchMock = mock(
-	async (
-		_key: string,
-		_url: string,
-		_init?: RequestInit,
-		_opts?: { minIntervalMs?: number },
-	): Promise<Response | null> => null,
-);
+const mocks = vi.hoisted(() => ({
+	backgroundFetch: vi.fn(),
+	hydrateToolCalls: vi.fn(),
+	restoreLastModel: vi.fn(),
+	userFetch: vi.fn(),
+	invalidate: vi.fn(),
+	persistLastModel: vi.fn(),
+}));
 
-const hydrateToolCallsMock = mock(
-	(_convId: string, _calls: Array<Record<string, unknown>>) => {},
-);
-
-const restoreLastModelMock = mock(
-	(_storage: Storage | null) => null as { provider: string; model: string } | null,
-);
+const backgroundFetchMock = mocks.backgroundFetch;
+const hydrateToolCallsMock = mocks.hydrateToolCalls;
+const restoreLastModelMock = mocks.restoreLastModel;
+const userFetchMock = mocks.userFetch;
 
 // Stub userFetch + invalidate too — the module is shared across the
 // page-handlers test suite; another test file (`inline-tool-handlers`)
-// imports userFetch, and bun's mock.module replaces the export object
-// for the whole process.
-const userFetchMock = mock(async (_url: string, _init?: RequestInit) =>
-	new Response(JSON.stringify({ tools: [] }), {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-	}),
-);
-mock.module("$lib/utils/fetch-policy.js", () => ({
+// imports userFetch, and Vitest replaces the export object for this suite.
+vi.mock("$lib/utils/fetch-policy.js", () => ({
 	backgroundFetch: backgroundFetchMock,
 	userFetch: userFetchMock,
-	invalidate: mock(() => {}),
+	invalidate: mocks.invalidate,
 }));
 
-mock.module("$lib/inline-tool-store.svelte.js", () => ({
+vi.mock("$lib/inline-tool-store.svelte.js", () => ({
 	inlineToolStore: {
 		hydrateToolCalls: hydrateToolCallsMock,
 	},
 }));
 
-mock.module("$lib/last-model.js", () => ({
+vi.mock("$lib/last-model.js", () => ({
 	restoreLastModel: restoreLastModelMock,
-	persistLastModel: mock(() => {}),
+	persistLastModel: mocks.persistLastModel,
 }));
-
-afterAll(() => mock.restore());
 
 // Now safe to import the SUT.
 const {
@@ -163,11 +151,18 @@ function makeHost(initial: Partial<HostState> = {}): {
 }
 
 beforeEach(() => {
-	backgroundFetchMock.mockClear();
-	hydrateToolCallsMock.mockClear();
-	restoreLastModelMock.mockClear();
+	backgroundFetchMock.mockReset();
+	hydrateToolCallsMock.mockReset();
+	restoreLastModelMock.mockReset();
+	userFetchMock.mockReset();
 	backgroundFetchMock.mockImplementation(async () => null);
 	restoreLastModelMock.mockImplementation(() => null);
+	userFetchMock.mockImplementation(async () =>
+		new Response(JSON.stringify({ tools: [] }), {
+			status: 200,
+			headers: { "Content-Type": "application/json" },
+		}),
+	);
 });
 
 // ── Pure helpers ─────────────────────────────────────────────────────────
@@ -688,7 +683,7 @@ describe("makeLoadMessages.loadMessages", () => {
 			if (key.startsWith("messages-all:")) throw new Error("boom");
 			return null;
 		});
-		const errSpy = mock(() => {});
+		const errSpy = vi.fn();
 		const originalError = console.error;
 		console.error = errSpy;
 		try {
