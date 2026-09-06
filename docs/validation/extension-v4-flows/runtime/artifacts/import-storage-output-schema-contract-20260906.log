@@ -1,0 +1,6 @@
+source_commit=2af9cb4fe625cef1de19b59139e38d8976d8acc6
+source_file=web/e2e/real-auth/extension-source-import.spec.ts
+command=PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:$PATH bun -e '<compile old and fixed tool output schemas against {text,sentinel}>'
+old: must NOT have additional properties
+fixed: accepted
+exit=0
