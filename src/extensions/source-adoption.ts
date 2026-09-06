@@ -30,7 +30,7 @@ export async function resolveSourceTarget(actor: LifecycleActor, installationId:
 async function isHistoricalInstaller(database: DbTransaction, installationId: string, projectionSource: string, principalId: string): Promise<boolean> {
   const source = projectionSource.split(":", 1)[0];
   if (source !== "local" && source !== "github" && source !== "git") return false;
-  const rows = await database.select({ metadata: auditLog.metadata }).from(auditLog).where(and(
+  const rows: Pick<typeof auditLog.$inferSelect, "metadata">[] = await database.select({ metadata: auditLog.metadata }).from(auditLog).where(and(
     eq(auditLog.target, installationId),
     eq(auditLog.userId, principalId),
     eq(auditLog.action, "ext:permission-granted"),
