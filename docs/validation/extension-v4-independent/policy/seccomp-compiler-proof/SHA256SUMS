@@ -1,3 +1,5 @@
 fe71c4b59fcf26c2c311e9d67891a787f7e2c59417afdc40dcb63c6aa46239e4  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/baseline.txt.gz
 8a8eee8bb0462071b8b8f2898dd9f14eddd4ca4250eaa04841d184bfe58f46ff  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/reproduce.sh.txt
 6f8330acfc4f2d3dd59041f04016670c4f47121ca01a4aab4a34021934c1d289  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/fixed-compiler.txt.gz
+6f8330acfc4f2d3dd59041f04016670c4f47121ca01a4aab4a34021934c1d289  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-compiler.txt.gz
+ba6c56fd9182812a510b230d203cecde25e910f2087d214b0c5c3b48438dde35  docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-gate.txt.gz
