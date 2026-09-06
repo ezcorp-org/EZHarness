@@ -654,7 +654,9 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     await waitForHydration(stalePage);
     // Retained author history is projected as disabled after uninstall; the
     // removed card and 404 tool lookup below prove it is not reactivated.
-    await expect(stalePage.locator(".state-badge")).toContainText("disabled");
+    await expect(stalePage.locator(".state-badge")).toContainText("Uninstalled");
+    await expect(stalePage.getByRole("status")).toContainText("was uninstalled");
+    await expect(stalePage.getByText("Previously active", { exact: true })).toBeVisible();
     await expect(stalePage.getByRole("button", { name: "Activate approved release", exact: true })).toHaveCount(0);
     await expect(stalePage.getByRole("button", { name: "Request approval", exact: true }).first()).toBeDisabled();
     const removed = await client.extensionControl<{ installation: { status: string; enabled: boolean; uninstalled: boolean; activeReleaseId: string; grants: unknown[] } }>("extensions_inspect", { installationId });
