@@ -49,3 +49,11 @@ c3e65a64cfe411e2e65c7316efd7888c8d81c9224a66c0eee1699bcadb08dfc1  tailwind-vendo
 1e704cf9ad3d54bda4ad9f35a52bc34c7fe1d18e216cd3a8680a5833ff6b2d77  weather-city-fetch-green.log.gz
 c886fc24577c675b96c2ad9d4505b5d6b1831cdf760d90ecfc12f6247801c7c6  weather-city-lifecycle.log.gz
 739b0f49e14ac15ffc5d83d4519a39485796a6d811b73f9032c98166d16d36c7  weather-pinned-ip-diagnostic.log.gz
+90b3fb0a9080f693893cde66f2e68d9c0d671991fb696c2bcc90e268bcdc714d  docs/validation/extension-v4-independent/runtime/artifacts/background-timers-setting-green.log.gz
+d681d3700de5ba5224d897b125354436911f8e066ebec64463197cb1852635d3  docs/validation/extension-v4-independent/runtime/artifacts/background-timers-setting-coverage.log.gz
+5016cc78b4ed2a807155f9946b8fed0decce859fa95e3699e14e92c745794ab2  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-owned-image-proof.sh.txt
+cccd792ceddda6abaf525f508a6951869ac1294c0bae4772a9aa7675a46cfdc3  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-owned-image-db-init-red.log.gz
+0676dcd7569eebaf935c14c564d66ca00195d7674099413fc25d06e45b588fe8  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-owned-image-audit-red.log.gz
+df41babac4c71e036d4f7aadf516de09bc9c36afc62899ec20aa3bf5365703ab  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-default-gate.log.gz
+121447589ec7d872bd0d3d084b0eb002fc87a546a900a3e2fabdaaeeff55c0c6  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-journal-user.log.gz
+121447589ec7d872bd0d3d084b0eb002fc87a546a900a3e2fabdaaeeff55c0c6  docs/validation/extension-v4-independent/runtime/artifacts/seccomp-journal-sudo.log.gz

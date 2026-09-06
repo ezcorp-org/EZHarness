@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-audit-runtime
+bun=/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun
+image=2d069cc64bc0bf06d5216517b0ee6724a865fe88ead28850f31219c2e2ade4de
+expected_digest=sha256:11fec71d2a4f6cb0613499b528c6b262d2c14d3a4915a7cbcfba8ca77dd85297
+artifact="$repo/src/extensions/mcp-seccomp.bpf"
+tmp=$(mktemp -d /tmp/ez-seccomp-proof.XXXXXX)
+cid=
+cleanup() {
+  rm -f "$artifact"
+  if [[ -n "$cid" ]]; then podman rm --force --time=0 "$cid" >/dev/null 2>&1 || true; fi
+  rm -rf "$tmp"
+}
+trap cleanup EXIT INT TERM
+cd "$repo"
+test ! -e "$artifact"
+test "$(git merge-base HEAD 19d9da92f771a5771d491234c9cff75eb104660b)" = 19d9da92f771a5771d491234c9cff75eb104660b
+actual_digest=$(podman image inspect "$image" --format '{{.Digest}}')
+test "$actual_digest" = "$expected_digest"
+printf 'HEAD=%s\nTREE=%s\nIMAGE_ID=%s\nIMAGE_DIGEST=%s\nBUN=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD^{tree})" "$image" "$actual_digest" "$($bun --version)"
+cid=$(podman create --pull=never --log-driver=k8s-file "$image")
+podman cp "$cid:/app/src/extensions/mcp-seccomp.json" "$tmp/mcp-seccomp.json"
+cmp src/extensions/mcp-seccomp.json "$tmp/mcp-seccomp.json"
+printf 'PROFILE_MATCH=1\nPROFILE_SHA256=%s\n' "$(sha256sum "$tmp/mcp-seccomp.json" | cut -d' ' -f1)"
+podman cp "$cid:/app/src/extensions/mcp-seccomp.bpf" "$artifact"
+test -s "$artifact"
+printf 'BPF_SHA256=%s\nBPF_BYTES=%s\n' "$(sha256sum "$artifact" | cut -d' ' -f1)" "$(stat -c '%s' "$artifact")"
+podman rm "$cid" >/dev/null
+cid=
+set +e
+"$bun" test src/__tests__/mcp-seccomp-enforce-integration.test.ts --timeout 30000
+status=$?
+set -e
+printf 'TEST_EXIT=%s\n' "$status"
+rm -f "$artifact"
+test ! -e "$artifact"
+test -z "$(git status --short -- src/extensions/mcp-seccomp.bpf)"
+printf 'ARTIFACT_CLEAN=1\nCONTAINER_CLEAN=1\nOVERALL_EXIT=%s\n' "$status"
+exit "$status"

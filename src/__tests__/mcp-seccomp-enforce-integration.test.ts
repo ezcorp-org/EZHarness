@@ -1,47 +1,29 @@
 /**
- * End-to-end seccomp enforce integration — Phase 58 / MCP-04.
+ * End-to-end seccomp enforcement integration.
  *
- * Gated on Linux + bwrap + gcc + the compiled mcp-seccomp.bpf artifact.
- * SKIPs cleanly on macOS/NixOS dev hosts; runs in the CI matrix.
- *
- * Strategy:
- *   1. beforeAll: compile a 20-line C probe (tests/fixtures/synthetic-mcp/
- *      probe-ptrace.c) that calls ptrace(PTRACE_TRACEME, 0, 0, 0). Under
- *      Phase 55's SCMP_ACT_LOG the call would log+succeed; under Phase 58's
- *      SCMP_ACT_ERRNO it returns -1 with errno set to ENOSYS (or EPERM —
- *      tolerated by `/^0x000?5000?1$/i`).
- *   2. test body: spawn the probe through buildSandboxedMcpSpec with the
- *      seccomp BPF FD threaded into bwrap; wait for the child to exit;
- *      run the soak reader.
- *   3. Poll audit_log for `MCP_SECCOMP_VIOLATION` rows with metadata.pid
- *      matching the probe's PID and metadata.code matching the regex.
- *
- * The regex `/^0x000?5000?1$/i` tolerates leading-zero variance — the
- * kernel emits both `0x00050001` (canonical) and `0x50001` (some glibc/
- * auditd versions strip leading zeros). Either form proves
- * SECCOMP_RET_ERRNO.
+ * The test builds a private probe, obtains the real production spawn envelope
+ * with a permission context, passes the production-image BPF as child FD 3,
+ * and checks both sides of the declared policy. getpid is explicitly logged;
+ * io_uring_setup is absent and receives the default ENOSYS action. The soak
+ * reader must persist both kernel audit actions for the exact child PID.
  */
 
-import { test, expect, beforeAll } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { closeSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import type { Subprocess } from "bun";
 import type {
   ExtensionManifestV2,
   ExtensionPermissions,
   McpServerStdio,
 } from "../extensions/types";
 import type { AuditEntry } from "../db/schema";
+import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
-const PROBE_DIR = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "tests",
-  "fixtures",
-  "synthetic-mcp",
-);
-const PROBE_C_PATH = resolve(PROBE_DIR, "probe-ptrace.c");
-const PROBE_BIN_PATH = resolve(PROBE_DIR, "probe-ptrace");
+let probeDir: string | undefined;
+let probeCPath: string;
+let probeBinPath: string;
 const BPF_PATH = resolve(
   import.meta.dir,
   "..",
@@ -50,22 +32,22 @@ const BPF_PATH = resolve(
 );
 
 const PROBE_C_SOURCE = `/*
- * probe-ptrace.c — Phase 58 / MCP-04 enforce-integration probe.
+ * seccomp-probe.c — declared-log and default-deny probe.
  *
- * Calls ptrace(PTRACE_TRACEME, 0, 0, 0) once, prints the syscall return
- * value + errno, then exits 0. Under SCMP_ACT_LOG (Phase 55) the
- * syscall succeeds. Under SCMP_ACT_ERRNO (Phase 58) it fails with
- * errno=ENOSYS (or EPERM, glibc version-dependent) and the kernel
- * emits an audit type=1326 line for the soak reader to harvest.
+ * Calls one explicitly logged syscall and one syscall absent from the
+ * allow-list, then prints both results for the parent to assert.
  */
 #include <errno.h>
 #include <stdio.h>
-#include <sys/ptrace.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 int main(void) {
-    long r = ptrace(PTRACE_TRACEME, 0, 0, 0);
-    fprintf(stderr, "probe-ptrace: r=%ld errno=%d\\n", r, errno);
+    long r = syscall(SYS_getpid);
+    fprintf(stderr, "probe-getpid: r=%ld errno=%d\\n", r, errno);
+    errno = 0;
+    long denied = syscall(SYS_io_uring_setup, 0, NULL);
+    fprintf(stderr, "probe-io_uring_setup: r=%ld errno=%d\\n", denied, errno);
     return 0;
 }
 `;
@@ -78,25 +60,32 @@ if (!existsSync(BPF_PATH)) GATE_REASONS.push("mcp-seccomp.bpf artifact absent (r
 
 const SHOULD_SKIP = GATE_REASONS.length > 0;
 
-beforeAll(() => {
+beforeAll(async () => {
   if (SHOULD_SKIP) return;
-  // Write source and compile the probe once per test run.
-  mkdirSync(PROBE_DIR, { recursive: true });
-  writeFileSync(PROBE_C_PATH, PROBE_C_SOURCE, "utf8");
+  const { initDb } = await import("../db/connection");
+  await initDb();
+  probeDir = mkdtempSync(join(tmpdir(), "ez-seccomp-probe-"));
+  probeCPath = join(probeDir, "seccomp-probe.c");
+  probeBinPath = join(probeDir, "seccomp-probe");
+  writeFileSync(probeCPath, PROBE_C_SOURCE, "utf8");
   const proc = Bun.spawnSync({
-    cmd: ["gcc", "-O2", "-o", PROBE_BIN_PATH, PROBE_C_PATH],
+    cmd: ["gcc", "-O2", "-o", probeBinPath, probeCPath],
     stderr: "pipe",
     stdout: "pipe",
   });
   if (proc.exitCode !== 0) {
     throw new Error(
-      `probe-ptrace compile failed: ${new TextDecoder().decode(proc.stderr)}`,
+      `seccomp probe compile failed: ${new TextDecoder().decode(proc.stderr)}`,
     );
   }
 });
 
+afterAll(() => {
+  if (probeDir) rmSync(probeDir, { recursive: true, force: true });
+});
+
 test.skipIf(SHOULD_SKIP)(
-  "ptrace under enforce returns EPERM/ENOSYS, emits MCP_SECCOMP_VIOLATION with code=0x00050001",
+  "declared getpid is logged and undeclared io_uring_setup is denied in the production spawn envelope",
   async () => {
     if (SHOULD_SKIP) {
       console.warn(
@@ -106,27 +95,37 @@ test.skipIf(SHOULD_SKIP)(
     }
     // Lazy-import the SUT only on Linux to avoid pulling DB modules into
     // dev-host unit-test runs.
-    const { buildSandboxedMcpSpec, runMcpSeccompSoakReader } = await import(
+    const {
+      _setSandboxTierOverrideForTests,
+      buildSandboxedMcpSpec,
+      runMcpSeccompSoakReader,
+    } = await import(
       "../extensions/mcp-sandbox"
     );
-    const { openSeccompBpfFd } = await import(
-      "../extensions/runtime/seccomp-loader"
-    );
     const { listAuditForExtension } = await import("../db/queries/audit-log");
-
-    const seccompFd = openSeccompBpfFd();
-    expect(seccompFd).not.toBeNull();
+    const {
+      _setBwrapProbeOverridesForTests,
+      _setNetnsProbeCacheForTests,
+    } = await import("../extensions/mcp-netns");
+    const profile = await Bun.file(
+      resolve(import.meta.dir, "..", "extensions", "mcp-seccomp.json"),
+    ).json() as { syscalls: Array<{ names: string[]; action: string }> };
+    expect(profile.syscalls).toContainEqual({
+      names: ["getpid"],
+      action: "SCMP_ACT_LOG",
+    });
+    expect(profile.syscalls.some((entry) => entry.names.includes("io_uring_setup"))).toBe(false);
 
     const spawnAt = new Date();
     const stdioServer: McpServerStdio = {
       transport: "stdio",
-      name: "probe-ptrace",
-      command: PROBE_BIN_PATH,
+      name: "seccomp-probe",
+      command: probeBinPath,
       args: [],
     };
     const manifest: ExtensionManifestV2 = {
       schemaVersion: 2,
-      name: "probe-ptrace",
+      name: "seccomp-probe",
       version: "1.0.0",
       description: "Phase 58 / MCP-04 enforce-mode integration probe",
       author: { name: "test" },
@@ -136,12 +135,27 @@ test.skipIf(SHOULD_SKIP)(
       permissions: {},
     };
     const grantedPerms: ExtensionPermissions = { grantedAt: {} };
-    const { spec } = await buildSandboxedMcpSpec(
+    _setSandboxTierOverrideForTests("bwrap");
+    _setNetnsProbeCacheForTests({ available: true });
+    _setBwrapProbeOverridesForTests({
+      whichBwrap: () => Bun.which("bwrap"),
+      probeRunner: () => ({ success: true, exitCode: 0 }),
+    });
+    const { spec, proxyHandle } = await buildSandboxedMcpSpec(
       stdioServer,
       manifest,
       grantedPerms,
-      "ext-probe-ptrace",
-    );
+      "ext-seccomp-probe",
+      {
+        engine: createStubPermissionEngine("allow-all"),
+        conversationId: null,
+        userId: "user-seccomp-integration",
+      },
+    ).finally(() => {
+      _setSandboxTierOverrideForTests(null);
+      _setNetnsProbeCacheForTests(null);
+      _setBwrapProbeOverridesForTests(null);
+    });
     // McpServerDefinition is a discriminated union — narrow to stdio so
     // .command / .args / .env are visible. (buildSandboxedMcpSpec
     // preserves the inbound transport; we passed stdio in.)
@@ -150,42 +164,70 @@ test.skipIf(SHOULD_SKIP)(
         `unexpected non-stdio spec from buildSandboxedMcpSpec: ${spec.transport}`,
       );
     }
-    // We don't have an McpClient to drive — spawn the probe ourselves
-    // via Bun.spawn using the spec's command/args/env.
-    const proc = Bun.spawn({
-      cmd: [spec.command, ...(spec.args ?? [])],
-      env: spec.env,
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    await proc.exited;
-    const childPid = proc.pid;
+    let proc: Subprocess<"pipe", "pipe", "pipe"> | undefined;
+    let seccompFd = spec.seccompFd ?? null;
+    let childPid: number | undefined;
+    try {
+      expect(seccompFd).not.toBeNull();
+      const stdio: ["pipe", "pipe", "pipe", number] = [
+        "pipe",
+        "pipe",
+        "pipe",
+        seccompFd!,
+      ];
+      proc = Bun.spawn({
+        cmd: [spec.command, ...(spec.args ?? [])],
+        env: spec.env,
+        stdio,
+      }) as Subprocess<"pipe", "pipe", "pipe">;
+      childPid = proc.pid;
+      closeSync(seccompFd!);
+      seccompFd = null;
+      await spec.onChildSpawned?.(proc.pid, async (byte) => {
+        proc.stdin.write(Uint8Array.of(byte));
+        await proc.stdin.flush();
+      });
+      const [exitCode, stderr] = await Promise.all([
+        proc.exited,
+        new Response(proc.stderr).text(),
+      ]);
+      expect(exitCode).toBe(0);
+      // getpid is explicitly logged. io_uring_setup is absent from the declared
+      // list and receives the default ENOSYS action.
+      expect(stderr).toMatch(/probe-getpid: r=[1-9]\d* errno=0\b/);
+      expect(stderr).toMatch(/probe-io_uring_setup: r=-1 errno=38\b/);
+    } finally {
+      if (seccompFd !== null) closeSync(seccompFd);
+      if (proc?.exitCode === null) {
+        proc.kill();
+        await proc.exited;
+      }
+      await proxyHandle?.stop();
+    }
+    if (childPid === undefined) throw new Error("seccomp probe did not start");
     // Run the soak reader against the post-exit window.
     await runMcpSeccompSoakReader(childPid, spawnAt, {
       userId: null,
-      extensionId: "ext-probe-ptrace",
-      extensionName: "probe-ptrace",
+      extensionId: "ext-seccomp-probe",
+      extensionName: "seccomp-probe",
     });
     // Poll audit_log for up to 5s.
     const deadline = Date.now() + 5000;
-    let matchedRow: AuditEntry | null = null;
+    let matchedRows: AuditEntry[] = [];
     while (Date.now() < deadline) {
-      const rows = await listAuditForExtension("ext-probe-ptrace");
-      const candidate = rows.find(
+      const rows = await listAuditForExtension("ext-seccomp-probe");
+      matchedRows = rows.filter(
         (r) =>
           r.action === "ext:mcp:seccomp-violation" &&
           (r.metadata as { pid?: string } | null)?.pid === String(childPid),
       );
-      if (candidate) {
-        matchedRow = candidate;
-        break;
-      }
+      if (matchedRows.length >= 2) break;
       await new Promise((res) => setTimeout(res, 200));
     }
-    expect(matchedRow).not.toBeNull();
-    const code =
-      (matchedRow?.metadata as { code?: string } | null | undefined)?.code ??
-      "";
-    expect(code).toMatch(/^0x000?5000?1$/i);
+    const codes = matchedRows.map(
+      (row) => ((row.metadata as { code?: string } | null)?.code ?? "").toLowerCase(),
+    );
+    expect(codes).toContain("0x7ffc0000");
+    expect(codes.some((code) => /^0x0*50026$/.test(code))).toBe(true);
   },
 );
