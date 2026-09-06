@@ -81,14 +81,14 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			releaseLaterToolHydrations = resolve;
 		});
 		await page.route("**/api/conversations/conv-1/messages?withToolCalls=true", async (route) => {
-			toolHydrationCount++;
-			if (toolHydrationCount === 1) {
+			const isInitialHydration = ++toolHydrationCount === 1;
+			if (isInitialHydration) {
 				initialToolHydrationStarted?.();
 				await releaseInitialToolHydrationPromise;
 			} else {
 				await releaseLaterToolHydrationsPromise;
 			}
-			const completedToolCall = toolHydrationCount === 1 ? [] : [{
+			const completedToolCall = isInitialHydration ? [] : [{
 				id: "tc-dock-live",
 				extensionId: "claude-design",
 				toolName: "claude-design__open-canvas",
@@ -101,14 +101,13 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 				cardType: "design-canvas",
 				cardLayout: "dock",
 			}];
+			const hydrationMarker = isInitialHydration
+				? "hydration-sentinel-initial"
+				: "hydration-sentinel-persisted";
 			const hydrationSentinel = {
-				id: toolHydrationCount === 1
-					? "hydration-sentinel-initial"
-					: "hydration-sentinel-persisted",
+				id: hydrationMarker,
 				extensionId: "builtin",
-				toolName: toolHydrationCount === 1
-					? "hydration-sentinel-initial"
-					: "hydration-sentinel-persisted",
+				toolName: hydrationMarker,
 				input: {},
 				outputSummary: "hydrated",
 				success: true,
