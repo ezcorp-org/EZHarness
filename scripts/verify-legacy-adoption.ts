@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
-import { listFirstPartyExtensionSources } from "./migrate-extension-v4";
+import { resolveBundledExtensions } from "../src/extensions/bundled";
 import type { InstallationState, LifecycleOperation } from "../src/extensions/v4/types";
 
 type Receipt = {
@@ -53,7 +53,7 @@ function operationStateCounts(states: InstallationState[]): Record<string, numbe
 
 async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNullable<Receipt["runnerCapacity"]>> {
   const deadline = Date.now() + 360_000;
-  const bootstrapNames = new Set((await listFirstPartyExtensionSources(process.cwd())).map(({ name }) => name));
+  const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
