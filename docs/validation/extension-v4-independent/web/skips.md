@@ -65,3 +65,26 @@ skips in 11.31 seconds; the command exited 0. Docker `--rm` removed the named
 audit container, and the command created no volume or writable host mount. See
 `artifacts/preview-docker-optins-command.txt` and
 `artifacts/preview-docker-optins-final.log.gz`.
+
+## Bwrap tmpfs and PID opt-in replacement
+
+The host pool skips three `bwrap tmpfs isolation` assertions because NixOS has
+no `/usr/bin/bwrap`. The unmodified tests also cannot run as the production
+container's `bun` user because Docker blocks nested unprivileged user
+namespaces. A disposable test-only container enabled `SYS_ADMIN` and disabled
+its seccomp profile so the existing user/mount namespace setup could run.
+
+The first exact run proved the PID assertion but exposed a container fixture
+conflict in the two tmpfs assertions: device nodes made by bwrap's `--dev`
+mount returned `EACCES`, including `/dev/zero`. This occurred even in an owned
+privileged container. The green run kept the repository and production image
+read-only and overlaid only a temporary copy of the test. It replaced the two
+zero-producing `dd` inputs with an unbounded `yes` stream and `iflag=fullblock`;
+the tested byte counts, private tmpfs, 64 MiB cap, ENOSPC result, and PID
+relationship were unchanged.
+
+Pinned Bun 1.3.14 passed all 3 named tests with 7 expectations, 0 failures, and
+6 filtered tests. The command exited 0. This is kernel behavior evidence from a
+test-only container envelope; the normal production image continues to select
+Landlock under Docker. See `artifacts/mcp-bwrap-optins-command.txt`,
+`artifacts/mcp-bwrap-optins-fixture.patch`, and the red/green gzip logs.

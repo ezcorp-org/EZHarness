@@ -13,6 +13,12 @@ All heavy commands were serialized with `flock --close /home/dev/work/EZCorp/ext
 - Production File Organizer closure: Docker-format image `localhost/ezcorp-extension-v4:audit-final-3ec53eaa`, immutable ID `sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be`, ran with a fresh owned database, human-session approval, project binding, and the external rootless runner. `DOCKER_TEST=1 ... playwright test e2e/file-organizer-real.spec.ts --project=chromium` exited 0 with 12 passed and 0 skipped in 3.3 minutes. Activation started the daemon without an app restart. The controlled old `.tmp` input produced a real daemon proposal, which the event route accepted. Owned Compose cleanup exited 0. `artifacts/file-organizer-real-production.zip` contains the list-reporter raw log, application and cleanup logs, sanitized command/configuration, source tree, image identity, test exit, and cleanup exit. This lane did not enable the blob reporter. `artifacts/file-organizer-real-production-19d9-historical.zip` retains the earlier clean receipt for image `2d069c…`.
 - Final broad browser reruns after the stale disabled-page repair: the canonical mock gate passed 210 with the expected 12 Docker-suite skips; full real-auth passed 54 with no skips. Raw members `mock-gate-final.log` and `real-auth-full-final.log` are in `artifacts/browser-raw-logs.tar.gz`.
 - Final selected visual rerun used `CI=1`, Node 22.22.2, and Bun 1.3.14; the mock group passed 42 and the real-auth group passed 7. `artifacts/final3-blob/` retains both zips, a 67-shot manifest, all 67 extracted PNGs, and hashes.
+- Bwrap opt-in closure used the same final image with a read-only repository,
+  owned tmpfs, and a disposable test-only namespace envelope. The initial run
+  passed the PID case and failed both `/dev/zero` cases with `EACCES`. A
+  temporary fixture overlay changed only the byte source, then the same three
+  named assertions passed 3/3 with 7 expectations and exit 0. See
+  `artifacts/mcp-bwrap-optins-command.txt` and the associated red/green logs.
 
 `artifacts/final3-blob/` preserves the canonical clean two-group reports, its 67-shot manifest, extracted PNGs, and hashes. `screenshots/final3/` is copied from that final run. The older `final-blob/`, `final2-blob/`, and `screenshots/final/` sets are historical.
 

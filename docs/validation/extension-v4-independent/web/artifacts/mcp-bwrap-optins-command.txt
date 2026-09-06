@@ -1,0 +1,21 @@
+Image: localhost/ezcorp-extension-v4:audit-final-3ec53eaa
+Immutable image ID: sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be
+Source: 3ec53eaa66409a39d66b502f79d74139ec94dcf2
+Tree: 2ccafce2b65a9af89482e85e7168a5f01980051a
+Bun: 1.3.14
+
+The repository bind and fixture overlay were read-only. /tmp was an owned tmpfs.
+The named container used --rm. SYS_ADMIN plus seccomp=unconfined enabled the
+nested user/mount namespace only for this disposable kernel integration test.
+
+flock --close <shared-validation-lock> docker run --rm --init --read-only \
+  --name extension-v4-bwrap-optins-stream-final \
+  --cap-add SYS_ADMIN --security-opt seccomp=unconfined \
+  --tmpfs /tmp:rw,exec,mode=1777 \
+  --mount type=bind,src=<audit-worktree>,dst=/workspace,readonly \
+  --mount type=bind,src=<temporary-fixture-overlay>,dst=/workspace/src/__tests__/mcp-netns-integration.test.ts,readonly \
+  --workdir /tmp -e DOCKER_TEST=1 -e EZCORP_PROJECT_ROOT=/tmp/project \
+  --entrypoint /bin/sh localhost/ezcorp-extension-v4:audit-final-3ec53eaa \
+  -lc 'mkdir -p /tmp/project && bun --version && bun test --test-name-pattern "bwrap tmpfs isolation" /workspace/src/__tests__/mcp-netns-integration.test.ts'
+
+Result: 3 pass, 6 filtered out, 0 fail, 7 expectations, COMMAND_EXIT=0.
