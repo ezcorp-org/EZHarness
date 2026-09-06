@@ -1,27 +1,8 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
-import { threadMessages } from "../fixtures/composer";
+import { invokeExtensionToolFromComposer, threadMessages } from "../fixtures/composer";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
-
-async function invokeImportedTool(page: import("@playwright/test").Page, name: string, input: string, output: string): Promise<void> {
-  const textarea = page.locator("textarea.chat-textarea");
-  await expect(textarea).toBeVisible({ timeout: 30_000 });
-  const chip = page.locator(`[data-mention-kind="extension"][data-mention-name="${name}"]`);
-  if (await chip.count() === 0) {
-    await textarea.click();
-    await textarea.pressSequentially(`!${name}`, { delay: 20 });
-    const listbox = page.locator("#mention-listbox");
-    await expect(listbox).toBeVisible({ timeout: 20_000 });
-    await listbox.getByText(name, { exact: false }).first().click();
-  } else await chip.click();
-  await expect(chip).toBeVisible();
-  const field = page.locator("#field-text");
-  await expect(field).toBeVisible();
-  await field.fill(input);
-  await page.locator("form").getByRole("button", { name: "Add", exact: true }).click();
-  await expect(threadMessages(page).getByText(output, { exact: false })).toBeVisible({ timeout: 90_000 });
-}
 
 async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string): Promise<void> {
   await page.goto(`/extensions/author?installation=${installationId}&workspace=${workspaceId}`);
@@ -104,16 +85,16 @@ test("member imports verified marketplace source, an administrator approves it, 
     await approveAndActivate(adminPage, created.installation.id, staged.workspace.id);
     const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(active.installation).toMatchObject({ enabled: true, activeReleaseId: release.id });
-    const { client: adminClient } = await extensionClient(request, baseURL!);
-    const seededConversation = await request.post("/api/__test/seed", { data: { title: "Marketplace source import output" } });
+    const seededConversation = await context.request.post("/api/__test/seed", { data: { title: "Marketplace source import output" } });
     expect(seededConversation.status(), await seededConversation.text()).toBe(201);
     const { projectId, conversationId } = await seededConversation.json();
-    expect((await adminClient.wireExtensions(conversationId, [release.manifest.name])).wired).toEqual([release.manifest.name]);
+    expect((await client.wireExtensions(conversationId, [release.manifest.name])).wired).toEqual([release.manifest.name]);
     const marker = `marketplace-source-input-${crypto.randomUUID()}`;
     const output = `Imported source output: ${marker}`;
-    await adminPage.goto(`/project/${projectId}/chat/${conversationId}`);
-    await invokeImportedTool(adminPage, release.manifest.name, marker, output);
-    await captureEvidence(adminPage, testInfo, "extension-source-import-visible-output");
+    await memberPage.goto(`/project/${projectId}/chat/${conversationId}`);
+    await invokeExtensionToolFromComposer(memberPage, release.manifest.name, { text: marker });
+    await expect(threadMessages(memberPage).getByText(output, { exact: false })).toBeVisible({ timeout: 90_000 });
+    await captureEvidence(memberPage, testInfo, "extension-source-import-visible-output");
 
     const importedWorkspace = active.workspaces[staged.workspace.id]!;
     const source = await client.extensionControl<{ files: Record<string, string> }>("extensions_workspace", { action: "read", installationId: created.installation.id, workspaceId: importedWorkspace.id });
@@ -140,7 +121,7 @@ test("member imports verified marketplace source, an administrator approves it, 
     await expect.poll(async () => (await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id, operationId: failedUpdate.id, waitMs: 1000 })).operations[failedUpdate.id]!.state, { timeout: 180_000, intervals: [1000] }).toBe("failed");
     const retained = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(retained.installation.activeReleaseId).toBe(permissionedRelease.id);
-    const retainedOutput = await adminClient.invokeExtensionTool(conversationId, release.manifest.name, "echo", { text: marker });
+    const retainedOutput = await client.invokeExtensionTool(conversationId, release.manifest.name, "echo", { text: marker });
     expect(retainedOutput.success).toBe(true);
     expect(JSON.stringify(retainedOutput.output)).toContain(output);
 
@@ -170,7 +151,11 @@ test("member imports verified marketplace source, an administrator approves it, 
     await approveAndActivate(adminPage, reinstalled.installation.id, reinstalled.workspace.id);
     expect((await reinstalledClient.extensionControl<InstallationState>("extensions_inspect", { installationId: reinstalled.installation.id })).installation).toMatchObject({ enabled: true, activeReleaseId: reinstalledRelease.id });
     await expect(reinstalledClient.extensionControl("extensions_release", { action: "activate", installationId: reinstalled.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ status: 404 });
-    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(conversationId, reinstalledRelease.manifest.name, "echo", { text: marker });
+    const reinstalledConversation = await request.post("/api/__test/seed", { data: { title: "Reinstalled marketplace source output" } });
+    expect(reinstalledConversation.status(), await reinstalledConversation.text()).toBe(201);
+    const { conversationId: reinstalledConversationId } = await reinstalledConversation.json();
+    expect((await reinstalledClient.wireExtensions(reinstalledConversationId, [reinstalledRelease.manifest.name])).wired).toEqual([reinstalledRelease.manifest.name]);
+    const reinstalledInvocation = await reinstalledClient.invokeExtensionTool(reinstalledConversationId, reinstalledRelease.manifest.name, "echo", { text: marker });
     expect(reinstalledInvocation.success).toBe(true);
     expect(JSON.stringify(reinstalledInvocation.output)).toContain(output);
   } finally { await reinstalledCleanup?.(); await cleanup?.(); await context.close(); }
