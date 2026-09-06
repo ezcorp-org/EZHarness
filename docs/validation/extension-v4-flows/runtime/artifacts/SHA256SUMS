@@ -1,0 +1,6 @@
+46e9d3cd059f5b4cdbb92458ecd218ae139e68c91995f5ecaa988f4f337de981  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.compose.log.gz
+5111f45c4e70a592b450f13e4bb60032598c6e19f0407f1fe4c6ba8989d4401e  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.playwright.log.gz
+19b038c3de507d977f891fe90d2549265a02d7e8b1fa3582ad6d27de33116da8  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.command.log
+35b12a17e686d946a1bb33b750b4c4b2183eead53952c09a1165cb268cb1e92a  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.compose.log.gz
+1fd7352bc91c66baa3118d64e061a87960157cf75363772f988b748000062f9c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.playwright.log.gz
+9fa6254ee16991d9b198d7888b0250eb5db634f777e0258cb460deb16a03e173  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.provenance.txt
