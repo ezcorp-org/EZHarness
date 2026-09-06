@@ -174,6 +174,15 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await composerInput.press("Escape");
 
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(scopedTools.getByText("Conversation tools", { exact: true })).toBeVisible();
+    await expect(extensionToggle).toBeVisible();
+    await expect(page.getByTestId("conversation-tools-reset")).toBeVisible();
+    const popoverBox = await scopedTools.boundingBox();
+    expect(popoverBox).not.toBeNull();
+    expect(popoverBox!.x).toBeGreaterThanOrEqual(0);
+    expect(popoverBox!.x + popoverBox!.width).toBeLessThanOrEqual(390);
+    expect(popoverBox!.y).toBeGreaterThanOrEqual(0);
+    expect(popoverBox!.y + popoverBox!.height).toBeLessThanOrEqual(844);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile", { fullPage: true });
     const selectionReset = page.waitForResponse(response => response.request().method() === "PUT" && response.url().endsWith(`/api/conversations/${conversationId}`) && response.ok());

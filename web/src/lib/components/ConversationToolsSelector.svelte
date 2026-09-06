@@ -248,7 +248,7 @@
 	</button>
 
 	{#if open}
-		<div class="absolute bottom-full left-0 mb-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] py-1 shadow-xl z-50" data-testid="conversation-tools-popover">
+		<div class="conversation-tools-popover absolute bottom-full left-0 mb-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] py-1 shadow-xl z-50" data-testid="conversation-tools-popover">
 			<div class="px-3 py-1.5 border-b border-[var(--color-border)] mb-1">
 				<div class="flex items-center justify-between">
 					<div class="text-xs font-medium text-[var(--color-text-primary)]">Conversation tools</div>
@@ -343,3 +343,13 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@media (max-width: 639px) {
+		.conversation-tools-popover {
+			left: auto;
+			right: 0;
+			width: min(16rem, calc(100vw - 1rem));
+		}
+	}
+</style>
