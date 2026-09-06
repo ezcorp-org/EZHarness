@@ -1,0 +1,39 @@
+Drawer visual-contract correction receipt
+=========================================
+
+Source reviewed: 05a8539f951f08c113ca948434d137cc1d467bb0
+Test correction commit: f950d27d6cc4c3a7e0685ba3416b966d55455fc2
+Preceding observability fixture correction: a14ac55eeeeda5a26e458464433ddd45a8e1d870
+
+Observed red run
+----------------
+The four-spec run before this correction completed 34 passing tests and four
+failures. The red receipt is retained in the earlier observability evidence:
+  raw/terra-review-observability-four-specs-05a8539f.log.gz
+  SHA-256 e9e96cbae1d22293169bd345ae3954b5bbde20aceecd10c45ef54e6f862899f0
+
+Cause and correction
+--------------------
+* The conversation drawer is 296px wide at a 375px viewport. A forced default
+  centre click lands in its panel, whose click handler stops propagation. The
+  mobile test now clicks the visible backdrop strip at x=367.
+* The global navigation's first link is Chat; Home is the project rail's
+  accessible name. Dashboard is no longer a navigation label.
+* The desktop diff panel uses md:w-[75vw], which is 960px at the 1280px test
+  viewport. The test now checks that responsive contract.
+* The mobile diff panel fills its viewport, leaving no reachable backdrop. Its
+  test now uses the displayed close control.
+
+Green command
+-------------
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH; cd web; bunx --version; node --version; bunx playwright test --config playwright.config.ts --project=chromium e2e/chat-graph-evidence.spec.ts e2e/waterfall-timeline.spec.ts e2e/swipe-drawer.spec.ts e2e/mobile-chat.spec.ts'
+
+Result: exit 0; 38 passed (45.9s).
+Bun: 1.3.14. Node: v22.22.2.
+Raw producer log, compressed without modification:
+  raw/terra-review-four-visual-specs-green-f950d27d.log.gz
+  SHA-256 6cb88aeccbd24501f6b0de9e66a3f122ffac6df84bd10ae88dc3b87911173644
+
+The green run emitted pre-existing mock hooks.server 500 diagnostics. Their
+scope and prior-baseline comparison are recorded in
+mock-lane-500-classification-20260906.md; they did not fail any assertion.
