@@ -1229,6 +1229,37 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
 // assertion from the prior daemon-wiring incident: the daemon's stub
 // registers NO setInterval, so intervalCalls stays at 5.
 describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
+  test("activation starts once; disable and uninstall stop; reactivation restarts", async () => {
+    let extension: { id: string; enabled: boolean } | null = null;
+    fileOrgExtMock = mock((_n: string) => Promise.resolve(extension));
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+
+    extension = { id: "ext-fo", enabled: true };
+    await mod._reconcileFileOrganizerDaemonForTests();
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStartMock).toHaveBeenCalledTimes(1);
+
+    extension = { id: "ext-fo", enabled: false };
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+
+    extension = null;
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(1);
+
+    extension = { id: "ext-fo", enabled: true };
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStartMock).toHaveBeenCalledTimes(2);
+    await mod.stopBackgroundTimers();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(2);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+  });
+
   test("happy-path: daemon constructed, started, exposed; no 5th interval", async () => {
     installModuleMocks();
 
