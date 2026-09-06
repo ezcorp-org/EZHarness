@@ -53,6 +53,7 @@ import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { execFileSync } from "node:child_process";
 import { importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
+import type { InstallationState } from "../../src/extensions/v4/types";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
 
@@ -579,7 +580,7 @@ test.describe(
       expect(readWriterConfig().folders.some((folder) => folder.path === disabledPath)).toBe(true);
 
       await initial.client.extensionControl("extensions_release", { action: "disable", installationId, idempotencyKey: crypto.randomUUID() });
-      const disabled = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      const disabled = await initial.client.extensionControl<InstallationState>("extensions_inspect", { installationId });
       expect(disabled.installation.enabled).toBe(false);
       expect(disabled.installation.uninstalled).toBe(false);
 
@@ -600,7 +601,7 @@ test.describe(
       await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
       await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 
-      const reactivated = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      const reactivated = await initial.client.extensionControl<InstallationState>("extensions_inspect", { installationId });
       expect(reactivated.installation.enabled).toBe(true);
       expect(reactivated.installation.activeReleaseId).toBe(releaseId);
       expect(reactivated.installation.generation).toBeGreaterThan(disabled.installation.generation);
@@ -618,7 +619,7 @@ test.describe(
       expect(readWriterConfig().folders.some((folder) => folder.path === reactivatedPath)).toBe(true);
 
       await initial.client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
-      const removed = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      const removed = await initial.client.extensionControl<InstallationState>("extensions_inspect", { installationId });
       expect(removed.installation.uninstalled).toBe(true);
       expect(removed.installation.enabled).toBe(false);
       expect(removed.releases[releaseId!]).toBeDefined();
