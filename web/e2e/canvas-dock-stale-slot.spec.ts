@@ -91,7 +91,7 @@ test.describe("Canvas dock — stale authoritative removal", () => {
 			}));
 		});
 		await authoritativeHydration;
-		await expect(page.getByText("stale-removal-sentinel", { exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: /stale-removal-sentinel/ })).toBeVisible();
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "0px");
 		await captureEvidence(page, testInfo, "canvas-dock-stale-slot-cleared");
