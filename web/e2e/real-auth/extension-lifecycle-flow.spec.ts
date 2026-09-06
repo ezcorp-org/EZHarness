@@ -196,6 +196,13 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile", { fullPage: true });
     await expectToolsPopoverInViewport(320);
     await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile-narrow", { fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const desktopTriggerBox = await page.getByTestId("conversation-tools-trigger").boundingBox();
+    const desktopPopoverBox = await scopedTools.boundingBox();
+    expect(desktopTriggerBox).not.toBeNull();
+    expect(desktopPopoverBox).not.toBeNull();
+    expect(Math.abs(desktopPopoverBox!.x - desktopTriggerBox!.x)).toBeLessThanOrEqual(1);
+    await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-desktop-after-mobile", { fullPage: true });
     const selectionReset = page.waitForResponse(response => response.request().method() === "PUT" && response.url().endsWith(`/api/conversations/${conversationId}`) && response.ok());
     await page.getByTestId("conversation-tools-reset").click();
     await selectionReset;

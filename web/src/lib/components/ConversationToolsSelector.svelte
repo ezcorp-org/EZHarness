@@ -197,7 +197,11 @@
 	);
 
 	function fitPopoverInViewport() {
-		if (!popoverEl || window.innerWidth >= 640) return;
+		if (!popoverEl) return;
+		if (window.innerWidth >= 640) {
+			popoverOffsetX = 0;
+			return;
+		}
 		const inset = 8;
 		const bounds = popoverEl.getBoundingClientRect();
 		popoverOffsetX += Math.max(inset - bounds.left, Math.min(0, window.innerWidth - inset - bounds.right));
