@@ -24,10 +24,10 @@ The obsolete files stay disabled because restoring `createTestExtension` would r
 | Task Stack default inbox | `task-stack/index.test.ts:340` plus pipeline store persistence at `:199` | Composite unit and real-process persistence |
 | Task Stack unknown tool and recovery | `task-stack/e2e-server-pipeline.test.ts:183` | Exact, real process |
 | Task Stack concurrent adds without lost writes | `task-stack/e2e-server-pipeline.test.ts:144` | Exact, real process |
-| Task Stack start, active, finish lifecycle | `task-stack/index.test.ts:484`, `:518`, `:523`, and full workflow at `:639` | Handler-level lifecycle; no single current real-process assertion spans all three calls |
+| Task Stack start, active, finish lifecycle | `task-stack/e2e-server-pipeline.test.ts` — `start-task → get-active-task → finish-task lifecycle through one real process` | Exact, real process |
 | Todo empty scan | `todo-tracker/e2e-server-pipeline.test.ts:98` | Exact, real process |
 | Todo seeded markers | `todo-tracker/e2e-server-pipeline.test.ts:108` | Exact, real process |
-| Todo `searchQuery` through JSON-RPC | handler assertion `todo-tracker/index.test.ts:409`; priority argument transport at `e2e-server-pipeline.test.ts:124` | Composite only; no current real-process `searchQuery` assertion |
+| Todo `searchQuery` through JSON-RPC | `todo-tracker/e2e-server-pipeline.test.ts` — `searchQuery filters seeded markers through JSON-RPC args end-to-end` | Exact, real process |
 | Todo unknown tool and recovery | `todo-tracker/e2e-server-pipeline.test.ts:195` | Exact, real process |
 | Todo sequential same-process calls | `todo-tracker/e2e-server-pipeline.test.ts:178` | Exact, real process |
 
@@ -36,6 +36,7 @@ The obsolete files stay disabled because restoring `createTestExtension` would r
 - `artifacts/final-skip-closure/db-migration-postgres.log.gz`: clean disposable PostgreSQL execution.
 - `artifacts/final-skip-closure/price-chart-all4-red.log.gz`: exact four-case opt-in failure; retained as a harness gap.
 - `artifacts/final-skip-closure/price-chart-v4-green.log.gz`: repaired current-v4 paths, 7 pass and 33 assertions.
+- `artifacts/final-skip-closure/task-todo-parity-green.log.gz`: separate real-process runs, Task Stack 7 pass/43 assertions and Todo 7 pass/33 assertions.
 - `artifacts/final-skip-closure/hard-disabled-sdk-replay.log.gz`: temporary, source-clean unskip of both obsolete SDK files.
 - `artifacts/final-skip-closure/platform-conditionals.log.gz`: host condition results, 6 pass, 17 skip, 0 fail.
 - `artifacts/final-skip-closure/netns-production-image-setup-red.log.gz`: production-image replay setup failure; no test result claimed.
