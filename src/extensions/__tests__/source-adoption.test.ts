@@ -143,38 +143,40 @@ test("an identical immutable GitHub retry reuses one candidate while changed sou
   await repository.create({ installation: snapshot.installation, releases: { [snapshot.release.id]: snapshot.release }, workspaces: {}, revisions: {}, approvals: {}, operations: {} });
   const guarded = egress.guardedFetch;
   const guard = spyOn(egress, "guardedFetch").mockImplementation((url, init, options) => guarded(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }));
-  const immutable = githubSourceFetch({ "extension.ts": "export const revision = 'one';" }, { treeId: "a".repeat(40) });
-  const initialNetwork = replaceFetch(immutable.fetch);
-  let firstWorkspaceId = "";
-  let firstOperationId = "";
   try {
-    const first = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
-    const repeated = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
-    firstWorkspaceId = first.workspace.id;
-    firstOperationId = first.operation.id;
-    const afterRepeat = await repository.read(previous.id);
-    expect(repeated.workspace.id).toBe(first.workspace.id);
-    expect(repeated.operation.id).toBe(first.operation.id);
-    expect(immutable.requests()).toBe(2);
-    expect(afterRepeat).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
-    expect(Object.keys(afterRepeat?.workspaces ?? {})).toHaveLength(1);
-    expect(Object.keys(afterRepeat?.revisions ?? {})).toHaveLength(1);
-    expect(Object.keys(afterRepeat?.operations ?? {})).toHaveLength(1);
-  } finally { initialNetwork.mockRestore(); }
+    const immutable = githubSourceFetch({ "extension.ts": "export const revision = 'one';" }, { treeId: "a".repeat(40) });
+    const initialNetwork = replaceFetch(immutable.fetch);
+    let firstWorkspaceId = "";
+    let firstOperationId = "";
+    try {
+      const first = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+      const repeated = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+      firstWorkspaceId = first.workspace.id;
+      firstOperationId = first.operation.id;
+      const afterRepeat = await repository.read(previous.id);
+      expect(repeated.workspace.id).toBe(first.workspace.id);
+      expect(repeated.operation.id).toBe(first.operation.id);
+      expect(immutable.requests()).toBe(2);
+      expect(afterRepeat).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
+      expect(Object.keys(afterRepeat?.workspaces ?? {})).toHaveLength(1);
+      expect(Object.keys(afterRepeat?.revisions ?? {})).toHaveLength(1);
+      expect(Object.keys(afterRepeat?.operations ?? {})).toHaveLength(1);
+    } finally { initialNetwork.mockRestore(); }
 
-  const changed = githubSourceFetch({ "extension.ts": "export const revision = 'two';" }, { treeId: "d".repeat(40) });
-  const changedNetwork = replaceFetch(changed.fetch);
-  try {
-    const staged = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
-    const afterChange = await repository.read(previous.id);
-    expect(staged.workspace.id).not.toBe(firstWorkspaceId);
-    expect(staged.operation.id).not.toBe(firstOperationId);
-    expect(changed.requests()).toBe(1);
-    expect(afterChange).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
-    expect(Object.keys(afterChange?.workspaces ?? {})).toHaveLength(2);
-    expect(Object.keys(afterChange?.revisions ?? {})).toHaveLength(2);
-    expect(Object.keys(afterChange?.operations ?? {})).toHaveLength(2);
-  } finally { changedNetwork.mockRestore(); guard.mockRestore(); }
+    const changed = githubSourceFetch({ "extension.ts": "export const revision = 'two';" }, { treeId: "d".repeat(40) });
+    const changedNetwork = replaceFetch(changed.fetch);
+    try {
+      const staged = await importExtensionSource(owner, { kind: "github", repository: "owner/repository", targetInstallationId: previous.id });
+      const afterChange = await repository.read(previous.id);
+      expect(staged.workspace.id).not.toBe(firstWorkspaceId);
+      expect(staged.operation.id).not.toBe(firstOperationId);
+      expect(changed.requests()).toBe(1);
+      expect(afterChange).toMatchObject({ installation: snapshot.installation, approvals: {}, releases: { [snapshot.release.id]: snapshot.release } });
+      expect(Object.keys(afterChange?.workspaces ?? {})).toHaveLength(2);
+      expect(Object.keys(afterChange?.revisions ?? {})).toHaveLength(2);
+      expect(Object.keys(afterChange?.operations ?? {})).toHaveLength(2);
+    } finally { changedNetwork.mockRestore(); }
+  } finally { guard.mockRestore(); }
 });
 
 test("a deactivated owner cannot activate an administrator-approved release or change its live installation", async () => {
