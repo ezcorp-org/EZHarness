@@ -66,6 +66,10 @@ export interface ToolCallState {
 	 *  mounts the routed card in the right-side `DockHost` panel. */
 	cardLayout?: 'inline' | 'dock';
 	category?: string;
+	/** A client-owned inline call already carries its full event output. Its
+	 * invocation id is not a persisted tool_calls row, so expanding its card
+	 * must not request `/api/tool-calls/:id/output`. */
+	source?: 'inline' | 'agent-run';
 	permissionPending?: boolean;
 	/** Phase 6: sensitive capability that triggered an extension-scoped
 	 *  permission prompt. Routes the modal to the four-scope chooser
@@ -736,7 +740,7 @@ export function openDock(conversationId: string, toolCallId: string): void {
 	// previous close would no-op forever because the auto-open effect would
 	// still skip the dismissed id.
 	const dismissed = store.dismissedDocks[conversationId];
-	if (dismissed && dismissed[toolCallId]) {
+	if (dismissed?.[toolCallId]) {
 		const { [toolCallId]: _drop, ...remaining } = dismissed;
 		store.dismissedDocks = {
 			...store.dismissedDocks,
