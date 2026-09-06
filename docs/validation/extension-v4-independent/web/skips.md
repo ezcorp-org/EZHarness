@@ -44,3 +44,24 @@ Within the required mock and real-auth source set, the only active conditional t
 - The authoritative backend wrapper passed 24,586 tests in 1,561 files with no reported skip/todo match. Source-level kernel/network/Postgres conditionals remain platform gates and are itemized by the runtime capability inventory rather than added to browser counts.
 
 The broad source search is retained in `artifacts/source-skip-search.txt`. It includes comments and tests outside final lane selection; it is evidence for review, not an inflated runtime-skip total.
+
+## Preview Docker opt-in replacement
+
+The host pool conditionally skips seven distinct live preview assertions unless
+`DOCKER_TEST=1`. They are not covered by the File Organizer replacement:
+
+1. `setuid helper present + 4755 root-owned in the image`
+2. `preview uid CANNOT read .ezcorp/data (chmod 0700) — keystone`
+3. `helper refuses an out-of-range uid even invoked directly`
+4. `ProcPortSource attributes a live listener by its preview uid`
+5. `spawn as preview uid → ProcPortSource detects → loopback fetch 200`
+6. `reapPreviewConversation: REAL helper --kill actually reaps the tree + confirms`
+7. `WS upstream (ws://127.0.0.1:<port>) connects + echoes a frame`
+
+The explicit opt-in replacement ran both existing files in the immutable final
+production image with the repository mounted read-only and all writable state in
+an owned tmpfs. Pinned Bun 1.3.14 passed all 7 tests with 21 expectations and no
+skips in 11.31 seconds; the command exited 0. Docker `--rm` removed the named
+audit container, and the command created no volume or writable host mount. See
+`artifacts/preview-docker-optins-command.txt` and
+`artifacts/preview-docker-optins-final.log.gz`.

@@ -1,0 +1,19 @@
+# Run from the repository root under the shared validation flock.
+# $REPO is a sanitized stand-in for the audited checkout path.
+docker run --rm --init --read-only \
+  --name extension-v4-preview-optins-audit \
+  --tmpfs /tmp:rw,exec,mode=1777 \
+  --mount type=bind,src=$REPO,dst=/workspace,readonly \
+  --workdir /tmp \
+  --env DOCKER_TEST=1 \
+  --env EZCORP_PROJECT_ROOT=/tmp/project \
+  --entrypoint /bin/sh \
+  localhost/ezcorp-extension-v4:audit-final-3ec53eaa \
+  -lc 'mkdir -p /tmp/project && bun --version && bun test /workspace/src/__tests__/preview-uid-keystone.docker.test.ts /workspace/src/__tests__/preview-dynamic-e2e.docker.test.ts'
+
+source_commit=3ec53eaa66409a39d66b502f79d74139ec94dcf2
+source_tree=2ccafce2b65a9af89482e85e7168a5f01980051a
+image_id=sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be
+bun=1.3.14
+result=7 pass, 0 fail, 21 expectations, command exit 0
+cleanup=--rm removed the owned container; no named volumes or host writes
