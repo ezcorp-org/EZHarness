@@ -1,3 +1,5 @@
 24e9bc06efef21a99876cb452e073082e58e8f537ce2a225729c3052e2e20954  docs/validation/extension-v4-independent/web/artifacts/browser-raw-logs.tar.gz
 46200582e02347e4a68c1ac146ec2d7543e2891d0dbd528d62c566cba78ee9ec  docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production.zip
 26d2179df91fd0bcf28edcf95b5e5c9dbdb6e4ae1f748fe09a94461c574e0ea4  docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production-19d9-historical.zip
+90a58689075364d57aaa333e4cd0bfba983a3241fcb9b3e5653ca9587ecd963d  docs/validation/extension-v4-independent/web/artifacts/web-test-entrypoint-green.log.gz
+62c49ddd3f8308fe302e4bcc0f51382ed5fc79e89dcdabc61b2b54ea3b2c8602  docs/validation/extension-v4-independent/web/artifacts/web-test-entrypoint-failure-propagation.txt
