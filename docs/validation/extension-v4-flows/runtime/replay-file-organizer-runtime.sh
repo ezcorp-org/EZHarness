@@ -25,6 +25,7 @@ mkdir -p "$receipt_dir"
 umask 077
 run_root=$(mktemp -d /tmp/ez-file-organizer-runtime-XXXXXXXX)
 compose="$run_root/compose.yml"
+session_cookie="$run_root/session.cookie"
 mkdir -m 700 "$run_root/socket" "$run_root/app-data" "$run_root/extension-state"
 export RUN_ROOT="$run_root" APP_UID="$container_uid" APP_GID="$container_gid"
 export EZ_EXTENSION_RUNNER_SOCKET="$run_root/socket/runner.sock"
@@ -104,9 +105,76 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 curl -fsS "http://localhost:${port}/api/health" >/dev/null
-setup_code=$(curl -sS -o "$receipt_dir/setup.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.com","password":"Test123!","name":"Runtime Audit"}' "http://localhost:${port}/api/auth/setup")
+setup_code=$(curl -sS -c "$session_cookie" -o "$receipt_dir/setup.json" -w '%{http_code}' -H 'content-type: application/json' --data '{"email":"test@test.com","password":"Test123!","name":"Runtime Audit"}' "http://localhost:${port}/api/auth/setup")
 printf 'setup_http=%s\n' "$setup_code" > "$receipt_dir/command.log"
 [[ "$setup_code" == 201 ]]
+[[ -s "$session_cookie" ]]
+chmod 600 "$session_cookie"
+
+# The production image and the real preview both execute the generated
+# svelte-adapter-bun server. When IDLE_TIMEOUT is unset, that server uses
+# Bun's 10-second idle close. Require three authenticated heartbeat frames:
+# this crosses that close boundary, then cancels the reader deliberately.
+# The cookie remains under run_root and is removed by cleanup; receipts only
+# record the route, frame counts, elapsed time, and result.
+cat > "$run_root/check-idle-runtime-events.ts" <<'EOF'
+const origin = process.env.EZ_RUNTIME_ORIGIN;
+const cookiePath = process.env.EZ_RUNTIME_COOKIE_PATH;
+if (!origin || !cookiePath) throw new Error("Missing runtime SSE probe configuration");
+
+const cookie = (await Bun.file(cookiePath).text())
+  .split("\n")
+  .filter(line => line.length > 0 && (!line.startsWith("#") || line.startsWith("#HttpOnly_")))
+  .map(line => line.startsWith("#HttpOnly_") ? line.slice("#HttpOnly_".length) : line)
+  .map(line => line.split("\t"))
+  .filter(fields => fields.length >= 7)
+  .map(fields => `${fields[5]}=${fields[6]}`)
+  .join("; ");
+if (!cookie) throw new Error("Setup response did not write a session cookie");
+
+const startedAt = performance.now();
+const controller = new AbortController();
+const deadline = setTimeout(() => controller.abort(), 20_000);
+let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+try {
+  const response = await fetch(`${origin}/api/runtime-events`, {
+    headers: { cookie },
+    signal: controller.signal,
+  });
+  if (!response.ok || !response.body || response.headers.get("content-type") !== "text/event-stream") {
+    throw new Error(`Runtime SSE response was ${response.status}`);
+  }
+  reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let connectedFrames = 0;
+  let heartbeatFrames = 0;
+  while (connectedFrames < 1 || heartbeatFrames < 3) {
+    const { done, value } = await reader.read();
+    if (done) throw new Error(`Runtime SSE closed after connected=${connectedFrames} heartbeat=${heartbeatFrames}`);
+    buffered += decoder.decode(value, { stream: true });
+    let boundary: number;
+    while ((boundary = buffered.indexOf("\n\n")) >= 0) {
+      const frame = buffered.slice(0, boundary);
+      buffered = buffered.slice(boundary + 2);
+      if (frame === ": connected") connectedFrames += 1;
+      if (frame === ": heartbeat") heartbeatFrames += 1;
+    }
+  }
+  await reader.cancel("idle SSE probe complete");
+  reader = undefined;
+  console.log("sse_path=/api/runtime-events");
+  console.log(`sse_connected_frames=${connectedFrames}`);
+  console.log(`sse_heartbeat_frames=${heartbeatFrames}`);
+  console.log(`sse_elapsed_ms=${Math.round(performance.now() - startedAt)}`);
+  console.log("sse_idle_check=passed");
+} finally {
+  clearTimeout(deadline);
+  if (reader) await reader.cancel();
+}
+EOF
+EZ_RUNTIME_ORIGIN="http://localhost:${port}" EZ_RUNTIME_COOKIE_PATH="$session_cookie" bun "$run_root/check-idle-runtime-events.ts" > "$receipt_dir/runtime-events.log"
+printf 'runtime_events_idle_exit=0\n' >> "$receipt_dir/command.log"
 
 cd "$repo_root/web"
 set +e
