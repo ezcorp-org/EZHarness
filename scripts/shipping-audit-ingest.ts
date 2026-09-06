@@ -8,11 +8,19 @@ if (!logPath) throw new Error("usage: bun scripts/shipping-audit-ingest.ts <vm-l
 if (!process.env.EZCORP_DB_PATH || process.env.EZCORP_DB_PATH === ":memory:") {
   throw new Error("EZCORP_DB_PATH must name an owned on-disk test database");
 }
+if (process.env.DATABASE_URL) throw new Error("Audit proof must not connect to an external database");
 if (existsSync(process.env.EZCORP_DB_PATH)) throw new Error("Audit proof requires a new database path; refusing to open existing state");
 const lines = readFileSync(logPath, "utf8").split("\n");
 const pid = lines.map((line) => /^VM_PROBE_PID=(\d+)$/.exec(line.trim())?.[1]).find(Boolean);
 if (!pid) throw new Error("VM probe PID missing from serial log");
-const kernelLines = lines.filter((line) => line.includes("audit: type=1326"));
+const kernelStart = lines.indexOf("VM_KERNEL_RECORDS_BEGIN");
+const kernelEnd = lines.indexOf("VM_KERNEL_RECORDS_END");
+if (kernelStart < 0 || kernelEnd <= kernelStart || !lines.includes(`VM_AUDIT_ASSERTION=PASS pid=${pid}`)) {
+  throw new Error("Audit ingestion requires a complete, passing owned-VM kernel window");
+}
+if (!lines.includes(`VM_PROBE_REPORTED_PID=${pid}`)) throw new Error("Sandbox child attribution does not match the probe PID");
+const kernelWindow = lines.slice(kernelStart + 1, kernelEnd);
+const kernelLines = kernelWindow.filter((line) => line.includes("audit: type=1326"));
 if (kernelLines.length === 0) throw new Error("VM serial log has no type=1326 record");
 const exactRecords = kernelLines.map((line) => {
   const match = /\bpid=(\d+)\b.*\barch=([0-9a-f]+)\b.*\bsyscall=(\d+)\b.*\bcode=(0x[0-9a-f]+)\b/i.exec(line);
@@ -20,6 +28,9 @@ const exactRecords = kernelLines.map((line) => {
   return { pid: match[1]!, arch: match[2]!, syscall: Number(match[3]), code: match[4]!.toLowerCase() };
 }).filter((record) => record.pid === pid);
 if (exactRecords.length === 0) throw new Error(`no type=1326 record for VM probe PID ${pid}`);
+if (!exactRecords.some(record => record.arch === "c000003e" && record.syscall === 39 && record.code === "0x7ffc0000")) {
+  throw new Error("The declared getpid LOG record is absent from the exact-PID kernel window");
+}
 
 // Import a query-string-isolated copy before registering the observer. The
 // parser then receives the mock for its canonical module specifier, while the

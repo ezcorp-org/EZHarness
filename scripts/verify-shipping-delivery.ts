@@ -49,7 +49,7 @@ async function inspectStoppedDelivery(installationId: string, key: string): Prom
   return readStoppedProductionDatabase(async database => {
     const result = await database.query("SELECT id FROM extension_release_deliveries WHERE installation_id = $1 AND payload LIKE $2 ORDER BY available_at DESC LIMIT 1", [installationId, `%${key}%`]);
     const id = (result.rows[0] as { id?: unknown } | undefined)?.id;
-    assert.equal(typeof id, "string", "The Hub request must leave a durable delivery row");
+    assert(typeof id === "string", "The Hub request must leave a durable delivery row");
     const delivery = await new ExtensionDeliveryQueue(drizzle(database)).inspect(installationId, id);
     assert(delivery, "The durable delivery must be inspectable after an app stop");
     return { id, state: delivery.state };

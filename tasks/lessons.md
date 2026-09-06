@@ -52,3 +52,6 @@
 - Compare request-start and event times before calling a response stale. A fresh response with old fixture data is a mock persistence defect; it must not justify weakening authoritative replacement.
 - Order live client updates with a local sequence. Server timestamps cannot safely define a browser request boundary.
 - Store archive filenames and their SHA-256 values in separate named fields. Auth-related filenames used as JSON keys can make the secret scanner misread checksum values as credentials.
+
+- For a binary kernel interface, verify the producer framing before writing a loader; do not infer a header from a byte dump. In single-quoted shell heredocs, use C `\n` only when it must become one backslash-n escape in source.
+- Bound each owned VM command with an explicit timeout and kill grace. For a no-row control, await every delegated persistence promise before the database assertion; a fixed delay is not proof.
