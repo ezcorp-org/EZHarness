@@ -31,7 +31,9 @@ async function waitForVisibleBuild(page: Page): Promise<void> {
 }
 
 async function expectInlineToolOutput(page: Page, name: string, output: string): Promise<void> {
-  const completedCall = page.getByRole("button", { name: new RegExp(`${name} > echo --`) });
+  // A second invocation appears after re-enable. The last matching card is
+  // the one just submitted from the visible composer.
+  const completedCall = page.getByRole("button", { name: new RegExp(`${name} > echo --`) }).last();
   await expect(completedCall).toBeVisible({ timeout: 90_000 });
   await completedCall.click();
   await expect(completedCall).toHaveAttribute("aria-expanded", "true");
