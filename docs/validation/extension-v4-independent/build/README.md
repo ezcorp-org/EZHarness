@@ -34,10 +34,10 @@ The production verifier passed all eight checks: production boot, file credentia
 
 ## Conditional tests and omissions
 
-The corrected inventory is in `non-browser-conditionals.md`. It lists every named row, exact source gate, disposition, missing input, and typecheck exclusion. The immutable archive contains 98 matching lines: 75 named `(skip)` tests and 23 repeated aggregate summaries. No separate skipped hooks appear in that output.
+The corrected inventory is in `non-browser-conditionals.md`. It lists every named row, exact source gate, disposition, missing input, and typecheck exclusion. The immutable archive contains 98 matching lines: 75 `(skip)` records and 23 repeated aggregate summaries. The 75 records contain 69 named tests and 6 unnamed hook records (PostgreSQL 2, quickstart 1, real OBO 2, and orphan sweep 1).
 
 The 75 tests are: PostgreSQL migration 11, disabled SDK integration 10, AI-kit live E2E 22, price live E2E 4, preview Docker 7, MCP/network/seccomp 19, Landlock 1, and marketplace isolation 1. Separate receipts close marketplace isolation and the final-image seccomp effect only. They do not substitute for PostgreSQL migration, preview UID, dynamic preview, or external provider assertions.
 
 ## Evidence
 
-`receipt-index.json` is the machine-readable index. `build-validation-logs.tar.zst` contains the selected raw logs, including invalid attempts and red checkpoints. `final-coverage-curated-3a56a869.tar.zst` contains all raw host and named leg LCOV producers, host result/code/timing records, the exact file-to-producer map, the 12-group CI map, replacement history, and the actual skip inventory.
+`receipt-index.json` is the primary machine-readable index. `supplemental-receipt-index.json` and `build-supplemental-receipts.tar.zst` preserve the clean-install, SDK, contract, runner, client, and AI-kit checkpoint receipts, including the invalid Bun 1.3.9 attempt and source-applicability limits. `build-validation-logs.tar.zst` contains the selected raw logs, including invalid attempts and red checkpoints. `final-coverage-curated-3a56a869.tar.zst` contains all raw host and named leg LCOV producers, host result/code/timing records, the exact file-to-producer map, the 12-group CI map, replacement history, and the actual skip inventory.

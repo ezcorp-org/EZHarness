@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "archive": "build-supplemental-receipts.tar.zst",
+  "archive_sha256": "e70de7b3b9c2b1c16a4040bb8d11c8986d36397c5b6da73589e7b2037f48fab4",
+  "records": [
+    {
+      "file": "00-wrong-bun-1.3.9-root-web-invalid.log",
+      "sha256": "262dcf05acdb5945c9eb93c9c86a04f5380c2f60d77f26fce34fb21a8ec123e4",
+      "command": "bun install --frozen-lockfile (root, then web)",
+      "exit": 0,
+      "result": "invalidated: ambient Bun 1.3.9; root20/web no-change receipt cannot prove pinned install",
+      "captured_mtime": "2026-09-05T22:40:54.053112-04:00",
+      "source_head": "181b7512d35583e800bfce344fff6b5e87faaabe",
+      "provenance_note": "Raw log identifies Bun 1.3.9; retained only as invalid evidence."
+    },
+    {
+      "file": "01-pinned-first-root-failed-missing-declaration.log",
+      "sha256": "cb05e55b290dfae5dcd8ef234a917641017833769ab628fa9fa7dc19d6a8fc8d",
+      "command": "bun install --frozen-lockfile",
+      "exit": 2,
+      "result": "first pinned Bun1.3.14 root attempt failed in SDK prepare: compiler configuration/declaration defect",
+      "captured_mtime": "2026-09-05T22:40:54.054583-04:00",
+      "source_head": "61ffa8fc8dc2c8d370616e46bed0e2d6a3b738ab",
+      "provenance_note": "Clean review worktree attempt; failure is authoritative and was repaired."
+    },
+    {
+      "file": "02-pinned-first-root-green.log",
+      "sha256": "b86b9d3ee74924f8cc3c789b143cebdfc1c3a0834373af1649a51c399e21ff61",
+      "command": "bun install --frozen-lockfile",
+      "exit": 0,
+      "result": "pinned Bun1.3.14 root install green; TypeScript5.9.3 resolved",
+      "captured_mtime": "2026-09-05T22:40:54.056262-04:00",
+      "source_head": "281e0e44",
+      "provenance_note": "Fresh repaired review worktree; source attribution from its reflog at capture time."
+    },
+    {
+      "file": "03-pinned-clean-root-green.log",
+      "sha256": "6ee91da84190864e850d5d22458cd594f454f02e2a86d547a8d032d44ceda993",
+      "command": "bun install --frozen-lockfile",
+      "exit": 0,
+      "result": "728 packages; SDK prepare/build green with Bun1.3.14 and TypeScript5.9.3",
+      "captured_mtime": "2026-09-05T22:40:54.057804-04:00",
+      "source_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+      "source_tree": "4a5c5c7a27e8315c25262ecfb3c27db030493388",
+      "provenance_note": "Exact repaired PR candidate clean worktree."
+    },
+    {
+      "file": "04-pinned-clean-web-green.log",
+      "sha256": "6b8eeb16d53831c68ff6322ecd49772c568830637427b6b642888fafd75d751b",
+      "command": "bun install --cwd web --frozen-lockfile",
+      "exit": 0,
+      "result": "308 web packages; prepare green with Bun1.3.14",
+      "captured_mtime": "2026-09-05T22:40:54.059573-04:00",
+      "source_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+      "source_tree": "4a5c5c7a27e8315c25262ecfb3c27db030493388",
+      "provenance_note": "Exact repaired PR candidate clean worktree."
+    },
+    {
+      "file": "05-sdk-default.log",
+      "sha256": "45c794e4b8aa25019468aababd103dbe4505774aaa4ae5ddac4eaa5611c64c52",
+      "command": "bun test --cwd packages/@ezcorp/sdk",
+      "exit": 0,
+      "result": "1028 pass,1 environment skip,0 fail,2341 assertions",
+      "captured_mtime": "2026-09-05T22:40:54.061099-04:00",
+      "source_head": "3093a3a5e327b5ca6fb585b9f1271817553804e8",
+      "provenance_note": "Runtime worktree had the owned SDK lifetime repair later committed as 1fdf454d; raw log lacks embedded head."
+    },
+    {
+      "file": "06-sdk-rootless-optin.log",
+      "sha256": "89d97abadac399214c5da2202c444141f10df1a5b57f66fbea02ace566c3ab97",
+      "command": "EZCORP_RUN_PODMAN_TESTS=1 bun test packages/@ezcorp/sdk/src/v4/mcp.test.ts",
+      "exit": 0,
+      "result": "7 pass,0 fail,32 assertions including rootless MCP",
+      "captured_mtime": "2026-09-05T22:40:54.062663-04:00",
+      "source_head": "3093a3a5e327b5ca6fb585b9f1271817553804e8",
+      "provenance_note": "Same runtime working-tree state as SDK default; rootless condition closed."
+    },
+    {
+      "file": "07-extension-contract.log",
+      "sha256": "50d744025ec00e234a69b547ae675d3a11493f59e87924f5c9346c4f3d284ba0",
+      "command": "bun test --cwd packages/@ezcorp/extension-contract",
+      "exit": 0,
+      "result": "23 pass,0 fail,291 assertions",
+      "captured_mtime": "2026-09-05T22:40:54.064137-04:00",
+      "source_head": "cb747196",
+      "provenance_note": "Dependency-refresh checkpoint; source attribution uses producing branch reflog at capture time. Later source applicability must be established by exact path diff."
+    },
+    {
+      "file": "08-contract-schema.log",
+      "sha256": "9c476a32167b3099691defc633753be5e7614579ea96da20bc29f8d49e765633",
+      "command": "bun test --cwd packages/@ezcorp/extension-contract ./src/schema.test.ts",
+      "exit": 0,
+      "result": "1 pass,0 fail,1 assertion",
+      "captured_mtime": "2026-09-05T22:40:54.065618-04:00",
+      "source_head": "cb747196",
+      "provenance_note": "Dependency-refresh checkpoint; source attribution uses producing branch reflog at capture time. Later source applicability must be established by exact path diff."
+    },
+    {
+      "file": "09-extension-runner.log",
+      "sha256": "39d13f2c1e88165bb832fa89d6fd434359d57c689174985a27591d3d3b2a3e63",
+      "command": "bun test --cwd packages/@ezcorp/extension-runner",
+      "exit": 0,
+      "result": "48 pass,0 fail,308 assertions",
+      "captured_mtime": "2026-09-05T22:40:54.067421-04:00",
+      "source_head": "da640bd0",
+      "provenance_note": "Dependency-refresh checkpoint; source attribution uses producing branch reflog at capture time. Later source applicability must be established by exact path diff."
+    },
+    {
+      "file": "10-harness-client.log",
+      "sha256": "b6737bfad032256306b675ffb9e6c28f8b1ae87007eab7f3c1feb32cdcb9b5b8",
+      "command": "bun test --cwd packages/@ezcorp/harness-client",
+      "exit": 0,
+      "result": "93 pass,0 fail,276 assertions",
+      "captured_mtime": "2026-09-05T22:40:54.069312-04:00",
+      "source_head": "cb747196",
+      "provenance_note": "Dependency-refresh checkpoint; source attribution uses producing branch reflog at capture time. Later source applicability must be established by exact path diff."
+    },
+    {
+      "file": "11-ai-kit-checkpoint.log",
+      "sha256": "301b7c7952d8368175e5eea92da3510d9e133539ace623ca2bd22384bd9c03aa",
+      "command": "bun test --cwd packages/@ezcorp/ai-kit",
+      "exit": 0,
+      "result": "218 pass,0 fail,537 assertions",
+      "captured_mtime": "2026-09-05T22:40:54.070806-04:00",
+      "source_head": "cb747196",
+      "provenance_note": "Checkpoint only: AI-kit production source later changed and requires the final 219-test receipt."
+    },
+    {
+      "file": "12-clean-proof-source-state.json",
+      "sha256": "3c36d65d7476e80dd6782d9f34ea22d1d1a7c9e7fbcda39e6075bf9009217d09",
+      "command": "read-only receipt metadata",
+      "exit": 0,
+      "result": "candidate/head/tree/worktree and declared clean install result",
+      "captured_mtime": "2026-09-05T22:40:54.072457-04:00",
+      "source_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+      "source_tree": "4a5c5c7a27e8315c25262ecfb3c27db030493388"
+    }
+  ],
+  "limitations": [
+    "Most historical raw logs did not embed start/end timestamps or git HEAD. captured_mtime and producing-worktree reflog attribution are recorded instead; no timestamp was invented.",
+    "AI-kit checkpoint is superseded by the pending final source receipt.",
+    "The immutable coverage archive SHA ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335 is unchanged."
+  ]
+}

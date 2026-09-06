@@ -19,6 +19,11 @@
       "file": "final-coverage-curated-3a56a869.tar.zst",
       "sha256": "ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335",
       "inputs": 1556
+    },
+    "supplemental_receipts": {
+      "file": "build-supplemental-receipts.tar.zst",
+      "sha256": "e70de7b3b9c2b1c16a4040bb8d11c8986d36397c5b6da73589e7b2037f48fab4",
+      "index": "supplemental-receipt-index.json"
     }
   },
   "receipts": [

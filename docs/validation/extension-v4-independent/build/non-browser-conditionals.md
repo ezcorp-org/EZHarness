@@ -1,6 +1,6 @@
 # Non-browser conditional and exclusion inventory
 
-This inventory corrects the immutable coverage archive map without changing the replayed archive (`ba9f8cfc…`). The archived TSV has 98 matched lines: **75 named `(skip)` test records** plus **23 aggregate `N skip` summary lines**. The summary lines are not tests. The output does not identify any separate skipped hooks, so the test total is 75 and the hook total is 0.
+This inventory corrects the immutable coverage archive map without changing the replayed archive (`ba9f8cfc…`). The archived TSV has 98 matched lines: **75 `(skip)` records** plus **23 aggregate `N skip` summary lines**. The 75 records contain 69 named tests and 6 unnamed hook records: PostgreSQL 2, AI-kit quickstart 1, AI-kit real OBO 2, and orphan sweep 1. The summary lines are not tests or hooks.
 
 ## Arithmetic and dispositions
 
@@ -12,11 +12,11 @@ This inventory corrects the immutable coverage archive map without changing the 
 | Price live E2E | 4 | `EZCORP_E2E_NETWORK=1`; real PDP also needs `EZCORP_E2E_REAL_PDP=1` and `DATABASE_URL` | Requires external network and, for the PDP case, PostgreSQL. | `EZCORP_E2E_NETWORK=1 EZCORP_E2E_REAL_PDP=1 DATABASE_URL=… bun test ./src/__tests__/price-chart.e2e.test.ts` |
 | Preview Docker | 7 | `DOCKER_TEST=1` | Not executed here. Production File Organizer 12/12 does not replace UID or dynamic-preview assertions. | `DOCKER_TEST=1 bun test ./src/__tests__/preview-dynamic-e2e.docker.test.ts ./src/__tests__/preview-uid-keystone.docker.test.ts` |
 | MCP/network/seccomp | 19 | Linux capabilities, bwrap/network namespace tools, optional soak flag, or generated BPF | Marketplace/rootless runner checks replace only their named paths. The final-image seccomp effect closes the generated-BPF syscall behavior, but kernel journal audit rows remain unavailable. | Run the listed files on the privileged Linux security tier; add `EZCORP_RUN_CONNTRACK_SOAK=1` for the soak case and provide the image BPF/probe for enforcement. |
-| Landlock ABI guard | 1 | landlock-capable kernel | The local kernel path did not activate. | `bun test ./src/__tests__/sandbox-landlock-apply-coverage.test.ts` on a Landlock-capable kernel. |
+| Landlock complementary ABI guard | 1 | `test.if(!LANDLOCK_OK)` | Landlock was supported, so the positive grant test passed and the opposite unsupported-kernel guard skipped. | Run the exact file on a kernel without Landlock to execute the complementary guard. |
 | Marketplace isolation | 1 | `EZCORP_RUN_PODMAN_TESTS=1` | Closed by the separate opted-in run: 1 pass, 5 assertions. | `EZCORP_RUN_PODMAN_TESTS=1 bun test ./src/__tests__/marketplace-release-isolation.integration.test.ts` |
 | **Total** | **75** | | `11 + 10 + 22 + 4 + 7 + 19 + 1 + 1 = 75` | |
 
-## Exact named skip records
+## Exact skip records (69 named tests and 6 unnamed hooks)
 
 - Host producer `450` — `src/__tests__/db-migration-postgres.test.ts` — external Postgres via Bun.sql (real server) > (unnamed)
 - Host producer `450` — `src/__tests__/db-migration-postgres.test.ts` — external Postgres via Bun.sql (real server) > (unnamed)
