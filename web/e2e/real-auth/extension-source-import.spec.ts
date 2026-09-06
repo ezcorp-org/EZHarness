@@ -20,7 +20,9 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
     return body.includes('"action":"activate"') && body.includes(installationId);
   }, { timeout: 30_000 });
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  expect((await activationResponse).status()).toBe(200);
+  const activation = await activationResponse;
+  expect(activation.status()).toBe(200);
+  expect(await activation.json()).toMatchObject({ kind: "activate", state: "active" });
   await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 }
 
