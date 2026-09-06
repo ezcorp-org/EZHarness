@@ -100,6 +100,29 @@ describe("GET /api/runtime-events", () => {
     expect(res.body).toBeInstanceOf(ReadableStream);
   });
 
+  test("emits a heartbeat before Bun's short idle timeout can close the stream", async () => {
+    vi.useFakeTimers();
+    const interval = vi.spyOn(globalThis, "setInterval");
+    const clear = vi.spyOn(globalThis, "clearInterval");
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      expect(decoder.decode((await reader.read()).value)).toContain(": connected");
+      expect(interval).toHaveBeenCalledWith(expect.any(Function), 5_000);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(decoder.decode((await reader.read()).value)).toContain(": heartbeat");
+    } finally {
+      await reader.cancel();
+      expect(clear).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+      interval.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
   // Regression net (Daily Briefing Phase 2 fix loop): the briefing runner
   // emits `conversation:created` and the SSE filter authorizes it, but the
   // endpoint only forwards events in BUS_EVENTS — Phase 2 shipped with the
