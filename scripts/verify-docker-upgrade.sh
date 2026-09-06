@@ -4,11 +4,11 @@
 # Simulates the real upgrade flow a self-hoster experiences when a new image
 # lands on GHCR (manual pull or Watchtower):
 #
-#   1. Build image A with VERSION=0.1.0-a / a unique REVISION.
+#   1. Use the pinned previous image, building its exact source if absent.
 #   2. Start container A against a fresh volume, wait for /api/ready = 200.
 #   3. Record baseline state (DB entries, readiness body, version endpoint).
 #   4. Stop container A (preserve the volume).
-#   5. Build image B with VERSION=0.2.0-b / a different REVISION (same source).
+#   5. Build image B from the current committed source (not the worktree).
 #   6. Start container B against A's volume.
 #   7. Verify B boots cleanly, reports its new version, preserves A's data,
 #      and takes a fresh pre-boot snapshot.
@@ -21,18 +21,25 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-IMAGE_A="ezcorp:upgrade-a"
-IMAGE_B="ezcorp:upgrade-b"
-CONTAINER="ezcorp-upgrade-verify"
-VOLUME="ezcorp-upgrade-verify-data"
+# 3ec53e is a retained historical v4 candidate, not a published release.
+# Its committed source differs from the current candidate. This baseline
+# tests compatible v4 state; the main-to-v4 proof covers explicit adoption.
+PREVIOUS_SOURCE="${VERIFY_UPGRADE_PREVIOUS_SOURCE:-3ec53eaa66409a39d66b502f79d74139ec94dcf2}"
+IMAGE_A="${VERIFY_UPGRADE_PREVIOUS_IMAGE:-localhost/ezcorp-extension-v4:audit-final-3ec53eaa}"
+PREVIOUS_IMAGE_ID="${VERIFY_UPGRADE_PREVIOUS_IMAGE_ID:-8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be}"
+IMAGE_B="${VERIFY_UPGRADE_CANDIDATE_IMAGE:-ezcorp:upgrade-candidate}"
+RUN_ID="$(openssl rand -hex 6)"
+CONTAINER="ezcorp-upgrade-verify-${RUN_ID}"
+VOLUME="ezcorp-upgrade-verify-data-${RUN_ID}"
+RESTORE_VOLUME="ezcorp-upgrade-verify-restore-${RUN_ID}"
+STATE_ROOT="$(mktemp -d /tmp/ezcorp-upgrade-state-XXXXXXXX)"
+RESTORE_STATE_ROOT="$(mktemp -d /tmp/ezcorp-upgrade-restore-state-XXXXXXXX)"
+STATE_FILE="$STATE_ROOT/upgrade-state.json"
 PORT="${VERIFY_UPGRADE_PORT:-13003}"
 
-VERSION_A="0.1.0-upgrade-a"
-VERSION_B="0.2.0-upgrade-b"
-# Artificial distinct SHAs so the circuit-breaker key differs across the
-# versions, even though both builds come from the same source tree.
-REVISION_A="$(git rev-parse HEAD 2>/dev/null || echo dev)upgradea"
-REVISION_B="$(git rev-parse HEAD 2>/dev/null || echo dev)upgradeb"
+SOURCE_B="$(git rev-parse HEAD)"
+REVISION_B="$SOURCE_B"
+VERSION_B="$(jq -r .version package.json)"
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 BOLD="$(tput bold 2>/dev/null || echo)"
@@ -45,22 +52,35 @@ pass() { echo "  ${GREEN}✓${RESET} $1"; }
 die()  { echo "  ${RED}✗${RESET} $1" >&2; exit 1; }
 
 cleanup() {
+  local status=$? cleanup_status=0
   set +e
-  docker rm -f "$CONTAINER" >/dev/null 2>&1
-  docker volume rm "$VOLUME" >/dev/null 2>&1
+  docker info >/dev/null 2>&1 || cleanup_status=1
+  if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+    docker rm -f "$CONTAINER" >/dev/null 2>&1 || cleanup_status=1
+  fi
+  for owned_volume in "$VOLUME" "$RESTORE_VOLUME"; do
+    if docker volume inspect "$owned_volume" >/dev/null 2>&1; then
+      docker volume rm "$owned_volume" >/dev/null 2>&1 || cleanup_status=1
+    fi
+  done
+  rm -rf "$STATE_ROOT" "$RESTORE_STATE_ROOT" || cleanup_status=1
+  printf 'upgrade_command_exit=%s upgrade_cleanup_exit=%s\n' "$status" "$cleanup_status"
+  trap - EXIT
+  if [[ "$status" -ne 0 ]]; then exit "$status"; fi
+  exit "$cleanup_status"
 }
 trap cleanup EXIT
-cleanup
 
 ENC_SECRET="$(openssl rand -base64 32)"
 ENC_SALT="$(openssl rand -base64 32)"
 
 start_container() {
   local image="$1"
+  local volume="${2:-$VOLUME}"
   docker run -d \
     --name "${CONTAINER}" \
-    -p "${PORT}:3000" \
-    -v "${VOLUME}:/app/data" \
+    -p "127.0.0.1:${PORT}:3000" \
+    -v "${volume}:/app/data" \
     -e EZCORP_ENCRYPTION_SECRET="${ENC_SECRET}" \
     -e EZCORP_ENCRYPTION_SALT="${ENC_SALT}" \
     -e EZCORP_CHECK_UPDATES=false \
@@ -77,31 +97,113 @@ wait_ready() {
     if (( $(date +%s) > deadline )); then
       echo "--- last 30 lines of container logs:" >&2
       docker logs --tail 30 "${CONTAINER}" >&2 || true
-      die "readiness never reached 200 (last code=${code})"
+      echo "readiness never reached 200 (last code=${code})" >&2
+      return 1
     fi
     sleep 1
   done
 }
 
 volume_entries() {
-  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" alpine ls /d/ezcorp 2>/dev/null | wc -l | tr -d '[:space:]'
+  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest ls /d/ezcorp 2>/dev/null | wc -l | tr -d '[:space:]'
 }
 
 snapshot_count() {
-  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" alpine \
+  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
     sh -c 'ls -1 /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0' | tr -d '[:space:]'
 }
 
-section "Build image A (VERSION=${VERSION_A}, REVISION=${REVISION_A:0:12})"
-docker build \
-  --build-arg VERSION="${VERSION_A}" \
-  --build-arg REVISION="${REVISION_A}" \
-  --build-arg CREATED="${CREATED}" \
-  -t "${IMAGE_A}" . >/tmp/ezcorp-upgrade-a.log 2>&1 || {
-    tail -30 /tmp/ezcorp-upgrade-a.log >&2
-    die "build A failed (log: /tmp/ezcorp-upgrade-a.log)"
-  }
-pass "Image A built"
+[[ "$PREVIOUS_SOURCE" =~ ^[0-9a-f]{40}$ ]] || die "Previous source must be a full immutable commit"
+if ! git cat-file -e "${PREVIOUS_SOURCE}^{commit}" 2>/dev/null; then
+  git fetch --no-tags origin "$PREVIOUS_SOURCE" || die "Cannot fetch the pinned previous source"
+fi
+git cat-file -e "${PREVIOUS_SOURCE}^{commit}" || die "Previous source is not a committed tree: ${PREVIOUS_SOURCE}"
+[[ "$PREVIOUS_SOURCE" != "$SOURCE_B" ]] || die "Previous and candidate source are identical"
+if ! docker image inspect "$IMAGE_A" >/dev/null 2>&1; then
+  section "Build missing historical image from ${PREVIOUS_SOURCE}"
+  previous_version="$(git show "$PREVIOUS_SOURCE:package.json" | jq -er .version)"
+  previous_created="$(git show -s --format=%cI "$PREVIOUS_SOURCE")"
+  git archive "$PREVIOUS_SOURCE" | docker build --load \
+    --build-arg VERSION="$previous_version" --build-arg REVISION="$PREVIOUS_SOURCE" \
+    --build-arg CREATED="$previous_created" -t "$IMAGE_A" - \
+    >"/tmp/ezcorp-upgrade-${RUN_ID}-previous-build.log" 2>&1 || die "Historical build failed: /tmp/ezcorp-upgrade-${RUN_ID}-previous-build.log"
+fi
+IMAGE_A_SOURCE="$(docker image inspect "$IMAGE_A" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+IMAGE_A_ID="$(docker image inspect "$IMAGE_A" --format '{{.Id}}' | sed 's/^sha256://')"
+if [[ -n "$IMAGE_A_SOURCE" && "$IMAGE_A_SOURCE" != "<no value>" && "$IMAGE_A_SOURCE" != "unknown" ]]; then
+  [[ "$IMAGE_A_SOURCE" == "$PREVIOUS_SOURCE" ]] || die "Previous image label provenance is $IMAGE_A_SOURCE, expected $PREVIOUS_SOURCE"
+else
+  # The retained audit image predates OCI revision labels. Its immutable image
+  # ID is recorded with source 3ec53e in the checked-in independent receipt.
+  [[ "$IMAGE_A_ID" == "$PREVIOUS_IMAGE_ID" ]] || die "Previous unlabelled image ID is $IMAGE_A_ID, expected $PREVIOUS_IMAGE_ID"
+fi
+
+if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" == "1" ]]; then
+  docker image inspect "$IMAGE_B" >/dev/null 2>&1 || die "Supplied candidate image is absent: $IMAGE_B"
+  section "Use supplied candidate image for semantic retry"
+else
+  section "Build candidate from committed source ${SOURCE_B:0:12}"
+  git archive "$SOURCE_B" | docker build --load \
+    --build-arg VERSION="${VERSION_B}" \
+    --build-arg REVISION="${REVISION_B}" \
+    --build-arg CREATED="${CREATED}" \
+    -t "${IMAGE_B}" - >"/tmp/ezcorp-upgrade-${RUN_ID}-candidate-build.log" 2>&1 || {
+      tail -30 "/tmp/ezcorp-upgrade-${RUN_ID}-candidate-build.log" >&2
+      die "candidate build failed (log: /tmp/ezcorp-upgrade-${RUN_ID}-candidate-build.log)"
+    }
+fi
+IMAGE_B_SOURCE="$(docker image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$IMAGE_B_SOURCE" =~ ^[0-9a-f]{40}$ ]] || die "Candidate image needs an immutable source label"
+expected_source="${VERIFY_UPGRADE_CANDIDATE_SOURCE:-$IMAGE_B_SOURCE}"
+if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" != 1 ]]; then expected_source="$SOURCE_B"; fi
+[[ "$IMAGE_B_SOURCE" == "$expected_source" ]] || die "Candidate source $IMAGE_B_SOURCE differs from expected $expected_source"
+[[ "$IMAGE_B_SOURCE" != "$PREVIOUS_SOURCE" ]] || die "Previous and candidate image sources are identical"
+B_SHA=$(docker image inspect "$IMAGE_B" --format '{{json .Config.Env}}' \
+  | jq -r '.[] | select(startswith("EZCORP_IMAGE_SHA=")) | split("=")[1]')
+[[ "$B_SHA" == "$IMAGE_B_SOURCE" ]] || die "Candidate source label and runtime source differ"
+if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" == 1 ]]; then
+  VERSION_B="$(docker image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+  [[ -n "$VERSION_B" && "$VERSION_B" != '<no value>' && "$VERSION_B" != unknown ]] || die "Candidate image needs a version label"
+fi
+pass "Previous image source=$PREVIOUS_SOURCE; candidate image source=$IMAGE_B_SOURCE; driver source=$SOURCE_B"
+
+run_lifecycle_state() {
+  local image="$1" mode="$2" state_root="$3" port="$4" project="${5}-${RUN_ID}" receipt status
+  receipt="$(mktemp -d /tmp/ezcorp-upgrade-receipt-XXXXXXXX)"
+  set +e
+  EZ_PRODUCTION_IMAGE="$image" \
+  EZ_PRODUCTION_RECEIPT_DIR="$receipt" \
+  EZ_PRODUCTION_STATE_DIR="$state_root" \
+  EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_COMPOSE_PROJECT="$project" \
+  EZ_PRODUCTION_APP_CONTAINER="${project}-app" EZ_PRODUCTION_APP_UID="${EZ_UPGRADE_APP_UID:-0}" EZ_PRODUCTION_APP_GID="${EZ_UPGRADE_APP_GID:-0}" \
+  bash scripts/verify-production-image-lifecycle.sh -- \
+    env EZ_UPGRADE_MODE="$mode" EZ_UPGRADE_STATE_FILE="$STATE_FILE" bun scripts/verify-docker-upgrade-state.ts
+  status=$?
+  set -e
+  [[ "$status" -eq 0 ]] || return "$status"
+  grep -qx 'command_exit=0' "$receipt/command.log" || die "Semantic ${mode} command did not complete successfully: $receipt/command.log"
+  grep -qx 'owned_cleanup_exit=0' "$receipt/command.log" || die "Semantic ${mode} cleanup did not complete successfully: $receipt/command.log"
+}
+
+section "Semantic lifecycle seed on the previous image"
+run_lifecycle_state "$IMAGE_A" seed "$STATE_ROOT" 13004 ezcorp-upgrade-semantic-old
+[[ -s "$STATE_FILE" ]] || die "Previous image did not persist lifecycle sentinel"
+pass "Previous image created user-owned extension, exact human approval, conversation and tool sentinel"
+
+section "Semantic lifecycle upgrade to the candidate"
+tar -C "$STATE_ROOT" --exclude=socket -cf - . | tar -C "$RESTORE_STATE_ROOT" -xf -
+run_lifecycle_state "$IMAGE_B" assert "$STATE_ROOT" 13005 ezcorp-upgrade-semantic-candidate
+pass "Candidate preserved exact installation, active release, human approval, conversation and tool sentinel"
+
+section "Semantic backup restore into a separate owned candidate instance"
+run_lifecycle_state "$IMAGE_B" assert "$RESTORE_STATE_ROOT" 13006 ezcorp-upgrade-semantic-restore
+pass "Separate restored instance preserved the same lifecycle sentinel"
+
+if [[ "${VERIFY_UPGRADE_SEMANTIC_ONLY:-0}" == "1" ]]; then
+  echo
+  echo "${BOLD}${GREEN}UPGRADE SEMANTIC STATE VERIFIED${RESET} — supplied candidate preserved exact owner, release, approval, link, and stored output."
+  exit 0
+fi
 
 section "Phase 1: Start container A"
 start_container "${IMAGE_A}"
@@ -109,34 +211,18 @@ wait_ready 60
 pass "A booted, /api/ready=200"
 
 VER_A_RESP=$(curl -sS "http://localhost:${PORT}/api/version")
-[[ "$(echo "${VER_A_RESP}" | jq -r .current)" == "${VERSION_A}" ]] \
-  || die "Container A reporting wrong version: $(echo "${VER_A_RESP}" | jq -r .current)"
-pass "/api/version reports current=${VERSION_A}"
+[[ "$(echo "${VER_A_RESP}" | jq -r .current)" != "null" ]] \
+  || die "Container A did not report its running version"
+pass "/api/version reports a previous-image version"
 
 ENTRIES_A="$(volume_entries)"
 SNAPS_A="$(snapshot_count)"
 (( ENTRIES_A > 0 )) || die "DB empty after A boot"
 pass "A populated volume: ${ENTRIES_A} DB entries, ${SNAPS_A} pre-boot snapshot(s)"
 
-section "Phase 2: Stop A, build image B (different VERSION + REVISION)"
+section "Phase 2: Stop the previous image"
 docker stop "${CONTAINER}" >/dev/null
 docker rm "${CONTAINER}" >/dev/null
-
-docker build \
-  --build-arg VERSION="${VERSION_B}" \
-  --build-arg REVISION="${REVISION_B}" \
-  --build-arg CREATED="${CREATED}" \
-  -t "${IMAGE_B}" . >/tmp/ezcorp-upgrade-b.log 2>&1 || {
-    tail -30 /tmp/ezcorp-upgrade-b.log >&2
-    die "build B failed (log: /tmp/ezcorp-upgrade-b.log)"
-  }
-# Confirm B really has a different SHA baked in (otherwise buildx may have
-# reused A's layers with the same ENV cache, defeating the test).
-B_SHA=$(docker inspect "${IMAGE_B}" --format '{{json .Config.Env}}' \
-  | jq -r '.[] | select(startswith("EZCORP_IMAGE_SHA=")) | split("=")[1]')
-[[ "${B_SHA}" == "${REVISION_B}" ]] \
-  || die "Image B has wrong EZCORP_IMAGE_SHA: ${B_SHA} (expected ${REVISION_B})"
-pass "Image B built with distinct SHA baked in"
 
 section "Phase 3: Upgrade — start B against A's volume"
 start_container "${IMAGE_B}"
@@ -145,7 +231,7 @@ pass "B booted against A's data, /api/ready=200"
 
 VER_B_RESP=$(curl -sS "http://localhost:${PORT}/api/version")
 [[ "$(echo "${VER_B_RESP}" | jq -r .current)" == "${VERSION_B}" ]] \
-  || die "After upgrade, /api/version still reports ${VERSION_A}: $(echo "${VER_B_RESP}" | jq -r .current)"
+  || die "After upgrade, /api/version reports $(echo "${VER_B_RESP}" | jq -r .current), expected ${VERSION_B}"
 pass "/api/version now reports ${VERSION_B} (upgrade surfaced to the user)"
 
 READY_B=$(curl -sS "http://localhost:${PORT}/api/ready")
@@ -165,13 +251,26 @@ SNAPS_B="$(snapshot_count)"
 pass "B boot took a fresh pre-boot snapshot (${SNAPS_A} → ${SNAPS_B})"
 
 # Confirm no migration-failed marker lingers from either A or B.
-MARKER_EXISTS=$(docker run --rm --user 1000:1000 -v "${VOLUME}:/d" alpine \
+MARKER_EXISTS=$(docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
   sh -c 'test -f /d/.migration-failed && echo yes || echo no')
 [[ "${MARKER_EXISTS}" == "no" ]] \
   || die "Stale .migration-failed marker present after clean upgrade"
 pass "No stale circuit-breaker marker after upgrade"
 
-section "Phase 4: Downgrade B → A (documentation of behavior)"
+section "Phase 4: Restore a stopped candidate backup into a separate owned volume"
+docker stop "$CONTAINER" >/dev/null
+docker volume create "$RESTORE_VOLUME" >/dev/null
+docker run --rm -v "$VOLUME:/from:ro" -v "$RESTORE_VOLUME:/to" docker.io/library/alpine:latest \
+  sh -c 'cd /from && tar cf - . | tar xf - -C /to'
+docker rm "$CONTAINER" >/dev/null
+start_container "$IMAGE_B" "$RESTORE_VOLUME"
+wait_ready 60
+RESTORE_READY=$(curl -sS "http://localhost:${PORT}/api/ready")
+[[ "$(echo "$RESTORE_READY" | jq -r .state)" == "ready" ]] || die "Restored candidate is not ready: $RESTORE_READY"
+[[ "$(curl -sS "http://localhost:${PORT}/api/version" | jq -r .current)" == "$VERSION_B" ]] || die "Restored instance reports the wrong candidate version"
+pass "Backup restored into a separate owned candidate instance and reached ready"
+
+section "Phase 5: Downgrade B → A (documentation of behavior)"
 docker stop "${CONTAINER}" >/dev/null
 docker rm "${CONTAINER}" >/dev/null
 
@@ -185,7 +284,7 @@ if wait_ready 60 2>/dev/null; then
   echo "    CREATE IF NOT EXISTS DDL. A future major release with destructive"
   echo "    migrations would break downgrade. Pin your tag for real deployments."
 else
-  pass "Downgrade failed gracefully (migration forward-only for this version pair)"
+  echo "Downgrade did not reach readiness for this image pair. Forward upgrade and restore passed."
 fi
 
 echo

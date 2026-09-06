@@ -107,8 +107,27 @@ jobs:
       - name: Verify Docker rollback flow (circuit breaker + recovery)
         run: bash scripts/verify-docker-rollback.sh
 
+      - name: Set up the isolated extension runner for production replay
+        run: bash scripts/setup-extension-runner-ci.sh --install
+
       - name: Verify Docker two-image upgrade (data + snapshot preservation)
-        run: bash scripts/verify-docker-upgrade.sh
+        env:
+          VERIFY_UPGRADE_CANDIDATE_IMAGE: ezcorp:verify
+          VERIFY_UPGRADE_SKIP_BUILD: "1"
+          VERIFY_UPGRADE_CANDIDATE_SOURCE: ${{ github.sha }}
+        run: EZ_UPGRADE_APP_UID=$(id -u) EZ_UPGRADE_APP_GID=$(id -g) bash scripts/verify-docker-upgrade.sh
+
+      - name: Verify all File Organizer cases against the candidate image
+        run: EZ_RUNTIME_APP_UID=$(id -u) EZ_RUNTIME_APP_GID=$(id -g) EZ_RUNTIME_RUNNER_APP_UID=$(id -u) EZ_RUNTIME_IMAGE=ezcorp:verify EZ_RUNTIME_RECEIPT_DIR=.cache/release-file-organizer bash docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
+
+      - name: Upload production File Organizer receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-file-organizer-receipt
+          path: .cache/release-file-organizer/
+          retention-days: 7
+          if-no-files-found: ignore
 
       # ── Publish ────────────────────────────────────────────────────────
 

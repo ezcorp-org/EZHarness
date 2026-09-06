@@ -145,8 +145,8 @@ jobs:
           playwright: "true"
       - run: bash scripts/test-web.sh
 
-  e2e-mock:
-    name: E2E (mock, no Docker)
+  e2e-mock-run:
+    name: E2E mock lane
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -185,6 +185,92 @@ jobs:
           path: web/test-results/
           retention-days: 3
           if-no-files-found: ignore
+
+  # This is the production-image counterpart to the mock File Organizer
+  # coverage above. It is intentionally a separate job so the mock lane starts
+  # in parallel. The aggregate retaining the protected E2E context below makes
+  # this result a branch-protection dependency.
+  production-image-file-organizer:
+    name: Production image File Organizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          playwright: "true"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Build exact candidate image
+        run: docker build --load --build-arg VERSION=ci-${GITHUB_SHA::12} --build-arg REVISION=${GITHUB_SHA} --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t ezcorp:ci-production .
+      - name: Load candidate image into the extension runner store
+        run: docker save ezcorp:ci-production | podman load
+      - name: Verify Stage 2 kernel journal access
+        run: journalctl -k --no-pager -n 1 -o json | jq -e '.__CURSOR | strings | length > 0'
+      - name: Run Stage 2 real namespace proof against the candidate image
+        env:
+          EZCORP_STAGE2_PROOF: "1"
+          EZCORP_STAGE2_PROOF_IMAGE: ezcorp:ci-production
+        run: bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts
+      - name: Run all File Organizer production cases
+        run: EZ_RUNTIME_APP_UID=$(id -u) EZ_RUNTIME_APP_GID=$(id -g) EZ_RUNTIME_RUNNER_APP_UID=$(id -u) EZ_RUNTIME_IMAGE=ezcorp:ci-production EZ_RUNTIME_RECEIPT_DIR=.cache/production-file-organizer bash docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: production-image-file-organizer
+          path: .cache/production-file-organizer/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Existing protected context. It stays green only if the parallel mock lane
+  # and the candidate-image File Organizer replay both succeed.
+  e2e-mock:
+    name: E2E (mock, no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [e2e-mock-run, production-image-file-organizer, extension-browser-engines]
+    if: always()
+    steps:
+      - name: Aggregate mock and candidate-image E2E results
+        run: |
+          echo "mock=${{ needs.e2e-mock-run.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
+          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
+            echo "::error::Mock E2E, production-image verification, or extension browser engine validation failed."
+            exit 1
+          fi
+
+  extension-browser-engines:
+    name: Extension lifecycle (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Install the selected browser and its system dependencies
+        run: cd web && bunx playwright install --with-deps ${{ matrix.browser }}
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Verify actual extension lifecycle, stale tabs, and build recovery
+        env:
+          PI_E2E_REAL: "1"
+          PI_E2E_REAL_BROWSER_PROJECTS: ${{ matrix.browser }}
+          EZCORP_E2E_EVIDENCE: "1"
+        run: cd web && bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: extension-lifecycle-${{ matrix.browser }}
+          path: |
+            web/test-results/
+            web/blob-report/
+          retention-days: 3
+          if-no-files-found: error
 
   # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
   # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
