@@ -2,11 +2,10 @@
  * A browser-owned extension lifecycle.
  *
  * The only test-surface call creates a deterministic owner conversation. Every
- * lifecycle transition is clicked in a human session. The production
- * conversation-wiring endpoint is used once because the product currently
- * has no visible "attach to this conversation" control; the following
- * composer action and scoped-tool selection are both browser UI actions.
+ * lifecycle transition, conversation add, invocation, and tool selection uses
+ * a human browser session.
  */
+import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
 import {
@@ -18,6 +17,17 @@ import {
 
 function echoSource(prefix: string): string {
   return `export function echo(input: Record<string, unknown>) { return { text: ${JSON.stringify(prefix)} + input.text }; }\n`;
+}
+
+async function waitForVisibleBuild(page: Page): Promise<void> {
+  await expect.poll(async () => {
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    return (await page.locator(".operation strong").allTextContents())[0] ?? "";
+  }, {
+    timeout: 240_000,
+    intervals: [1_000],
+    message: "The browser-visible candidate build must finish after Refresh status.",
+  }).toBe("verified");
 }
 
 test("human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -61,7 +71,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await page.getByRole("button", { name: "Save revision", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Saved revision");
     await page.getByRole("button", { name: "Save and build", exact: true }).click();
-    await expect(page.locator(".operation strong").filter({ hasText: "verified" })).toBeVisible({ timeout: 240_000 });
+    await waitForVisibleBuild(page);
 
     // A human sees the review screen, acknowledges the exact release, then
     // explicitly activates it. No API key can perform this approval.
