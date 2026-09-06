@@ -191,9 +191,12 @@ jobs:
   # in parallel. The aggregate retaining the protected E2E context below makes
   # this result a branch-protection dependency.
   production-image-file-organizer:
-    name: Production image File Organizer
+    name: Production image extension lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # R1 uses two real build-lease windows (~7 minutes). The remaining
+    # candidate-image replays, historical upgrade, and artifact upload need
+    # their own bounded time, so this is deliberately not a smoke-test limit.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -212,13 +215,20 @@ jobs:
           EZCORP_STAGE2_PROOF: "1"
           EZCORP_STAGE2_PROOF_IMAGE: ezcorp:ci-production
         run: bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts
-      - name: Run all File Organizer production cases
-        run: EZ_RUNTIME_APP_UID=$(id -u) EZ_RUNTIME_APP_GID=$(id -g) EZ_RUNTIME_RUNNER_APP_UID=$(id -u) EZ_RUNTIME_IMAGE=ezcorp:ci-production EZ_RUNTIME_RECEIPT_DIR=.cache/production-file-organizer bash docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh
+      - name: Run all required candidate-image production proofs
+        shell: bash
+        run: |
+          EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+            EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \
+            EZ_SHIPPING_APP_UID="$(id -u)" EZ_SHIPPING_APP_GID="$(id -g)" \
+            EZ_SHIPPING_RUNNER_APP_UID=1001 \
+            VERIFY_UPGRADE_CANDIDATE_SOURCE="$GITHUB_SHA" \
+            bash scripts/verify-shipping-production-suite.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: production-image-file-organizer
-          path: .cache/production-file-organizer/
+          name: production-image-lifecycle
+          path: .cache/production-lifecycle/
           retention-days: 3
           if-no-files-found: ignore
 
