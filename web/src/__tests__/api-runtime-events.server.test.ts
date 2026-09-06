@@ -72,6 +72,18 @@ function makeEvent(opts: {
   });
 }
 
+function attachBunPlatform(event: ReturnType<typeof makeEvent>) {
+  const timeout = vi.fn();
+  const originalRequest = new Request(event.request.url);
+  event.platform = { server: { timeout }, request: originalRequest };
+  return { timeout, originalRequest };
+}
+
+async function expectDeniedWithoutTimeout(event: ReturnType<typeof makeEvent>, status: 401 | 403) {
+  if (status === 401) await expectThrown(() => GET(event), status);
+  else expect((await GET(event)).status).toBe(status);
+}
+
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 
 describe("GET /api/runtime-events", () => {
@@ -95,27 +107,29 @@ describe("GET /api/runtime-events", () => {
     // would otherwise buffer SSE frames until a block boundary. Pair it
     // with `no-transform` so caching proxies don't override.
     expect(res.headers.get("content-encoding")).toBe("identity");
-    // Stream's start/cancel lifecycle is exercised in integration tests;
-    // the bus is fully mocked here so no cleanup is needed.
+    // The bus is fully mocked here, but close the body to clear its heartbeat.
     expect(res.body).toBeInstanceOf(ReadableStream);
+    await res.body!.cancel();
   });
 
   test("disables Bun's idle timeout only for an authorized SSE stream", async () => {
     const event = makeEvent({ locals: authedUser });
-    const timeout = vi.fn();
-    event.platform = { server: { timeout }, request: event.request } as never;
+    const { timeout, originalRequest } = attachBunPlatform(event);
 
     const res = await GET(event);
-    expect(timeout).toHaveBeenCalledWith(event.request, 0);
+    expect(originalRequest).not.toBe(event.request);
+    expect(timeout).toHaveBeenCalledWith(originalRequest, 0);
     await res.body!.cancel();
   });
 
-  test("does not alter Bun's timeout before the authentication gate", async () => {
-    const event = makeEvent({});
-    const timeout = vi.fn();
-    event.platform = { server: { timeout }, request: event.request } as never;
+  test.each([
+    { name: "authentication", locals: {}, status: 401 as const },
+    { name: "read scope", locals: { ...authedUser, apiKeyScopes: ["chat"] }, status: 403 as const },
+  ])("does not alter Bun's timeout before the $name gate", async ({ locals, status }) => {
+    const event = makeEvent({ locals });
+    const { timeout } = attachBunPlatform(event);
 
-    await expectThrown(() => GET(event), 401);
+    await expectDeniedWithoutTimeout(event, status);
     expect(timeout).not.toHaveBeenCalled();
   });
 
