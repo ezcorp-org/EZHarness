@@ -30,6 +30,14 @@ async function waitForVisibleBuild(page: Page): Promise<void> {
   }).toBe("verified");
 }
 
+async function expectInlineToolOutput(page: Page, name: string, output: string): Promise<void> {
+  const completedCall = page.getByRole("button", { name: new RegExp(`${name} > echo --`) });
+  await expect(completedCall).toBeVisible({ timeout: 90_000 });
+  await completedCall.click();
+  await expect(completedCall).toHaveAttribute("aria-expanded", "true");
+  await expect(threadMessages(page).getByText(output, { exact: false })).toBeVisible();
+}
+
 test("human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(360_000);
   const pageErrors: string[] = [];
@@ -125,7 +133,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(threadMessages(page).getByText("Mention wiring complete.", { exact: true })).toBeVisible({ timeout: 30_000 });
 
     await invokeExtensionToolFromComposer(page, name, { text: expected });
-    await expect(threadMessages(page).getByText(`UI lifecycle: ${expected}`, { exact: false })).toBeVisible({ timeout: 90_000 });
+    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}`);
     await captureEvidence(page, testInfo, "extension-lifecycle-live-output", { fullPage: true });
 
     // This visible control is a persisted per-conversation tool selection,
@@ -176,7 +184,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: `${expected}-reenabled` });
-    await expect(threadMessages(page).getByText(`UI lifecycle: ${expected}-reenabled`, { exact: false })).toBeVisible({ timeout: 90_000 });
+    await expectInlineToolOutput(page, name, `UI lifecycle: ${expected}-reenabled`);
 
     await page.goto("/extensions");
     await card.getByTestId("ext-card-uninstall").click();
