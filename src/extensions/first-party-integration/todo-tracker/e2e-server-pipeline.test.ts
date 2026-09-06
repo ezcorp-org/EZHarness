@@ -134,6 +134,23 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     expect(first.text).not.toContain("low-priority chore");
   }, 30_000);
 
+  test("searchQuery filters seeded markers through JSON-RPC args end-to-end", async () => {
+    writeFileSync(
+      join(cwd, "search.ts"),
+      "// TODO: needle only result\n// FIXME: unrelated result\n",
+    );
+    const proc = makeProc();
+    procs.push(proc);
+
+    const result = await proc.callTool("scan-todos", { searchQuery: "NEEDLE" });
+    expect(result.isError).toBe(false);
+    const first = result.content[0];
+    if (first?.type !== "text") throw new Error("expected text content");
+    expect(first.text).toContain("needle only result");
+    expect(first.text).not.toContain("unrelated result");
+    expect(proc.isRunning).toBe(true);
+  }, 30_000);
+
   test("root filesystem denial returns an error without project data, then the same process recovers", async () => {
     writeFileSync(join(cwd, "secret.ts"), "// TODO: must-not-cross-denied-boundary\n");
     const extId = "todo-tracker-denial-" + Math.random().toString(36).slice(2, 8);

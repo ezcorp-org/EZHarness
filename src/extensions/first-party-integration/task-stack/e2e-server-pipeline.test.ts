@@ -217,4 +217,34 @@ describe("E2E: task-stack real ExtensionProcess (server pipeline)", () => {
     expect(found).toBeDefined();
     expect(found?.title).toBe("persisted");
   }, 30_000);
+
+  test("start-task → get-active-task → finish-task lifecycle through one real process", async () => {
+    const proc = makeProc();
+    procs.push(proc);
+    const callAndParse = async (name: string, input: Record<string, unknown>) => {
+      const result = await proc.callTool(name, input);
+      expect(result.isError).toBe(false);
+      const first = result.content[0];
+      if (first?.type !== "text") throw new Error("expected text content");
+      return JSON.parse(first.text) as Record<string, unknown> | null;
+    };
+
+    const added = await callAndParse("add-task", { title: "lifecycle-task" });
+    if (!added || typeof added.id !== "string") throw new Error("expected added task id");
+    const started = await callAndParse("start-task", { taskId: added.id });
+    expect(started).toMatchObject({ id: added.id, status: "active" });
+    const active = await callAndParse("get-active-task", {});
+    expect(active).toMatchObject({ id: added.id, status: "active" });
+    const finished = await callAndParse("finish-task", {
+      taskId: added.id,
+      summary: "verified through RPC",
+    });
+    expect(finished).toMatchObject({
+      id: added.id,
+      status: "completed",
+      completionSummary: "verified through RPC",
+    });
+    expect(await callAndParse("get-active-task", {})).toBeNull();
+    expect(proc.isRunning).toBe(true);
+  }, 30_000);
 });
