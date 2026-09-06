@@ -3,7 +3,8 @@
 Validation date: 2026-09-05–06 UTC
 
 - Base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`
-- Production source: `939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c` (`5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83`)
+- Production compiler source: `939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c` (`5c12b4fe6e5f1f4bcc88aeaa15ed003ece1e5d83`)
+- Exact image source: `3ec53eaa66409a39d66b502f79d74139ec94dcf2` (`2ccafce2b65a9af89482e85e7168a5f01980051a`)
 - Final validation revision: `37593411323ba33faf4563413b9e673c865052f7` (`b7c570a262e25559a2739cfecf52efbf4541e50e`)
 - Pinned tools: Bun 1.3.14, Node 22.22.2 for V8 coverage, Podman 5.8.2, conmon 2.2.1
 
@@ -33,17 +34,9 @@ The production verifier passed all eight checks: production boot, file credentia
 
 ## Conditional tests and omissions
 
-The curated archive includes `maps/final-host-actual-skips.tsv`, which records 75 actual host skips in 23 files. Main groups are PostgreSQL (11), external AI-kit E2E (16), task-stack SDK (5), todo SDK (5), landlock (1), marketplace isolation (1), MCP network/stage-2/seccomp conditions (17), Docker preview (7), and live price calls (4).
+The corrected inventory is in `non-browser-conditionals.md`. It lists every named row, exact source gate, disposition, missing input, and typecheck exclusion. The immutable archive contains 98 matching lines: 75 named `(skip)` tests and 23 repeated aggregate summaries. No separate skipped hooks appear in that output.
 
-Replacement runs close the locally available conditions:
-
-- SDK rootless MCP opt-in: 7/7 pass.
-- Marketplace release isolation opt-in: 1 test and 5 assertions pass.
-- Final-image seccomp effect: declared and undeclared syscall behavior verified in the production envelope.
-- Final production File Organizer flow: 12/12 pass without an app restart.
-- Browser real-auth flow: 54/54 pass; exact selected helper mock 42/42 and real 7/7.
-
-PostgreSQL cases require a configured PostgreSQL service and are covered by the separate lifecycle owner. External AI provider tests require credentials or external service access. Source-only conditional matches that did not appear as actual runner skips are not counted as passes or skips.
+The 75 tests are: PostgreSQL migration 11, disabled SDK integration 10, AI-kit live E2E 22, price live E2E 4, preview Docker 7, MCP/network/seccomp 19, Landlock 1, and marketplace isolation 1. Separate receipts close marketplace isolation and the final-image seccomp effect only. They do not substitute for PostgreSQL migration, preview UID, dynamic preview, or external provider assertions.
 
 ## Evidence
 
