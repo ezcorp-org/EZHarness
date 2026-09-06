@@ -757,6 +757,10 @@ describe("flag on — fully capable host spawns normally", () => {
       const wrapped = spec as McpServerStdio;
 
       expect(wrapped.command).toBe("unshare");
+      // Stage 2 owns a private network namespace. The veth peer moves into
+      // this namespace after spawn, so the child retains CAP_NET_ADMIN to
+      // configure its own interface. Stage 1 deliberately has no -n.
+      expect(wrapped.args).toContain("-n");
       expect(wrapped.env?.EZCORP_MCP_BWRAP_ENABLED).toBe("1");
       expect(wrapped.env?.EZCORP_MCP_BWRAP_SECCOMP_FD).toBe("3");
       expect(wrapped.env?.EZCORP_MCP_STAGE2_VETH_ENABLED).toBe("1");

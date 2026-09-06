@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # Phase 7 — MCP namespace launcher.
 #
 # Spawned by `mcp-sandbox.ts` via:
@@ -79,7 +79,10 @@ if [ "${EZCORP_MCP_STAGE2_VETH_ENABLED:-0}" = "1" ]; then
   # Default route via the bridge gateway (10.42.0.1 in default subnet).
   # EZCORP_MCP_PROXY_HOST_GATEWAY is "10.42.0.1:NNNN" — strip port suffix
   # with shell parameter expansion `${var%:*}`.
-  ip route add default via "${EZCORP_MCP_PROXY_HOST_GATEWAY%:*}"
+  # The bridge gateway has its own /24 while each MCP gets a /30 address.
+  # Mark the route on-link so the kernel accepts that deliberately routed
+  # topology instead of rejecting the gateway as outside the MCP /30.
+  ip route add default via "${EZCORP_MCP_PROXY_HOST_GATEWAY%:*}" dev eth0 onlink
 
   # IPv6 surgical disable per-iface (Pitfall 4 — namespace-scoped).
   # eth0 = renamed veth peer. lo = namespace loopback. Both required.
@@ -93,11 +96,11 @@ if [ "${EZCORP_MCP_STAGE2_VETH_ENABLED:-0}" = "1" ]; then
   # Plan 02 used `|| true` transitionally; this is the contract-enforce
   # rewrite. The exit codes (96/97) discriminate which sysctl failed
   # so operators reading container logs see the precise failure.
-  sysctl -w "net.ipv6.conf.eth0.disable_ipv6=1" >/dev/null || {
+  printf '1\n' > /proc/sys/net/ipv6/conf/eth0/disable_ipv6 || {
     echo "stage2: IPv6 disable on eth0 failed; aborting (RC#3 contract)" >&2
     exit 97
   }
-  sysctl -w "net.ipv6.conf.lo.disable_ipv6=1" >/dev/null || {
+  printf '1\n' > /proc/sys/net/ipv6/conf/lo/disable_ipv6 || {
     echo "stage2: IPv6 disable on lo failed; aborting (RC#3 contract)" >&2
     exit 96
   }
