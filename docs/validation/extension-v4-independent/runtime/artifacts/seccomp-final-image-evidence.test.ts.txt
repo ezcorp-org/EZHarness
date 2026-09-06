@@ -203,6 +203,7 @@ test.skipIf(SHOULD_SKIP)(
       // list and receives the default ENOSYS action.
       expect(stderr).toMatch(/probe-getpid: r=[1-9]\d* errno=0\b/);
       expect(stderr).toMatch(/probe-io_uring_setup: r=-1 errno=38\b/);
+      console.log(`PROBE_EFFECT=${JSON.stringify(stderr.trim())}`);
     } finally {
       if (seccompFd !== null) closeSync(seccompFd);
       if (proc?.exitCode === null) {
