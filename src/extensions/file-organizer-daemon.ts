@@ -237,6 +237,10 @@ export class FileOrganizerDaemon {
       const res = await replayJournal(this.journalPath, {
         roots: await this.replayAnchors(),
         dataDirRoot: this.opts.dataDir,
+        engine: this.opts.engine,
+        extensionId: this.opts.extensionId,
+        userId: null,
+        conversationId: null,
       });
       if (res.finished + res.rolledBack + res.refused > 0) {
         log.info("file-organizer journal replayed", res);
