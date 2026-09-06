@@ -23,6 +23,7 @@ import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases
 import { up as createReleaseTables } from "../../db/migrations/add-extension-releases";
 import { createStubPermissionEngine } from "./permission-engine-stub";
 import type { JsonRpcRequest, JsonRpcResponse } from "../../extensions/types";
+import type { ResolveHost } from "../../search/egress";
 
 export async function seedFirstPartyGit(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true });
@@ -54,7 +55,7 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
     return {
       async close() { await runner.close(); await rm(root, { recursive: true, force: true }); },
       manifest,
-      async session(options: { projectRoot?: string; settings?: Record<string, unknown>; denyNetwork?: boolean | (() => boolean); networkHosts?: string[]; fetchImpl?: typeof fetch; credential?: string; persistRelease?: boolean; handler?: (request: JsonRpcRequest) => Promise<JsonRpcResponse | undefined> } = {}) {
+      async session(options: { projectRoot?: string; settings?: Record<string, unknown>; denyNetwork?: boolean | (() => boolean); networkHosts?: string[]; fetchImpl?: typeof fetch; resolveHost?: ResolveHost; credential?: string; persistRelease?: boolean; handler?: (request: JsonRpcRequest) => Promise<JsonRpcResponse | undefined> } = {}) {
         const database = getTestDb();
         const directory = options.projectRoot ?? await mkdtemp(join(tmpdir(), "first-party-project-"));
         const data = join(directory, ".ezcorp", "extension-data", name);
@@ -96,7 +97,7 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
           if (request.method === "ezcorp/storage") return handleStorageRpc(id, request, { conversationId: conversation!.id, userId: user!.id, manifest, grantedPermissions: grants, engine });
           if (request.method.startsWith("ezcorp/fs.")) return handleVirtualFilesystemRpc(request.method.slice("ezcorp/fs.".length) as VirtualFsOperation, request, { registry, engine, extensionId: id, conversationId: conversation!.id, userId: user!.id }, { roots: async () => ({ project: directory, data }) });
           if (request.method.startsWith("ezcorp/project.")) return handleProjectGit(deps, id, request);
-          if (request.method.startsWith("ezcorp/network.")) return handleNetworkBroker(deps, id, request, { resolveHost: async () => ["1.1.1.1"], fetchImpl: options.fetchImpl ?? (async () => { throw new Error("Unexpected network access"); }) });
+          if (request.method.startsWith("ezcorp/network.")) return handleNetworkBroker(deps, id, request, { resolveHost: options.resolveHost ?? (async () => ["1.1.1.1"]), fetchImpl: options.fetchImpl ?? (async () => { throw new Error("Unexpected network access"); }) });
           if (request.method === "ezcorp/env.get") return options.credential ? handleCredentialBroker(deps, id, request, { resolveCredential: async () => options.credential! }) : { jsonrpc: "2.0", id: request.id, result: null };
           if (request.method === "ezcorp/invoke" && request.params?.tool === "runtime.settings.getMine") return { jsonrpc: "2.0", id: request.id, result: options.settings ?? {} };
           return { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: `Unexpected capability: ${request.method}` } };
