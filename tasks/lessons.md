@@ -25,3 +25,5 @@
 - Fully qualify every external Dockerfile image reference so unattended Podman builds cannot stop at a short-name prompt.
 - Prefix an explicit Bun test path with `./`; without it, Bun treats a nested path as a name filter and runs nothing.
 - Calculate the complete private Unix-socket path used by a subprocess. A test-owned socket root must stay short even when a coverage wrapper exports a nested `TMPDIR`.
+- A seccomp probe must use the production sandbox context and the expected filter file descriptor. Decode the compiled filter and inspect rule counts before inferring which syscall action caused a process exit.
+- In zsh, do not assign to the special `path` array. Use a task-specific variable name so commands remain available through `PATH`.
