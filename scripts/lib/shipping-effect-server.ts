@@ -91,6 +91,7 @@ export async function startShippingEffectServer(options: { port: number; ledgerP
       }
     },
   });
+  if (server.port === undefined) throw new Error("Owned callback did not bind a TCP port");
   return { port: server.port, async stop() { server.stop(true); } };
 }
 

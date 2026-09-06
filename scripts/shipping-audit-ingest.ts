@@ -1,5 +1,5 @@
 /** Ingest owned-VM seccomp records through the production soak reader. */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mock } from "bun:test";
 import { initDb, closeDb } from "../src/db/connection";
 
@@ -8,6 +8,7 @@ if (!logPath) throw new Error("usage: bun scripts/shipping-audit-ingest.ts <vm-l
 if (!process.env.EZCORP_DB_PATH || process.env.EZCORP_DB_PATH === ":memory:") {
   throw new Error("EZCORP_DB_PATH must name an owned on-disk test database");
 }
+if (existsSync(process.env.EZCORP_DB_PATH)) throw new Error("Audit proof requires a new database path; refusing to open existing state");
 const lines = readFileSync(logPath, "utf8").split("\n");
 const pid = lines.map((line) => /^VM_PROBE_PID=(\d+)$/.exec(line.trim())?.[1]).find(Boolean);
 if (!pid) throw new Error("VM probe PID missing from serial log");
@@ -23,7 +24,8 @@ if (exactRecords.length === 0) throw new Error(`no type=1326 record for VM probe
 // Import a query-string-isolated copy before registering the observer. The
 // parser then receives the mock for its canonical module specifier, while the
 // observer delegates every write to this real implementation.
-const auditQuery = await import("../src/db/queries/audit-log.ts?shipping-audit-real");
+const auditModule = "../src/db/queries/audit-log.ts?shipping-audit-real";
+const auditQuery = await import(auditModule) as typeof import("../src/db/queries/audit-log");
 const realInsertAuditEntry = auditQuery.insertAuditEntry;
 const listAuditForExtension = auditQuery.listAuditForExtension;
 
@@ -37,9 +39,8 @@ mock.module("../src/db/queries/audit-log", () => ({
     return write;
   },
 }));
-const { parseAndEmitSeccompViolations } = await import(
-  "../src/extensions/runtime/seccomp-soak-reader.ts?shipping-audit-observer"
-);
+const readerModule = "../src/extensions/runtime/seccomp-soak-reader.ts?shipping-audit-observer";
+const { parseAndEmitSeccompViolations } = await import(readerModule) as typeof import("../src/extensions/runtime/seccomp-soak-reader");
 async function awaitWritesFrom(start: number): Promise<void> {
   await Promise.all(pendingWrites.slice(start));
 }
@@ -48,12 +49,7 @@ try {
   const exactStart = pendingWrites.length;
   await parseAndEmitSeccompViolations(kernelLines, pid, context);
   await awaitWritesFrom(exactStart);
-  const deadline = Date.now() + 5_000;
-  let rows = await listAuditForExtension(extensionId);
-  while (rows.length === 0 && Date.now() < deadline) {
-    await Bun.sleep(25);
-    rows = await listAuditForExtension(extensionId);
-  }
+  const rows = await listAuditForExtension(extensionId);
   const actualRecords = rows.map((row) => {
     const metadata = row.metadata as { pid?: string; arch?: string; syscall?: number; code?: string } | null;
     return { action: row.action, pid: metadata?.pid, arch: metadata?.arch, syscall: metadata?.syscall, code: metadata?.code?.toLowerCase() };
