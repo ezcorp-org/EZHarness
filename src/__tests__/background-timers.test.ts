@@ -118,6 +118,14 @@ let lastFileOrgDaemonInstance: object | undefined;
 // Returns the installed+enabled file-organizer extension row by default so
 // the happy path constructs; re-pointable per-test (null = not installed).
 let fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+let fileOrgSettings = {
+  daemonEnabled: true,
+  defaultMode: "ask-everything",
+  quarantineTtlDays: 30,
+  quarantineCapGb: 5,
+  scanIntervalSec: 45,
+  stabilityTicks: 2,
+};
 
 // GithubProjectsDaemon stub instrumentation. Same capture-mock pattern as the
 // daemons above: the bootstrap reads `new GithubProjectsDaemon()` then
@@ -372,14 +380,7 @@ function installModuleMocks(): void {
     // The bootstrap's resolveFileOrganizerSettings() delegates to this pure
     // helper. Return enabled defaults so the happy-path daemon-construct arm
     // fires; the daemon-disabled gate is covered by re-pointing fileOrgExtMock.
-    mergeFileOrganizerSettings: () => ({
-      daemonEnabled: true,
-      defaultMode: "ask-everything",
-      quarantineTtlDays: 30,
-      quarantineCapGb: 5,
-      scanIntervalSec: 45,
-      stabilityTicks: 2,
-    }),
+    mergeFileOrganizerSettings: () => fileOrgSettings,
   }));
   mock.module("../db/queries/extensions", () => ({
     getExtensionByName: (name: string) => fileOrgExtMock(name),
@@ -562,6 +563,14 @@ beforeEach(async () => {
   fileOrgDaemonStopMock = mock(() => {});
   lastFileOrgDaemonInstance = undefined;
   fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+  fileOrgSettings = {
+    daemonEnabled: true,
+    defaultMode: "ask-everything",
+    quarantineTtlDays: 30,
+    quarantineCapGb: 5,
+    scanIntervalSec: 45,
+    stabilityTicks: 2,
+  };
   githubDaemonCtorMock = mock(() => {});
   githubDaemonStartMock = mock<() => boolean>(() => true);
   githubDaemonStopMock = mock(() => {});
@@ -1229,6 +1238,30 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
 // assertion from the prior daemon-wiring incident: the daemon's stub
 // registers NO setInterval, so intervalCalls stays at 5.
 describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
+  test("daemon_enabled controls bootstrap, activation, and awaited revocation", async () => {
+    fileOrgSettings.daemonEnabled = false;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+    expect(fileOrgDaemonStartMock).not.toHaveBeenCalled();
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "FileOrganizerDaemon disabled via daemon_enabled setting",
+      undefined,
+    );
+
+    fileOrgSettings.daemonEnabled = true;
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStartMock).toHaveBeenCalledTimes(1);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeDefined();
+
+    fileOrgSettings.daemonEnabled = false;
+    await mod._reconcileFileOrganizerDaemonForTests();
+    expect(fileOrgDaemonStopMock).toHaveBeenCalledTimes(1);
+    expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
+  });
+
   test("activation starts once; disable and uninstall stop; reactivation restarts", async () => {
     let extension: { id: string; enabled: boolean } | null = null;
     fileOrgExtMock = mock((_n: string) => Promise.resolve(extension));
