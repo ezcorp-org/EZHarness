@@ -279,7 +279,7 @@
 				<div class="flex items-center justify-between">
 					<div class="text-xs font-medium text-[var(--color-text-primary)]">Conversation tools</div>
 					<span
-						class="text-[10px] {isCustomized ? 'text-amber-400' : 'text-[var(--color-text-muted)]'}"
+						class="text-[10px] {isCustomized ? 'text-amber-800 dark:text-amber-300' : 'text-[var(--color-text-muted)]'}"
 						data-testid="conversation-tools-state"
 					>
 						{isCustomized
