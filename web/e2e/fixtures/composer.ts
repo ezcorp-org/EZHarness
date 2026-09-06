@@ -37,6 +37,10 @@ export function threadMessages(scope: ComposerScope): Locator {
 	return scope.locator('[data-testid="chat-messages-container"]');
 }
 
+function composer(scope: ComposerScope): Locator {
+	return scope.getByRole("group", { name: "Chat input with file drop zone" });
+}
+
 /**
  * Type a message into a composer and send it — waiting for the composer to be
  * genuinely INTERACTIVE first.
@@ -104,14 +108,14 @@ export async function selectExtensionMention(
 	scope: ComposerScope,
 	name: string,
 ): Promise<Locator> {
-	const textarea = scope.locator("textarea.chat-textarea");
+	const textarea = composer(scope).locator("textarea.chat-textarea");
 	await expect(textarea).toBeVisible({ timeout: 30_000 });
 	await textarea.click();
 	await textarea.pressSequentially(`!${name}`, { delay: 15 });
 	const suggestions = scope.locator("#mention-listbox");
 	await expect(suggestions).toBeVisible({ timeout: 20_000 });
 	await suggestions.getByText(name, { exact: false }).first().click();
-	const chip = scope.locator(
+	const chip = composer(scope).locator(
 		`[data-mention-kind="extension"][data-mention-name="${name}"]`,
 	);
 	await expect(chip).toBeVisible();
@@ -124,7 +128,7 @@ export async function invokeExtensionToolFromComposer(
 	name: string,
 	input: Record<string, string>,
 ): Promise<void> {
-	const chip = scope.locator(
+	const chip = composer(scope).locator(
 		`[data-mention-kind="extension"][data-mention-name="${name}"]`,
 	);
 	if (!(await chip.isVisible().catch(() => false))) await selectExtensionMention(scope, name);
