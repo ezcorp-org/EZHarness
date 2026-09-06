@@ -1264,18 +1264,22 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
     let extension: { id: string; enabled: boolean } | null = null;
     fileOrgExtMock = mock((_n: string) => Promise.resolve(extension));
     const start = Promise.withResolvers<boolean>();
-    fileOrgDaemonStartMock = mock(() => start.promise);
+    const enteredStart = Promise.withResolvers<void>();
+    fileOrgDaemonStartMock = mock(() => {
+      enteredStart.resolve();
+      return start.promise;
+    });
     installModuleMocks();
 
     const mod = await import("../startup/background-timers");
     await mod.startBackgroundTimers();
     extension = { id: "ext-fo", enabled: true };
     const active = mod._reconcileFileOrganizerDaemonForTests();
-    await Promise.resolve();
+    await enteredStart.promise;
     const queued = mod._reconcileFileOrganizerDaemonForTests();
     let stopped = false;
     const shutdown = mod.stopBackgroundTimers().then(() => { stopped = true; });
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(stopped).toBe(false);
 
     start.resolve(true);

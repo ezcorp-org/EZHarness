@@ -724,6 +724,9 @@ async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOr
  * `stopBackgroundTimers()` then `_resetForTests()` is safe.
  */
 export async function stopBackgroundTimers(): Promise<void> {
+  // Release the boot guard before draining reconciliation. A queued reload
+  // then observes `started === false`, and an in-flight start stops its new
+  // daemon instead of publishing it after shutdown.
   started = false;
   fileOrganizerReloadDisposer?.();
   fileOrganizerReloadDisposer = undefined;
@@ -805,10 +808,6 @@ export async function stopBackgroundTimers(): Promise<void> {
   }
   disposers.length = 0;
 
-  // Release the boot-once guard so a subsequent boot (test re-init, hot
-  // restart in dev) can re-arm the timers cleanly. Without resetting,
-  // the next `startBackgroundTimers()` would early-return and the host
-  // would silently run without decay sweeps, retention cleanup, etc.
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */
