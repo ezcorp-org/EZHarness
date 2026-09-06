@@ -35,7 +35,7 @@ class InlineToolStore {
   calls = $state<InlineToolCall[]>([]);
 
   add(call: Omit<InlineToolCall, 'status' | 'retryCount'>): void {
-    this.calls = [...this.calls, { ...call, status: 'pending', retryCount: 0 }];
+    this.calls = [...this.calls, { ...call, source: call.source ?? 'inline', status: 'pending', retryCount: 0 }];
   }
 
   updateFromEvent(invocationId: string, eventType: string, data: Record<string, unknown>): void {
