@@ -36,7 +36,7 @@ def check_index(index):
 
 
 def check_archive(path, records, name_key, allow_subset=False):
-    raw = subprocess.check_output(["zstd", "-dc", str(path)])
+    raw = subprocess.check_output(["zstd", "-dc", str(path)]) if path.suffix == ".zst" else path.read_bytes()
     with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
         files = [m for m in archive.getmembers() if m.isfile()]
         members = {Path(m.name).name: m for m in files}
@@ -79,6 +79,10 @@ def main():
         "supplemental_raw_receipts": supplemental_receipts,
         "limit": "Integrity verifies retained bytes. Behavioral assertions and raw verdicts are reviewed separately.",
     }
+    coordinator = json.loads((EVIDENCE / "parent/coordinator-log-index.json").read_text())
+    result["coordinator_raw_logs"] = check_archive(
+        EVIDENCE / "parent" / coordinator["archive"], coordinator["records"], "file"
+    )
     ledger = EVIDENCE / "policy/reconciliation.md"
     rows = re.findall(r"^\| (\d+) \| ([^|]+) \|", ledger.read_text(), re.M)
     assert [int(number) for number, _ in rows] == list(range(1, 85))

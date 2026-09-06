@@ -58,5 +58,6 @@
   "exit": 0,
   "raw": "final-optin-parity-independent.log",
   "sha256": "10dc581bf1e5d45d0dda25f5d389f9f32982caa2bfdcb0d3760e6062bc624111",
-  "limit": "Three separate processes. Price four live paths use actual public providers and real DNS with owned release/DB fixtures. Task/Todo tests use real subprocess host RPC; this does not restore the retired createTestExtension helper."
+  "limit": "Three separate processes. Price four live paths use actual public providers and real DNS with owned release/DB fixtures. Task/Todo tests use real subprocess host RPC; this does not restore the retired createTestExtension helper.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

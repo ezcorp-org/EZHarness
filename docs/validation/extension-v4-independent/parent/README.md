@@ -1,5 +1,7 @@
 # Coordinator checks
 
+Raw `.log` files named in these receipts are stored byte for byte in `coordinator-checkpoints.tar.gz`; `coordinator-log-index.json` records each member hash. Extract the archive to this directory to replay a check that reads a raw log. Compressed storage preserves terminal whitespace without treating it as edited source text.
+
 Final test source: `69d9fd244918d1f7ddfe08dcb3ed451729d38651` (tree `31a3adeb44ff2caf2fdcc28c07e10231ca1ad7cd`). Final production/image source: `ea445e9e48bbaffa337452d2254a6b2b2d1dc778` (tree `801704279706828fa0b9f958ae4446237f38e451`). Base and merge base: `537f074e7303ecdf3cbef1a7af4fd60a3244b0a3`. The sections below retain earlier checkpoints; the final closeout section identifies the authoritative replacements.
 
 Coordinator review of the independent Sol audit. The starting candidate is `2c73e6bac85cd8f288056250ff032f613bfc15cd`, tree `4a5c5c7a27e8315c25262ecfb3c27db030493388`. Base and merge base are `65edc5bc0e36c6147219631e9cf73f89529bdef3`.
@@ -22,7 +24,7 @@ All four commands exited 0. The merge produced 1,390 source records; 1,246 thres
 ## Confirmed evidence defects at the starting candidate
 
 1. **Visual capture failed inside a green job.** `hosted-visual/manifest.json` has `shots: []`. The report ZIP contains only `report.jsonl`, with `onError` for the missing `BarcodeFormat` export from `@zxing/library` and `onEnd` status `failed`. No screenshot can be validated from this artifact. The source selector returns `__ALL__`; that workflow path tolerates a capture failure.
-2. **The SDK container test failed inside a green coverage job.** The coverage extras log reports `1025 pass`, `1 fail`, and `tolerated leg exit codes (not gated): sdk=1 suggest=0`. The failing test is `MCP executable discovers and invokes in a networkless rootless container`, with a conmon error. See `hosted-sdk-failure.txt`. A green coverage job is not proof of a successful opt-in MCP check.
+2. **The SDK container test failed inside a green coverage job.** The coverage extras log reports `1025 pass`, `1 fail`, and `tolerated leg exit codes (not gated): sdk=1 suggest=0`. The failing test is `MCP executable discovers and invokes in a networkless rootless container`, with a conmon error. See `hosted-sdk-failure.txt.gz`. A green coverage job is not proof of a successful opt-in MCP check.
 
 Both findings have local repairs. Final selected visual capture and opted-in MCP evidence pass; complete lane results are recorded separately. Historical claims of 32 passing checks describe job conclusions; they overstate successful validation of these two behaviors.
 

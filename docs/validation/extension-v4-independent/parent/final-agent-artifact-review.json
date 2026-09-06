@@ -20,6 +20,7 @@
   "build_raw_receipts": 29,
   "supplemental_raw_receipts": 14,
   "limit": "Integrity verifies retained bytes. Behavioral assertions and raw verdicts are reviewed separately.",
+  "coordinator_raw_logs": 25,
   "migration_ledger": {
     "blocked": 1,
     "verified": 66,

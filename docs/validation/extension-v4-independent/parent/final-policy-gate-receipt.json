@@ -10,5 +10,6 @@
   "sha256": "3af863ae9e58df99efdd63cc8e5379da762e55872b9d0357ecad5c774aa4f5ce",
   "raw": "final-policy-gate.log",
   "utc": "2026-09-06T03:12:31.498450+00:00",
-  "limit": "Expected unresolved policy failure. The coordinator asserts exit1; this does not make the gate pass. No override or label applied."
+  "limit": "Expected unresolved policy failure. The coordinator asserts exit1; this does not make the gate pass. No override or label applied.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

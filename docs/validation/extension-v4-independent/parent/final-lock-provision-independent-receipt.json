@@ -10,5 +10,6 @@
   "exit": 0,
   "raw": "final-lock-provision-independent.log",
   "sha256": "8999a69093229498bb1fc21d896ed0fdacc9fac4cf929fd80142593bfa9a252b",
-  "scope": "Separate-process replay authority, containment, applier, EXDEV, actual daemon lock handoff, background lifecycle, and production runner declaration build under long-TMPDIR fixture."
+  "scope": "Separate-process replay authority, containment, applier, EXDEV, actual daemon lock handoff, background lifecycle, and production runner declaration build under long-TMPDIR fixture.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

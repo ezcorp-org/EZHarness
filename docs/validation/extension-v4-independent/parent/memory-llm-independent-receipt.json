@@ -9,5 +9,6 @@
   "exit": 0,
   "raw": "memory-llm-independent.log",
   "sha256": "e3594e1b337c0c647659c3c076932ed99b898b23cec950d80c09258d9cf19597",
-  "scope": "Actual memory GET handler and owned database queries; memory handler; memory injection ownership; production LLM JSON-safe costs. Separate processes per file."
+  "scope": "Actual memory GET handler and owned database queries; memory handler; memory injection ownership; production LLM JSON-safe costs. Separate processes per file.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

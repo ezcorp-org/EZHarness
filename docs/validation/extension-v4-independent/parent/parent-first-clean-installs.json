@@ -52,5 +52,6 @@
   "raw": "parent-first-clean-installs.log",
   "sha256": "2b4f47ed554833e0fd278b138ae8c6848b7732a17e5cd1854ba7f445b35242d2",
   "sdk_declared_typescript": "^5.9.3",
-  "limit": "Independent first root/web installs in a new dependency-free detached worktree. Uses an existing package download cache; does not reuse node_modules. Frozen install must leave every tracked file unchanged."
+  "limit": "Independent first root/web installs in a new dependency-free detached worktree. Uses an existing package download cache; does not reuse node_modules. Frozen install must leave every tracked file unchanged.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

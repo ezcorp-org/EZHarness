@@ -14,7 +14,7 @@
 - [x] Reconcile final named skips, hooks, retired tests, and precise external blockers.
 - [x] Recheck changed-source coverage/static checks and final evidence hashes.
 - [x] Finish tracked report and preserve worktree states.
-- [ ] Commit the final report and receipts with normal hooks.
+- [x] Commit the final report and receipts with normal hooks (`de0bcb58`).
 
 ## Review
 

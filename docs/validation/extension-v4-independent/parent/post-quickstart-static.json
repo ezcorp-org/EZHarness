@@ -23,5 +23,6 @@
   ],
   "raw": "post-quickstart-static.log",
   "sha256": "7f7206fb698c79c4f72663b24f81767f407756370d3ad44c3e3b5ba233dbacd7",
-  "limit": "Required typecheck under existing ratchet exclusions and lint after the final test-only quickstart change. Warnings remain visible in raw output."
+  "limit": "Required typecheck under existing ratchet exclusions and lint after the final test-only quickstart change. Warnings remain visible in raw output.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }

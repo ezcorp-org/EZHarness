@@ -10,5 +10,6 @@
   "exit": 0,
   "raw": "file-organizer-final-independent.log",
   "sha256": "eaf29a9f14528f913e94311c1c43e185408e607c0d8b696f0e46a748c5364de6",
-  "scope": "Real daemon startup and owned files for twelve legitimate journal phase/authority cases; existing applier/containment/EXDEV tests; registry lifecycle and deterministic deferred-start shutdown tests. Engine decisions and registry dependencies are fixtures, not a malicious extension chain."
+  "scope": "Real daemon startup and owned files for twelve legitimate journal phase/authority cases; existing applier/containment/EXDEV tests; registry lifecycle and deterministic deferred-start shutdown tests. Engine decisions and registry dependencies are fixtures, not a malicious extension chain.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
 }
