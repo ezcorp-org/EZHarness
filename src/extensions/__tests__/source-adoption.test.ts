@@ -91,15 +91,22 @@ test("active owner imports build a candidate without changing the active release
   expect((await getExtension(previous.id))?.enabled).toBe(true);
 });
 
-test("unknown targets, deleted installations and mismatched persisted owners cannot be adopted", async () => {
+test("unknown targets and mismatched persisted owners stay opaque, while an owner's deleted installation reports its tombstone", async () => {
   await expect(resolveSourceTarget(owner, "missing", true)).rejects.toThrow("access denied");
   const created = await lifecycle.createWorkspace(owner, { files });
   await repository.transact(created.installation.id, (state) => { state.installation.uninstalled = true; });
-  await expect(resolveSourceTarget(owner, created.installation.id, true)).rejects.toThrow("access denied");
+  await expect(resolveSourceTarget(owner, created.installation.id, true)).rejects.toMatchObject({ code: "uninstalled" });
+  await expect(resolveSourceTarget({ ...owner, principalId: "stranger" }, created.installation.id, true)).rejects.toThrow("access denied");
   const previous = await legacy();
   await resolveSourceTarget(owner, previous.id, true);
   await getTestDb().update(extensions).set({ creatorUserId: "stranger" }).where(eq(extensions.id, previous.id));
   await expect(resolveSourceTarget(owner, previous.id)).rejects.toThrow("ownership requires review");
+
+  const tombstonedProjection = await legacy();
+  const { snapshot } = releaseRuntimeFixture(tombstonedProjection.id, { schemaVersion: 4, name: tombstonedProjection.name, version: "1.0.0", description: "Fixture", author: { name: "Fixture" }, entrypoint: "extension.ts", permissions: {} }, { ownerId: owner.principalId });
+  await repository.create({ installation: { ...snapshot.installation, uninstalled: true }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
+  await getTestDb().update(extensions).set({ creatorUserId: "stranger" }).where(eq(extensions.id, tombstonedProjection.id));
+  await expect(resolveSourceTarget(owner, tombstonedProjection.id)).rejects.toThrow("ownership requires review");
 });
 
 test("members cannot use adoption to read host-local source or create unowned installations", async () => {

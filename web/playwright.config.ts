@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const isDocker = !!process.env.DOCKER_TEST;
-const baseURL = isDocker ? "http://localhost:3000" : "http://localhost:4173";
+const baseURL = isDocker ? (process.env.DOCKER_TEST_URL ?? "http://localhost:3000") : "http://localhost:4173";
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). When set, the
 // `captureEvidence` helper owns screenshotting and attaches PNGs to each

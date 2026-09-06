@@ -551,5 +551,100 @@ test.describe(
       await page.goto(`/hub/${encodeURIComponent("ext:file-organizer:overview")}`);
       await expect(page.getByTestId("hub-page-title")).toBeVisible({ timeout: 10_000 });
     });
+
+    test("lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import", async ({ page, request, baseURL }) => {
+      test.setTimeout(300_000);
+      const disabledPath = "/app/data/file-organizer-test/fo-disabled-denial";
+      const reactivatedPath = "/app/data/file-organizer-test/fo-reactivated-effect";
+      execFileSync("docker", ["exec", CONTAINER, "mkdir", "-p", disabledPath, reactivatedPath]);
+
+      const initial = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "file-organizer" });
+      const installationId = initial.state.installation.id;
+      const releaseId = initial.state.installation.activeReleaseId;
+      expect(releaseId).toBeTruthy();
+
+      const projectResponse = await request.post("/api/projects", {
+        data: { name: "File Organizer lifecycle fixture", path: "/app/data/file-organizer-test" },
+      });
+      expect(projectResponse.status(), await projectResponse.text()).toBe(201);
+      const project = await projectResponse.json() as { id: string };
+      const binding = await request.post(`/api/extensions/releases/${installationId}/project`, {
+        data: { projectId: project.id, releaseId, generation: initial.state.installation.generation },
+      });
+      expect(binding.status(), await binding.text()).toBe(200);
+
+      const applied = await postEvent(request, "add-folder", { path: disabledPath });
+      expect(applied.status()).toBe(200);
+      expect((await applied.json() as { ok: boolean }).ok).toBe(true);
+      expect(readWriterConfig().folders.some((folder) => folder.path === disabledPath)).toBe(true);
+
+      await initial.client.extensionControl("extensions_release", { action: "disable", installationId, idempotencyKey: crypto.randomUUID() });
+      const disabled = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      expect(disabled.installation.enabled).toBe(false);
+      expect(disabled.installation.uninstalled).toBe(false);
+
+      const deniedWhileDisabled = await postEvent(request, "add-folder", { path: reactivatedPath });
+      expect(deniedWhileDisabled.status()).toBe(404);
+      expect(readWriterConfig().folders.some((folder) => folder.path === reactivatedPath)).toBe(false);
+
+      const approval = await initial.client.extensionControl<{ approval: { id: string } }>("extensions_release", {
+        action: "requestApproval",
+        installationId,
+        releaseId: releaseId!,
+        expectedActiveReleaseId: releaseId,
+      });
+      expect(approval.approval.id).toBeTruthy();
+      await page.goto(`/extensions/author?installation=${encodeURIComponent(installationId)}`);
+      await page.getByLabel("I reviewed this release and its permissions.").check();
+      await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+      await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+
+      const reactivated = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      expect(reactivated.installation.enabled).toBe(true);
+      expect(reactivated.installation.activeReleaseId).toBe(releaseId);
+      expect(reactivated.installation.generation).toBeGreaterThan(disabled.installation.generation);
+
+      const staleBindingDenied = await postEvent(request, "add-folder", { path: reactivatedPath });
+      expect(staleBindingDenied.status()).toBe(404);
+      await page.reload();
+      await page.getByLabel("Project", { exact: true }).selectOption(project.id);
+      await page.getByLabel("I reviewed this project's access and exact release.").check();
+      await page.getByRole("button", { name: "Approve project access", exact: true }).click();
+      await expect(page.getByRole("status")).toContainText("Project access approved");
+      const appliedAfterReactivation = await postEvent(request, "add-folder", { path: reactivatedPath });
+      expect(appliedAfterReactivation.status()).toBe(200);
+      expect((await appliedAfterReactivation.json() as { ok: boolean }).ok).toBe(true);
+      expect(readWriterConfig().folders.some((folder) => folder.path === reactivatedPath)).toBe(true);
+
+      await initial.client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
+      const removed = await initial.client.extensionControl<import("../../../src/extensions/v4/types").InstallationState>("extensions_inspect", { installationId });
+      expect(removed.installation.uninstalled).toBe(true);
+      expect(removed.installation.enabled).toBe(false);
+      expect(removed.releases[releaseId!]).toBeDefined();
+      expect(readWriterConfig().folders.some((folder) => folder.path === reactivatedPath)).toBe(true);
+
+      const deniedAfterUninstall = await postEvent(request, "add-folder", { path: reactivatedPath });
+      expect(deniedAfterUninstall.status()).toBe(404);
+      const listed = await request.get("/api/extensions?name=file-organizer");
+      expect(listed.status()).toBe(200);
+      expect(await listed.json()).toEqual([]);
+
+      const reimport = await request.post("/api/extensions/import-source", {
+        data: { kind: "bundled", name: "file-organizer", targetInstallationId: installationId },
+      });
+      const reimportBody = await reimport.text();
+      expect(reimport.status(), reimportBody).toBe(409);
+      expect(JSON.parse(reimportBody) as { code: string }).toMatchObject({ code: "uninstalled" });
+
+      const freshImport = await request.post("/api/extensions/import-source", {
+        data: { kind: "bundled", name: "file-organizer" },
+      });
+      expect(freshImport.status(), await freshImport.text()).toBe(200);
+      const fresh = await freshImport.json() as { installation: { id: string; enabled: boolean; uninstalled: boolean; activeReleaseId: string | null }; workspace: { id: string } };
+      expect(fresh.installation.id).not.toBe(installationId);
+      expect(fresh.installation).toMatchObject({ enabled: false, uninstalled: false, activeReleaseId: null });
+      expect(fresh.workspace.id).toBeTruthy();
+    });
   },
 );
