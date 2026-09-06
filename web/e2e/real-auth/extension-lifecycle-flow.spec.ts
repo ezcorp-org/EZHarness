@@ -154,6 +154,17 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     expect(scopedOff.status(), await scopedOff.text()).toBe(200);
     expect(((await scopedOff.json()).tools as Array<{ extension: string }>).some(tool => tool.extension === name)).toBe(false);
 
+    // Exercise the normal browser entry point after selection is revoked. A
+    // user cannot reach the Add form because the extension is absent from the
+    // live mention choices for this conversation.
+    const composer = page.getByRole("group", { name: "Chat input with file drop zone" });
+    const composerInput = composer.locator("textarea.chat-textarea");
+    await composerInput.fill(`!${name}`);
+    const suggestions = page.locator("#mention-listbox");
+    await expect(suggestions).toBeVisible();
+    await expect(suggestions.getByText(name, { exact: false })).toHaveCount(0);
+    await composerInput.press("Escape");
+
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await captureEvidence(page, testInfo, "extension-lifecycle-tool-selection-mobile", { fullPage: true });
