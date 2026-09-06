@@ -27,7 +27,7 @@ The source used to conditionally skip test 7 when the daemon produced no applica
 
 ## Production replacement for the 12 mock skips
 
-The exact Docker-format production-image run passed 12 tests, failed 0, and skipped 0. It used a fresh owned database and filesystem, imported and built the bundled File Organizer source through the external rootless runner, recorded human-session approval and activation, and bound the exact release to the owned project. Activation started the daemon without an app restart. The proposal case enabled `include-existing`, created a controlled old `.tmp` input, observed the daemon-written proposal, and accepted it through the real event route. `artifacts/file-organizer-real-production.zip` contains the list-reporter raw log, sanitized fixture, image identity, test exit, and cleanup exit; this lane did not enable the blob reporter.
+The exact final Docker-format production-image run passed 12 tests, failed 0, and skipped 0 at source `3ec53eaa` using immutable image ID `8f722e76…`. It used a fresh owned database and filesystem, imported and built the bundled File Organizer source through the external rootless runner, recorded human-session approval and activation, and bound the exact release to the owned project. Activation started the daemon without an app restart. The proposal case enabled `include-existing`, created a controlled old `.tmp` input, observed the daemon-written proposal, and accepted it through the real event route. `artifacts/file-organizer-real-production.zip` contains the list-reporter raw log, sanitized fixture, image identity, test exit, and cleanup exit; this lane did not enable the blob reporter.
 
 ## Declared browser lanes outside the required runs
 
