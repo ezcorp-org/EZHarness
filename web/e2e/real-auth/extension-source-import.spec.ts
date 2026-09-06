@@ -132,8 +132,9 @@ test("member imports verified marketplace source, an administrator approves it, 
     await requestRelease(client, permissionedState, permissionedRelease.id);
     await test.step("administrator expands the permission evidence before review", async () => {
       await adminPage.goto(`/extensions/author?installation=${created.installation.id}&workspace=${permissionedWorkspace.id}`);
-      await adminPage.getByText("Permissions and test evidence", { exact: true }).click();
-      await expect(adminPage.getByText('"storage": true', { exact: true })).toBeVisible({ timeout: 30_000 });
+      const permissionedReleaseCard = adminPage.locator("article.release").filter({ hasText: permissionedRelease.releaseDigest });
+      await permissionedReleaseCard.getByText("Permissions and test evidence", { exact: true }).click();
+      await expect(permissionedReleaseCard.getByText('"storage": true', { exact: true })).toBeVisible({ timeout: 30_000 });
     });
     await captureEvidence(adminPage, testInfo, "extension-source-import-permission-update");
     await adminPage.getByLabel("I reviewed this release and its permissions.").check();
