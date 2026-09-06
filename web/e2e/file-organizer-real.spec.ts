@@ -226,14 +226,6 @@ test.describe(
 			} finally {
 				await context.close();
 			}
-			execFileSync("docker", ["restart", CONTAINER]);
-			await expect.poll(async () => {
-				try {
-					return (await fetch(`${baseURL}/api/health`)).status;
-				} catch {
-					return 0;
-				}
-			}, { timeout: 90_000, intervals: [500] }).toBe(200);
       configSnapshot = snapshotWriterConfig();
       // Ensure the scratch dirs the spec adds/probes exist in the container
       // (idempotent — harmless test scratch under the projects bind). Makes

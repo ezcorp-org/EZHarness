@@ -19,6 +19,7 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeExtension, makeProject } from "./fixtures/data.js";
+import { expectReadable, useLightTheme } from "./fixtures/readable.js";
 
 const proj = makeProject({ id: "proj-hub", name: "Hub Owner" });
 
@@ -157,6 +158,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		// dispatching `extensions:changed`); this covers the CONSUMER on the
 		// Hub route, which is a different page — the two are never on screen
 		// together, so the event is dispatched directly here.
+		await useLightTheme(page);
 		await mockApi({ projects: [proj], extensions: [makeHubExtension(true)] });
 
 		let disabled = false;
@@ -185,6 +187,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		await expect(page.getByTestId("hub-error-card")).toContainText(
 			"This page doesn't exist (the extension may be disabled).",
 		);
+		await expectReadable(page.getByTestId("hub-error-title"), "disabled Hub page error title");
 		await expect(page.getByTestId("hub-page-title")).toHaveCount(0);
 		await expect(page.getByText("Notes Dashboard", { exact: true })).toHaveCount(0);
 
