@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { ReleaseRecord, Runner, RunnerExecution } from "@ezcorp/extension-contract";
-import { createLifecycleAuthorization, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
+import { createLifecycleAuthorization, recoverInstallation, recoveryDeadline, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
 import { requestedReleaseGrants } from "./extension-control";
-import type { InstallationRecord, LifecycleActor } from "./v4";
+import type { InstallationRecord, InstallationState, LifecycleActor } from "./v4";
+import type { RecoveryServices } from "./extension-lifecycle-service";
 
 const actor: LifecycleActor = { principalId: "owner", scope: "global", kind: "agent" };
 const installation: InstallationRecord = { id: "installation", ownerId: "owner", scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled", grants: [], acknowledgedGeneration: 0 };
@@ -72,6 +73,90 @@ describe("production lifecycle authorization", () => {
     await expect(scoped.authorize({ ...actor, scope: "project:private" }, "workspace")).rejects.toMatchObject({ code: "forbidden" });
     await expect(scoped.authorize({ ...actor, scope: "caller-forged-scope" }, "workspace")).rejects.toMatchObject({ code: "invalid_scope" });
   });
+});
+
+type DeferredTimer = () => Promise<void>;
+
+function recoveryFixture(completeOnSecondRecovery = true) {
+  const operation = { id: "build", kind: "build" as const, state: "building" as const, idempotencyKey: "build", inputDigest: "build", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: "first-holder", fence: 1, until: Date.now() + 60_000 } };
+  const state: InstallationState = { installation: { ...installation }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: { [operation.id]: operation } };
+  const timers: DeferredTimer[] = [];
+  const setTimer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler) => {
+    timers.push(callback as DeferredTimer);
+    return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  const clearTimer = spyOn(globalThis, "clearTimeout");
+  let recoverCalls = 0;
+  const services: RecoveryServices = {
+    repository: { async read() { return state; } },
+    migrations: { async recover() {} },
+    lifecycle: { async recover() {
+      recoverCalls++;
+      if (completeOnSecondRecovery && recoverCalls === 2) state.operations[operation.id] = { ...operation, state: "verified", lease: undefined };
+    } },
+  };
+  return { clearTimer, operation, recoverCalls: () => recoverCalls, services, setTimer, state, timers };
+}
+
+test("deferred recovery re-enters after an unexpired lease and clears its timer", async () => {
+  const fixture = recoveryFixture();
+  try {
+    await recoverInstallation(fixture.services, installation.id);
+    expect(fixture.recoverCalls()).toBe(1);
+    expect(fixture.timers).toHaveLength(1);
+    await fixture.timers[0]!();
+    expect(fixture.recoverCalls()).toBe(2);
+    expect(fixture.setTimer).toHaveBeenCalledTimes(1);
+  } finally {
+    fixture.setTimer.mockRestore();
+    fixture.clearTimer.mockRestore();
+  }
+});
+
+test("deferred recovery stops when the installation is uninstalled before its lease ends", async () => {
+  const fixture = recoveryFixture();
+  try {
+    await recoverInstallation(fixture.services, installation.id);
+    fixture.state.installation.uninstalled = true;
+    await fixture.timers[0]!();
+    expect(fixture.recoverCalls()).toBe(1);
+    expect(fixture.setTimer).toHaveBeenCalledTimes(1);
+  } finally {
+    fixture.setTimer.mockRestore();
+    fixture.clearTimer.mockRestore();
+  }
+});
+
+test("a repeated recovery entry replaces its prior wake-up timer", async () => {
+  const fixture = recoveryFixture(false);
+  try {
+    await recoverInstallation(fixture.services, installation.id);
+    await recoverInstallation(fixture.services, installation.id);
+    expect(fixture.setTimer).toHaveBeenCalledTimes(2);
+    expect(fixture.clearTimer).toHaveBeenCalledTimes(1);
+    fixture.state.installation.uninstalled = true;
+    await fixture.timers[1]!();
+    expect(fixture.recoverCalls()).toBe(2);
+  } finally {
+    fixture.setTimer.mockRestore();
+    fixture.clearTimer.mockRestore();
+  }
+});
+
+test("recovery wake-up selects the earliest live recoverable lease only", () => {
+  const operation = (id: string, state: "building" | "verified" | "activating", until: number) => ({ id, kind: state === "activating" ? "activate" as const : "build" as const, state, idempotencyKey: id, inputDigest: id, diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: id, fence: 1, until } });
+  const state = {
+    installation,
+    workspaces: {}, revisions: {}, releases: {}, approvals: {},
+    operations: {
+      later: operation("later", "building", 400),
+      earliest: operation("earliest", "activating", 200),
+      terminal: operation("terminal", "verified", 100),
+    },
+  };
+  expect(recoveryDeadline(state, 100)).toBe(200);
+  expect(recoveryDeadline(state, 400)).toBeUndefined();
+  expect(recoveryDeadline({ ...state, installation: { ...installation, uninstalled: true } }, 100)).toBeUndefined();
 });
 
 function candidateRunner(request: RunnerExecution["request"]): { runner: Runner; closed: () => boolean; contexts: unknown[] } {

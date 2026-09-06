@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { workspaceText } from "@ezcorp/extension-contract";
+import { RunnerError } from "@ezcorp/extension-runner";
 import { up } from "../../db/migrations/add-extension-releases";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { canonicalJson, digestObject, FileBlobStore, getFiles, putFiles } from "./blobs";
@@ -230,6 +231,18 @@ describe("durable extension lifecycle", () => {
     expect(result.state).toBe("failed");
     expect(result.diagnostics[0]?.code).toBe("host_test_failed");
     expect(Object.keys((await setup.lifecycle.inspect(actor, installation.id)).releases)).toHaveLength(0);
+  });
+
+  test("runner failures retain only an allowlisted safe diagnostic", async () => {
+    const setup = harness();
+    setup.dependencies.runner.build = async () => { throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true); };
+    const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "console.log('queued')" } });
+    const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-diagnostic" });
+    const result = await setup.lifecycle.runBuild(actor, installation.id, operation.id);
+    expect(result).toMatchObject({ state: "failed", diagnostics: [{ code: "runner_busy", stage: "runner", message: "The runner is busy; retry after the current build.", retryable: true }] });
+    setup.dependencies.runner.build = async () => { throw new RunnerError("command_failed", "private child stderr", "compile", false); };
+    const next = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-redaction" });
+    expect((await setup.lifecycle.runBuild(actor, installation.id, next.id)).diagnostics).toContainEqual(expect.objectContaining({ code: "operation_failed", message: "Operation failed. See host diagnostics." }));
   });
 
   test("lost acknowledgement is durable and recovers without a second pointer switch", async () => {

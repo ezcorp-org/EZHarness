@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ContractError, validateManifest, validateWire, type WorkspaceFiles } from "@ezcorp/extension-contract";
-import { digestObject, getFiles, putFiles, validateFiles, validatePath } from "./blobs";
+import { RunnerError } from "@ezcorp/extension-runner";
+import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
 
 export class ExtensionLifecycle {
@@ -173,12 +174,25 @@ export class ExtensionLifecycle {
     if (operation.lease?.holder !== holder || operation.lease.fence !== fence || operation.lease.until <= this.now() || operation.state === "cancelled") throw new LifecycleError("lease_lost", "The operation lease has expired or was replaced.");
   }
 
+  private safeRunnerFailure(error: unknown): { code: string; message: string; retryable: boolean } | undefined {
+    if (!(error instanceof RunnerError)) return undefined;
+    const messages: Record<string, string> = {
+      duplicate_operation: "The runner already has this operation.",
+      runner_busy: "The runner is busy; retry after the current build.",
+      runner_timeout: "The runner request timed out.",
+      runner_unconfigured: "The runner is unavailable.",
+    };
+    const message = messages[error.code];
+    return message ? { code: error.code, message, retryable: error.retryable } : undefined;
+  }
+
   private async failure(actor: LifecycleActor, installationId: string, operationId: string, holder: string, fence: number, error: unknown): Promise<void> {
     await this.transaction(actor, installationId, (state) => {
       const operation = this.operation(state, operationId);
       if (operation.lease?.holder !== holder || operation.lease.fence !== fence || ["cancelled", "reconciling", "active", "verified"].includes(operation.state)) return;
+      const runner = this.safeRunnerFailure(error);
       const known = error instanceof LifecycleError || error instanceof ContractError;
-      operation.diagnostics.push({ code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
+      operation.diagnostics.push(runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
       this.transition(operation, "failed");
     });
   }

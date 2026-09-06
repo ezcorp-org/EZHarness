@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
 import { ExtensionControl, requestedReleaseGrants } from "./extension-control";
-import { ExtensionLifecycle, FileBlobStore, LifecycleError, type LifecycleActor, type LifecycleDependencies, type LifecycleRelease } from "./v4";
+import { ExtensionLifecycle, FileBlobStore, LifecycleError, type InstallationState, type LifecycleActor, type LifecycleDependencies, type LifecycleRelease } from "./v4";
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
@@ -122,7 +122,9 @@ export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecy
 }
 
 interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
+export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
 let services: Promise<LifecycleServices> | undefined;
+const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 async function initialize(): Promise<LifecycleServices> {
   const runner = createLazyExtensionRunner();
@@ -233,14 +235,53 @@ export async function publishExtensionGeneration(installation: InstallationRecor
   }
 }
 
+export function recoveryDeadline(state: InstallationState, now = Date.now()): number | undefined {
+  if (state.installation.uninstalled) return undefined;
+  return Object.values(state.operations)
+    .filter((operation) => (operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)) || (operation.kind === "activate" && ["awaiting_approval", "activating"].includes(operation.state)))
+    .map((operation) => operation.lease?.until)
+    .filter((until): until is number => typeof until === "number" && until > now)
+    .sort((left, right) => left - right)[0];
+}
+
+function clearRecoveryTimer(installationId: string): void {
+  const timer = recoveryTimers.get(installationId);
+  if (timer) clearTimeout(timer);
+  recoveryTimers.delete(installationId);
+}
+
+export async function recoverInstallation(services: RecoveryServices, installationId: string): Promise<void> {
+  const snapshot = await services.repository.read(installationId);
+  if (!snapshot || snapshot.installation.uninstalled) { clearRecoveryTimer(installationId); return; }
+  const { installation } = snapshot;
+  try {
+    await services.migrations.recover(installation.id);
+    await services.lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id);
+  } catch (error) {
+    log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
+    throw error;
+  }
+  const recovered = await services.repository.read(installationId);
+  const deadline = recovered ? recoveryDeadline(recovered) : undefined;
+  clearRecoveryTimer(installationId);
+  if (deadline === undefined) return;
+  const delay = Math.min(Math.max(0, deadline - Date.now()) + 1, 2_147_483_647);
+  const timer = setTimeout(async () => {
+    recoveryTimers.delete(installationId);
+    try {
+      await recoverInstallation(services, installationId);
+    } catch (error) {
+      log.error("Deferred extension recovery requires attention", { installationId, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
+    }
+  }, delay);
+  timer.unref?.();
+  recoveryTimers.set(installationId, timer);
+}
+
 export async function recoverExtensionLifecycle(): Promise<void> {
-  const { lifecycle, migrations } = await getServices();
+  const services = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
   const rows = releaseRows<{ payload: string }>(result);
-  for (const row of rows) {
-    const installation: InstallationRecord = JSON.parse(row.payload);
-    try { await migrations.recover(installation.id); await lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id); }
-    catch (error) { log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" }); throw error; }
-  }
+  for (const row of rows) await recoverInstallation(services, (JSON.parse(row.payload) as InstallationRecord).id);
 }
