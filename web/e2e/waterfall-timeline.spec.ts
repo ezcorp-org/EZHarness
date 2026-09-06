@@ -14,7 +14,6 @@ test.describe("Waterfall Timeline", () => {
 			],
 			settings: { "global:showObservability": true },
 			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
 				"/api/observability/conv-1": () => ({
 					events: [],
 					stats: {
@@ -29,22 +28,15 @@ test.describe("Waterfall Timeline", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Wait for the chat to load and observability button to appear
-		await page.waitForTimeout(500);
-
-		// Click the observability inspect button (if it shows)
+		// The configured batch setting must render the observability control.
 		const obsButton = page.locator('button[aria-label="Inspect observability"]');
-		if (await obsButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await obsButton.click();
+		await expect(obsButton).toBeVisible({ timeout: 3000 });
+		await obsButton.click();
 
-			// The ObservabilityPanel should open — wait for the Execution Timeline section
-			// With 0 tool calls and no streaming, the WaterfallTimeline should say "No tool calls recorded."
-			// But the panel only shows the timeline section when there are tool events or streaming,
-			// so with an empty events array, we should see "No observability data for this conversation yet."
-			await expect(
-				page.getByText("No observability data for this conversation yet."),
-			).toBeVisible({ timeout: 3000 });
-		}
+		// With no events, the panel shows its explicit empty state.
+		await expect(
+			page.getByText("No observability data for this conversation yet."),
+		).toBeVisible({ timeout: 3000 });
 	});
 
 	test("displays tool call bars from observability events", async ({ page, mockApi }) => {
@@ -55,8 +47,8 @@ test.describe("Waterfall Timeline", () => {
 			messages: [
 				makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Do something" }),
 			],
+			settings: { "global:showObservability": true },
 			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
 				"/api/observability/conv-1": () => ({
 					events: [
 						{
@@ -85,16 +77,13 @@ test.describe("Waterfall Timeline", () => {
 			},
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.waitForTimeout(500);
-
 		const obsButton = page.locator('button[aria-label="Inspect observability"]');
-		if (await obsButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await obsButton.click();
+		await expect(obsButton).toBeVisible({ timeout: 3000 });
+		await obsButton.click();
 
-			// The WaterfallTimeline should render tool name labels
-			await expect(page.getByText("readFile")).toBeVisible({ timeout: 3000 });
-			await expect(page.getByText("writeFile")).toBeVisible({ timeout: 3000 });
-		}
+		// The WaterfallTimeline should render tool name labels.
+		await expect(page.getByText("readFile")).toBeVisible({ timeout: 3000 });
+		await expect(page.getByText("writeFile")).toBeVisible({ timeout: 3000 });
 	});
 
 	test("expand on click shows tool details", async ({ page, mockApi }) => {
@@ -105,8 +94,8 @@ test.describe("Waterfall Timeline", () => {
 			messages: [
 				makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Do it" }),
 			],
+			settings: { "global:showObservability": true },
 			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
 				"/api/observability/conv-1": () => ({
 					events: [
 						{
@@ -133,24 +122,20 @@ test.describe("Waterfall Timeline", () => {
 			},
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.waitForTimeout(500);
-
 		const obsButton = page.locator('button[aria-label="Inspect observability"]');
-		if (await obsButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await obsButton.click();
+		await expect(obsButton).toBeVisible({ timeout: 3000 });
+		await obsButton.click();
 
-			// Click on the tool call bar to expand it
-			const toolLabel = page.getByText("searchCode");
-			await expect(toolLabel).toBeVisible({ timeout: 3000 });
-			await toolLabel.click();
+		// Click on the tool call bar to expand it.
+		const toolLabel = page.getByText("searchCode");
+		await expect(toolLabel).toBeVisible({ timeout: 3000 });
+		await toolLabel.click();
 
-			// The expanded detail section should show Input/Output labels
-			await expect(page.getByText("Input:")).toBeVisible({ timeout: 2000 });
-			await expect(page.getByText("Output:")).toBeVisible({ timeout: 2000 });
+		// The expanded detail section should show Input/Output labels.
+		await expect(page.getByText("Input:")).toBeVisible({ timeout: 2000 });
+		await expect(page.getByText("Output:")).toBeVisible({ timeout: 2000 });
 
-			// Should show the actual data
-			await expect(page.getByText('"query"')).toBeVisible();
-		}
+		await expect(page.getByText('"query"')).toBeVisible();
 	});
 
 	test("global observability page shows stats", async ({ page, mockApi }) => {

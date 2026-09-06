@@ -157,17 +157,17 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
         for (const buffered of replayFrom(cursor)) deliver(buffered);
       }
 
-      // Send a heartbeat every 15s. 30s loses races against many
-      // intermediaries that idle-close at exactly 30s (Tailscale relay
-      // sessions, home-router conntrack, AWS NLB). 15s keeps the flow
-      // alive without measurable bandwidth cost (4 bytes per frame).
+      // Send a heartbeat every 5s. The adapter starts Bun with its default
+      // 10s idle timeout, which closes a quiet streamed response. Five seconds
+      // keeps the connection active without changing that global timeout or
+      // adding meaningful bandwidth cost.
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encodeFrame(": heartbeat\n\n"));
         } catch {
           // Stream closed — cleanup will run via cancel().
         }
-      }, 15_000);
+      }, 5_000);
     },
     cancel() {
       for (const unsub of unsubs) unsub();

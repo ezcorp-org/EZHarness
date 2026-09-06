@@ -96,8 +96,35 @@ describe("GET /api/runtime-events", () => {
     // with `no-transform` so caching proxies don't override.
     expect(res.headers.get("content-encoding")).toBe("identity");
     // Stream's start/cancel lifecycle is exercised in integration tests;
-    // the bus is fully mocked here so no cleanup is needed.
+    // the bus is fully mocked here, but close the body to clear its heartbeat.
     expect(res.body).toBeInstanceOf(ReadableStream);
+    await res.body!.cancel();
+  });
+
+  test("emits a heartbeat before Bun's short idle timeout can close the stream", async () => {
+    vi.useFakeTimers();
+    const interval = vi.spyOn(globalThis, "setInterval");
+    const clear = vi.spyOn(globalThis, "clearInterval");
+    const res = await GET(makeEvent({ locals: authedUser }));
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    let cancelled = false;
+    try {
+      expect(decoder.decode((await reader.read()).value)).toContain(": connected");
+      expect(interval).toHaveBeenCalledWith(expect.any(Function), 5_000);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(decoder.decode((await reader.read()).value)).toContain(": heartbeat");
+      await reader.cancel();
+      cancelled = true;
+      expect(clear).toHaveBeenCalledTimes(1);
+    } finally {
+      if (!cancelled) await reader.cancel();
+      vi.useRealTimers();
+      interval.mockRestore();
+      clear.mockRestore();
+    }
   });
 
   // Regression net (Daily Briefing Phase 2 fix loop): the briefing runner
