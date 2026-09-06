@@ -70,6 +70,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
 	const name = `ui-lifecycle-${Date.now().toString(36)}`;
 	const expected = `browser-owned output ${crypto.randomUUID()}`;
+	const reenabledExpected = `reenabled output ${crypto.randomUUID()}`;
 	const mockScriptKey = `ui-lifecycle-${crypto.randomUUID()}`;
   let installationId = "";
 
@@ -203,8 +204,8 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
-    await invokeExtensionToolFromComposer(page, name, { text: `${expected}-reenabled` });
-    await expectInlineToolOutput(page, `UI lifecycle: ${expected}-reenabled`);
+    await invokeExtensionToolFromComposer(page, name, { text: reenabledExpected });
+    await expectInlineToolOutput(page, `UI lifecycle: ${reenabledExpected}`);
 
     await page.goto("/extensions");
     await card.getByTestId("ext-card-uninstall").click();
