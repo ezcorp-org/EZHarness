@@ -25,6 +25,12 @@ type BrowserDiagnostics = {
   failedApiRequests: Array<FailedApiResponse & { error: string }>;
   ignoredApiResponses: FailedApiResponse[];
   expectedRuntimeEventCancellations: Array<FailedApiResponse & { error: string }>;
+  expectedRuntimeEventTeardownMarks: number;
+};
+
+type BrowserDiagnosticsObserver = {
+  diagnostics: BrowserDiagnostics;
+  markRuntimeEventTeardown(): void;
 };
 
 const WEBKIT_VIEWPORT_WARNING = 'Viewport argument key "interactive-widget" not recognized and ignored.';
@@ -33,10 +39,10 @@ function isIgnoredBrowserConsoleError(text: string): boolean {
   return text === WEBKIT_VIEWPORT_WARNING;
 }
 
-function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnostics {
+function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnosticsObserver {
   const diagnostics: BrowserDiagnostics = {
     pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [],
-    expectedRuntimeEventCancellations: [],
+    expectedRuntimeEventCancellations: [], expectedRuntimeEventTeardownMarks: 0,
   };
   const appOrigin = new URL(baseURL).origin;
   const completedExtensionDeletes = new WeakSet<Request>();
@@ -46,17 +52,23 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
     const url = new URL(request.url());
     return url.origin === appOrigin && request.method() === "GET" && url.pathname === "/api/runtime-events";
   };
+  const markRuntimeEventTeardown = (): void => {
+    diagnostics.expectedRuntimeEventTeardownMarks += 1;
+    for (const runtimeEventRequest of activeRuntimeEventRequests) expectedRuntimeEventTeardowns.add(runtimeEventRequest);
+  };
   page.on("pageerror", error => diagnostics.pageErrors.push(error.message));
   page.on("console", message => {
     if (message.type() === "error" && !isIgnoredBrowserConsoleError(message.text())) diagnostics.consoleErrors.push(message.text());
   });
   page.on("request", request => {
-    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
-      for (const runtimeEventRequest of activeRuntimeEventRequests) expectedRuntimeEventTeardowns.add(runtimeEventRequest);
-    }
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) markRuntimeEventTeardown();
     if (isRuntimeEventRequest(request)) activeRuntimeEventRequests.add(request);
   });
-  page.on("requestfinished", request => activeRuntimeEventRequests.delete(request));
+  // EventSource can emit requestfinished once response headers arrive while its
+  // stream remains open. Keep its identity until a failure or teardown.
+  page.on("requestfinished", request => {
+    if (!isRuntimeEventRequest(request)) activeRuntimeEventRequests.delete(request);
+  });
   page.on("response", response => {
     const url = new URL(response.url());
     if (url.origin === appOrigin && url.pathname.startsWith("/api/extensions/") && response.request().method() === "DELETE" && response.status() === 204) {
@@ -85,7 +97,18 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
       diagnostics.failedApiRequests.push({ method: request.method(), path: url.pathname, status: 0, error });
     }
   });
-  return diagnostics;
+  page.on("close", markRuntimeEventTeardown);
+  return { diagnostics, markRuntimeEventTeardown };
+}
+
+async function navigateWithRuntimeEventTeardown(page: Page, observer: BrowserDiagnosticsObserver, url: string): Promise<void> {
+  observer.markRuntimeEventTeardown();
+  await page.goto(url);
+}
+
+async function reloadWithRuntimeEventTeardown(page: Page, observer: BrowserDiagnosticsObserver): Promise<void> {
+  observer.markRuntimeEventTeardown();
+  await page.reload();
 }
 
 async function attachBrowserDiagnostics(testInfo: TestInfo, name: string, diagnostics: BrowserDiagnostics): Promise<void> {
@@ -447,7 +470,8 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
 
 test("reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(360_000);
-  const browserDiagnostics = observeBrowserDiagnostics(page, baseURL!);
+  const browserObserver = observeBrowserDiagnostics(page, baseURL!);
+  const browserDiagnostics = browserObserver.diagnostics;
   const name = `ui-recovery-${Date.now().toString(36)}`;
   const firstOutput = `before repair ${crypto.randomUUID()}`;
   const retainedOutput = `retained after failed update ${crypto.randomUUID()}`;
@@ -455,7 +479,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
   let installationId = "";
 
   try {
-    await page.goto("/extensions/author");
+    await navigateWithRuntimeEventTeardown(page, browserObserver, "/extensions/author");
     await page.getByLabel("Extension name").fill(name);
     await page.getByRole("button", { name: "Create workspace", exact: true }).click();
     await page.waitForURL(/\/extensions\/author\?installation=[^&]+&workspace=[^&]+/);
@@ -472,7 +496,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     const pendingOperationId = await observePendingBuild(page);
     const operationsBeforeReload = await page.locator(".operation").count();
 
-    await page.reload();
+    await reloadWithRuntimeEventTeardown(page, browserObserver);
     await waitForHydration(page);
     await expect(page.locator(".operation").filter({ hasText: pendingOperationId })).toBeVisible();
     await expect(page.locator(".operation")).toHaveCount(operationsBeforeReload);
@@ -490,11 +514,11 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     const { conversationId, projectId } = (await seeded.json()) as { conversationId: string; projectId: string };
     const wired = await request.post(`/api/conversations/${conversationId}/extensions`, { data: { names: [name] } });
     expect(wired.status(), await wired.text()).toBe(200);
-    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await navigateWithRuntimeEventTeardown(page, browserObserver, `/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: retainedOutput });
     await expectInlineToolOutput(page, `Recovery v1: ${retainedOutput}`);
 
-    await page.goto(`/extensions/author?installation=${installationId}`);
+    await navigateWithRuntimeEventTeardown(page, browserObserver, `/extensions/author?installation=${installationId}`);
     await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
     await page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true }).fill("export function echo( {");
     await page.getByRole("button", { name: "Save and build", exact: true }).click();
@@ -503,11 +527,11 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     await expect(diagnostics).not.toHaveCount(0);
     await captureEvidence(page, testInfo, "extension-browser-build-diagnostics", { fullPage: true });
 
-    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await navigateWithRuntimeEventTeardown(page, browserObserver, `/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: firstOutput });
     await expectInlineToolOutput(page, `Recovery v1: ${firstOutput}`);
 
-    await page.goto(`/extensions/author?installation=${installationId}`);
+    await navigateWithRuntimeEventTeardown(page, browserObserver, `/extensions/author?installation=${installationId}`);
     await page.getByRole("button", { name: "src/echo.ts", exact: true }).click();
     await page.getByRole("textbox", { name: "Source: src/echo.ts", exact: true }).fill(echoSource("Recovery v2: "));
     await page.getByRole("button", { name: "src/echo.test.ts", exact: true }).click();
@@ -527,7 +551,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     await repairedApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
     await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
 
-    await page.goto(`/project/${projectId}/chat/${conversationId}`);
+    await navigateWithRuntimeEventTeardown(page, browserObserver, `/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: repairedOutput });
     await expectInlineToolOutput(page, `Recovery v2: ${repairedOutput}`);
     await captureEvidence(page, testInfo, "extension-browser-repaired-output", { fullPage: true });
@@ -543,7 +567,8 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
 
 test("same-session stale tabs cannot replace a new active release or restore an uninstall", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(360_000);
-  const pageDiagnostics = observeBrowserDiagnostics(page, baseURL!);
+  const pageObserver = observeBrowserDiagnostics(page, baseURL!);
+  const pageDiagnostics = pageObserver.diagnostics;
   const name = `ui-stale-${Date.now().toString(36)}`;
   const { client } = await extensionClient(request, baseURL!);
   const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
@@ -551,11 +576,12 @@ test("same-session stale tabs cannot replace a new active release or restore an 
   const releaseOne = Object.values(first.releases)[0]!;
   const installationId = created.installation.id;
   const stalePage = await page.context().newPage();
-  const stalePageDiagnostics = observeBrowserDiagnostics(stalePage, baseURL!);
+  const stalePageObserver = observeBrowserDiagnostics(stalePage, baseURL!);
+  const stalePageDiagnostics = stalePageObserver.diagnostics;
 
   try {
     await requestRelease(client, first, releaseOne.id);
-    await page.goto(created.openUrl);
+    await navigateWithRuntimeEventTeardown(page, pageObserver, created.openUrl);
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
     await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
@@ -574,7 +600,7 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     const second = await waitForExtensionBuild(client, installationId, operation.id);
     const releaseTwo = second.releases[second.operations[operation.id]!.releaseId!]!;
     await requestRelease(client, second, releaseTwo.id);
-    await stalePage.goto(`/extensions/author?installation=${installationId}&workspace=${edited.id}`);
+    await navigateWithRuntimeEventTeardown(stalePage, stalePageObserver, `/extensions/author?installation=${installationId}&workspace=${edited.id}`);
     await waitForHydration(stalePage);
     const secondApproval = stalePage.locator(".approval").filter({ hasText: releaseTwo.releaseDigest });
     await secondApproval.getByLabel("I reviewed this release and its permissions.").check();
@@ -593,7 +619,7 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     const releaseThree = third.releases[third.operations[operationThree.id]!.releaseId!]!;
     await requestRelease(client, third, releaseThree.id);
 
-    await page.goto(`/extensions/author?installation=${installationId}&workspace=${editedThree.id}`);
+    await navigateWithRuntimeEventTeardown(page, pageObserver, `/extensions/author?installation=${installationId}&workspace=${editedThree.id}`);
     const thirdApproval = page.locator(".approval").filter({ hasText: releaseThree.releaseDigest });
     await thirdApproval.getByLabel("I reviewed this release and its permissions.").check();
     await thirdApproval.getByRole("button", { name: "Approve exact release", exact: true }).click();
@@ -608,7 +634,7 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     await captureEvidence(stalePage, testInfo, "extension-stale-tab-denial", { fullPage: true });
     const unchanged = await client.extensionControl<{ installation: { activeReleaseId: string } }>("extensions_inspect", { installationId });
     expect(unchanged.installation.activeReleaseId).toBe(releaseThree.id);
-    await page.goto("/extensions");
+    await navigateWithRuntimeEventTeardown(page, pageObserver, "/extensions");
     const card = page.locator(`[data-testid="ext-card"][data-ext-id="${installationId}"]`);
     await card.getByTestId("ext-card-uninstall").click();
     const uninstallResponse = page.waitForResponse(response =>
@@ -624,7 +650,7 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     // restored installation.
     await secondApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
     await expect(stalePage.getByRole("alert")).toContainText(/stale|missing|uninstall/i);
-    await stalePage.reload();
+    await reloadWithRuntimeEventTeardown(stalePage, stalePageObserver);
     await waitForHydration(stalePage);
     // Retained author history is projected as disabled after uninstall; the
     // removed card and 404 tool lookup below prove it is not reactivated.

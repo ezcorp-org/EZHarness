@@ -162,7 +162,7 @@ REALGCC="$real_gcc" "$compiler" -static -O2 -Wall -Wextra -o "$root/init" "$work
 mkdir -p "$(dirname "$out")"
 ( cd "$root" && find . -print | cpio -o -H newc ) >"$work/initramfs.cpio"
 set +e
-timeout --foreground --kill-after=5s 45s qemu-system-x86_64 -enable-kvm -m 512M -kernel "$kernel" -initrd "$work/initramfs.cpio" \
+timeout --foreground --kill-after=5s 45s qemu-system-x86_64 -enable-kvm -nic none -m 512M -kernel "$kernel" -initrd "$work/initramfs.cpio" \
   -append 'console=ttyS0 audit=1 panic=-1' -display none -serial stdio -no-reboot 2>&1 | tr -d '\r' | tee "$out"
 qemu_status=${PIPESTATUS[0]}
 set -e
