@@ -1,0 +1,22 @@
+services:
+  app:
+    image: localhost/ezcorp-extension-v4:audit-final-cddb0627
+    container_name: extension-v4-web-audit-app
+    user: "${APP_UID}:${APP_GID}"
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      EZCORP_PORT: "3000"
+      ORIGIN: "http://localhost:3000"
+      EZCORP_PUBLIC_URL: "http://localhost:3000"
+      EZCORP_ENCRYPTION_SECRET: "<audit-secret>"
+      EZCORP_ENCRYPTION_SALT: "<audit-salt>"
+      EZCORP_JWT_SECRET: "<audit-jwt-secret>"
+      EZCORP_PROJECT_ROOT: "/app"
+      EZCORP_EXTENSION_RUNNER_SOCKET: "/run/ez-extension-runner/runner.sock"
+      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: "/run/secrets/extension-runner-token"
+    volumes:
+      - ${RUN_ROOT}/app-data:/app/data
+      - ${RUN_ROOT}/extension-state:/app/.ezcorp
+      - ${RUN_ROOT}/socket:/run/ez-extension-runner:ro
+      - ${RUN_ROOT}/token:/run/secrets/extension-runner-token:ro
