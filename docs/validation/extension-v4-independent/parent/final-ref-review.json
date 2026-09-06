@@ -6,7 +6,7 @@
   "fetched_pr": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
   "merge_base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
   "live_pr_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
-  "live_api_base": "65edc5bc0e36c6147219631e9cf73f89529bdef3",
+  "live_pr_base_commit_sha": "65edc5bc0e36c6147219631e9cf73f89529bdef3",
   "draft": true,
   "reviews": 0,
   "hosted_conclusions": {
