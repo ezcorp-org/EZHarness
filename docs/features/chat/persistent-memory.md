@@ -13,8 +13,9 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
 ### Storage model
 
 - Memories live in the `memories` table (`src/db/schema.ts`): `content`, `category` (`preferences` | `biographical` | `technical` | `decisions_goals`), `confidence` (`high`/`medium`/`low`), `status` (`active`/`stale`/`archived`), `embedding` (384-dim `vector`), `provenance` JSONB, `lastAccessedAt`, `injectionEligible` (boolean), `userId`, and a nullable `projectId`/`conversationId`.
-- Project membership is **many-to-many** via the `memory_projects` junction table — a memory belongs to N projects (or zero = "global"). The legacy single `projectId` column still exists but the M2M table is authoritative for scoping.
-- `memory_audit_log` records create/update/merge/delete/status_change history; `extension_memory_writes_daily` backs the per-extension write quota.
+- Project membership is **many-to-many** via the `memory_projects` junction table — a memory belongs to N projects (or zero = "global"). The legacy single `projectId` column is a compatibility mirror: every supported assignment path updates it, but the M2M table is authoritative for scoping.
+- The first creation of `memory_projects` imports non-null legacy `projectId` values once in the same database statement. Later boots never re-import them, so an explicit global assignment remains global. Historical rows that already disagree between the two representations are not changed automatically because an old direct extension write and a deliberate later unassignment are indistinguishable; inspect them before any operator repair.
+- `memory_audit_log` records create/update/merge/delete/status_change history; `extension_memory_writes_daily` atomically reserves a per-extension write allowance in the same transaction as the memory, membership, and resource audit write.
 
 ### Embeddings (local)
 
@@ -37,7 +38,7 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
 
 ### Compaction / merge (periodic)
 
-- `src/memory/compaction.ts#runCompaction` sweeps active memories, finds pairs above `COMPACTION_SIMILARITY_THRESHOLD = 0.90` (stricter than extraction-time dedup), and merges each pair into one consolidated statement via a cheap LLM call (`mergeContents`, `CHEAP_MODEL_BY_PROVIDER`, falls back to `"A; B"` concat if no LLM). The merged memory is inserted (provenance action `merged`) and both originals deleted. A settings-based lock (`compaction:lastRun`) prevents runs <1 minute apart.
+- `src/memory/compaction.ts#runCompaction` sweeps active memories, finds pairs above `COMPACTION_SIMILARITY_THRESHOLD = 0.90` (stricter than extraction-time dedup), and merges each pair into one consolidated statement via a cheap LLM call (`mergeContents`, `CHEAP_MODEL_BY_PROVIDER`, falls back to `"A; B"` concat if no LLM). It only merges active rows with the same owner, exact project-membership set, and injection eligibility. The replacement preserves that membership and eligibility, then it and both removals commit in one transaction. A settings-based lock (`compaction:lastRun`) prevents runs <1 minute apart.
 
 ### Decay (access-driven)
 
@@ -62,7 +63,7 @@ The system spans a host-side `src/memory/*` library, a DB table, a bundled exten
   - Extension-authored memories default `injectionEligible: false` so they don't auto-inject.
   - `selfOnly: true` (default) narrows list/get to the extension's own memories; `update`/`archive` reject non-authors (`-32001 not-author`).
   - Every read/write is scoped to the acting user via `ownedByActingUser` (`onBehalfOf`, host-stamped) — a shared bundled identity acting for user B can't read user A's PII.
-  - Daily write quota via `extension_memory_writes_daily`; over-quota → `-32103`.
+  - Daily write quota via `extension_memory_writes_daily`; quota reservation, memory, membership, and audit write are one transaction. Over-quota → `-32103`.
 
 ## Usage
 

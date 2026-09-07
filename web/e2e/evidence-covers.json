@@ -448,5 +448,35 @@
   "web/e2e/workflows-run-trace.spec.ts": [
     "web/src/routes/(app)/workflows/runs/[id]/+page.svelte",
     "web/src/lib/workflow-trace-logic.ts"
+  ],
+  "web/e2e/onboarding-provider-access.spec.ts": [
+    "web/src/routes/(auth)/onboarding/+page.svelte",
+    "web/src/lib/components/ProviderSettings.svelte",
+    "web/src/lib/components/chat/NoProviderBanner.svelte"
+  ],
+  "web/e2e/quickstart-refresh.spec.ts": [
+    "web/src/lib/components/QuickStartChecklist.svelte",
+    "web/src/lib/stores.svelte.ts"
+  ],
+  "web/e2e/workflow-yaml-fallback.spec.ts": [
+    "web/src/lib/components/WorkflowBuilder.svelte",
+    "web/src/lib/workflow-builder-logic.ts",
+    "web/src/routes/(app)/workflows/[name]/+page.svelte",
+    "web/src/routes/(app)/workflows/[name]/edit/+page.svelte"
+  ],
+  "web/e2e/real-auth/audit-web-regressions.spec.ts": [
+    "web/src/routes/(auth)/onboarding/+page.svelte",
+    "web/src/lib/components/ProviderSettings.svelte",
+    "web/src/lib/components/chat/NoProviderBanner.svelte",
+    "web/src/lib/components/QuickStartChecklist.svelte",
+    "web/src/lib/stores.svelte.ts",
+    "web/src/routes/(app)/+layout.svelte",
+    "web/src/routes/(app)/project/[id]/chat/+page.svelte"
+  ],
+  "web/e2e/chat-save-errors.spec.ts": [
+    "web/src/lib/components/chat/ChatHeader.svelte",
+    "web/src/lib/components/Tooltip.svelte",
+    "web/src/lib/components/ConversationSettings.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ]
 }

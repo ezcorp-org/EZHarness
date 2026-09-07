@@ -1,6 +1,6 @@
 # Example Extensions
 
-Working examples that demonstrate EZCorp extension capabilities, from simple tools to multi-agent orchestration. Each example is a complete, installable extension with tests and documentation.
+Working examples that demonstrate EZCorp extension capabilities, from simple tools to agent personas. Each example is a complete, installable extension with tests and documentation.
 
 > **Data storage convention:** every example that writes persistent data stores it under `<projectRoot>/.ezcorp/extension-data/<extension-name>/`. See [../data-storage.md](../data-storage.md) for the full guide.
 
@@ -9,13 +9,13 @@ Working examples that demonstrate EZCorp extension capabilities, from simple too
 Start simple and build up to composition patterns:
 
 1. **[harness-smoke-test](harness-smoke-test/)** -- Smallest possible install/invoke smoke test, no permissions
-2. **[github-stats](github-stats/)** -- Network permissions, environment variables, resource limits
+2. **[github-stats](github-stats/)** -- Public GitHub API, network permissions, resource limits
 3. **[project-analyzer](project-analyzer/)** -- Filesystem/shell access, postinstall lifecycle script
 4. **[markdown-utils](markdown-utils/)** -- Multi-component package (tools + skill + agent), persistent process
 5. **[research-agent](research-agent/)** -- Agent-only manifest, model requirements, example conversations
 6. **[code-quality](code-quality/)** -- Cross-extension composition via ezcorp/invoke, dependencies, preuninstall script
 7. **[code-review-delegator](code-review-delegator/)** -- Delegator pattern, multiple dependencies, combining results
-8. **[multi-agent-orchestrator](multi-agent-orchestrator/)** -- Forward-looking sub-agent manifest shape (runtime pending)
+8. **[multi-agent-orchestrator](multi-agent-orchestrator/)** -- Agent-only planning persona, no subprocess
 
 ### Additional Examples
 
@@ -58,21 +58,21 @@ Additional bundled and reference extensions spanning Hub dashboards, the Loop SD
 
 ## Feature Matrix
 
-| Example | Tools | Skills | Agent | Scripts | Network | FS/Shell | Env | Dependencies | Persistent | Resources | SubAgents |
-|---------|:-----:|:------:|:-----:|:-------:|:-------:|:--------:|:---:|:------------:|:----------:|:---------:|:---------:|
-| harness-smoke-test | 1 | -- | -- | -- | -- | -- | -- | -- | -- | -- | -- |
-| github-stats | 3 | -- | -- | -- | Y | -- | Y | -- | -- | Y | -- |
-| project-analyzer | 2 | -- | -- | postinstall | -- | Y | -- | -- | -- | -- | -- |
-| markdown-utils | 2 | 1 | Y | -- | -- | -- | -- | -- | Y | -- | -- |
-| research-agent | -- | -- | Y | -- | -- | -- | -- | -- | -- | -- | -- |
-| code-quality | 2 | -- | -- | preuninstall | -- | -- | -- | 1 | -- | -- | -- |
-| code-review-delegator | 1 | -- | Y | -- | -- | -- | -- | 2 | -- | -- | -- |
-| multi-agent-orchestrator | -- | -- | Y | -- | -- | -- | -- | -- | -- | -- | Y |
-| file-refactor | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- | -- |
-| log-analyzer | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- | -- |
-| todo-tracker | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- | -- |
-| task-stack | 25 | -- | -- | -- | -- | Y | -- | -- | -- | -- | -- |
-| weather | 1 | -- | Y | -- | Y | -- | -- | -- | -- | Y | -- |
+| Example | Tools | Skills | Agent | Scripts | Network | FS/Shell | Env | Dependencies | Persistent | Resources |
+|---------|:-----:|:------:|:-----:|:-------:|:-------:|:--------:|:---:|:------------:|:----------:|:---------:|
+| harness-smoke-test | 1 | -- | -- | -- | -- | -- | -- | -- | -- | -- |
+| github-stats | 3 | -- | -- | -- | Y | -- | -- | -- | -- | Y |
+| project-analyzer | 2 | -- | -- | postinstall | -- | Y | -- | -- | -- | -- |
+| markdown-utils | 2 | 1 | Y | -- | -- | -- | -- | -- | Y | -- |
+| research-agent | -- | -- | Y | -- | -- | -- | -- | -- | -- | -- |
+| code-quality | 2 | -- | -- | preuninstall | -- | -- | -- | 1 | -- | -- |
+| code-review-delegator | 1 | -- | Y | -- | -- | -- | -- | 2 | -- | -- |
+| multi-agent-orchestrator | -- | -- | Y | -- | -- | -- | -- | -- | -- | -- |
+| file-refactor | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- |
+| log-analyzer | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- |
+| todo-tracker | 1 | -- | -- | -- | -- | Y | -- | -- | -- | -- |
+| task-stack | 25 | -- | -- | -- | -- | Y | -- | -- | -- | -- |
+| weather | 1 | -- | Y | -- | Y | -- | -- | -- | -- | Y |
 
 ## Shared Variables
 
@@ -106,9 +106,12 @@ inputSchema: {
 
 Install any example locally:
 
-```bash
-ezcorp ext install ./docs/extensions/examples/<name>
+```sh
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/<name>
 ```
+
+Run this command from the repository root. It stages source for a human review;
+it does not activate the extension.
 
 Run tests for an example:
 

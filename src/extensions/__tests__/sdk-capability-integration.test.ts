@@ -30,7 +30,7 @@ mockDbConnection();
 
 import { handlePiLlmComplete, _resetLlmAbuseTrackerForTests } from "../llm-handler";
 import { _resetLlmQuotaForTests } from "../llm-quota";
-import { handlePiMemory, _resetMemoryWriteQuotaForTests } from "../memory-handler";
+import { handlePiMemory } from "../memory-handler";
 import { handlePiLessons, _resetLessonsWriteQuotaForTests } from "../lessons-handler";
 import { handlePiSchedule } from "../schedule-handler";
 import { reconcileSchedules, _wipeSchedulesForTests } from "../schedule-reconcile";
@@ -40,7 +40,7 @@ import {
   extensions, conversations, projects,
   sdkCapabilityCalls, messages, errorLogs, auditLog,
   lessons, lessonsAuditLog, memories, memoryAuditLog,
-  extensionScheduleFires,
+  extensionMemoryWritesDaily, extensionScheduleFires,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionPermissions } from "../types";
@@ -78,6 +78,7 @@ beforeEach(async () => {
   await _wipeSchedulesForTests(extensionId);
   await getTestDb().delete(memoryAuditLog);
   await getTestDb().delete(memories);
+  await getTestDb().delete(extensionMemoryWritesDaily);
   await getTestDb().delete(lessonsAuditLog);
   await getTestDb().delete(lessons);
   await getTestDb().delete(sdkCapabilityCalls);
@@ -85,7 +86,6 @@ beforeEach(async () => {
   await getTestDb().delete(auditLog);
   _resetLlmAbuseTrackerForTests();
   _resetLlmQuotaForTests();
-  _resetMemoryWriteQuotaForTests();
   _resetLessonsWriteQuotaForTests();
 });
 

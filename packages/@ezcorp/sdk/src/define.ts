@@ -2,20 +2,32 @@
 // Identity function at runtime; provides type inference at dev time.
 // Follows ecosystem convention (Vite defineConfig, Drizzle defineConfig).
 
-import type { ExtensionManifestV2, ToolDefinition, SkillDefinition } from "./types";
+import type {
+  ExtensionManifestV2,
+  ToolDefinition,
+} from "./types";
 
 /**
- * Extension config type that allows function-valued properties on components.
- * Functions (e.g. handler references) are stripped at load time before validation.
+ * `handler` is the only function-bearing field in an authored manifest. The
+ * host strips it before runtime validation; spelling it explicitly keeps the
+ * surrounding config closed to misspelled fields.
  */
-type WithFunctions<T> = T & { [key: string]: unknown };
+/** Runtime handlers are stripped before validation, but must be callable. */
+type ToolHandler = (...args: never[]) => unknown;
 
-type ExtensionConfig = Omit<ExtensionManifestV2, "tools" | "skills" | "agent"> & {
-  tools?: (WithFunctions<ToolDefinition>)[];
-  skills?: (WithFunctions<SkillDefinition>)[];
-  agent?: WithFunctions<NonNullable<ExtensionManifestV2["agent"]>>;
+type ToolConfig = ToolDefinition & { handler?: ToolHandler };
+
+type ExtensionConfig = Omit<ExtensionManifestV2, "tools"> & {
+  tools?: ToolConfig[];
 };
 
-export function defineExtension<T extends ExtensionConfig>(config: T): T {
+type NoExtraProperties<Shape, Actual extends Shape> = Actual & Record<
+  Exclude<keyof Actual, keyof Shape>,
+  never
+>;
+
+export function defineExtension<const T extends ExtensionConfig>(
+  config: NoExtraProperties<ExtensionConfig, T>,
+): ExtensionConfig {
   return config;
 }

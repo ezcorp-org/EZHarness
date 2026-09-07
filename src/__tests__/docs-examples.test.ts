@@ -125,7 +125,8 @@ describe("multi-agent-orchestrator", () => {
     expect(m.agent).toBeDefined();
     expect(m.agent?.prompt).toContain("Planner instructions:");
     expect(m.agent?.prompt).toContain("Executor instructions:");
-    expect(m.entrypoint).toBeUndefined();
+    expect("subAgents" in m).toBe(false);
+    expect(m.entrypoint).toBe("./extension.ts");
   });
 });
 

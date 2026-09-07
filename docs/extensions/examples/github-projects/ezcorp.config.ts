@@ -11,8 +11,8 @@
 //
 // The Hub dashboard shows the viewing user's proposals (Active / History) and
 // per-board connection health with Approve / Dismiss / Pause / Resume /
-// Reconnect actions. Like ping-loop, it's `bootSpawn` + event-driven so the
-// daemon's `github-projects:proposal-update` pushes refresh the page live.
+// Reconnect actions. The bundled registry keeps this event-driven extension
+// resident so daemon proposal updates can refresh the page live.
 
 import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
@@ -24,14 +24,10 @@ export default defineExtension({
     "Connect a GitHub Projects v2 board to the active EZCorp project, then plan and execute its tickets. A live Hub dashboard surfaces pending board-triggered proposals (approve / dismiss), connection health (pause / resume / reconnect), and history. All GitHub I/O is host-side — the token never reaches the sandbox.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",
+  // Event subscriptions and Hub page actions need a resident subprocess.
+  bootSpawn: true,
   category: "Development",
   tags: ["hub", "pages", "github", "projects", "tickets", "orchestration"],
-
-  // Event-only live path: the daemon's proposal updates + the Hub page-action
-  // buttons drive everything, so the subprocess must stay resident to receive
-  // them (same rationale as ping-loop). The 6 tools below also spawn it lazily
-  // on first chat use, but bootSpawn keeps the dashboard live without a chat.
-  bootSpawn: true,
 
   // ── LLM-callable tools (THIN — each emits a reverse-RPC intent) ──────────
   //

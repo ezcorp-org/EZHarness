@@ -9,5 +9,6 @@ test("preserves planner and executor guidance in supported agent metadata", () =
   expect(manifest.agent.prompt).toContain("project-analyzer.listFiles");
   expect(manifest.agent.prompt).toContain("code-quality.analyzeFile");
   expect("subAgents" in manifest).toBe(false);
+  expect(manifest.entrypoint).toBe("./extension.ts");
   expect(manifest.permissions).toEqual({});
 });

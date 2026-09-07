@@ -1,5 +1,5 @@
 {
-  "//": "e2e lane manifest (wave 3, CI audit 3.4). EVERY web/e2e/**/*.spec.ts has exactly ONE lane. mock-gate = the blocking 'E2E (mock, no Docker)' set — ci.yml derives its playwright args FROM this file via scripts/e2e-lane-args.ts (one home; a spec joins the gate by being set to mock-gate HERE). real-auth = the blocking real-auth tier (playwright.real.config.ts, testDir e2e/real-auth). evidence-soft = @evidence-tagged capture lane (diff-credited specs hard-fail the visual-evidence job; full-suite fallback also fails closed). docker = DOCKER_TEST-gated (run via scripts/docker-test-all.sh, not in PR CI). unwired = the HONEST backlog: runs in NO CI job today. src/__tests__/e2e-lanes.test.ts enforces exhaustiveness/uniqueness/marker consistency and ratchets unwired shrink-only.",
+  "//": "e2e lane manifest (wave 3, CI audit 3.4). EVERY web/e2e/**/*.spec.ts has exactly ONE lane. mock-gate = the blocking 'E2E (mock, no Docker)' set \u2014 ci.yml derives its playwright args FROM this file via scripts/e2e-lane-args.ts (one home; a spec joins the gate by being set to mock-gate HERE). fresh-setup and real-auth are blocking real-PGlite tiers: the first proves the shipped zero-user setup journey, then real-auth proves authenticated journeys. evidence-soft = @evidence-tagged capture lane (diff-credited specs hard-fail the visual-evidence job; full-suite fallback also fails closed). docker = DOCKER_TEST-gated (run via scripts/docker-test-all.sh, not in PR CI). unwired = the HONEST backlog: runs in NO CI job today. src/__tests__/e2e-lanes.test.ts enforces exhaustiveness/uniqueness/marker consistency and ratchets unwired shrink-only.",
   "lanes": {
     "mock-gate": [
       "web/e2e/agent-panel-parity.spec.ts",
@@ -7,6 +7,7 @@
       "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts",
       "web/e2e/chat-prompt-arrow-nav-cards.spec.ts",
       "web/e2e/chat-prompt-arrow-nav.spec.ts",
+      "web/e2e/chat-save-errors.spec.ts",
       "web/e2e/chat-scroll-restore.spec.ts",
       "web/e2e/chat-stick-to-bottom.spec.ts",
       "web/e2e/chat-turn-collapse.spec.ts",
@@ -30,11 +31,15 @@
       "web/e2e/file-organizer-real.spec.ts",
       "web/e2e/hub.spec.ts",
       "web/e2e/main-chat-parity.spec.ts",
+      "web/e2e/onboarding-provider-access.spec.ts",
       "web/e2e/project-form.spec.ts",
+      "web/e2e/provider-settings.spec.ts",
       "web/e2e/pull-to-refresh-no-spurious-reload.spec.ts",
+      "web/e2e/quickstart-refresh.spec.ts",
       "web/e2e/resume-bounce-no-loop.spec.ts",
       "web/e2e/stuck-skeleton-self-heal.spec.ts",
       "web/e2e/task-panel-cold-start.spec.ts",
+      "web/e2e/workflow-yaml-fallback.spec.ts",
       "web/e2e/workflows-run-output.spec.ts"
     ],
     "real-auth": [
@@ -42,19 +47,20 @@
       "web/e2e/real-auth/api-key-tool-policy.spec.ts",
       "web/e2e/real-auth/approval-consent-boundary.spec.ts",
       "web/e2e/real-auth/approvals-inbox-scoping.spec.ts",
+      "web/e2e/real-auth/audit-web-regressions.spec.ts",
       "web/e2e/real-auth/auth-fixture.spec.ts",
       "web/e2e/real-auth/caller-tool-flow.spec.ts",
       "web/e2e/real-auth/delegated-fire-boundary.spec.ts",
       "web/e2e/real-auth/delegation-consent-boundary.spec.ts",
       "web/e2e/real-auth/extension-author-flow.spec.ts",
       "web/e2e/real-auth/extension-binary-assets.spec.ts",
-      "web/e2e/real-auth/extension-control-flow.spec.ts",
+      "web/e2e/real-auth/extension-browser-cancel.spec.ts",
+      "web/e2e/real-auth/extension-browser-scanner.spec.ts",
       "web/e2e/real-auth/extension-chat-build.spec.ts",
+      "web/e2e/real-auth/extension-control-flow.spec.ts",
       "web/e2e/real-auth/extension-lifecycle-flow.spec.ts",
       "web/e2e/real-auth/extension-project-authority.spec.ts",
       "web/e2e/real-auth/extension-release-gate.spec.ts",
-      "web/e2e/real-auth/extension-browser-scanner.spec.ts",
-      "web/e2e/real-auth/extension-browser-cancel.spec.ts",
       "web/e2e/real-auth/extension-source-import.spec.ts",
       "web/e2e/real-auth/ez-factory-job-run.spec.ts",
       "web/e2e/real-auth/harness-client-flow.spec.ts",
@@ -322,7 +328,6 @@
       "web/e2e/picker-pills.spec.ts",
       "web/e2e/project-rail-unread-badge.spec.ts",
       "web/e2e/project.spec.ts",
-      "web/e2e/provider-settings.spec.ts",
       "web/e2e/pwa.spec.ts",
       "web/e2e/quickstart-checklist.spec.ts",
       "web/e2e/register-redirects.spec.ts",
@@ -338,7 +343,6 @@
       "web/e2e/settings-search-page.spec.ts",
       "web/e2e/settings-search.spec.ts",
       "web/e2e/settings-users-pagination.spec.ts",
-      "web/e2e/setup-first-run.spec.ts",
       "web/e2e/shared-ui-components.spec.ts",
       "web/e2e/shared-variables.spec.ts",
       "web/e2e/sidebar-mobile.spec.ts",
@@ -380,6 +384,9 @@
       "web/e2e/workflows-actions.spec.ts",
       "web/e2e/workflows-new.spec.ts",
       "web/e2e/workflows.spec.ts"
+    ],
+    "fresh-setup": [
+      "web/e2e/setup-first-run.spec.ts"
     ]
   }
 }

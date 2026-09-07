@@ -13,17 +13,15 @@
  *     `"not-author"`).
  *   - Daily-write quota via `extension_memory_writes_daily`.
  */
-import { logger } from "../logger";
 import { deriveHandlerContext, type RegisteredToolStub } from "./handler-context";
 import { recordCapabilityCall } from "./recordCapabilityCall";
 import { getDb } from "../db/connection";
-import { memories, extensionMemoryWritesDaily } from "../db/schema";
-import { memoryOwnedByUser } from "../db/queries/memories";
+import { memories } from "../db/schema";
 import { sql, eq, and } from "drizzle-orm";
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 import type { MemoryProvenance } from "../memory/types";
-
-const log = logger.child("ext.memory-handler");
+import { insertMemoryWithDailyExtensionQuota, memoryOwnedByUser } from "../db/queries/memories";
+import { getProject } from "../db/queries/projects";
 
 interface MemoryWriteInput {
   content: string;
@@ -68,49 +66,6 @@ async function defaultEmbed(text: string): Promise<number[]> {
 
 function todayUtcString(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-/** Track per-extension daily-write count + flush gate. Mirrors the
- *  rolling-day pattern from `llm-quota`. Inline here because the
- *  shape is much simpler (no rolling-hour, no tokens). */
-const writeCounters = new Map<string, { day: string; count: number }>();
-
-function checkAndConsumeWriteQuota(
-  extensionId: string,
-  maxWritesPerDay: number,
-): { ok: true } | { ok: false; retryAfterMs: number } {
-  const today = todayUtcString();
-  let entry = writeCounters.get(extensionId);
-  if (!entry || entry.day !== today) {
-    entry = { day: today, count: 0 };
-    writeCounters.set(extensionId, entry);
-  }
-  if (entry.count >= maxWritesPerDay) {
-    const tomorrow = new Date();
-    tomorrow.setUTCHours(24, 0, 0, 0);
-    return { ok: false, retryAfterMs: tomorrow.getTime() - Date.now() };
-  }
-  entry.count += 1;
-  // Async DB upsert — non-blocking.
-  void (async () => {
-    try {
-      await getDb()
-        .insert(extensionMemoryWritesDaily)
-        .values({ extensionId, day: today, writes: entry!.count })
-        .onConflictDoUpdate({
-          target: [extensionMemoryWritesDaily.extensionId, extensionMemoryWritesDaily.day],
-          set: { writes: entry!.count, updatedAt: sql`NOW()` },
-        });
-    } catch (err) {
-      log.warn("write-quota-flush-failed", { extensionId, error: String(err) });
-    }
-  })();
-  return { ok: true };
-}
-
-/** Test-only — clear quota counters. */
-export function _resetMemoryWriteQuotaForTests(): void {
-  writeCounters.clear();
 }
 
 function softFail(req: JsonRpcRequest, reason: string, code = -32001): JsonRpcResponse {
@@ -191,13 +146,9 @@ export async function handlePiMemory(
       if (granted.categories && !granted.categories.includes(params.input.category)) {
         return softFail(req, "category-not-allowed");
       }
-      const quota = checkAndConsumeWriteQuota(handlerCtx.actorExtensionId, granted.maxWritesPerDay);
-      if (!quota.ok) {
-        return {
-          jsonrpc: "2.0", id: req.id,
-          error: { code: -32103, message: "memory write quota exceeded",
-                   data: { reason: "writes-per-day", retryAfterMs: quota.retryAfterMs } },
-        };
+      if (params.input.projectId) {
+        const project = await getProject(params.input.projectId);
+        if (!project) return softFail(req, "project-not-found");
       }
 
       const embed = ctx.embedFn ?? defaultEmbed;
@@ -213,39 +164,41 @@ export async function handlePiMemory(
         runId: handlerCtx.runId,
         injectionEligible: false, // Locked: extension-authored memories don't auto-inject.
       };
-      const [inserted] = await db.insert(memories).values({
+      const inserted = await insertMemoryWithDailyExtensionQuota({
         content: params.input.content,
         category: params.input.category,
         ...(params.input.projectId !== undefined ? { projectId: params.input.projectId ?? null } : {}),
+        ...(params.input.projectId ? { projectIds: [params.input.projectId] } : {}),
         ...(handlerCtx.conversationId ? { conversationId: handlerCtx.conversationId } : {}),
         confidence: params.input.confidence ?? "medium",
         provenance: provenance as MemoryProvenance,
         injectionEligible: false,
         userId: handlerCtx.onBehalfOf,
-      }).returning();
-
-      // Write the embedding in a follow-up exec — vector assignments
-      // need raw SQL (per memories.ts pattern).
-      await db.execute(
-        sql`UPDATE memories SET embedding = ${sql.raw(toVectorLiteral(embedding))} WHERE id = ${inserted!.id}`,
-      );
+        embedding,
+      }, {
+        extensionId: handlerCtx.actorExtensionId,
+        day: todayUtcString(),
+        maxWrites: granted.maxWritesPerDay,
+      });
+      if (!inserted) {
+        const tomorrow = new Date();
+        tomorrow.setUTCHours(24, 0, 0, 0);
+        return {
+          jsonrpc: "2.0", id: req.id,
+          error: { code: -32103, message: "memory write quota exceeded",
+                   data: { reason: "writes-per-day", retryAfterMs: tomorrow.getTime() - Date.now() } },
+        };
+      }
 
       await recordCapabilityCall({
         ctx: handlerCtx, capability: "memory", action: "write",
-        resourceType: "memory", resourceId: inserted!.id,
+        resourceType: "memory", resourceId: inserted.id,
         before: undefined,
-        after: { id: inserted!.id, category: params.input.category, contentSha256: hashStable(params.input.content) },
+        after: { id: inserted.id, category: params.input.category, contentSha256: hashStable(params.input.content) },
         durationMs: Date.now() - startedAt, success: true,
-        perResourceAudit: {
-          kind: "memory",
-          memoryId: inserted!.id,
-          memoryAction: "created",
-          previousBody: null,
-          newBody: params.input.content,
-        },
         insertChatPill: handlerCtx.conversationId !== null,
       });
-      return { jsonrpc: "2.0", id: req.id, result: { memory: stripPrivate(inserted!) } };
+      return { jsonrpc: "2.0", id: req.id, result: { memory: stripPrivate(inserted) } };
     }
 
     case "update": {
@@ -320,10 +273,6 @@ function stripPrivate(row: typeof memories.$inferSelect): Record<string, unknown
   const { embedding, ...rest } = row as Record<string, unknown>;
   void embedding;
   return rest;
-}
-
-function toVectorLiteral(vec: number[]): string {
-  return `'[${vec.join(",")}]'::vector`;
 }
 
 function hashStable(s: string): string {

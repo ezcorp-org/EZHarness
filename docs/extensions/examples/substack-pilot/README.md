@@ -37,7 +37,7 @@ The manifest declares `mcpServers: [substack-api]` for transparency, but the EZC
 ### 1. Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/substack-pilot
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/substack-pilot
 ```
 
 ### 2. Configure Substack credentials

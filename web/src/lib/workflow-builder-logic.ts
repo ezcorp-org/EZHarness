@@ -187,6 +187,83 @@ export interface StoredStep {
   loop?: { maxIterations?: number; until?: unknown; onExhausted?: string };
 }
 
+/**
+ * The visual editor is intentionally narrower than the persisted workflow
+ * schema. Return every field it cannot round-trip so callers can direct the
+ * user to YAML before a save drops a supported server field.
+ */
+export function unsupportedFormFields(definition: Record<string, unknown>): string[] {
+	const unsupported: string[] = [];
+	const supportedDefinitionKeys = new Set(["name", "description", "defaultModel", "steps"]);
+	const supportedStepKeys = new Set([
+		"name",
+		"kind",
+		"agent",
+		"tool",
+		"input",
+		"output",
+		"condition",
+		"dependsOn",
+		"loop",
+		"retries",
+		"model",
+	]);
+	const supportedKinds = new Set<StepKind>(["agent", "transform", "gate", "tool"]);
+	const mappingCanRoundTrip = (value: unknown): boolean =>
+		value !== null &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		Object.values(value).every((entry) => typeof entry === "string");
+	const loopCanRoundTrip = (value: unknown): boolean => {
+		if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+		const loop = value as Record<string, unknown>;
+		if (Object.keys(loop).some((key) => !["maxIterations", "until", "onExhausted"].includes(key))) {
+			return false;
+		}
+		return (
+			typeof loop.maxIterations === "number" &&
+			Number.isInteger(loop.maxIterations) &&
+			(loop.onExhausted === undefined || loop.onExhausted === "fail" || loop.onExhausted === "pass")
+		);
+	};
+
+	for (const key of Object.keys(definition)) {
+		if (!supportedDefinitionKeys.has(key)) unsupported.push(key);
+	}
+
+	if (definition.steps !== undefined && !Array.isArray(definition.steps)) {
+		unsupported.push("steps");
+		return unsupported;
+	}
+
+	for (const [index, raw] of (definition.steps ?? []).entries()) {
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+			unsupported.push(`steps[${index}]`);
+			continue;
+		}
+		const step = raw as Record<string, unknown>;
+		const name = typeof step.name === "string" ? step.name : `steps[${index}]`;
+		const kind = step.kind === undefined ? "agent" : step.kind;
+		if (typeof kind !== "string" || !supportedKinds.has(kind as StepKind)) {
+			unsupported.push(`${name}.kind`);
+		}
+		for (const key of Object.keys(step)) {
+			if (!supportedStepKeys.has(key)) unsupported.push(`${name}.${key}`);
+		}
+		if (step.input !== undefined && !mappingCanRoundTrip(step.input)) {
+			unsupported.push(`${name}.input`);
+		}
+		if (step.output !== undefined && !mappingCanRoundTrip(step.output)) {
+			unsupported.push(`${name}.output`);
+		}
+		if (step.loop !== undefined && !loopCanRoundTrip(step.loop)) {
+			unsupported.push(`${name}.loop`);
+		}
+	}
+
+	return unsupported;
+}
+
 /** Narrow an arbitrary stored `kind` to one the builder can render.
  *  `kind` is optional in the schema and defaults to `"agent"`; anything
  *  unrecognized also lands there rather than producing an unrenderable

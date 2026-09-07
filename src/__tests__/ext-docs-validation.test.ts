@@ -155,6 +155,7 @@ describe("getting-started.md", () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
     expect(content).toContain("bun src/cli.ts ext init my-extension");
     expect(content).toContain("inline manifest in `extension.ts`");
+    expect(content).toContain("--type skill");
   });
 
   test("documents scaffold implementation and test files", async () => {
@@ -414,7 +415,7 @@ describe("example extension README content", () => {
     test(`${name}/README.md contains install command`, async () => {
       const content = await readText(join(EXAMPLES_DIR, name, "README.md"));
       expect(content).toContain(
-        `ezcorp ext install ./docs/extensions/examples/${name}`,
+        `EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/${name}`,
       );
     });
 

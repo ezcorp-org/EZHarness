@@ -1,57 +1,34 @@
 # multi-agent-orchestrator Extension
 
-A manifest-only extension that documents the intended shape for multi-agent orchestration. This example demonstrates **sub-agent definitions**, **explicit tool scoping per sub-agent**, and **pipeline-based delegation**.
+A schema-version-4 extension that supplies a planning and execution persona for
+complex development work. Its `extension.ts` entrypoint serves the manifest
+through the isolated v4 runner. The package has no callable tools, but it is
+still a verified release with a runtime wrapper.
 
-> **Note:** Runtime support for sub-agent orchestration is coming in a future release. This example documents the intended manifest shape.
+## Install for review
 
-## Install
+Run this from the repository root as the active administrator:
 
-```bash
-ezcorp ext install ./docs/extensions/examples/multi-agent-orchestrator
+```sh
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/multi-agent-orchestrator
 ```
 
-## Manifest Walkthrough
+The command stages and verifies source. It does not activate the extension.
+Open the returned author page, have an administrator approve the verified
+release, then activate it. `--yes` cannot approve a release.
 
-### Agent Definition
+## Manifest
 
-The top-level `agent` defines the orchestrator -- the coordinating agent that delegates work to sub-agents.
-
-### `subAgents`
-
-```json
-"subAgents": [
-  {
-    "name": "planner",
-    "prompt": "Break down complex tasks into ordered steps...",
-    "tools": ["project-analyzer.listFiles"]
-  },
-  {
-    "name": "executor",
-    "prompt": "Execute implementation steps precisely...",
-    "tools": ["code-quality.analyzeFile", "project-analyzer.readFile"]
-  }
-]
-```
-
-Each sub-agent has:
-- **name** - Unique identifier within this extension
-- **prompt** - System prompt defining the sub-agent's role
-- **tools** - Explicitly scoped list of tools this sub-agent can access (fully qualified as `package.tool`)
-
-### Pipeline vs Tool-Based Delegation
-
-This manifest uses a **pipeline** pattern: the planner analyzes first, then the executor implements. Each sub-agent has access only to the tools it needs -- the planner can list files but not modify them, while the executor can read and analyze but relies on the planner's output for direction.
-
-This is different from tool-based delegation where a single agent has access to all tools. Explicit tool scoping per sub-agent enforces separation of concerns at the manifest level.
-
-### No Entrypoint
-
-This extension has no `entrypoint` field. The orchestrator and sub-agents are defined entirely in the manifest -- the platform handles spawning, routing, and tool access at runtime.
+`ezcorp.config.ts` uses `defineRuntimeManifest` from `@ezcorp/sdk/v4` and
+schema version 4. Its `agent` contribution contains the planner and executor
+guidance. It has no `subAgents` field. `extension.ts` creates the v4 runtime
+extension and serves that manifest; it does not register callable tools.
 
 ## Testing
 
-```bash
-bun test docs/extensions/examples/multi-agent-orchestrator/index.test.ts
+```sh
+bun test docs/extensions/examples/multi-agent-orchestrator/index.test.ts \
+  docs/extensions/examples/multi-agent-orchestrator/extension.test.ts
 ```
 
-Tests validate the manifest structure: schema version, agent/subAgents fields, tool scoping per sub-agent.
+The tests check the v4 manifest contract and the runtime entrypoint.

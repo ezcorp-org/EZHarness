@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { tick, untrack } from 'svelte';
+	import { onDestroy, tick, untrack } from 'svelte';
 
 	let {
 		text,
@@ -30,7 +30,9 @@
 	const GAP = 8; // gap between trigger and tooltip
 
 	function startDelay() {
+		if (timer) clearTimeout(timer);
 		timer = setTimeout(async () => {
+			timer = null;
 			if (!el) return;
 			const rect = el.getBoundingClientRect();
 			// Axis-flip if the preferred side doesn't have room.
@@ -76,9 +78,15 @@
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') cancelDelay();
 	}
+
+	function repositionIfShown() {
+		if (show) positionTooltip();
+	}
+
+	onDestroy(cancelDelay);
 </script>
 
-<svelte:window onresize={show ? positionTooltip : undefined} onscroll={show ? positionTooltip : undefined} />
+<svelte:window onresize={repositionIfShown} onscroll={repositionIfShown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span

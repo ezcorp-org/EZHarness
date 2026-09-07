@@ -41,6 +41,18 @@ const MIME_REGEX = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&
 // rejected (the spec's contract is exact MIME or `type/*`, nothing wider).
 const MIME_GLOB_REGEX = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/\*$/;
 
+function rejectUnknownKeys(
+  value: Record<string, unknown>,
+  path: string,
+  allowed: readonly string[],
+  errors: string[],
+): void {
+  const known = new Set(allowed);
+  for (const key of Object.keys(value)) {
+    if (!known.has(key)) errors.push(`${path}.${key} is not a recognized field`);
+  }
+}
+
 // ── Component Validators ─────────────────────────────────────────
 
 function validateToolsArray(tools: unknown, errors: string[]): void {
@@ -54,6 +66,10 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
       errors.push(`tools[${i}] must be an object`);
       continue;
     }
+    rejectUnknownKeys(t, `tools[${i}]`, [
+      "name", "description", "inputSchema", "cardType", "cardLayout",
+      "requiresUserInput", "suggestExamples", "capabilities", "rbacScope", "handler",
+    ], errors);
     if (!t.name || typeof t.name !== "string")
       errors.push(`tools[${i}].name is required`);
     if (!t.description || typeof t.description !== "string")
@@ -139,6 +155,7 @@ function validateToolCapabilities(
     return;
   }
   const c = caps as Record<string, unknown>;
+  rejectUnknownKeys(c, path, ["network", "filesystem", "shell", "env", "storage", "custom"], errors);
   if (c.network !== undefined) {
     if (
       !c.network ||
@@ -148,6 +165,7 @@ function validateToolCapabilities(
     ) {
       errors.push(`${path}.network must be { hosts: string[] }`);
     } else {
+      rejectUnknownKeys(c.network as Record<string, unknown>, `${path}.network`, ["hosts"], errors);
       for (const h of (c.network as { hosts: unknown[] }).hosts) {
         if (typeof h !== "string") {
           errors.push(`${path}.network.hosts entries must be strings`);
@@ -169,6 +187,7 @@ function validateToolCapabilities(
       );
     } else {
       const fs = c.filesystem as { paths: unknown[]; mode: unknown[] };
+      rejectUnknownKeys(c.filesystem as Record<string, unknown>, `${path}.filesystem`, ["paths", "mode"], errors);
       for (const p of fs.paths) {
         if (typeof p !== "string") {
           errors.push(`${path}.filesystem.paths entries must be strings`);
@@ -225,6 +244,7 @@ function validateSkillsArray(skills: unknown, errors: string[]): void {
       errors.push(`skills[${i}] must be an object`);
       continue;
     }
+    rejectUnknownKeys(s, `skills[${i}]`, ["name", "description", "prompt", "files"], errors);
     if (!s.name || typeof s.name !== "string")
       errors.push(`skills[${i}].name is required`);
     if (!s.description || typeof s.description !== "string")
@@ -255,6 +275,7 @@ function validateMcpServersArray(
       continue;
     }
     if (m.transport === "stdio") {
+      rejectUnknownKeys(m, `mcpServers[${i}]`, ["transport", "name", "description", "command", "args", "env"], errors);
       if (!m.command || typeof m.command !== "string")
         errors.push(`mcpServers[${i}].command is required for stdio transport`);
       if (m.args !== undefined && !Array.isArray(m.args))
@@ -262,6 +283,7 @@ function validateMcpServersArray(
       if (m.env !== undefined && (typeof m.env !== "object" || Array.isArray(m.env)))
         errors.push(`mcpServers[${i}].env must be an object`);
     } else {
+      rejectUnknownKeys(m, `mcpServers[${i}]`, ["transport", "name", "description", "url", "headers"], errors);
       if (!m.url || typeof m.url !== "string")
         errors.push(`mcpServers[${i}].url is required for ${m.transport} transport`);
       if (m.headers !== undefined && (typeof m.headers !== "object" || Array.isArray(m.headers)))
@@ -295,6 +317,13 @@ function validateAgentComponent(agent: unknown, errors: string[]): void {
     return;
   }
   const a = agent as Record<string, unknown>;
+  rejectUnknownKeys(a, "agent", [
+    "prompt", "category", "capabilities", "modelRequirements", "temperature", "maxTokens",
+    "outputFormat", "inputSchema", "exampleConversations",
+  ], errors);
+  if (a.modelRequirements && typeof a.modelRequirements === "object" && !Array.isArray(a.modelRequirements)) {
+    rejectUnknownKeys(a.modelRequirements as Record<string, unknown>, "agent.modelRequirements", ["tier", "contextWindow"], errors);
+  }
   if (!a.prompt || typeof a.prompt !== "string")
     errors.push("agent.prompt is required");
 }
@@ -302,6 +331,16 @@ function validateAgentComponent(agent: unknown, errors: string[]): void {
 function validateScriptsBlock(scripts: unknown, errors: string[]): void {
   if (!scripts || typeof scripts !== "object") {
     errors.push("scripts must be an object");
+    return;
+  }
+  const block = scripts as Record<string, unknown>;
+  rejectUnknownKeys(block, "scripts", ["postinstall", "preuninstall", "commands"], errors);
+  if (block.commands && typeof block.commands === "object" && !Array.isArray(block.commands)) {
+    for (const [name, command] of Object.entries(block.commands as Record<string, unknown>)) {
+      if (command && typeof command === "object" && !Array.isArray(command)) {
+        rejectUnknownKeys(command as Record<string, unknown>, `scripts.commands.${name}`, ["entrypoint", "description"], errors);
+      }
+    }
   }
 }
 
@@ -331,6 +370,7 @@ function validateMessageToolbarArray(
       errors.push(`messageToolbar[${i}] must be an object`);
       continue;
     }
+    rejectUnknownKeys(it, `messageToolbar[${i}]`, ["id", "icon", "tooltip", "appliesTo", "appliesToSelection", "event"], errors);
     if (typeof it.id !== "string" || !MSG_TOOLBAR_ID_REGEX.test(it.id)) {
       errors.push(
         `messageToolbar[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`,
@@ -409,6 +449,7 @@ export function validatePagesArray(items: unknown, errors: string[]): void {
       errors.push(`pages[${i}] must be an object`);
       continue;
     }
+    rejectUnknownKeys(it, `pages[${i}]`, ["id", "title", "icon", "description", "perProject"], errors);
     if (typeof it.id !== "string" || !PAGE_ID_REGEX.test(it.id)) {
       errors.push(`pages[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`);
     } else if (seenIds.has(it.id)) {
@@ -751,6 +792,23 @@ export function validateSettingsSchema(
       );
       continue;
     }
+    const allowed = {
+      select: ["type", "label", "description", "options", "default"],
+      text: ["type", "label", "description", "default", "minLength", "maxLength", "pattern"],
+      number: ["type", "label", "description", "default", "min", "max", "step", "integer"],
+      boolean: ["type", "label", "description", "default"],
+      secret: ["type", "label", "description", "storageKey"],
+    } as const;
+    const fieldType = field.type as keyof typeof allowed;
+    rejectUnknownKeys(field, path, allowed[fieldType], errors);
+    if (field.type === "select" && Array.isArray(field.options)) {
+      for (let i = 0; i < field.options.length; i++) {
+        const option = field.options[i];
+        if (option && typeof option === "object" && !Array.isArray(option)) {
+          rejectUnknownKeys(option as Record<string, unknown>, `${path}.options[${i}]`, ["value", "label"], errors);
+        }
+      }
+    }
     if (typeof field.label !== "string" || field.label.length === 0) {
       errors.push(`${path}.label is required and must be a non-empty string`);
     }
@@ -793,6 +851,7 @@ export function validateRoutingBlock(routing: unknown, errors: string[]): void {
     errors.push("routing must be an object");
     return;
   }
+  rejectUnknownKeys(routing as Record<string, unknown>, "routing", ["tier"], errors);
   const tier = (routing as Record<string, unknown>).tier;
   if (typeof tier !== "string" || !ROUTING_TIERS.has(tier)) {
     errors.push(`routing.tier must be one of "fast"|"balanced"|"powerful"`);
@@ -840,6 +899,36 @@ function validateStringArrayPerm(
 function validatePermissionsBlock(perms: unknown, errors: string[]): void {
   if (!perms || typeof perms !== "object") return; // top-level guard handled elsewhere
   const p = perms as Record<string, unknown>;
+  rejectUnknownKeys(p, "permissions", [
+    "network", "filesystem", "shell", "env", "lifecycleHooks", "storage", "taskEvents",
+    "loopEvents", "spawnAgents", "agentConfig", "eventSubscriptions", "webhooks", "triggers",
+    "workflows", "appendMessages", "llm", "memory", "lessons", "schedule", "search",
+    "rbacScopes", "custom", "mcpInvoke",
+  ], errors);
+  const nestedFields: Record<string, readonly string[]> = {
+    spawnAgents: ["maxPerHour", "maxConcurrent"],
+    triggers: ["maxCron", "maxWebhooks", "webhookPrefix", "maxRunsPerDay"],
+    workflows: ["names", "maxRunsPerHour", "allowDelegated"],
+    llm: ["providers", "maxCallsPerHour", "maxCallsPerDay", "maxTokensPerCall", "maxTokensPerDay", "maxTimeoutMs", "allowedModels", "maxCostCentsPerDay"],
+    memory: ["access", "maxWritesPerDay", "categories", "selfOnly"],
+    lessons: ["access", "maxWritesPerDay", "maxVisibility"],
+    schedule: ["crons", "maxRunsPerDay", "maxRunDurationMs", "missedRunPolicy", "maxRetries", "purpose"],
+    search: ["quota", "maxResults", "providers"],
+  };
+  for (const [field, allowed] of Object.entries(nestedFields)) {
+    const value = p[field];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      rejectUnknownKeys(value as Record<string, unknown>, `permissions.${field}`, allowed, errors);
+    }
+  }
+  if (Array.isArray(p.rbacScopes)) {
+    for (let i = 0; i < p.rbacScopes.length; i++) {
+      const scope = p.rbacScopes[i];
+      if (scope && typeof scope === "object" && !Array.isArray(scope)) {
+        rejectUnknownKeys(scope as Record<string, unknown>, `permissions.rbacScopes[${i}]`, ["name", "description"], errors);
+      }
+    }
+  }
   // Custom RBAC scope DECLARATIONS (inert — see src/extensions/rbac-scopes.ts
   // for the grammar / core-verb-collision / cap rules and the "declarations,
   // not privileges" contract). Reject-at-admit-time: a bad declaration is an
@@ -852,6 +941,7 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
       errors.push("permissions.appendMessages must be an object");
     } else {
       const a = p.appendMessages as Record<string, unknown>;
+      rejectUnknownKeys(a, "permissions.appendMessages", ["excludedDefault"], errors);
       if (typeof a.excludedDefault !== "boolean") {
         errors.push(
           "permissions.appendMessages.excludedDefault must be a boolean",
@@ -881,6 +971,7 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
       validateStringArrayPerm("eventSubscriptions", p.eventSubscriptions, errors);
     } else if (p.eventSubscriptions && typeof p.eventSubscriptions === "object") {
       const es = p.eventSubscriptions as Record<string, unknown>;
+      rejectUnknownKeys(es, "permissions.eventSubscriptions", ["events", "includeFullPayload"], errors);
       validateStringArrayPerm("eventSubscriptions.events", es.events, errors);
       if (es.includeFullPayload !== undefined && typeof es.includeFullPayload !== "boolean") {
         errors.push("permissions.eventSubscriptions.includeFullPayload must be a boolean");
@@ -1291,6 +1382,40 @@ export function validateManifestV2(
   }
 
   const m = data as Record<string, unknown>;
+
+  rejectUnknownKeys(m, "manifest", [
+    "schemaVersion", "name", "version", "description", "author", "kind", "entrypoint", "persistent",
+    "tools", "skills", "mcpServers", "agent", "scripts", "panel", "lifecycleHooks",
+    "acceptedAttachmentMimes", "preprocessors", "messageToolbar", "settings", "pages", "entities",
+    "dependencies", "npmDependencies", "suggestExamples", "permissions", "resources", "smokeTest",
+    "routing", "tags", "changelog", "category", "checksum", "packageChecksums", "packageChecksumsAlgo",
+    "acceptsCallerCaps", "escalateChildCaps", "_inheritedFromV2",
+  ], errors);
+
+  if (m.author && typeof m.author === "object" && !Array.isArray(m.author)) {
+    rejectUnknownKeys(m.author as Record<string, unknown>, "author", ["name", "id"], errors);
+  }
+  if (m.panel && typeof m.panel === "object" && !Array.isArray(m.panel)) {
+    rejectUnknownKeys(m.panel as Record<string, unknown>, "panel", ["position", "stateSchema", "defaultCollapsed"], errors);
+  }
+  if (m.resources && typeof m.resources === "object" && !Array.isArray(m.resources)) {
+    rejectUnknownKeys(m.resources as Record<string, unknown>, "resources", ["memory", "storage", "callTimeoutMs"], errors);
+  }
+  if (m.smokeTest && typeof m.smokeTest === "object" && !Array.isArray(m.smokeTest)) {
+    const smoke = m.smokeTest as Record<string, unknown>;
+    rejectUnknownKeys(smoke, "smokeTest", ["tool", "input", "expect"], errors);
+    if (smoke.expect && typeof smoke.expect === "object" && !Array.isArray(smoke.expect)) {
+      rejectUnknownKeys(smoke.expect as Record<string, unknown>, "smokeTest.expect", ["isError", "textIncludes"], errors);
+    }
+  }
+  if (Array.isArray(m.preprocessors)) {
+    for (let i = 0; i < m.preprocessors.length; i++) {
+      const preprocessor = m.preprocessors[i];
+      if (preprocessor && typeof preprocessor === "object" && !Array.isArray(preprocessor)) {
+        rejectUnknownKeys(preprocessor as Record<string, unknown>, `preprocessors[${i}]`, ["tool", "accepts", "description"], errors);
+      }
+    }
+  }
 
   // Required fields
   if (m.schemaVersion !== 2 && m.schemaVersion !== 3) {

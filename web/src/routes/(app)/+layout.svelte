@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { store, initStores, noteSidebarUserOverride, setActiveProjectId } from "$lib/stores.svelte.js";
+	import { store, initStores, noteSidebarUserOverride, refreshQuickstart, setActiveProjectId } from "$lib/stores.svelte.js";
 	import { onMount } from "svelte";
 	import { afterNavigate } from "$app/navigation";
 	import { goto } from "$app/navigation";
@@ -119,6 +119,7 @@
 						import("$lib/api.js").then(({ createConversation }) => {
 							createConversation({ projectId: store.activeProjectId })
 								.then((conv) => {
+									void refreshQuickstart();
 									goto(`/project/${store.activeProjectId}/chat/${conv.id}`);
 								})
 								.catch(() => {});
@@ -364,7 +365,7 @@
 			{/each}
 			<div class="mt-auto">
 				<BriefingNudge />
-				<QuickStartChecklist />
+				<QuickStartChecklist role={currentUser?.role} />
 				<!-- User menu -->
 				{#if currentUser}
 					<div class="user-menu-container relative mt-2 border-t border-[var(--color-border)] pt-2">
@@ -591,4 +592,3 @@
 
 <!-- Global team chat panel (triggered from anywhere via openTeamPanel) -->
 <TeamChatPanel />
-

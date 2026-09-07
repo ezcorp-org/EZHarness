@@ -3,7 +3,7 @@
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import { createConversation, fetchConversations } from "$lib/api.js";
-	import { store } from "$lib/stores.svelte.js";
+	import { store, refreshQuickstart } from "$lib/stores.svelte.js";
 	import ConversationList from "$lib/components/ConversationList.svelte";
 	import EmptyState from "$lib/components/EmptyState.svelte";
 	import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
@@ -61,6 +61,7 @@
 	async function handleCreate() {
 		try {
 			const conv = await createConversation({ projectId });
+			void refreshQuickstart();
 			goto(`/project/${projectId}/chat/${conv.id}`);
 		} catch (err) {
 			console.error("Failed to create conversation:", err);
@@ -137,4 +138,3 @@
 	</div>
 </div>
 {/if}
-

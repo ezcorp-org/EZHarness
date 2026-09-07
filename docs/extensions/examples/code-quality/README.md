@@ -5,7 +5,7 @@ A tool extension that performs static quality analysis on source files. Checks f
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/code-quality
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/code-quality
 ```
 
 ## Manifest Walkthrough

@@ -846,6 +846,44 @@ describe("POST /api/marketplace/import", () => {
     expect(data.extensionsNeeded).toBeInstanceOf(Array);
   });
 
+  test("import accepts the exportedAt marketplace envelope field", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/marketplace/import",
+      body: { ...validManifest, name: "imported-export-envelope", exportedAt: new Date().toISOString() },
+      user: INSTALLER,
+    });
+    const res = await importPOST(event);
+    expect(res.status).toBe(201);
+  });
+
+  test("import rejects host metadata other than the marketplace export envelope", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/marketplace/import",
+      body: { ...validManifest, name: "imported-unknown-metadata", listingId: crypto.randomUUID() },
+      user: INSTALLER,
+    });
+    const res = await importPOST(event);
+    expect(res.status).toBe(400);
+    const data = await jsonFromResponse(res);
+    expect(data.error).toBe("Invalid manifest");
+    expect(data.errors).toContain("manifest.listingId is not a recognized field");
+  });
+
+  test("import rejects an invalid marketplace export envelope", async () => {
+    const event = createMockEvent({
+      method: "POST",
+      url: "http://localhost/api/marketplace/import",
+      body: { ...validManifest, name: "imported-invalid-envelope", exportedAt: "not-a-timestamp" },
+      user: INSTALLER,
+    });
+    const res = await importPOST(event);
+    expect(res.status).toBe(400);
+    const data = await jsonFromResponse(res);
+    expect(data.error).toBe("Validation failed");
+  });
+
   test("import with invalid manifest returns 400", async () => {
     const event = createMockEvent({
       method: "POST",

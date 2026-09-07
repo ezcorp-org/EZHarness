@@ -306,7 +306,14 @@ jobs:
       # Fail fast if the sandbox can't spawn here — otherwise the two extension
       # specs would silently skip and the job would go green without them (#55).
       - run: bash scripts/setup-extension-runner-ci.sh --install
-      - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
+      - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
+      - name: Verify fresh real-auth setup without committed storage state
+        shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "fresh-setup lane has no specs" >&2; exit 1; }
+          bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"
+      - run: bun scripts/run-real-e2e.ts real-auth
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -733,23 +740,30 @@ jobs:
             echo "non-visual diff — skipping visual-evidence capture"
             exit 0
           fi
-          # Any non-empty selection is required evidence. Record that before
-          # installs so setup, collection, timeout, mock, and real-auth failures
-          # all reach the hard enforcement step.
-          echo "credited=1" >> "$GITHUB_OUTPUT"
-          cd web && bun install --frozen-lockfile
-          bunx --bun svelte-kit sync
-          bunx playwright install chromium
-          if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
-            bunx playwright install-deps chromium
+          # Diff-scoped selections are hard requirements. __ALL__ remains a
+          # fail-soft full fallback because no specific changed spec was selected.
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited=1" >> "$GITHUB_OUTPUT"
           fi
-          cd ..
+          (
+            cd web
+            bun install --frozen-lockfile
+            bunx --bun svelte-kit sync
+            bunx playwright install chromium
+            if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
+              bunx playwright install-deps chromium
+            fi
+          )
+          # The helper splits mock and real-auth evidence. Real-auth uses the
+          # production runner transport, so make it available before capture.
           if grep -qx '__ALL__' "$SPECS_FILE" || grep -q '^e2e/real-auth/' "$SPECS_FILE"; then
             source scripts/setup-extension-runner-ci.sh --install
             export EZCORP_EVIDENCE_RUNNER_READY=1
           fi
-          bun scripts/run-visual-evidence.ts "$SPECS_FILE"
-          echo "credited_ok=1" >> "$GITHUB_OUTPUT"
+          bash scripts/visual-evidence/capture.sh "$SPECS_FILE"
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited_ok=1" >> "$GITHUB_OUTPUT"
+          fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
       # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
       # from an earlier visual push (update-only — it never creates a comment),

@@ -134,6 +134,18 @@ describe("ChatHeader title rename", () => {
 		expect(queryByTestId("chat-title-input")).toBeNull();
 	});
 
+	test("keeps the title draft open when rename fails", async () => {
+		const onrename = vi.fn(async () => { throw new Error("Connection lost"); });
+		const { getByTestId, findByTestId } = render(ChatHeader, defaultProps({ onrename }));
+		await fireEvent.dblClick(getByTestId("chat-title"));
+		const input = getByTestId("chat-title-input") as HTMLInputElement;
+		await fireEvent.input(input, { target: { value: "Keep this title" } });
+		await fireEvent.click(getByTestId("chat-title-save"));
+		const error = await findByTestId("chat-title-save-error");
+		expect(error).toHaveTextContent("Connection lost");
+		expect(input.value).toBe("Keep this title");
+	});
+
 	test("empty / whitespace-only title does NOT call onrename", async () => {
 		const onrename = vi.fn(async () => {});
 		const { getByTestId, queryByTestId } = render(ChatHeader, defaultProps({ onrename }));

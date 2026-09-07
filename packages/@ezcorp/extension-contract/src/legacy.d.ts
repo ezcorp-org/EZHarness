@@ -1,12 +1,10 @@
 // ── @ezcorp/sdk public types ────────────────────────────────────
 // Public API surface for extension authors.
 //
-// Definitions below are duplicated from `src/extensions/types.ts` (host)
-// pending the plan-line-192 host-shim flip — a team-lead-authorized
-// change that will replace the host file with `export * from "@ezcorp/sdk"`.
-// Until that lands, any change to a shared type MUST be made in BOTH
-// places. Keep these two files byte-for-byte aligned for the overlapping
-// declarations.
+// This is the canonical author-facing legacy contract. The SDK re-exports
+// it, while `src/extensions/types.ts` composes it with host-only runtime
+// metadata. Keep author-writable declarations here; do not duplicate them in
+// the host. Version 4 uses its separate `ExtensionManifestV4` contract.
 
 // ── V2 Component Definitions ─────────────────────────────────────
 

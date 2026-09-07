@@ -1,6 +1,18 @@
 import { mock } from "bun:test";
 import type { AuthUser } from "../../auth/types";
 
+/** SvelteKit loads may return synchronously, asynchronously, or redirect. */
+export async function captureRedirect(load: () => unknown): Promise<{ status: unknown; location: unknown }> {
+  try {
+    await load();
+    throw new Error("Expected redirect to be thrown");
+  } catch (error) {
+    if (typeof error !== "object" || error === null
+      || !("status" in error) || !("location" in error)) throw error;
+    return { status: error.status, location: error.location };
+  }
+}
+
 // ── $server alias mocking ──────────────────────────────────────────
 // SvelteKit route handlers import from "$server/*" which is aliased to "src/".
 // Must be called at module level BEFORE importing any +server.ts handler files.

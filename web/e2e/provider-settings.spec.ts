@@ -277,6 +277,22 @@ test.describe("Provider Settings", () => {
 			await expect(card.getByRole("button", { name: "Cancel" })).toBeVisible();
 		});
 
+		test("removing a key refreshes quickstart completion", async ({ page, mockApi }) => {
+			await mockApi({ providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }) });
+			let quickstartCalls = 0;
+			await page.route("**/api/quickstart", (route) => {
+				quickstartCalls += 1;
+				return route.fulfill({ json: { steps: { provider: false, chat: false, extension: false, agent: false } } });
+			});
+			await page.goto("/settings/models");
+			const card = providerCard(page, "Anthropic (Claude)");
+			await expect(card.getByRole("button", { name: "Remove" })).toBeVisible();
+			const beforeRemove = quickstartCalls;
+			await card.getByRole("button", { name: "Remove" }).click();
+			await card.getByRole("button", { name: "Confirm" }).click();
+			await expect.poll(() => quickstartCalls).toBeGreaterThan(beforeRemove);
+		});
+
 		test("click Confirm calls DELETE and re-fetch shows Not configured", async ({ page, mockApi }) => {
 			await mockApi({
 				providers: providerFixtures({ anthropic: { hasKey: true, source: "byok" } }),
@@ -324,6 +340,22 @@ test.describe("Provider Settings", () => {
 			await expect(card.getByText("Disconnect OpenAI subscription?")).toBeVisible();
 			await expect(card.getByRole("button", { name: "Confirm" })).toBeVisible();
 			await expect(card.getByRole("button", { name: "Cancel" })).toBeVisible();
+		});
+
+		test("disconnecting OAuth refreshes quickstart completion", async ({ page, mockApi }) => {
+			await mockApi({ providers: providerFixtures({ openai: { oauthConnected: true, oauthSupported: true } }) });
+			let quickstartCalls = 0;
+			await page.route("**/api/quickstart", (route) => {
+				quickstartCalls += 1;
+				return route.fulfill({ json: { steps: { provider: false, chat: false, extension: false, agent: false } } });
+			});
+			await page.goto("/settings/models");
+			const card = providerCard(page, "OpenAI");
+			await expect(card.getByRole("button", { name: "Disconnect" })).toBeVisible();
+			const beforeDisconnect = quickstartCalls;
+			await card.getByRole("button", { name: "Disconnect" }).click();
+			await card.getByRole("button", { name: "Confirm" }).click();
+			await expect.poll(() => quickstartCalls).toBeGreaterThan(beforeDisconnect);
 		});
 
 		test("click Cancel dismisses confirmation, Subscription Connected still visible", async ({ page, mockApi }) => {

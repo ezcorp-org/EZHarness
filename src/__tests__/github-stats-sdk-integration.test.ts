@@ -27,13 +27,13 @@ for (const fixture of cases) test(`${fixture.tool} crosses framed SDK and produc
   } finally { await session.close(); }
 }, 30_000);
 
-test("credential handle becomes an Authorization header only at the host provider boundary", async () => {
+test("public GitHub calls do not forward a supplied credential", async () => {
   const observed: Headers[] = [];
   const session = await release.session({ networkHosts: ["api.github.com"], credential: "test-token", fetchImpl: (async (_url: string | URL | Request, init?: RequestInit) => { observed.push(new Headers(init?.headers)); return new Response(JSON.stringify({ login: "octocat" })); }) as typeof fetch });
   try {
     expect((await session.tool("user-profile", { username: "octocat" })).isError).toBe(false);
     expect(observed).toHaveLength(1);
-    expect(observed[0]?.get("Authorization")).toBe("Bearer test-token");
+    expect(observed[0]?.get("Authorization")).toBeNull();
     expect(observed[0]?.get("User-Agent")).toBe("github-stats-ext");
   } finally { await session.close(); }
 }, 30_000);

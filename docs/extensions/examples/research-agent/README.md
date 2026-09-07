@@ -5,7 +5,7 @@ An agent-only extension that defines an AI research assistant. This example demo
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/research-agent
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/research-agent
 ```
 
 ## Manifest Walkthrough

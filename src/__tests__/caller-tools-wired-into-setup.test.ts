@@ -127,6 +127,6 @@ describe("REGRESSION GUARD — wire order", () => {
     expect(call).toContain("convRecord,");
     // Without the run's controller a cancelled turn leaves permission cards
     // standing that no run is left to answer into.
-    expect(call).toContain("runSignal: host.controllers.get(run.id)?.signal");
+    expect(call).toContain("runSignal: ctx.controller.signal");
   });
 });

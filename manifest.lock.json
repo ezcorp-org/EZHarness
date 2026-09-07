@@ -19,8 +19,8 @@
       "directory": "docs/extensions/examples/cash-recovery-agent",
       "entrypoint": "extension.ts",
       "files": 16,
-      "bytes": 157706,
-      "sourceDigest": "9c1a9759cf57c370fb9efc80ba9bdede06205e94e360177b75100fbd1763282d"
+      "bytes": 157747,
+      "sourceDigest": "3d9227974ee75c68d154df5f165714db50471e7073e10471fc6750267974714e"
     },
     "city-conditions": {
       "directory": "docs/extensions/examples/city-conditions",
@@ -40,15 +40,15 @@
       "directory": "docs/extensions/examples/code-quality",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 10306,
-      "sourceDigest": "f102cefd065c66bf9570d96366bba8d48cba8c82b40b1b0a20dc5a103a3a85f4"
+      "bytes": 10347,
+      "sourceDigest": "e0f594334e3b2f29ef303a7c250bf5e9190ff25b29917f99f34f54a4ee46f960"
     },
     "code-review-delegator": {
       "directory": "docs/extensions/examples/code-review-delegator",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 8175,
-      "sourceDigest": "18d2dc94f2c864d82b38662aa2d66f2ededb5e5819942fa2d564e29e007e4be5"
+      "bytes": 8216,
+      "sourceDigest": "57e2a07f08f0decef81e78f07972860146b133c9b892c78f5c8df06a392d42bf"
     },
     "cron-dashboard": {
       "directory": "docs/extensions/examples/cron-dashboard",
@@ -103,15 +103,15 @@
       "directory": "docs/extensions/examples/github-projects",
       "entrypoint": "extension.ts",
       "files": 10,
-      "bytes": 67916,
-      "sourceDigest": "e3fc705608a66df7797fc9128a9b21d01f6fbc47da7e353669639405986d8775"
+      "bytes": 67662,
+      "sourceDigest": "33dfee92cd20158906e5f1fc7a56ee62ee875d06ba311ceed50b1805429e8ec4"
     },
     "github-stats": {
       "directory": "docs/extensions/examples/github-stats",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 11272,
-      "sourceDigest": "feec36598f0d388fdd44658b930b9280ce9a622fd7ff35a22472aee655457654"
+      "bytes": 11088,
+      "sourceDigest": "1b26c47d4d9a745f0193db2af70297ed25af70b137c79210a7b322f053655e88"
     },
     "graded-card-scanner": {
       "directory": "docs/extensions/examples/graded-card-scanner",
@@ -124,8 +124,8 @@
       "directory": "docs/extensions/examples/harness-smoke-test",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 7808,
-      "sourceDigest": "209bd70e37dab421d5c5ea6316f7be52226068fc00b151cfbae62a3f97992583"
+      "bytes": 7849,
+      "sourceDigest": "fb020570d66a2a92f646f2bc837f48f778a580e28ad57ca7fd7fa18b06db28d1"
     },
     "kokoro-tts": {
       "directory": "docs/extensions/examples/kokoro-tts",
@@ -145,15 +145,15 @@
       "directory": "docs/extensions/examples/markdown-utils",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 14907,
-      "sourceDigest": "1ed7953e53e0f394f2033923ac6966d7766265534fe74272ce3d3aee99ba27c5"
+      "bytes": 14948,
+      "sourceDigest": "c8b931c45af22d57c8ab1feaca307865fe16c7de7900c2c49e2a5e105d7808f7"
     },
     "multi-agent-orchestrator": {
       "directory": "docs/extensions/examples/multi-agent-orchestrator",
       "entrypoint": "extension.ts",
       "files": 5,
-      "bytes": 4347,
-      "sourceDigest": "7991acbf5d5a41b9c90e02434635ae5ead747a1d0b75d38576ae04418b29ce01"
+      "bytes": 3562,
+      "sourceDigest": "0bbb4dd65cb35b191c44e1faa0c6f11db2af995ecbac791e26cdf5be223d285f"
     },
     "openai-image-gen-2": {
       "directory": "docs/extensions/examples/openai-image-gen-2",
@@ -187,8 +187,8 @@
       "directory": "docs/extensions/examples/project-analyzer",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 15360,
-      "sourceDigest": "b65d5e370869008d0878d4a1c83be9af040c94e3150f38c9f4b8e213ae75e3a4"
+      "bytes": 15401,
+      "sourceDigest": "f737755b1adb9b42cc3e27d2eda30579b3425bddf675b9997f46516260e36b63"
     },
     "property-intelligence-agent": {
       "directory": "docs/extensions/examples/property-intelligence-agent",
@@ -208,8 +208,8 @@
       "directory": "docs/extensions/examples/research-agent",
       "entrypoint": "extension.ts",
       "files": 5,
-      "bytes": 8190,
-      "sourceDigest": "aa256718d717b62a7905d1ee75160e2e24837bbb890038e2b3e92811b43761af"
+      "bytes": 8231,
+      "sourceDigest": "c5fb7f9313918226a2025ba0de39362629e549cd6e03b1668556f78aeff3c743"
     },
     "sample-loop": {
       "directory": "docs/extensions/examples/sample-loop",
@@ -243,8 +243,8 @@
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 237906,
-      "sourceDigest": "a08b7d47d4609c6769c2ee96014d19418a1a83fc235510d16255bbb74ca05a04"
+      "bytes": 237947,
+      "sourceDigest": "1bf225e1f4e2f48b937170c3700a5ffd96cac7397d1a2652f8d87c5e06be5c32"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -306,15 +306,15 @@
       "directory": "docs/extensions/examples/weather",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 20061,
-      "sourceDigest": "8f5f264301a393af41bb6c93170e2938014affb1c798416d86d6db1ba06fc69c"
+      "bytes": 20102,
+      "sourceDigest": "c87ff444d1a6f5dcfa8a91bb958213fdd53128464f21fae0795ba8fcc7d68ac3"
     },
     "web-search": {
       "directory": "docs/extensions/examples/web-search",
       "entrypoint": "extension.ts",
       "files": 9,
-      "bytes": 93075,
-      "sourceDigest": "f59575bd2cc8c1eb0bf127db1a4e42b94a6f814bc7a68a4a48b0e9f96a8c2374"
+      "bytes": 93116,
+      "sourceDigest": "8f8a085e88cd3ff672afac1ca37c98ecbd4f2d7552fe7ded4bcd90c601fbf41c"
     },
     "webhook-ticket-loop": {
       "directory": "docs/extensions/examples/webhook-ticket-loop",
@@ -347,9 +347,9 @@
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
-      "files": 54,
-      "bytes": 397365,
-      "sourceDigest": "09dd062a299fdca243be73e42fa8b7caec55c4ede6c6586d0a6c691421e700d0"
+      "files": 53,
+      "bytes": 397167,
+      "sourceDigest": "7a347ff970160fbdb367c2fb90b3c0593ff9b70a4793885ad6b6eca61331586f"
     }
   }
 }

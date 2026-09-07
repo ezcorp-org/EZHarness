@@ -14,11 +14,12 @@
 		projectId: string;
 		open: boolean;
 		onclose: () => void;
-		onsave: (systemPrompt: string) => void;
+		onsave: (systemPrompt: string) => void | Promise<void>;
 	} = $props();
 
 	let systemPrompt = $state("");
 	let saving = $state(false);
+	let saveError = $state("");
 
 	// Prompt preview state
 	let activeLevel = $state<string>("none");
@@ -66,8 +67,11 @@
 
 	async function handleSave() {
 		saving = true;
+		saveError = "";
 		try {
-			onsave(systemPrompt);
+			await onsave(systemPrompt);
+		} catch (error) {
+			saveError = error instanceof Error ? error.message : "Failed to save conversation instructions";
 		} finally {
 			saving = false;
 		}
@@ -128,6 +132,9 @@
 					>
 						{saving ? "Saving..." : "Save"}
 					</button>
+					{#if saveError}
+						<p class="mt-2 text-xs font-medium text-red-600 dark:text-red-300" role="alert" data-testid="conversation-settings-save-error">{saveError}</p>
+					{/if}
 				{/if}
 			</div>
 

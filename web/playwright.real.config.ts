@@ -1,8 +1,8 @@
 /**
  * Real-auth + real-DB Playwright config.
  *
- * Triggered explicitly: `PI_E2E_REAL=1 bunx playwright test --config
- * playwright.real.config.ts`. The default `playwright.config.ts` stays
+ * Triggered by `bun scripts/run-real-e2e.ts real-auth` from the repository
+ * root. The default `playwright.config.ts` stays
  * untouched — every existing fetch-mocked spec keeps running under the
  * `PI_SKIP_INIT=1` preview server.
  *
@@ -34,15 +34,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
+const previewPort = new URL(baseURL).port || "4173";
 
 // The deterministic mock LLM is served by this same preview server; pi-ai's
-// HTTP client must reach it on the actual bound port. Point the resolver at it
+// HTTP client must reach it on the actual bound port (vite preview's :4173),
+// which isn't reflected in PORT/EZCORP_PORT. Point the resolver at it
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
-// The preview wrapper creates a fixture-owned root only for the default
-// database path, then removes it after the preview process exits. A caller
-// supplied `PI_E2E_REAL_DB_PATH` stays caller-owned and is never removed.
+// The outer runner owns a supplied database path. Direct Playwright use has no
+// supplied path, so the fixture wrapper creates and removes its own root only
+// after preview shutdown. A caller-supplied path always remains caller-owned.
+const DB_DIR = process.env.PI_E2E_REAL_DB_PATH;
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -123,6 +126,17 @@ export default defineConfig({
   // local runs); it only shows up on the 4-vCPU CI runner.
   projects: requestedBrowserProjects.map(name => ({ name, use: browserProjects[name as keyof typeof browserProjects] })),
   webServer: {
+    // Use Vite preview against the production build, identical to the
+    // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer
+    // initialises, auth runs end-to-end, and `/api/auth/*` handlers
+    // execute their real logic.
+    //
+    // `bun run preview` MUST execute from `web/` (where the
+    // package.json + svelte-kit preview wiring live). The previous
+    // `bun --cwd web run …` form was a typo — `bun`'s CLI requires
+    // `--cwd=<path>` with an equals sign; without it, bun treats
+    // `--cwd` as run-args and dumps usage help instead of building.
+    //
     // Pinning `cwd: web/` means `process.cwd()` at boot points at
     // `web/`, which would have broken the legacy `getProjectRoot()`
     // walk-up that anchored on `cwd`. We work around this by exporting
@@ -133,17 +147,28 @@ export default defineConfig({
     command: "bash e2e/run-real-auth-fixture.sh bash ../scripts/start-real-extension-preview.sh",
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
+    // Preserve preview stdout in CI so a startup timeout retains its last
+    // completed application stage. Fresh setup inherits this webServer config.
+    stdout: "pipe",
     // Real harness MUST never reuse a stale server — a previous run
     // might have a DB that's already past first-boot setup, breaking
     // globalSetup's idempotent contract. Always start a fresh server.
     reuseExistingServer: false,
-    timeout: 300_000,
-    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
+    timeout: 180_000,
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
-      EZCORP_PORT: new URL(baseURL).port || "4173",
+      ...(DB_DIR ? { EZCORP_DB_PATH: DB_DIR } : {}),
+      // The preview wrapper receives a supplied DB path above, or creates an
+      // owned default fixture root when none is supplied.
+      EZCORP_PORT: previewPort,
       ORIGIN: new URL(baseURL).origin,
+      // The real harness is PGlite-only. A caller can run this wrapper from a
+      // Postgres test shell, so clear its alternate driver selection here.
+      DATABASE_URL: "",
+      // Likewise, a mock-preview caller must not make this real server skip
+      // initialization and silently invalidate the setup/auth contracts.
+      PI_SKIP_INIT: "",
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is
@@ -160,6 +185,13 @@ export default defineConfig({
       // Disable telemetry / external auto-init that might race the
       // setup endpoint on first boot.
       EZCORP_DISABLE_TELEMETRY: "1",
+      // Vite preview (`bun run preview`) sets NODE_ENV=production at
+      // build time, which trips the belt-and-braces gate on the
+      // `/api/__test/*` endpoints (added in 6ba7b2d):
+      //
+      //   if (process.env.PI_E2E_REAL !== "1" || process.env.NODE_ENV === "production")
+      //     return 404
+      //
       // Real production deployments do NOT set NODE_ENV=test, so the
       // gate stays effective for them. The harness explicitly opts in
       // here, unblocking the seed/cleanup endpoints. Endpoint code is
@@ -168,6 +200,10 @@ export default defineConfig({
       // Make the ezcorp-mock provider's loopback baseUrl match the preview
       // server's actual port (see MOCK_LLM_BASE_URL above).
       EZCORP_MOCK_LLM_BASE_URL: MOCK_LLM_BASE_URL,
+      // Bun 1.3.14 can retain a compiled server module's prior environment
+      // value across fresh processes. Disabling this runtime cache is required
+      // for a preview to use this invocation's generated PGlite directory.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     },
   },
 });

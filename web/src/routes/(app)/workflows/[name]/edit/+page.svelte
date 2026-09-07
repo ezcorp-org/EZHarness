@@ -41,7 +41,7 @@
 	let loading = $state(true);
 	let loadError = $state("");
 
-	let tab = $state<"form" | "yaml">("form");
+	let tab = $state<"form" | "yaml">(page.url.searchParams.get("tab") === "yaml" ? "yaml" : "form");
 	let yamlText = $state("");
 	let saving = $state(false);
 	let saveError = $state("");
@@ -234,6 +234,7 @@
 					initial={definitionFields(workflow as unknown as Record<string, unknown>)}
 					agents={store.agents}
 					onsubmit={save}
+					onopenyaml={() => (tab = "yaml")}
 					submitting={saving}
 					submitLabel="Save changes"
 				/>

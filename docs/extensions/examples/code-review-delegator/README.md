@@ -5,7 +5,7 @@ A tool extension that produces comprehensive code reviews by delegating to `proj
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/code-review-delegator
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/code-review-delegator
 ```
 
 ## Manifest Walkthrough

@@ -20,42 +20,61 @@
 
 import "@testing-library/jest-dom/vitest";
 import { render, waitFor, fireEvent } from "@testing-library/svelte";
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
 
 import QuickStartChecklist from "$lib/components/QuickStartChecklist.svelte";
+import { store } from "$lib/stores.svelte.js";
 
-function quickstartResponse(steps: { provider: boolean; chat: boolean; extension: boolean; agent: boolean }): Response {
-	return new Response(JSON.stringify({ steps }), {
-		status: 200,
-		headers: { "content-type": "application/json" },
-	});
+function setQuickstartSteps(steps: { provider: boolean; chat: boolean; extension: boolean; agent: boolean }) {
+	store.quickstartSteps = steps;
 }
 
 describe("QuickStartChecklist — dismiss-gate", () => {
-	let fetchSpy: ReturnType<typeof vi.spyOn>;
-
 	beforeEach(() => {
 		localStorage.clear();
-		fetchSpy = vi.spyOn(globalThis, "fetch");
+		setQuickstartSteps({ provider: false, chat: false, extension: false, agent: false });
 	});
 	afterEach(() => {
-		fetchSpy.mockRestore();
 		localStorage.clear();
 	});
 
 	test("progress=0 → dismiss button is hidden (collapse remains)", async () => {
-		fetchSpy.mockResolvedValue(quickstartResponse({ provider: false, chat: false, extension: false, agent: false }));
 		const { findByText, queryByLabelText, queryByTitle } = render(QuickStartChecklist);
 
-		// Wait for the steps to render so we know the API resolved.
+		// Wait for the initial completion state to render.
 		await findByText("0/4");
 
 		expect(queryByTitle("Dismiss checklist")).toBeNull();
 		expect(queryByLabelText("Dismiss checklist")).toBeNull();
 	});
 
+	test("an unknown role gets provider guidance without a settings link", async () => {
+		const { findByText, container } = render(QuickStartChecklist);
+		await findByText("Ask an admin to connect a provider");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
+	test("a member gets provider guidance without a settings link", async () => {
+		const { findByText, container } = render(QuickStartChecklist, { role: "member" });
+		await findByText("Ask an admin to connect a provider");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
+	test("an admin can open provider settings from the checklist", async () => {
+		const { findByRole } = render(QuickStartChecklist, { role: "admin" });
+		const setup = await findByRole("link", { name: "Set up a provider" });
+		expect(setup).toHaveAttribute("href", "/settings/models#providers");
+	});
+
+	test("a member sees provider ready as a completed status", async () => {
+		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
+		const { findByText, container } = render(QuickStartChecklist, { role: "member" });
+		await findByText("Provider ready");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
 	test("progress=1 → dismiss button appears", async () => {
-		fetchSpy.mockResolvedValue(quickstartResponse({ provider: true, chat: false, extension: false, agent: false }));
+		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
 		const { findByText, getByLabelText } = render(QuickStartChecklist);
 
 		await findByText("1/4");
@@ -64,7 +83,7 @@ describe("QuickStartChecklist — dismiss-gate", () => {
 	});
 
 	test("progress=2 → dismiss button appears", async () => {
-		fetchSpy.mockResolvedValue(quickstartResponse({ provider: true, chat: true, extension: false, agent: false }));
+		setQuickstartSteps({ provider: true, chat: true, extension: false, agent: false });
 		const { findByText, getByLabelText } = render(QuickStartChecklist);
 
 		await findByText("2/4");
@@ -73,7 +92,7 @@ describe("QuickStartChecklist — dismiss-gate", () => {
 	});
 
 	test("clicking dismiss when visible removes the checklist from the DOM", async () => {
-		fetchSpy.mockResolvedValue(quickstartResponse({ provider: true, chat: false, extension: false, agent: false }));
+		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
 		const { findByText, getByLabelText, queryByText } = render(QuickStartChecklist);
 
 		await findByText("1/4");
@@ -84,7 +103,7 @@ describe("QuickStartChecklist — dismiss-gate", () => {
 	});
 
 	test("dismiss persists across renders via localStorage", async () => {
-		fetchSpy.mockResolvedValue(quickstartResponse({ provider: true, chat: false, extension: false, agent: false }));
+		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
 		const first = render(QuickStartChecklist);
 		await first.findByText("1/4");
 		await fireEvent.click(first.getByLabelText("Dismiss checklist"));

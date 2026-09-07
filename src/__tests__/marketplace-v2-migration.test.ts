@@ -212,9 +212,11 @@ describe("marketplace export produces v2 manifests", () => {
     expect(json).toContain('"tools"');
     expect(json).toContain('"exportedAt"');
 
-    // Round-trip: parse back and validate
+    // Round-trip: the marketplace envelope carries `exportedAt`; the public
+    // manifest within it remains the strict SDK validation input.
     const parsed = JSON.parse(json);
-    const { valid } = validateManifestV2(parsed);
+    const { exportedAt: _exportedAt, ...publicManifest } = parsed;
+    const { valid } = validateManifestV2(publicManifest);
     expect(valid).toBe(true);
   });
 });
@@ -410,11 +412,13 @@ describe("type consistency: marketplace types live in extensions/types.ts", () =
 
   test("extensions/types.ts contains all v2 component definitions", async () => {
     const typesContent = await Bun.file(`${import.meta.dir}/../extensions/types.ts`).text();
-    expect(typesContent).toContain("export interface ToolDefinition");
-    expect(typesContent).toContain("export interface SkillDefinition");
+    // Author component vocabulary is owned and re-exported by the SDK.
+    expect(typesContent).toContain("} from \"@ezcorp/sdk\"");
+    expect(typesContent).toContain("ToolDefinition,");
+    expect(typesContent).toContain("SkillDefinition,");
+    expect(typesContent).toContain("AgentComponentDefinition,");
+    expect(typesContent).toContain("ScriptDefinition,");
     expect(typesContent).toContain("export type McpServerDefinition");
-    expect(typesContent).toContain("export interface AgentComponentDefinition");
-    expect(typesContent).toContain("export interface ScriptDefinition");
   });
 
   test("no 'as any' type casting on manifest variables themselves in route files", async () => {

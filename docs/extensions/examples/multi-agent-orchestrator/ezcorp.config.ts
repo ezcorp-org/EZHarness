@@ -8,6 +8,7 @@ export default defineExtension({
   author: {
     name: "EZCorp",
   },
+  entrypoint: "./extension.ts",
   agent: {
     prompt: "You orchestrate sub-agents to complete complex development tasks. Plan ordered steps after inspecting the project with project-analyzer.listFiles. Delegate implementation through the installed orchestration tools, then verify each change with project-analyzer.readFile and code-quality.analyzeFile. Planner instructions: break down complex tasks into ordered steps and analyze the project structure before proposing changes. Executor instructions: execute implementation steps precisely and verify code quality after each change.",
     category: "Development",

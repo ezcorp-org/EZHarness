@@ -22,14 +22,19 @@ const {
   updateMemory,
   deleteMemory,
   setMemoryProjects,
+  assignMemoryToProjects,
+  removeMemoryFromProjects,
   getMemoryProjectIds,
   getMemoryById,
+  mergeMemoriesAtomically,
+  insertMemoryWithDailyExtensionQuota,
   findSimilarMemory,
   searchMemories,
 } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { getDb } = await import("../db/connection");
-const { users, memories, memoryAuditLog } = await import("../db/schema");
+const { migrate } = await import("../db/migrate");
+const { users, memories, memoryAuditLog, extensionMemoryWritesDaily } = await import("../db/schema");
 const { sql, eq } = await import("drizzle-orm");
 
 const OWNER_A = "mem-owner-a";
@@ -100,6 +105,111 @@ describe("insertMemory — atomic row + junction + audit", () => {
     expect(audits.length).toBe(1);
     expect(audits[0]!.action).toBe("created");
   });
+
+  test("an explicit global projectIds set clears a supplied legacy projectId", async () => {
+    const mem = await insertMemory({
+      content: "explicit-global-memory",
+      category: "preferences",
+      userId: OWNER_A,
+      projectId: projectP1,
+      projectIds: [],
+    } as never);
+
+    expect(mem.projectId).toBeNull();
+    expect(await getMemoryProjectIds(mem.id)).toEqual([]);
+  });
+});
+
+describe("mergeMemoriesAtomically — replacement and source removal", () => {
+  test("a project reassignment during model work cancels the merge and preserves both sources", async () => {
+    const sources = await Promise.all(["one", "two"].map(content => insertMemory({
+      content: `scope-race-${content}`,
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+    })));
+    const first = sources[0]!;
+    const second = sources[1]!;
+    const sourceSnapshots = Object.fromEntries(sources.map(source => [source.id, {
+      content: source.content, updatedAt: source.updatedAt,
+    }]));
+
+    // The model saw P1, but the user moved one source before its answer arrived.
+    await setMemoryProjects(second.id, [projectP2]);
+    const merged = await mergeMemoriesAtomically([first.id, second.id], {
+      ownerUserId: OWNER_A,
+      projectIds: [projectP1],
+      injectionEligible: true,
+      sourceSnapshots,
+    }, {
+      content: "stale merged answer",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+    });
+
+    expect(merged).toBeNull();
+    expect((await getMemoryById(first.id))?.content).toBe(first.content);
+    expect((await getMemoryById(second.id))?.content).toBe(second.content);
+    expect(await getMemoryProjectIds(second.id)).toEqual([projectP2]);
+    expect(await getDb().select().from(memories)).toHaveLength(2);
+  });
+
+  test("a failing replacement preserves both active sources", async () => {
+    const first = await insertMemory({
+      content: "merge-source-one",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+      embedding: unitVec(0),
+    } as never);
+    const second = await insertMemory({
+      content: "merge-source-two",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+      embedding: unitVec(1),
+    } as never);
+
+    await expect(mergeMemoriesAtomically([first.id, second.id], {
+      ownerUserId: OWNER_A,
+      projectIds: [projectP1],
+      injectionEligible: true,
+      sourceSnapshots: {
+        [first.id]: { content: first.content, updatedAt: first.updatedAt },
+        [second.id]: { content: second.content, updatedAt: second.updatedAt },
+      },
+    }, {
+      content: "would-be merged",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1, BAD_PROJECT],
+      embedding: unitVec(2),
+    } as never)).rejects.toThrow();
+
+    expect((await getMemoryById(first.id))?.status).toBe("active");
+    expect((await getMemoryById(second.id))?.status).toBe("active");
+    expect((await searchMemories({ projectId: projectP1, status: "active" }))).toHaveLength(2);
+  });
+});
+
+describe("insertMemoryWithDailyExtensionQuota — quota and write atomicity", () => {
+  test("rolls back its quota claim when the memory cannot be inserted", async () => {
+    await expect(insertMemoryWithDailyExtensionQuota({
+      content: "quota-rollback",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [BAD_PROJECT],
+    } as never, {
+      extensionId: "quota-rollback-extension",
+      day: "2026-09-06",
+      maxWrites: 1,
+    })).rejects.toThrow();
+
+    const quotaRows = await getDb().select().from(extensionMemoryWritesDaily)
+      .where(eq(extensionMemoryWritesDaily.extensionId, "quota-rollback-extension"));
+    expect(quotaRows).toHaveLength(0);
+  });
 });
 
 describe("setMemoryProjects — atomic replace (no silent widening to global)", () => {
@@ -128,6 +238,22 @@ describe("setMemoryProjects — atomic replace (no silent widening to global)", 
     } as never);
     await setMemoryProjects(mem.id, [projectP2]);
     expect(await getMemoryProjectIds(mem.id)).toEqual([projectP2]);
+  });
+
+  test("assignment and removal keep the legacy project mirror aligned", async () => {
+    const mem = await insertMemory({
+      content: "legacy-mirror-mem",
+      category: "preferences",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+    } as never);
+
+    await assignMemoryToProjects(mem.id, [projectP2]);
+    await removeMemoryFromProjects(mem.id, [projectP1]);
+    expect((await getMemoryById(mem.id))?.projectId).toBe(projectP2);
+
+    await removeMemoryFromProjects(mem.id, [projectP2]);
+    expect((await getMemoryById(mem.id))?.projectId).toBeNull();
   });
 });
 
@@ -223,5 +349,28 @@ describe("scope queries still treat a zero-junction memory as global", () => {
     const contents = p1All.map((m) => m.content);
     expect(contents).toContain("global-mem"); // global visible everywhere
     expect(contents).not.toContain("p2-mem"); // scoped to P2, not leaked to P1
+  });
+});
+
+describe("memory_projects migration — initial import without repeat restoration", () => {
+  test("imports a legacy project_id only when the junction is first created, then preserves a later global assignment", async () => {
+    const memory = await insertMemory({
+      content: "legacy-single-project",
+      category: "preferences",
+      userId: OWNER_A,
+      projectId: projectP1,
+    } as never);
+
+    // A pre-junction database has the legacy column and no relation table.
+    await getDb().execute(sql`DROP TABLE memory_projects`);
+    await migrate(getDb() as never);
+    expect(await getMemoryProjectIds(memory.id)).toEqual([projectP1]);
+
+    // Project assignment is authoritative after the junction exists. A later
+    // boot must not revive the legacy value when a user made the memory global.
+    await setMemoryProjects(memory.id, []);
+    await migrate(getDb() as never);
+    expect(await getMemoryProjectIds(memory.id)).toEqual([]);
+    expect((await getMemoryById(memory.id))!.projectId).toBeNull();
   });
 });

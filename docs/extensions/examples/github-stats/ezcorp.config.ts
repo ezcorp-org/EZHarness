@@ -63,7 +63,6 @@ export default defineExtension({
   ],
   permissions: {
     network: ["api.github.com"],
-    env: ["GITHUB_TOKEN"],
   },
   resources: {
     memory: "256MB",

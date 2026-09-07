@@ -541,7 +541,7 @@ const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
  * equivalent, so this only runs on the external-Postgres path. Exposed via
  * `__test` for the ordering regression test.
  */
-async function withPostgresMigrateLock<T>(fn: () => Promise<T>): Promise<T> {
+async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>): Promise<T> {
   // `Database` is `any`, so `$client` — the Bun.sql instance, a callable
   // tagged template that also exposes reserve() — arrives untyped already and
   // the cast that used to be here was a no-op.
@@ -550,7 +550,17 @@ async function withPostgresMigrateLock<T>(fn: () => Promise<T>): Promise<T> {
   const conn = reserved ?? client;
   await conn`SELECT pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY})`;
   try {
-    return await fn();
+    if (!reserved) return await fn(getDb());
+    // Reserving a pool connection removes it from the general pool. Running
+    // migration through getDb() here would then require ANOTHER connection,
+    // so DB_POOL_MAX=1 would wait on the connection this lock already holds.
+    // Build the migration handle over the reserved client: every DDL statement
+    // and the advisory lock share one session, with the same result shape the
+    // normal Bun.sql handle exposes.
+    const { drizzle } = await import("drizzle-orm/bun-sql");
+    const lockedDb = drizzle({ client: reserved, schema });
+    applyExecuteNormalization(lockedDb);
+    return await fn(lockedDb);
   } finally {
     try {
       await conn`SELECT pg_advisory_unlock(${MIGRATE_ADVISORY_LOCK_KEY})`;
@@ -712,7 +722,7 @@ async function initPostgres(): Promise<void> {
 
   log.info("Database mode: external Postgres");
   try {
-    await withPostgresMigrateLock(() => migrate(_db));
+    await withPostgresMigrateLock((migrationDb) => migrate(migrationDb));
   } catch (err) {
     log.error("Migration failed on external Postgres — manual intervention required", { error: String(err) });
     setReadiness({

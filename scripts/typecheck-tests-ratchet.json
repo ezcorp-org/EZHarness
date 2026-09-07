@@ -5,8 +5,6 @@
     "src/integrations/github-projects/__tests__/progress.test.ts",
     "src/integrations/github-projects/__tests__/spawn.test.ts",
     "src/integrations/github-projects/__tests__/web-connect-flow.integration.test.ts",
-    "src/__tests__/auth-layout-integration.test.ts",
-    "src/__tests__/auth-layout.test.ts",
     "src/__tests__/await-run-completion.test.ts",
     "src/__tests__/briefing-api.test.ts",
     "src/__tests__/builtin-tool-watchdog-no-regression.integration.test.ts",

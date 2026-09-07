@@ -7,9 +7,8 @@ import { __resetChannelForTests } from "@ezcorp/sdk/test";
 const originalFetch = globalThis.fetch;
 const mockFetch = mock(async (_url: string, _init?: RequestInit) => Response.json({}));
 let extension: DefinedExtension;
-let credential: string | null = null;
-const context: ExtensionContext = { invocation: { invocationId: "test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 60_000 }, signal: new AbortController().signal, call: async (method, input) => { expect(method).toBe("ezcorp/env.get"); expect(input).toEqual({ name: "GITHUB_TOKEN" }); return credential; } };
-beforeEach(async () => { credential = null; mockFetch.mockReset(); globalThis.fetch = mockFetch as unknown as typeof fetch; extension = await createRuntimeExtension({ manifest, register: start }); });
+const context: ExtensionContext = { invocation: { invocationId: "test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "token", deadline: Date.now() + 60_000 }, signal: new AbortController().signal, call: async () => { throw new Error("github-stats must not request a credential"); } };
+beforeEach(async () => { mockFetch.mockReset(); globalThis.fetch = mockFetch as unknown as typeof fetch; extension = await createRuntimeExtension({ manifest, register: start }); });
 afterEach(() => { globalThis.fetch = originalFetch; __resetChannelForTests(); });
 
 const cases = [
@@ -24,14 +23,18 @@ for (const entry of cases) {
     expect(mockFetch.mock.calls[0]?.[0]).toBe(`https://api.github.com${entry.path}`);
     expect(mockFetch.mock.calls[0]?.[1]?.headers).toEqual({ "User-Agent": "github-stats-ext" });
   });
-  for (const [status, message] of [[404, entry.missing], [403, "GitHub API rate limit exceeded"], [500, "GitHub API error: 500"]] as const) test(`${entry.name} reports HTTP ${status}`, async () => {
+  for (const [status, message] of [[404, entry.missing], [403, "GitHub public API rate limit exceeded; try again later"], [500, "GitHub API error: 500"]] as const) test(`${entry.name} reports HTTP ${status}`, async () => {
     mockFetch.mockResolvedValueOnce(Response.json({}, { status }));
     expect(await extension.invoke(entry.name, entry.input, context)).toMatchObject({ content: [{ type: "text", text: message }], isError: true });
   });
 }
-test("GitHub credentials come from the active invocation broker", async () => {
-  credential = "opaque-credential-handle";
+test("GitHub public API calls do not send an authorization header", async () => {
   mockFetch.mockResolvedValueOnce(Response.json({}));
   await extension.invoke("user-profile", { username: "test" }, context);
-  expect(mockFetch.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: "Bearer opaque-credential-handle" });
+  expect(mockFetch.mock.calls[0]?.[1]?.headers).toEqual({ "User-Agent": "github-stats-ext" });
+});
+
+test("manifest requests only the public GitHub network capability", () => {
+  expect(manifest.permissions.network).toEqual(["api.github.com"]);
+  expect(manifest.permissions.env ?? []).toEqual([]);
 });

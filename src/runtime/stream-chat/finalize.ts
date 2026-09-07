@@ -278,34 +278,39 @@ export async function finalizeSetupError(
   err: unknown,
 ): Promise<void> {
   const { run } = ctx;
-  if (run.status === "running") {
-    // Same connection-error translation as finalizeError — a model that
-    // resolves to an unreachable endpoint can fail in the setup phase too.
-    const message =
-      friendlyProviderError(err, {
-        provider: run.provider ?? options.provider,
-        model: options.model,
-        baseUrl: ctx.modelBaseUrl,
-      }) ?? (err instanceof Error ? err.message : String(err));
-    run.status = "error";
-    run.result = { success: false, output: null, error: message };
-    run.finishedAt = Date.now();
-    // Skip if the watchdog already surfaced this run's error (no
-    // duplicate bubble) — see claimErrorPersistSlot.
-    if (claimErrorPersistSlot(host, run.id)) {
-      await persistErrorMessage(conversationId, `Error: ${message}`, options, run.id, host.persist);
+  try {
+    if (run.status === "running") {
+      // Same connection-error translation as finalizeError — a model that
+      // resolves to an unreachable endpoint can fail in the setup phase too.
+      const message =
+        friendlyProviderError(err, {
+          provider: run.provider ?? options.provider,
+          model: options.model,
+          baseUrl: ctx.modelBaseUrl,
+        }) ?? (err instanceof Error ? err.message : String(err));
+      run.status = "error";
+      run.result = { success: false, output: null, error: message };
+      run.finishedAt = Date.now();
+      // Skip if the watchdog already surfaced this run's error (no
+      // duplicate bubble) — see claimErrorPersistSlot.
+      if (claimErrorPersistSlot(host, run.id)) {
+        await persistErrorMessage(conversationId, `Error: ${message}`, options, run.id, host.persist);
+      }
+      // This safety net handles an abnormal terminal state before the normal
+      // streaming finalizer exists. Its event must remain durable: on a failed
+      // commit it is not emitted locally.
+      await emitTerminalRun(host, run, "run:error", { run, runId: run.id, error: message, conversationId }, "abnormal");
     }
-    await emitTerminalRun(host, run, "run:error", { run, runId: run.id, error: message, conversationId });
-  }
-  // Abort the controller so any in-flight sub-agents (auto-spin-up) get cancelled
-  const ctrl = host.controllers.get(run.id);
-  if (ctrl && !ctrl.signal.aborted) ctrl.abort();
-  host.controllers.delete(run.id);
-  host.runConversations.delete(run.id);
-  if (host.persist) {
+  } catch (terminalErr) {
+    log.error("Setup run finalization failed", { error: String(terminalErr) });
+  } finally {
+    // Abort the controller so any in-flight sub-agents (auto-spin-up) get cancelled.
+    const ctrl = host.controllers.get(run.id);
+    if (ctrl && !ctrl.signal.aborted) ctrl.abort();
     try {
-      await dbRuns.updateRun(run);
-      await activeRunsDb.markInterrupted(run.id);
-    } catch { /* cleanup failure is non-fatal */ }
+      await finalizeCleanup(ctx, host);
+    } catch (cleanupErr) {
+      log.error("Setup run cleanup failed", { error: String(cleanupErr) });
+    }
   }
 }

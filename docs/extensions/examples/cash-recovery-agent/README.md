@@ -44,7 +44,7 @@ From the repo root:
 
 ```bash
 # 1. Install the extension into your local ezcorp harness
-ezcorp ext install ./docs/extensions/examples/cash-recovery-agent
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/cash-recovery-agent
 
 # 2. (Optional) Re-seed the CSVs — ships with seed=42 already generated
 bun docs/extensions/examples/cash-recovery-agent/generate-data.ts
