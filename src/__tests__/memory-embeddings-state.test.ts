@@ -5,10 +5,12 @@ import { EMBEDDING_DIMENSIONS } from "../memory/types";
 // Mock transformers before importing embeddings — prevents native library load.
 let pipelineCallCount = 0;
 let nextPipelineRejects = false;
+const pipelineOptions: unknown[] = [];
 
 mock.module("@huggingface/transformers", () => ({
-  pipeline: async () => {
+  pipeline: async (_task: unknown, _model: unknown, options: unknown) => {
     pipelineCallCount++;
+    pipelineOptions.push(options);
     if (nextPipelineRejects) {
       nextPipelineRejects = false;
       throw new Error("forced model init failure");
@@ -43,6 +45,7 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
     resetEmbeddingProvider();
     pipelineCallCount = 0;
     nextPipelineRejects = false;
+    pipelineOptions.length = 0;
   });
 
   afterAll(() => {
@@ -56,6 +59,19 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
   test("returns true after a successful generateEmbedding call", async () => {
     await generateEmbedding("hello");
     expect(isEmbeddingReady()).toBe(true);
+  });
+
+  test("uses a durable cache beside the configured database instead of node_modules", async () => {
+    const previous = process.env.EZCORP_DB_PATH;
+    process.env.EZCORP_DB_PATH = "/owned/data/ezcorp";
+    try {
+      await generateEmbedding("cache location");
+      expect(pipelineOptions).toHaveLength(1);
+      expect(pipelineOptions[0]).toMatchObject({ cache_dir: "/owned/data/embedding-model-cache" });
+    } finally {
+      if (previous === undefined) delete process.env.EZCORP_DB_PATH;
+      else process.env.EZCORP_DB_PATH = previous;
+    }
   });
 
   test("resetEmbeddingProvider flips state back to false", async () => {

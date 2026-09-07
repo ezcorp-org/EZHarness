@@ -24,10 +24,10 @@ import {
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 import { composePostgresHint } from "./compose-db-hint";
+import { embeddedDatabasePath } from "./data-path";
 const log = logger.child("db");
 
-const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
-const DB_PATH = process.env.EZCORP_DB_PATH ?? `${DEFAULT_DB_DIR}/ez-corp-db`;
+const DB_PATH = embeddedDatabasePath();
 const IS_MEMORY = DB_PATH === ":memory:";
 const DATABASE_URL = process.env.DATABASE_URL;
 

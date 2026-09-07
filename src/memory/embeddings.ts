@@ -1,5 +1,7 @@
 // Local embedding generation using Transformers.js (all-MiniLM-L6-v2)
 import { pipeline, type FeatureExtractionPipeline, type PreTrainedTokenizer } from "@huggingface/transformers";
+import { join } from "node:path";
+import { embeddedStateDir } from "../db/data-path";
 import { EMBEDDING_DIMENSIONS } from "./types";
 import { CHUNK_TOKENS } from "./message-chunker";
 
@@ -16,6 +18,16 @@ export const EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L6-v2@384";
 /** Model name (no `@dim` suffix) actually handed to pipeline(). */
 const EMBEDDING_MODEL_NAME = EMBEDDING_MODEL_ID.split("@")[0]!;
 
+/**
+ * Keep downloaded model assets beside the durable database, rather than in
+ * Transformers' package-relative default cache. The runtime user can differ
+ * from the image build user and need not own the installation directory, but
+ * it owns the mounted database directory.
+ */
+function embeddingCacheDir(): string {
+  return join(embeddedStateDir(), "embedding-model-cache");
+}
+
 let _extractor: FeatureExtractionPipeline | null = null;
 let _initPromise: Promise<FeatureExtractionPipeline> | null = null;
 
@@ -25,6 +37,7 @@ async function getExtractor(onProgress?: (message: string) => void): Promise<Fea
     onProgress?.("Initializing embedding model...");
     _initPromise = pipeline("feature-extraction", EMBEDDING_MODEL_NAME, {
       dtype: "fp32",
+      cache_dir: embeddingCacheDir(),
       progress_callback: (event: { status: string; progress?: number }) => {
         if (event.status === "download" && event.progress != null) {
           onProgress?.(`Downloading embedding model... ${Math.round(event.progress)}%`);
