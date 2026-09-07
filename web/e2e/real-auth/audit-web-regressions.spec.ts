@@ -45,7 +45,7 @@ test.describe("@evidence audit web regressions", () => {
 			await expect(page.getByLabel("Default model tier")).toHaveCount(0);
 			await page.getByTestId("onboarding-step2-continue").click();
 			await captureEvidence(page, testInfo, "member-onboarding-handoff", { fullPage: true });
-			await page.getByRole("button", { name: "Finish" }).click();
+			await page.getByRole("button", { name: "Get started" }).click();
 			await page.waitForURL(/\/project\/[^/]+\/chat/, { timeout: 10_000 });
 
 			const banner = page.locator('[data-testid="no-provider-banner"]:visible');
