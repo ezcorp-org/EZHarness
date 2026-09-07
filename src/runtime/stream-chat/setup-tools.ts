@@ -698,9 +698,8 @@ async function readModeRouting(
 }
 
 /**
- * Model resolution + credential pre-validation (setup phase 3 — runs in
- * parallel with memory injection and tool loading inside {@link setupTools}'s
- * `Promise.all`). Exported so the tier semantics are directly unit-testable
+ * Model resolution + credential pre-validation, before memory injection and
+ * tool loading. Exported so the tier semantics are directly unit-testable
  * without driving the whole tool-setup phase.
  *
  * WS3 quality-tier routing. `options.model` already folds in BOTH the
@@ -898,18 +897,16 @@ export async function resolveModelTierAndCredential(
 }
 
 /**
- * Drive the parallel "memory injection + tool loading + model resolution"
- * setup phase. Mutates `ctx.systemMemoryTail`, `ctx.agentTools`,
+ * Validate the provider, then drive parallel memory injection and tool loading.
+ * Mutates `ctx.systemMemoryTail`, `ctx.agentTools`,
  * `ctx.toolAbortControllers`, `ctx.builtinToolDefsMap`, `ctx.unsubModeChange`,
  * and stashes orchestration metadata on `run` (the legacy `_mentionedAgents`,
  * `_teamConfig`, `_memberOverrides`, etc. fields the post-Promise.all auto-spin-up
  * block reads).
  *
  * Returns the resolved model + initial credential so the caller can build
- * the pi-agent. The function is structured as one big `Promise.all` of three
- * IIFEs (memory/KB injection, tool loading, model resolution) — the same
- * shape as the original inline block — so timing, ordering, and which paths
- * race remain identical.
+ * the pi-agent. Credential errors return before tool subscriptions or memory
+ * work start. The two remaining tasks run in parallel after validation.
  */
 export async function setupTools(
   ctx: StreamChatContext,
@@ -939,7 +936,7 @@ export async function setupTools(
     attachmentCount: options.attachments?.length ?? 0,
   };
 
-  // ── Parallel setup: memory/KB, tools, model resolution all run concurrently ──
+  // Report preparation before provider validation and memory/tool loading.
   host.bus.emit("run:status", { runId: run.id, status: "Preparing..." });
 
   // Build the attachment-handle resolver for this turn. The content-builder
@@ -970,7 +967,13 @@ export async function setupTools(
   // clobbered by its `ctx.system = injection.systemPrompt` assignment.
   const preprocessNotes: string[] = [];
 
-  const setupTasks = [
+  // Validate the provider before acquiring tools or starting memory work.
+  // Those tasks can wait on dependencies that do not observe cancellation;
+  // a credential failure must not wait for them or retain their listeners.
+  const resolvedModel = await resolveModelTierAndCredential(
+    run, userMessage, options, convRecord, credentialConversationId, turnRoutingContext,
+  );
+  await Promise.all([
     // 1. Memory/KB injection (non-fatal) — skip entirely if project has no data
     (async () => {
       if (!options.projectId) return;
@@ -1548,7 +1551,7 @@ export async function setupTools(
         convRecord,
         bus: host.bus,
         permissionDeps,
-        runSignal: host.controllers.get(run.id)?.signal,
+        runSignal: ctx.controller.signal,
         ...(options.callerToolAllowlist
           ? { callerToolAllowlist: options.callerToolAllowlist }
           : {}),
@@ -1826,26 +1829,7 @@ export async function setupTools(
       // boundary, so no per-streamChat wiring needed here.
     })(),
 
-    // 3. Model resolution + credential pre-validation (runs in parallel with 1 & 2)
-    resolveModelTierAndCredential(
-      run,
-      userMessage,
-      options,
-      convRecord,
-      credentialConversationId,
-      turnRoutingContext,
-    ),
-  ] as const;
-  let resolvedModel: SetupToolsResult;
-  try {
-    [, , resolvedModel] = await Promise.all(setupTasks);
-  } catch (err) {
-    // A rejected sibling does not stop the other setup tasks. Cancel work
-    // that observes the signal, then settle all acquisitions before cleanup.
-    ctx.controller.abort();
-    await Promise.allSettled(setupTasks);
-    throw err;
-  }
+  ]);
 
   // Deterministic-preprocess grounding notes ride the UNCACHED
   // systemMemoryTail trailing block, NOT the byte-stable cached region-1
