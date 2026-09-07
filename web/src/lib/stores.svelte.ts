@@ -773,7 +773,7 @@ export function openDock(conversationId: string, toolCallId: string): void {
 	// previous close would no-op forever because the auto-open effect would
 	// still skip the dismissed id.
 	const dismissed = store.dismissedDocks[conversationId];
-	if (dismissed && dismissed[toolCallId]) {
+	if (dismissed?.[toolCallId]) {
 		const { [toolCallId]: _drop, ...remaining } = dismissed;
 		store.dismissedDocks = {
 			...store.dismissedDocks,
