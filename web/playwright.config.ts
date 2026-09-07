@@ -95,6 +95,10 @@ export default defineConfig({
 			// (this is server BOOT time, not a test retry — `retries` stays 0).
 			timeout: 180_000,
 			reuseExistingServer: false,
+			// Bun 1.3.14 can retain a compiled server module's prior environment
+			// value across fresh processes. The mock lane also changes its server
+			// environment, so its production preview must not reuse that cache.
+			env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
 		},
 	}),
 });

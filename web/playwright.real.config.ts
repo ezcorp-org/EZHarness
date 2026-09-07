@@ -49,15 +49,26 @@ const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/
 // test` invocation. Best-effort cleanup happens at process exit
 // (see globalTeardown).
 const callerDbDir = process.env.PI_E2E_REAL_DB_PATH;
+// Playwright can evaluate this config again in a child process. Carry the
+// exact generated path across that boundary so a generated directory does not
+// become indistinguishable from a caller-supplied override on the second load.
+const inheritedGeneratedDbDir = process.env.PI_E2E_REAL_GENERATED_DB_PATH;
+const reusesGeneratedDbDir =
+  callerDbDir !== undefined && callerDbDir === inheritedGeneratedDbDir;
 const DB_DIR = callerDbDir ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
-const ownsDbDir = callerDbDir === undefined;
+const ownsDbDir = callerDbDir === undefined || reusesGeneratedDbDir;
 
 // Test workers need the same identity to clean only records they created.
 // Metadata below preserves ownership because this assignment happens after we
 // capture whether a caller supplied the path.
 process.env.PI_E2E_REAL_DB_PATH = DB_DIR;
-if (ownsDbDir) process.env.PI_E2E_REAL_DB_GENERATED = "1";
-else delete process.env.PI_E2E_REAL_DB_GENERATED;
+if (ownsDbDir) {
+  process.env.PI_E2E_REAL_DB_GENERATED = "1";
+  process.env.PI_E2E_REAL_GENERATED_DB_PATH = DB_DIR;
+} else {
+  delete process.env.PI_E2E_REAL_DB_GENERATED;
+  delete process.env.PI_E2E_REAL_GENERATED_DB_PATH;
+}
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -185,6 +196,10 @@ export default defineConfig({
       // Make the ezcorp-mock provider's loopback baseUrl match the preview
       // server's actual port (see MOCK_LLM_BASE_URL above).
       EZCORP_MOCK_LLM_BASE_URL: MOCK_LLM_BASE_URL,
+      // Bun 1.3.14 can retain a compiled server module's prior environment
+      // value across fresh processes. Disabling this runtime cache is required
+      // for a preview to use this invocation's generated PGlite directory.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     },
   },
 });
