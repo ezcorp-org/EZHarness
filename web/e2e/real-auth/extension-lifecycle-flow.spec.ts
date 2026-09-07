@@ -671,9 +671,10 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     });
     const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
     expect(tools.status()).toBe(404);
+    await stalePage.locator(".state-badge").scrollIntoViewIfNeeded();
+    await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall", { fullPage: false });
     await stalePage.getByText("Previously active", { exact: true }).scrollIntoViewIfNeeded();
     await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall-release", { fullPage: false });
-    await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall", { fullPage: true });
   } finally {
     await attachBrowserDiagnostics(testInfo, "extension-stale-tab-primary-client-diagnostics", pageDiagnostics);
     await attachBrowserDiagnostics(testInfo, "extension-stale-tab-secondary-client-diagnostics", stalePageDiagnostics);
