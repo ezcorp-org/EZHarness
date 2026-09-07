@@ -326,19 +326,25 @@ export function setActiveProjectId(id: string | null) {
 
 export function refreshProjects() {
 	fetchProjects()
-		.then((data) => (store.projects = data))
+		.then((data) => {
+			store.projects = data;
+		})
 		.catch(() => {});
 }
 
 function refreshSettings() {
 	fetchSettings()
-		.then((data) => (store.settings = data))
+		.then((data) => {
+			store.settings = data;
+		})
 		.catch(() => {});
 }
 
 export function refreshAgentConfigs() {
 	fetchAgentConfigs()
-		.then((data) => (store.agentConfigs = data))
+		.then((data) => {
+			store.agentConfigs = data;
+		})
 		.catch(() => {});
 }
 
@@ -895,11 +901,15 @@ export function closeTeamDrillDown(): void {
 
 export function initStores() {
 	fetchAgents()
-		.then((data) => (store.agents = data))
+		.then((data) => {
+			store.agents = data;
+		})
 		.catch(() => {});
 
 	fetchRuns()
-		.then((data) => (store.runs = data))
+		.then((data) => {
+			store.runs = data;
+		})
 		.catch(() => {});
 
 	refreshProjects();

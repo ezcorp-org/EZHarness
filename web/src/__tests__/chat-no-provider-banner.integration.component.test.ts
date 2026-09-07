@@ -23,7 +23,7 @@ import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
 import { store } from "$lib/stores.svelte.js";
 
-function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | "error" | "pending"): {
+function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | "error" | "reject" | "pending"): {
 	resolvePending?: () => void;
 } {
 	if (response === "pending") {
@@ -37,6 +37,10 @@ function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | 
 	}
 	if (response === "error") {
 		vi.stubGlobal("fetch", vi.fn(async () => new Response("err", { status: 500 })));
+		return {};
+	}
+	if (response === "reject") {
+		vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
 		return {};
 	}
 	vi.stubGlobal(
@@ -83,6 +87,12 @@ describe("NoProviderBanner", () => {
 
 	test("absent when /api/quickstart returns an error (fail closed)", async () => {
 		mockFetch("error");
+		const { queryByTestId } = render(NoProviderBanner);
+		await waitFor(() => expect(queryByTestId("no-provider-banner")).toBeNull());
+	});
+
+	test("stays hidden when the identity request rejects", async () => {
+		mockFetch("reject");
 		const { queryByTestId } = render(NoProviderBanner);
 		await waitFor(() => expect(queryByTestId("no-provider-banner")).toBeNull());
 	});

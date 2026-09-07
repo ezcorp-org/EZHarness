@@ -438,6 +438,22 @@ describe("workflowToDrafts / stepToPayload round-trip", () => {
 });
 
 describe("unsupportedFormFields", () => {
+  test("falls back to YAML when the stored steps field is not an array", () => {
+    expect(unsupportedFormFields({
+      name: "wf",
+      description: "",
+      steps: { name: "not-an-array" },
+    })).toEqual(["steps"]);
+  });
+
+  test("falls back to YAML for malformed entries while preserving valid steps", () => {
+    expect(unsupportedFormFields({
+      name: "wf",
+      description: "",
+      steps: [null, "not-a-step", { name: "agent", agent: "writer" }],
+    })).toEqual(["steps[0]", "steps[1]"]);
+  });
+
   test("allows every field the form round-trips", () => {
     expect(unsupportedFormFields({
       name: "wf",

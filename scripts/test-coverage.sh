@@ -389,7 +389,9 @@ run_legs() {
       src/lib/__tests__/provider-access.unit.test.ts \
       src/lib/components/ProviderSettings.component.test.ts \
       src/__tests__/stores-quickstart-refresh.component.test.ts \
+	      src/__tests__/stores-quickstart-events.component.test.ts \
       src/__tests__/ConversationSettings.component.test.ts \
+	      src/lib/components/__tests__/Tooltip.component.test.ts \
       src/lib/components/chat/__tests__/ChatHeader.component.test.ts \
       src/__tests__/chat-no-provider-banner.integration.component.test.ts \
       src/__tests__/quickstart-checklist-dismiss-gate.component.test.ts \
@@ -828,6 +830,7 @@ run_legs() {
       --coverage.include='src/routes/**/onboarding/+page.svelte' \
       --coverage.include='src/lib/provider-access.ts' \
       --coverage.include='src/lib/components/ProviderSettings.svelte' \
+	      --coverage.include='src/lib/components/Tooltip.svelte' \
       --coverage.include='src/lib/components/ConversationSettings.svelte' \
       --coverage.include='src/lib/components/chat/ChatHeader.svelte' \
       --coverage.include='src/lib/components/chat/NoProviderBanner.svelte' \
