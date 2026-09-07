@@ -125,6 +125,9 @@ export default defineConfig({
 			},
 		},
 		coverage: {
+			// `svelte-check` mirrors application sources under `.svelte-kit`; broad
+			// route include globs must measure the real `src/` modules only.
+			exclude: ["**/.svelte-kit/**"],
 			// A single failing test must NOT erase the whole coverage report.
 			// Vitest defaults `coverage.reportOnFailure` to false and writes no
 			// reporter output at all once any test fails, so ONE timed-out test
