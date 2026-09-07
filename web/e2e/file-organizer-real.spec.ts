@@ -65,6 +65,9 @@ if (RUN_REAL && !CONTAINER) {
 // the render subprocess READS here too — see the data-dir alignment note
 // in the header.
 const CONFIG_PATH = "/app/.ezcorp/extension-data/file-organizer/config.json";
+const PROPOSALS_PATH = "/app/.ezcorp/extension-data/file-organizer/proposals.json";
+const MANIFEST_PATH = "/app/.ezcorp/extension-data/file-organizer/.trash/manifest.json";
+const JOURNAL_PATH = "/app/.ezcorp/extension-data/file-organizer/journal.json";
 
 // Pre-made, reachable absolute watch dir inside the container. These live
 // under the projects bind (./.ezcorp/projects → /app/web/.ezcorp/projects),
@@ -128,31 +131,33 @@ async function postEvent(
 /** Read the WRITER's config.json out of the container (the persistence
  *  oracle). Returns the parsed object, or a `validateConfig(null)`-shaped
  *  empty config when the file is absent. */
-function readWriterConfig(): { folders: Array<Record<string, unknown>> } {
-  let raw = "";
+function readWriterFile(path: string): string | null {
   try {
-    raw = execFileSync("docker", ["exec", CONTAINER, "cat", CONFIG_PATH], {
-      encoding: "utf8",
-    });
-  } catch {
-    return { folders: [] };
-  }
-  try {
-    return JSON.parse(raw) as { folders: Array<Record<string, unknown>> };
-  } catch {
-    return { folders: [] };
-  }
-}
-
-/** Raw bytes of config.json (for exact-restore on cleanup), or null if absent. */
-function snapshotWriterConfig(): string | null {
-  try {
-    return execFileSync("docker", ["exec", CONTAINER, "cat", CONFIG_PATH], {
+    return execFileSync("docker", ["exec", CONTAINER, "cat", path], {
       encoding: "utf8",
     });
   } catch {
     return null;
   }
+}
+
+function readWriterJson<T>(path: string): T | null {
+  const raw = readWriterFile(path);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function readWriterConfig(): { folders: Array<Record<string, unknown>> } {
+  return readWriterJson<{ folders: Array<Record<string, unknown>> }>(CONFIG_PATH) ?? { folders: [] };
+}
+
+/** Raw bytes of config.json (for exact-restore on cleanup), or null if absent. */
+function snapshotWriterConfig(): string | null {
+  return readWriterFile(CONFIG_PATH);
 }
 
 /** Restore config.json to the exact snapshot bytes (or delete it if there
@@ -391,68 +396,82 @@ test.describe(
 
     // ── Proposal lifecycle (conditional — needs a daemon-produced proposal) ──
 
-    test("proposal lifecycle: daemon proposes and accepts a REAL move on disk", async ({ request }) => {
-			test.setTimeout(180_000);
-			const folder = readWriterConfig().folders.find((item) => item.path === WATCH_DIR);
-			expect(folder, "watched fixture folder must exist before daemon proposal proof").toBeTruthy();
-			const preset = await postEvent(request, "toggle-preset", {
-				folderId: folder!.id,
-				preset: "junk-sweep",
-			});
-			expect(((await preset.json()) as { ok: boolean }).ok).toBe(true);
-			const backlog = await postEvent(request, "set-backlog-policy", {
-				folderId: folder!.id,
-				backlogPolicy: "include-existing",
-			});
-			expect(((await backlog.json()) as { ok: boolean }).ok).toBe(true);
-			const source = `${WATCH_DIR}/daemon-proof.tmp`;
-			execFileSync("docker", ["exec", CONTAINER, "sh", "-c", `touch '${source}' && touch -d '20 minutes ago' '${source}'`]);
-      let proposalsRaw = "";
-			let parsed: { proposals?: Array<{ id: string; kind: string; status: string; src?: string; dst?: string }> } = {};
-			await expect.poll(() => {
-				try {
-					proposalsRaw = execFileSync(
-						"docker",
-						["exec", CONTAINER, "cat", "/app/.ezcorp/extension-data/file-organizer/proposals.json"],
-						{ encoding: "utf8" },
-					);
-					parsed = JSON.parse(proposalsRaw);
-					return (parsed.proposals ?? []).some((proposal) =>
-						proposal.status === "pending" && proposal.kind !== "unclassified" && proposal.src === source,
-					);
-				} catch {
-					return false;
-				}
-			}, { timeout: 150_000, intervals: [2_000] }).toBe(true);
-      parsed = (() => {
-        try {
-					return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; kind: string; status: string; src?: string; dst?: string }> };
-        } catch {
-          return { proposals: [] as Array<{ id: string; kind: string; status: string; dst?: string }> };
-        }
-      })();
-      // Only DIRECTLY-APPLYABLE kinds: an `unclassified` proposal is pending
-      // but accept refuses it by design ("pick a destination or teach a
-      // rule"), which would fail the not-pending re-read below.
-			const pending = (parsed.proposals ?? []).find((p) => p.status === "pending" && p.kind !== "unclassified" && p.src === source);
-			expect(pending, "daemon must produce an applyable proposal for the owned old .tmp input").toBeTruthy();
+    test("proposal lifecycle: daemon proposes and accepts a REAL move on disk", async ({ request }, testInfo) => {
+      test.setTimeout(180_000);
+      const folder = readWriterConfig().folders.find((item) => item.path === WATCH_DIR);
+      expect(folder, "watched fixture folder must exist before daemon proposal proof").toBeTruthy();
+      const preset = await postEvent(request, "toggle-preset", {
+        folderId: folder!.id,
+        preset: "junk-sweep",
+      });
+      expect(((await preset.json()) as { ok: boolean }).ok).toBe(true);
+      const backlog = await postEvent(request, "set-backlog-policy", {
+        folderId: folder!.id,
+        backlogPolicy: "include-existing",
+      });
+      expect(((await backlog.json()) as { ok: boolean }).ok).toBe(true);
 
-      const res = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
-      expect(res.status()).toBe(200);
-      const body = (await res.json()) as { ok: boolean; message?: string };
-      // A real accept either applies (file moved) or is blocked/failed with
-      // a real reason — never a silent no-op. We assert the route returned a
-      // real outcome message for the looked-up id.
-      expect(body.message ?? "").toBeTruthy();
-      // Re-read proposals: the accepted row must no longer be pending.
-      const after = JSON.parse(
-        execFileSync(
-          "docker",
-          ["exec", CONTAINER, "cat", "/app/.ezcorp/extension-data/file-organizer/proposals.json"],
-          { encoding: "utf8" },
-        ),
-      ) as { proposals?: Array<{ id: string; status: string }> };
-      expect((after.proposals ?? []).find((p) => p.id === pending!.id)?.status).not.toBe("pending");
+      const source = `${WATCH_DIR}/daemon-proof.tmp`;
+      const sentinel = `daemon-proof-${crypto.randomUUID()}`;
+      const encoded = Buffer.from(sentinel, "utf8").toString("base64");
+      execFileSync("docker", [
+        "exec",
+        CONTAINER,
+        "sh",
+        "-c",
+        `printf %s '${encoded}' | base64 -d > '${source}' && touch -d '20 minutes ago' '${source}'`,
+      ]);
+
+      type Proposal = {
+        id: string;
+        kind: string;
+        status: string;
+        src?: string;
+        dst?: string | null;
+      };
+      type ProposalFile = { proposals?: Proposal[] };
+      type ManifestFile = { entries?: Array<{ proposalId: string | null; originalPath: string; trashPath: string }> };
+      let proposals: ProposalFile = {};
+      await expect
+        .poll(() => {
+          proposals = readWriterJson<ProposalFile>(PROPOSALS_PATH) ?? {};
+          return (proposals.proposals ?? []).some(
+            (proposal) => proposal.status === "pending" && proposal.kind !== "unclassified" && proposal.src === source,
+          );
+        }, { timeout: 150_000, intervals: [2_000] })
+        .toBe(true);
+
+      const pending = (proposals.proposals ?? []).find(
+        (proposal) => proposal.status === "pending" && proposal.kind !== "unclassified" && proposal.src === source,
+      );
+      expect(pending, "daemon must produce an applyable proposal for the owned old .tmp input").toBeTruthy();
+      expect(pending!.kind).toBe("delete-quarantine");
+
+      const response = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
+      const body = (await response.json()) as { ok: boolean; message?: string };
+      const after = readWriterJson<ProposalFile>(PROPOSALS_PATH);
+      const applied = after?.proposals?.find((proposal) => proposal.id === pending!.id);
+      const manifest = readWriterJson<ManifestFile>(MANIFEST_PATH);
+      const recordedDestination = manifest?.entries?.find((entry) => entry.proposalId === pending!.id);
+      const destinationContent = recordedDestination ? readWriterFile(recordedDestination.trashPath) : null;
+      const sourceContent = readWriterFile(source);
+      await testInfo.attach("file-organizer-accept-result.json", {
+        body: JSON.stringify({ responseStatus: response.status(), body, applied, recordedDestination, sourceContent, destinationContent }, null, 2),
+        contentType: "application/json",
+      });
+      await testInfo.attach("file-organizer-accept-journal.json", {
+        body: readWriterFile(JOURNAL_PATH) ?? "absent",
+        contentType: "application/json",
+      });
+
+      expect(response.status()).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.message).toBe("Applied");
+      expect(applied?.status).toBe("applied");
+      expect(recordedDestination?.originalPath).toBe(source);
+      expect(recordedDestination?.trashPath).toBeTruthy();
+      expect(sourceContent).toBeNull();
+      expect(destinationContent).toBe(sentinel);
     });
 
     // ── Picker reality: typed absolute works; Browse 403s (the jail) ─────
