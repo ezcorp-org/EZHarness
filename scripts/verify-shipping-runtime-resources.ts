@@ -16,6 +16,7 @@ type CleanupObservation = { baselineConnections: number; remainingConnections: n
 type MappedPgliteFile = { address: string; permissions: string; offset: string; device: string; inode: string; path: string };
 type FdSnapshot = { classes: FdClasses; pgliteRelationDescriptors: RelationDescriptor[]; descriptors: OpenDescriptor[] };
 type FdEvidence = { descriptors: OpenDescriptor[]; mappedPgliteFiles: MappedPgliteFile[] };
+type KernelMemorySnapshot = { pid: string; cgroup: string; cgroupProcesses: string[]; smapsRollup: Record<string, number>; anonymousBytes: number; privateBytes: number; sharedBytes: number; fileBytes: number; memoryCurrent: number; memoryStat: Record<string, number>; mappings: number; anonymousMappingCount: number; fileMappingCount: number };
 type FailureEvidence = {
   cycle: number;
   reason: string;
@@ -27,6 +28,9 @@ type FailureEvidence = {
   removedMappedPgliteFiles: MappedPgliteFile[];
   observed: FdEvidence;
   warm?: FdEvidence;
+  kernelMemory?: KernelMemorySnapshot;
+  kernelMemoryError?: string;
+  warmKernelMemory?: KernelMemorySnapshot;
 };
 type Sample = {
   cycle: number;
@@ -118,6 +122,26 @@ async function mappedPgliteFiles(pid: string, pgliteDataRoot: string): Promise<M
       if (!match || !isPgliteRelationPath(pgliteDataRoot, match[6]!)) return [];
       return [{ address: match[1]!, permissions: match[2]!, offset: match[3]!, device: match[4]!, inode: match[5]!, path: match[6]! }];
     });
+}
+
+function numericLines(text: string, unit = 1): Record<string, number> {
+  return Object.fromEntries(text.split("\n").flatMap(line => {
+    const match = /^([A-Za-z_]+):?\s+([0-9]+)/.exec(line);
+    return match ? [[match[1]!, Number(match[2]) * unit]] : [];
+  }));
+}
+
+async function kernelMemorySnapshot(pid: string): Promise<KernelMemorySnapshot> {
+  const cgroupLine = (await readFile(`/proc/${pid}/cgroup`, "utf8")).split("\n").find(line => line.startsWith("0::"));
+  if (!cgroupLine) throw new Error(`App PID ${pid} does not expose a cgroup-v2 path.`);
+  const cgroup = cgroupLine.slice("0::".length);
+  const root = join("/sys/fs/cgroup", cgroup);
+  const [smaps, current, memoryStat, maps, procs] = await Promise.all([readFile(`/proc/${pid}/smaps_rollup`, "utf8"), readFile(join(root, "memory.current"), "utf8"), readFile(join(root, "memory.stat"), "utf8"), readFile(`/proc/${pid}/maps`, "utf8"), readFile(join(root, "cgroup.procs"), "utf8")]);
+  const smapsRollup = numericLines(smaps, 1024);
+  const cgroupProcesses = procs.trim().split("\n").filter(Boolean);
+  if (!cgroupProcesses.includes(pid)) throw new Error(`App PID ${pid} is absent from cgroup ${cgroup}.`);
+  const lines = maps.trim().split("\n").filter(Boolean);
+  return { pid, cgroup, cgroupProcesses, smapsRollup, anonymousBytes: smapsRollup.Anonymous ?? 0, privateBytes: (smapsRollup.Private_Clean ?? 0) + (smapsRollup.Private_Dirty ?? 0), sharedBytes: (smapsRollup.Shared_Clean ?? 0) + (smapsRollup.Shared_Dirty ?? 0), fileBytes: smapsRollup.Pss_File ?? 0, memoryCurrent: Number(current.trim()), memoryStat: numericLines(memoryStat), mappings: lines.length, anonymousMappingCount: lines.filter(line => !/\s\/[^ ]+$/.test(line)).length, fileMappingCount: lines.filter(line => /\s\/[^ ]+$/.test(line)).length };
 }
 
 function resourceReport(sample: Sample): Omit<Sample, "pgliteRelationDescriptors"> & { pgliteRelationDescriptorCount: number } {
@@ -234,6 +258,7 @@ const conversation = await client.createConversation({ title: "R4 repeat lifecyc
 const relationCacheWarmupCycles = Math.min(6, count - 2);
 let relationCacheWarmup: Sample | undefined;
 let relationCacheWarmEvidence: FdEvidence | undefined;
+let relationCacheWarmKernelMemory: KernelMemorySnapshot | undefined;
 let firstLifecycleFdSnapshot: FdSnapshot | undefined;
 
 async function writeReceipt(completedCycles: number, failure?: FailureEvidence): Promise<void> {
@@ -260,6 +285,9 @@ async function writeReceipt(completedCycles: number, failure?: FailureEvidence):
 
 async function failResourceCheck(cycle: number, reason: string, observedSample: Sample, observedSnapshot: FdSnapshot): Promise<never> {
   const observed: FdEvidence = { descriptors: observedSnapshot.descriptors, mappedPgliteFiles: await mappedPgliteFiles(appProcessPid, pgliteDataRoot) };
+  let kernelMemory: KernelMemorySnapshot | undefined;
+  let kernelMemoryError: string | undefined;
+  try { kernelMemory = await kernelMemorySnapshot(appProcessPid); } catch (error) { kernelMemoryError = String(error); }
   const warm = relationCacheWarmEvidence;
   const descriptorDelta = warm ? multisetDelta(warm.descriptors, observed.descriptors) : { added: observed.descriptors, removed: [] };
   const mappedPgliteFileDelta = warm ? multisetDelta(warm.mappedPgliteFiles, observed.mappedPgliteFiles) : { added: observed.mappedPgliteFiles, removed: [] };
@@ -274,6 +302,8 @@ async function failResourceCheck(cycle: number, reason: string, observedSample: 
     removedMappedPgliteFiles: mappedPgliteFileDelta.removed,
     observed,
     ...(warm ? { warm } : {}),
+    ...(kernelMemory ? { kernelMemory } : { kernelMemoryError }),
+    ...(relationCacheWarmKernelMemory ? { warmKernelMemory: relationCacheWarmKernelMemory } : {}),
   });
   throw new Error(reason);
 }
@@ -322,6 +352,7 @@ for (let cycle = 1; cycle <= count; cycle++) {
   if (cycle === relationCacheWarmupCycles) {
     relationCacheWarmup = after;
     relationCacheWarmEvidence = { descriptors: fdSnapshot.descriptors, mappedPgliteFiles: await mappedPgliteFiles(appProcessPid, pgliteDataRoot) };
+    relationCacheWarmKernelMemory = await kernelMemorySnapshot(appProcessPid);
   } else if (cycle > relationCacheWarmupCycles) {
     if (after.appContainerMemoryBytes > relationCacheWarmup!.appContainerMemoryBytes + 64 * 1024 ** 2) await failResourceCheck(cycle, `Cycle ${cycle} app container memory exceeded the relation-cache warm baseline by more than 64 MiB.`, after, fdSnapshot);
   }
