@@ -20,6 +20,8 @@ test.describe("@evidence provider access", () => {
 		const banner = page.locator('[data-testid="no-provider-banner"]:visible');
 		await expect(banner).toContainText("An administrator needs to connect a provider");
 		await expect(banner.getByTestId("no-provider-banner-cta")).toHaveCount(0);
+		await expect(page.getByText("Ask an admin to connect a provider", { exact: true })).toBeVisible();
+		await expect(page.getByRole("link", { name: "Set up a provider" })).toHaveCount(0);
 		await captureEvidence(page, testInfo, "member-provider-guidance", { fullPage: true });
 
 		await page.setViewportSize({ width: 393, height: 851 });

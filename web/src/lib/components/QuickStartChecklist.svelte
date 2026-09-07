@@ -42,7 +42,7 @@
 	let steps = $derived<Step[]>([
 		{
 			id: "provider",
-			label: canConfigureProvider || !hasProvider ? (canConfigureProvider ? "Set up a provider" : "Ask an admin to connect a provider") : "Provider ready",
+			label: canConfigureProvider ? "Set up a provider" : hasProvider ? "Provider ready" : "Ask an admin to connect a provider",
 			done: hasProvider,
 			href: canConfigureProvider ? "/settings/models#providers" : undefined,
 		},
