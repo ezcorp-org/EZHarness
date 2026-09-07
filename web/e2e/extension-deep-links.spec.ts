@@ -39,6 +39,7 @@
 import { test, expect } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { expectReadable, useDarkTheme, useLightTheme } from "./fixtures/readable.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1" });
@@ -75,8 +76,10 @@ const USER_ME = {
 async function mockExtensionApi(
 	page: Page,
 	detailReadResolves: "reference" | "idOnly",
+	options: { extension?: typeof ROW; violations?: boolean } = {},
 ): Promise<string[]> {
 	const nameAddressed: string[] = [];
+	const extension = options.extension ?? ROW;
 
 	await page.route(/\/api\/extensions\/.+/, async (route) => {
 		const path = new URL(route.request().url()).pathname;
@@ -88,14 +91,14 @@ async function mockExtensionApi(
 		// The detail read — the ONE reference-addressed endpoint in production.
 		if (sub === "") {
 			const found =
-				ref === ROW.id || (detailReadResolves === "reference" && ref === ROW.name);
+				ref === extension.id || (detailReadResolves === "reference" && ref === extension.name);
 			return found
-				? route.fulfill({ json: ROW })
+				? route.fulfill({ json: extension })
 				: route.fulfill({ status: 404, json: { error: "Not found" } });
 		}
 
 		// Everything else is id-only in production. A name here is the bug.
-		if (ref !== ROW.id) {
+		if (ref !== extension.id) {
 			nameAddressed.push(path);
 			return route.fulfill({ status: 404, json: { error: "Not found" } });
 		}
@@ -104,7 +107,11 @@ async function mockExtensionApi(
 				json: { schema: null, declaredDefaults: {}, userValues: {}, resolved: {}, secrets: {}, capabilities: [] },
 			});
 		}
-		if (sub === "/violations") return route.fulfill({ json: [] });
+		if (sub === "/violations") {
+			return route.fulfill({
+				json: options.violations ? [{ reason: "Fixture violation", path: "index.ts", timestamp: "2026-09-07T00:00:00Z" }] : [],
+			});
+		}
 		if (sub === "/audit") return route.fulfill({ json: { entries: [] } });
 		if (sub === "/expired-grants") return route.fulfill({ json: { grants: [] } });
 		return route.fulfill({ json: {} });
@@ -150,6 +157,58 @@ test.describe("extension detail page — resolving the route reference, canonica
 
 		await captureEvidence(page, testInfo, "extension-detail-via-post-install-deep-link");
 	});
+
+	for (const theme of ["light", "dark"] as const) {
+		test(`@evidence header status badges remain readable on ${theme}`, async ({ page, mockApi }, testInfo) => {
+			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
+			const verified = { ...ROW, checksumVerified: true };
+			await mockApi({ projects: [proj], extensions: [verified], routes: { "/api/auth/me": () => USER_ME } });
+			const verifiedCalls = await mockExtensionApi(page, "reference", { extension: verified });
+
+			await page.goto(POST_INSTALL_LINK);
+			await expectDetailRendered(page, verifiedCalls);
+			const verifiedBadge = page.getByText("Verified", { exact: true });
+			await expect(verifiedBadge).toHaveText("Verified");
+			expect((await expectReadable(verifiedBadge, `Verified badge (${theme})`)).dark).toBe(theme === "dark");
+
+			await captureEvidence(page, testInfo, `extension-detail-verified-badge-${theme}`);
+		});
+
+		test(`@evidence unsigned and violation badges remain readable on ${theme}`, async ({ page, mockApi }, testInfo) => {
+			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
+			const unsigned = { ...ROW, checksumVerified: false, enabled: false };
+			await mockApi({ projects: [proj], extensions: [unsigned], routes: { "/api/auth/me": () => USER_ME } });
+			const unsignedCalls = await mockExtensionApi(page, "reference", { extension: unsigned, violations: true });
+
+			await page.goto(POST_INSTALL_LINK);
+			await expectDetailRendered(page, unsignedCalls);
+			const unsignedBadge = page.getByText("Unsigned", { exact: true });
+			const violationBadge = page.locator('[title="Clear security violations first"]');
+			await expect(unsignedBadge).toHaveText("Unsigned");
+			await expect(violationBadge).toHaveText("Disabled");
+			await expect(violationBadge).toHaveAttribute("title", "Clear security violations first");
+			const violationHeading = page.getByText("Security Violations", { exact: true });
+			const violationBody = page.getByText(
+				"This extension was disabled due to security violations. Review and clear them to re-enable.",
+				{ exact: true },
+			);
+			const violationReason = page.getByText("Fixture violation", { exact: true });
+			const violationPath = page.getByText("index.ts", { exact: true });
+			expect((await expectReadable(unsignedBadge, `Unsigned badge (${theme})`)).dark).toBe(theme === "dark");
+			expect((await expectReadable(violationBadge, `Security-violation badge (${theme})`)).dark).toBe(theme === "dark");
+			for (const [target, label] of [
+				[violationHeading, "heading"],
+				[violationBody, "body"],
+				[violationReason, "reason"],
+				[violationPath, "path"],
+			] as const) {
+				await expect(target).toBeVisible();
+				expect((await expectReadable(target, `Security Violations ${label} (${theme})`)).dark).toBe(theme === "dark");
+			}
+
+			await captureEvidence(page, testInfo, `extension-detail-unsigned-violation-badges-${theme}`);
+		});
+	}
 
 	// NEGATIVE CONTROL. Drives the stub with the PRE-FIX server contract
 	// (id-equality only) and asserts the page falls into its not-found branch

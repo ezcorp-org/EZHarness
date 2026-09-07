@@ -39,13 +39,70 @@ external_state=0
 [[ -n "${EZ_PRODUCTION_STATE_DIR:-}" ]] && external_state=1
 compose="$run_root/compose.yml"
 runner_pid=""
+verification_starter_pid=""
+verification_group_file="$run_root/verification-group.pid"
+verification_active=0
 command_exit=1
 compose_started=0
+
+verification_group_pid() {
+  local group_pid=""
+  [[ -s "$verification_group_file" ]] || return 1
+  read -r group_pid < "$verification_group_file"
+  [[ "$group_pid" =~ ^[1-9][0-9]*$ ]] && ((10#$group_pid > 1)) || return 1
+  printf '%s\n' "$group_pid"
+}
+
+signal_verification() {
+  local signal="$1" group_pid=""
+  group_pid="$(verification_group_pid 2>/dev/null)" || true
+  if [[ -n "$group_pid" ]]; then
+    kill -"$signal" -- "-$group_pid" 2>/dev/null || true
+  elif [[ -n "$verification_starter_pid" ]]; then
+    # Before the in-session shell records its group, this is our unreaped
+    # direct setsid child. It is safe to signal by PID during that short race.
+    kill -"$signal" "$verification_starter_pid" 2>/dev/null || true
+  fi
+}
+
+verification_running() {
+  local group_pid=""
+  group_pid="$(verification_group_pid 2>/dev/null)" || true
+  if [[ -n "$group_pid" ]]; then
+    kill -0 -- "-$group_pid" 2>/dev/null
+  elif [[ -n "$verification_starter_pid" ]]; then
+    kill -0 "$verification_starter_pid" 2>/dev/null
+  else
+    return 1
+  fi
+}
+
+wait_for_verification() {
+  local attempt
+  for ((attempt = 0; attempt < 40; attempt++)); do
+    verification_running || return 0
+    sleep 0.1
+  done
+  ! verification_running
+}
+
+stop_verification() {
+  [[ "$verification_active" -eq 1 ]] || return 0
+  signal_verification TERM
+  if ! wait_for_verification; then
+    signal_verification KILL
+    wait_for_verification || return 1
+  fi
+  [[ -z "$verification_starter_pid" ]] || wait "$verification_starter_pid" 2>/dev/null
+  verification_active=0
+}
 
 cleanup() {
   set +e
   logs_exit=0
   cleanup_exit=0
+  verification_cleanup_exit=0
+  stop_verification || verification_cleanup_exit=1
   if [[ "$compose_started" -eq 1 ]]; then
     docker compose -p "$project" -f "$compose" logs --no-color > "$receipt_dir/compose.log" 2>&1
     logs_exit=$?
@@ -56,9 +113,9 @@ cleanup() {
     kill -TERM "$runner_pid" 2>/dev/null
     wait "$runner_pid" 2>/dev/null
   fi
-  printf 'command_exit=%s\ncompose_started=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\n' "$command_exit" "$compose_started" "$logs_exit" "$cleanup_exit" >> "$receipt_dir/command.log"
+  printf 'command_exit=%s\ncompose_started=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\nverifier_cleanup_exit=%s\n' "$command_exit" "$compose_started" "$logs_exit" "$cleanup_exit" "$verification_cleanup_exit" >> "$receipt_dir/command.log"
   rm -rf "$run_root"
-  if [[ "$command_exit" -eq 0 && ( "$logs_exit" -ne 0 || "$cleanup_exit" -ne 0 ) ]]; then
+  if [[ "$command_exit" -eq 0 && ( "$logs_exit" -ne 0 || "$cleanup_exit" -ne 0 || "$verification_cleanup_exit" -ne 0 ) ]]; then
     trap - EXIT
     exit 1
   fi
@@ -162,10 +219,34 @@ printf 'setup_http=%s\nlogin_http=%s\nkey_http=%s\n' "$setup_code" "$login_code"
 
 export EZ_PRODUCTION_ORIGIN="$origin" EZ_PRODUCTION_CONTAINER="$container" EZ_PRODUCTION_RUN_ROOT="$state_root"
 export EZ_PRODUCTION_COOKIE_FILE="$cookie_file" EZ_PRODUCTION_API_KEY_FILE="$key_file" EZ_PRODUCTION_RUNNER_PID="$runner_pid"
+command -v setsid >/dev/null 2>&1 || { echo "setsid is required to stop the owned verifier group" >&2; exit 2; }
+# A newly backgrounded command must not become its own group before setsid
+# runs. Defer TERM while recording its direct PID, then honor it with the
+# owned cleanup state complete.
+set +m
+termination_requested=0
+trap 'termination_requested=1' INT TERM
+setsid bash -c '
+  group_file="$1"
+  receipt="$2"
+  shift 2
+  # setsid execs this shell as its session and process-group leader.
+  group_pid="$$"
+  [[ "$group_pid" =~ ^[1-9][0-9]*$ ]] && ((10#$group_pid > 1)) || exit 2
+  printf "%s\n" "$group_pid" > "$group_file"
+  set +e
+  "$@" 2>&1 | tee "$receipt"
+  verification_status=("${PIPESTATUS[@]}")
+  command_exit="${verification_status[0]}"
+  if [[ "$command_exit" -eq 0 && "${verification_status[1]}" -ne 0 ]]; then command_exit="${verification_status[1]}"; fi
+  exit "$command_exit"
+' verification-pipeline "$verification_group_file" "$receipt_dir/verification.log" "$@" & verification_starter_pid=$!
+verification_active=1
+trap 'exit 130' INT TERM
+if [[ "$termination_requested" -eq 1 ]]; then exit 130; fi
 set +e
-"$@" 2>&1 | tee "$receipt_dir/verification.log"
-verification_status=("${PIPESTATUS[@]}")
-command_exit="${verification_status[0]}"
-if [[ "$command_exit" -eq 0 && "${verification_status[1]}" -ne 0 ]]; then command_exit="${verification_status[1]}"; fi
+wait "$verification_starter_pid"
+command_exit=$?
 set -e
+# EXIT cleanup verifies that no verifier-group descendant survived the shell.
 exit "$command_exit"
