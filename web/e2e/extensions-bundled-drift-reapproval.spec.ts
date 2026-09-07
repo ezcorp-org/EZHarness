@@ -76,15 +76,12 @@ test("bundled city-conditions shows Atlanta website access and opens release rev
 	const review = await setupAuthorReviewMock(page, { installationId: "ext-city-conditions" });
 	await page.getByTestId("review-extension-release").click();
 	await review.expectReview();
+	await captureEvidence(page, testInfo, "bundled-release-review-v4", { fullPage: true });
 	await review.close();
 });
 
-/**
- * A bundled extension an admin disabled by hand has no permission drift. The
- * banner is still the page's only re-enable affordance, so it renders — but it
- * must not claim permissions changed when the on-disk grant already matches.
- */
-test("a disabled bundled extension with no drift offers re-approval without claiming a change", async ({
+/** A disabled bundled extension keeps its exact declared and granted release data. */
+test("a disabled bundled extension with matching release evidence offers review", async ({
 	page,
 	mockApi,
 }) => {
@@ -105,16 +102,15 @@ test("a disabled bundled extension with no drift offers re-approval without clai
 		if (route.request().method() !== "GET") return route.fallback();
 		await route.fulfill({ json: cityConditionsDetail(false, CURRENT_HOSTS) });
 	});
-	await page.route("**/api/extensions/ext-city-conditions/reapprove-drift", async (route) => {
-		await route.fulfill({
-			json: { version: "0.2.0", permissions: { network: CURRENT_HOSTS }, diffs: [] },
-		});
-	});
 
 	await page.goto("/extensions/ext-city-conditions");
-	const preview = page.getByTestId("bundled-drift-preview");
-	await expect(preview).toBeVisible({ timeout: 5000 });
-	await expect(preview).toContainText("Disabled — re-approve to enable");
-	await expect(preview).not.toContainText("Updated permissions need approval");
-	await expect(page.getByTestId("approve-bundled-drift")).toHaveText("Re-approve and enable");
+	await expect(page.getByText("Verified", { exact: true })).toBeVisible();
+	await expect(page.getByText("Disabled", { exact: true })).toBeVisible();
+	const permissions = page.getByTestId("release-permissions");
+	await expect(permissions).toBeVisible({ timeout: 5000 });
+	await expect(permissions).toContainText("Declared permissions");
+	await expect(permissions).toContainText("Current grants");
+	for (const host of CURRENT_HOSTS) await expect(permissions).toContainText(host);
+	await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
+	await expect(page.getByTestId("review-extension-release")).toBeVisible();
 });

@@ -1,40 +1,22 @@
 /**
- * The `permissions.workflows` row in the install/enable review dialog (W2).
- *
- * An extension that ships its own `*.workflow.yaml` assets can declare
- * `permissions.workflows: {names, maxRunsPerHour?}` to trigger runs of them
- * from its own code. Enabling such an extension must surface that as a
- * reviewable, opt-out-able consent row — an admin should never grant a
- * capability that can start LLM-spending runs without seeing it.
- *
- * Two things this spec pins that unit tests cannot:
- *   1. The row RENDERS the fully-namespaced names (`<extension>:<workflow>`),
- *      which is the whole reason namespacing is safe — an admin can see at a
- *      glance that the extension can only reach its OWN workflows.
- *   2. Unchecking the toggle actually omits `workflows` from the activate
- *      POST body (asserted on the intercepted request, not just the UI).
- *
- * The `@evidence`-tagged test satisfies the Visual evidence CI gate (this is
- * a frontend-visual route change). `captureEvidence` is a hard no-op unless
- * `EZCORP_E2E_EVIDENCE=1`, so the normal `e2e-mock` run stays byte-identical.
+ * Workflow permission declarations are read-only release evidence. A human
+ * reviews the exact release in the author workspace before activation.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
 import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const proj = makeProject({ id: "proj-1" });
+const EXT_ID = "ext-wf";
 
-/** A DISABLED extension declaring two shipped workflows — disabled so the
- *  enable toggle opens the review dialog rather than PATCHing straight to
- *  `enabled: false`. */
-function workflowExtension() {
+function workflowExtension(withWorkflows = true) {
 	return makeExtension({
-		id: "ext-wf",
+		id: EXT_ID,
 		name: "release-bot",
 		enabled: false,
 		isBundled: false,
 		manifest: {
-			schemaVersion: 3,
+			schemaVersion: 4,
 			name: "release-bot",
 			version: "1.0.0",
 			description: "Ships two workflows and triggers them itself",
@@ -42,165 +24,93 @@ function workflowExtension() {
 			entrypoint: "./index.ts",
 			persistent: false,
 			tools: [{ name: "noop", description: "n", inputSchema: { type: "object" } }],
-			permissions: {
-				workflows: { names: ["deploy", "rollback"], maxRunsPerHour: 6 },
-			},
+			permissions: withWorkflows
+				? { workflows: { names: ["deploy", "rollback"], maxRunsPerHour: 6 } }
+				: {},
 		},
 	});
 }
 
-/** Capture the body of the activate POST so the grant sent to the server can
- *  be asserted directly. Returns a getter, plus fulfils the request. */
-async function interceptActivate(page: import("@playwright/test").Page) {
-	const bodies: Array<Record<string, unknown>> = [];
-	await page.route("**/api/extensions/ext-wf/activate", async (route) => {
-		bodies.push(route.request().postDataJSON() as Record<string, unknown>);
-		await route.fulfill({ json: { ok: true } });
+async function openWorkflowDetail(
+	page: import("@playwright/test").Page,
+	mockApi: (overrides?: Record<string, unknown>) => Promise<void>,
+	extension = workflowExtension(),
+) {
+	await mockApi({
+		projects: [proj],
+		extensions: [extension],
+		routes: {
+			[`/api/extensions/${EXT_ID}`]: (url: URL) => {
+				if (url.pathname === `/api/extensions/${EXT_ID}`) return extension;
+				if (url.pathname.endsWith("/settings")) return { schema: {}, userValues: {} };
+				if (url.pathname.endsWith("/expired-grants")) return { grants: [] };
+				if (url.pathname.endsWith("/audit")) return { entries: [] };
+				if (url.pathname.endsWith("/violations")) return [];
+				if (url.pathname.endsWith("/permissions")) return extension.grantedPermissions;
+				return {};
+			},
+		},
 	});
-	return () => bodies;
+	await page.goto(`/extensions/${EXT_ID}`);
+	await expect(page.getByRole("heading", { name: "release-bot" })).toBeVisible();
 }
 
-test.describe("Extensions review dialog — workflows grant", () => {
-	test("renders the namespaced workflow names, checked by default", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+test.describe("Extensions review — workflow declaration", () => {
+	test("renders the exact workflow declaration as read-only release evidence", async ({ page, mockApi }) => {
+		await openWorkflowDetail(page, mockApi);
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-
-		const row = page.getByTestId("review-workflows");
-		await expect(row).toBeVisible();
-		// Capability-tier toggles default ON — the admin must actively opt out.
-		await expect(page.getByTestId("review-workflows-toggle")).toBeChecked();
-		// The declared rate ceiling is shown, not hidden behind a default.
-		await expect(row).toContainText("up to 6 per hour");
-		// NAMESPACED names — the visible proof the extension can only reach
-		// its own workflows, never the host's `deploy`.
-		await expect(row).toContainText("release-bot:deploy");
-		await expect(row).toContainText("release-bot:rollback");
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toContainText("Declared permissions");
+		await expect(permissions).toContainText("deploy");
+		await expect(permissions).toContainText("rollback");
+		await expect(permissions).toContainText('"maxRunsPerHour": 6');
+		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
 	});
 
-	test("granting sends the declared names to the activate endpoint", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
-		const bodies = await interceptActivate(page);
-
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await expect(page.getByTestId("review-workflows")).toBeVisible();
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		await expect.poll(() => bodies().length).toBe(1);
-		const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
-		expect(granted.workflows).toEqual({
-			names: ["deploy", "rollback"],
-			maxRunsPerHour: 6,
+	test("Review opens the exact installation without authority mutation", async ({ page, mockApi }) => {
+		await openWorkflowDetail(page, mockApi);
+		// Exact human approval and activation remain real-auth coverage in
+		// real-auth/extension-source-import.spec.ts and extension-author-flow.spec.ts.
+		const mutations: string[] = [];
+		await page.route("**/api/**", async route => {
+			if (route.request().method() === "GET") return route.fallback();
+			mutations.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+			return route.fulfill({ status: 409, json: { message: "Review must not mutate authority." } });
 		});
-		expect((granted.grantedAt as Record<string, number>).workflows).toBeGreaterThan(0);
+		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
+
+		await page.getByTestId("review-extension-release").click();
+		await review.expectReview();
+		await expect(page.getByText("No verified releases yet. Failed builds cannot be approved.", { exact: true })).toBeVisible();
+		expect(mutations).toEqual([]);
+		await review.close();
 	});
 
-	test("unchecking the toggle sends an EXPLICIT denial, not silence", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
-		const bodies = await interceptActivate(page);
-
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await page.getByTestId("review-workflows-toggle").uncheck();
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
-
-		await expect.poll(() => bodies().length).toBe(1);
-		const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
-		// ── This assertion was INVERTED until phase 8b ────────────────────
-		//
-		// It used to require `granted.workflows` to be ABSENT, reasoning that
-		// a `{names: []}` husk "would read as granted to a presence check".
-		// The husk concern is real but it is a SERVER-side concern, and the
-		// clamp already handles it — every empty-name branch of
-		// `clampWorkflowsPermission` collapses to `undefined`.
-		//
-		// What the old assertion missed is what ABSENCE means to that same
-		// clamp: `src/extensions/clamp-permissions.ts:317-320` and `:358-359`
-		// read a missing submitted grant as "the admin approved the
-		// declaration as-is". So staying silent re-granted exactly what the
-		// admin had just unchecked, and this checkbox was decorative.
-		// `workflows-permission.test.ts` pins the server half — this husk
-		// clamps to `undefined` for BOTH manifest shapes.
-		expect(granted.workflows).toEqual({ names: [], allowDelegated: false });
-		// Still no `grantedAt` stamp: nothing was granted.
-		expect((granted.grantedAt as Record<string, unknown>).workflows).toBeUndefined();
+	test("an extension declaring no workflows does not invent a workflow grant", async ({ page, mockApi }) => {
+		await openWorkflowDetail(page, mockApi, workflowExtension(false));
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toContainText("Declared permissions");
+		await expect(permissions).not.toContainText("workflows");
+		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
 	});
 
-	test("an extension declaring no workflows shows no row", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			extensions: [
-				makeExtension({ id: "ext-plain", name: "plain", enabled: false, isBundled: false }),
-			],
-		});
-
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-
-		await expect(page.getByTestId("review-workflows")).toHaveCount(0);
-	});
-
-	test("renders the workflows consent row and captures evidence @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		const extension = workflowExtension();
-		await mockApi({
-			projects: [proj],
-			extensions: [extension],
-			routes: {
-				"/api/extensions/ext-wf": (url: URL) => {
-					if (url.pathname === "/api/extensions/ext-wf") return extension;
-					if (url.pathname.endsWith("/settings")) return { schema: {}, userValues: {} };
-					if (url.pathname.endsWith("/expired-grants")) return { grants: [] };
-					if (url.pathname.endsWith("/audit")) return { entries: [] };
-					if (url.pathname.endsWith("/violations")) return [];
-					if (url.pathname.endsWith("/permissions")) return extension.grantedPermissions;
-					return {};
-				},
-			},
-		});
-
-		await page.goto("/extensions/ext-wf");
+	test("renders the workflows release declaration and captures evidence @evidence", async ({ page, mockApi }, testInfo) => {
+		await openWorkflowDetail(page, mockApi);
 		const permissions = page.getByTestId("release-permissions");
 		await expect(permissions).toBeVisible();
 		await expect(permissions).toContainText("workflows");
 		await permissions.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4", { fullPage: true });
-		// Live approval behavior is covered by the real-auth release-gate lane.
-		const review = await setupAuthorReviewMock(page, { installationId: "ext-wf" });
+		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
 		await page.getByTestId("review-extension-release").click();
 		await review.expectReview();
+		await captureEvidence(page, testInfo, "extensions-workflows-review-v4", { fullPage: true });
 		await review.close();
 
-		// Assert the capture contract in BOTH modes (mirrors extensions-sort)
-		// so the test is meaningful without the flag, not a bare screenshot.
 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) =>
-						a.name === "extensions-workflows-grant-v4" && a.contentType === "image/png",
-				),
-			).toBe(true);
+			expect(testInfo.attachments.some((a) => a.name === "extensions-workflows-grant-v4" && a.contentType === "image/png")).toBe(true);
 		} else {
-			expect(
-				testInfo.attachments.some((a) => a.name === "extensions-workflows-grant-v4"),
-			).toBe(false);
+			expect(testInfo.attachments.some((a) => a.name === "extensions-workflows-grant-v4")).toBe(false);
 		}
 	});
 });

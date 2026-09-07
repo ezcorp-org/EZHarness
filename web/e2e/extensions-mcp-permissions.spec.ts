@@ -139,6 +139,7 @@ test.describe("Extensions — MCP network permission", () => {
 		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
 		await page.getByTestId("review-extension-release").click();
 		await review.expectReview();
+		await captureEvidence(page, testInfo, "mcp-network-permission-review-v4", { fullPage: true });
 		await review.close();
 	});
 
@@ -153,10 +154,13 @@ test.describe("Extensions — MCP network permission", () => {
 		});
 		await openDetail(page, mockApi, ext);
 
-		await expect(page.getByText("Network Access")).toBeVisible();
-		// Nothing is invented from a command line that names no host, so there
-		// is nothing to grant and the forward proxy refuses every CONNECT.
-		await expect(page.locator(`label:has-text("${HOST}")`)).toHaveCount(0);
-		await expect(page.getByText("None requested").first()).toBeVisible();
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toContainText("Declared permissions");
+		await expect(permissions).toContainText('"network": []');
+		await expect(permissions).toContainText('"mcpInvoke": true');
+		// No host is inferred from a command line without one, so the current
+		// grant retains only MCP invocation and the release evidence names none.
+		await expect(permissions).not.toContainText(HOST);
+		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
 	});
 });

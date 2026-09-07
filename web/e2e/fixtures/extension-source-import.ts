@@ -42,7 +42,14 @@ export async function setupAuthorReviewMock(page: Page, options: AuthorReviewOpt
   const reviewRequests: Route[] = [];
   const reviewResponses: Array<{ url: string; status: number; ok: boolean }> = [];
   const authorDataPattern = "**/extensions/author/__data.json**";
+  const matchesReviewTarget = (url: URL, origin: string) =>
+    url.origin === origin
+    && url.pathname === "/extensions/author/__data.json"
+    && url.searchParams.get("installation") === options.installationId
+    && url.searchParams.get("workspace") === (options.workspaceId ?? null);
   const routeHandler = async (route: Route) => {
+    const requestUrl = new URL(route.request().url());
+    if (!matchesReviewTarget(requestUrl, new URL(page.url()).origin)) return route.fallback();
     reviewRequests.push(route);
     await route.fulfill({
       status: 200,
@@ -54,7 +61,7 @@ export async function setupAuthorReviewMock(page: Page, options: AuthorReviewOpt
   };
   const responseHandler = (response: import("@playwright/test").Response) => {
     const url = new URL(response.url());
-    if (url.pathname === "/extensions/author/__data.json") {
+    if (matchesReviewTarget(url, new URL(page.url()).origin)) {
       reviewResponses.push({ url: response.url(), status: response.status(), ok: response.ok() });
     }
   };
@@ -63,22 +70,20 @@ export async function setupAuthorReviewMock(page: Page, options: AuthorReviewOpt
 
   return {
     async expectReview() {
-      await expect.poll(() => reviewRequests.length).toBeGreaterThan(0);
-      const requestUrl = new URL(reviewRequests[0]!.request().url());
-      expect(requestUrl.pathname).toBe("/extensions/author/__data.json");
-      expect(requestUrl.searchParams.get("installation")).toBe(options.installationId);
-      expect(requestUrl.searchParams.get("workspace")).toBe(options.workspaceId ?? null);
-      await expect.poll(() => reviewResponses.length).toBeGreaterThan(0);
-      const response = reviewResponses.find(({ url }) => {
-        const target = new URL(url);
-        return target.searchParams.get("installation") === options.installationId
-          && target.searchParams.get("workspace") === (options.workspaceId ?? null);
-      });
+      const pageOrigin = new URL(page.url()).origin;
+      await expect.poll(() => reviewRequests.find(route => matchesReviewTarget(new URL(route.request().url()), pageOrigin)) ?? null).not.toBeNull();
+      const request = reviewRequests.find(route => matchesReviewTarget(new URL(route.request().url()), pageOrigin));
+      expect(request).toBeDefined();
+      await expect.poll(() => reviewResponses.find(({ url }) => matchesReviewTarget(new URL(url), pageOrigin)) ?? null).not.toBeNull();
+      const response = reviewResponses.find(({ url }) => matchesReviewTarget(new URL(url), pageOrigin));
       expect(response).toEqual(expect.objectContaining({ status: 200, ok: true }));
-      const destination = new URL(page.url());
-      expect(destination.pathname).toBe("/extensions/author");
-      expect(destination.searchParams.get("installation")).toBe(options.installationId);
-      expect(destination.searchParams.get("workspace")).toBe(options.workspaceId ?? null);
+      await expect.poll(() => {
+        const destination = new URL(page.url());
+        return destination.origin === pageOrigin
+          && destination.pathname === "/extensions/author"
+          && destination.searchParams.get("installation") === options.installationId
+          && destination.searchParams.get("workspace") === (options.workspaceId ?? null);
+      }).toBe(true);
       await expect(page.getByRole("heading", { name: "Extension workspace", exact: true })).toBeVisible();
       await expect(page.locator(".state-badge")).toHaveText("disabled · generation 0");
     },

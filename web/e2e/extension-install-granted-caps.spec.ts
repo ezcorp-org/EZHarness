@@ -76,27 +76,28 @@ async function installExtMock(page: Page) {
 test.describe("Extension install-granted capabilities", () => {
 	const proj = makeProject({ id: "proj-1" });
 
-	test("renders storage / spawnAgents / event subscriptions read-only", async ({ page, mockApi }) => {
+	test("renders storage / spawnAgents / event subscriptions read-only @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj] });
 		await installExtMock(page);
 
 		await page.goto(`/extensions/${EXT_ID}`);
 
-		const block = page.getByTestId("install-granted-capabilities");
-		await expect(block).toBeVisible();
-		await expect(page.getByTestId("install-grant-storage")).toBeVisible();
-		await expect(page.getByTestId("install-grant-spawn-agents")).toContainText("200/hr");
-		// One badge per declared event subscription.
-		await expect(page.getByTestId("install-grant-event")).toHaveCount(2);
-		// W2 — the workflow-trigger grant is surfaced here too, so an admin
-		// auditing an INSTALLED extension sees it without re-opening the
-		// enable dialog. Count + rate, since the names themselves are the
-		// enable dialog's job.
-		await expect(page.getByTestId("install-grant-workflows")).toContainText("2, 12/hr");
-		await expect(block).toContainText("Read-only");
-
-		// These are NOT editable toggles — no checkbox inside the read-only block.
-		await expect(block.locator('input[type="checkbox"]')).toHaveCount(0);
+		const permissions = page.getByTestId("release-permissions");
+		await expect(permissions).toBeVisible();
+		await expect(permissions).toContainText("Declared permissions");
+		await expect(permissions).toContainText('"storage": true');
+		await expect(permissions).toContainText('"maxPerHour": 200');
+		await expect(permissions).toContainText('"maxConcurrent": 10');
+		await expect(permissions).toContainText("ez-code-factory:push-received");
+		await expect(permissions).toContainText("run:complete");
+		await expect(permissions).toContainText("gate");
+		await expect(permissions).toContainText("review");
+		await expect(permissions).toContainText('"maxRunsPerHour": 12');
+		await expect(permissions).toContainText("Current grants");
+		// Release permissions are JSON evidence, not editable controls.
+		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
+		await permissions.scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "install-granted-capabilities-read-only-v4", { fullPage: true });
 	});
 
 	test("displays install-granted caps and captures evidence @evidence", async ({ page, mockApi }, testInfo) => {
@@ -114,6 +115,7 @@ test.describe("Extension install-granted capabilities", () => {
 		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
 		await page.getByTestId("review-extension-release").click();
 		await review.expectReview();
+		await captureEvidence(page, testInfo, "install-granted-capabilities-review-v4", { fullPage: true });
 		await review.close();
 
 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
