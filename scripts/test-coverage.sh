@@ -384,6 +384,15 @@ run_legs() {
       src/__tests__/pipelines-redirect.server.test.ts \
       src/lib/components/WorkflowStepForm.component.test.ts \
       src/lib/components/WorkflowBuilder.component.test.ts \
+      src/__tests__/onboarding-page.server.test.ts \
+      src/__tests__/onboarding-wizard.integration.component.test.ts \
+      src/lib/__tests__/provider-access.unit.test.ts \
+      src/lib/components/ProviderSettings.component.test.ts \
+      src/__tests__/stores-quickstart-refresh.component.test.ts \
+      src/__tests__/ConversationSettings.component.test.ts \
+      src/lib/components/chat/__tests__/ChatHeader.component.test.ts \
+      src/__tests__/chat-no-provider-banner.integration.component.test.ts \
+      src/__tests__/quickstart-checklist-dismiss-gate.component.test.ts \
       src/__tests__/api-hooks.server.test.ts \
       src/__tests__/webhook-pipeline.server.test.ts \
       src/__tests__/api-webhook-rotate.server.test.ts \
@@ -816,6 +825,15 @@ run_legs() {
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
       --coverage.include='src/lib/components/WorkflowBuilder.svelte' \
+      --coverage.include='src/routes/**/onboarding/+page.server.ts' \
+      --coverage.include='src/routes/**/onboarding/+page.svelte' \
+      --coverage.include='src/lib/provider-access.ts' \
+      --coverage.include='src/lib/components/ProviderSettings.svelte' \
+      --coverage.include='src/lib/stores.svelte.ts' \
+      --coverage.include='src/lib/components/ConversationSettings.svelte' \
+      --coverage.include='src/lib/components/chat/ChatHeader.svelte' \
+      --coverage.include='src/lib/components/chat/NoProviderBanner.svelte' \
+      --coverage.include='src/lib/components/QuickStartChecklist.svelte' \
       --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
       --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
       --coverage.include='**/active-run/+server.ts' \

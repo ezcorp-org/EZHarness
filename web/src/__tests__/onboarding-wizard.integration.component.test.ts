@@ -134,6 +134,25 @@ describe("Onboarding wizard (+page.svelte)", () => {
 		expect(getByText("Three keystrokes to know")).toBeInTheDocument();
 	});
 
+	test("prevents a second tier save while the first save is pending", async () => {
+		let resolveSave: () => void = () => {};
+		vi.mocked(upsertSetting).mockImplementationOnce(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+		const { getByTestId, container } = render(OnboardingPage, {
+			data: { user: baseUser, hasProvider: true },
+		});
+		await fireEvent.click(getByTestId("onboarding-step1-continue"));
+		await fireEvent.click(container.querySelector<HTMLInputElement>('input[value="quality"]')!);
+		const continueButton = getByTestId("onboarding-step2-continue") as HTMLButtonElement;
+		await fireEvent.click(continueButton);
+		expect(continueButton.disabled).toBe(true);
+		expect(continueButton).toHaveTextContent("Saving...");
+		await fireEvent.click(continueButton);
+		expect(vi.mocked(upsertSetting)).toHaveBeenCalledTimes(1);
+
+		resolveSave();
+		await waitFor(() => expect(container.textContent).toContain("Three keystrokes to know"));
+	});
+
 	test("a failed tier save keeps the selection at Step 2 and retries", async () => {
 		vi.mocked(upsertSetting).mockRejectedValueOnce(new Error("offline"));
 		const { getByTestId, getByText, container } = render(OnboardingPage, {
