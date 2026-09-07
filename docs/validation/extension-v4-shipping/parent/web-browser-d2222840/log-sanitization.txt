@@ -1,0 +1,8 @@
+Applied to each copied receipt log before curation:
+
+sed -E \
+  -e 's#/home/dev/work/EZCorp/extension-v4-independent-audit#<workspace>#g' \
+  -e 's/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/<uuid>/gI' \
+  "$receipt/<lane>.log" > "$curation/logs/<lane>.log.txt"
+
+No lines were removed. The first expression replaces the checkout path. The second replaces UUID-shaped values only. Binary blobs, traces, attachment JSON, server-state JSON, and Playwright test-result state were not copied.

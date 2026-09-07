@@ -1,0 +1,3 @@
+Reconstructed observed rows (not raw captured stdout):
+{"releases":116,"payload_bytes":96452}
+[{"relkind":"S","count":4,"bytes":32768},{"relkind":"i","count":290,"bytes":2998272},{"relkind":"r","count":90,"bytes":442368}]

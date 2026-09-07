@@ -1,0 +1,7 @@
+archive=mock.zip
+archiveSha256=6724955660225bf8e852a38787678179dac1cd4cd16f629cd72c64753eff55ec
+attachEvents=18
+pngAttachments=18
+copiedPng=18
+excludedPng=0
+nonPngAttachments=0

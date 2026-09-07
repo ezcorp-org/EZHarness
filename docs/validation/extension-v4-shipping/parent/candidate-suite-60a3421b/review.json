@@ -1,0 +1,6 @@
+{
+  "driver_commit_sha": "890df5405dd1b2a59a0eba16acce013a639696dd",
+  "candidate_commit_sha": "60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+  "suite_exit": 1,
+  "scope": "Intermediate candidate; File Organizer effect failed and delivery bootstrap observer timed out. Other leaf exits are separate evidence. Raw browser traces and authenticated storage are private and omitted."
+}

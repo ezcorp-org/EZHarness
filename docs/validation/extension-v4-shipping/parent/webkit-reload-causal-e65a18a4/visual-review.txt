@@ -1,0 +1,6 @@
+Representative reviewed PNGs:
+- extension-browser-build-diagnostics.png: failed build is visible with its build diagnostic while the prior release remains active and verified.
+- extension-browser-repaired-output.png: repaired extension output is visible in the conversation after the new release activates.
+- extension-lifecycle-tool-selection-mobile-narrow.png: 320 px mobile view retains the extension tool panel and composer controls.
+
+All copied PNGs are valid image/png files. Parent review can use the copied full-resolution files.

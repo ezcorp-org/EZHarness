@@ -1,0 +1,23 @@
+ M PLAN.md
+ M docs/validation/extension-v4-flows/SHA256SUMS
+ M docs/validation/extension-v4-flows/runtime/artifacts/SHA256SUMS
+ M docs/validation/extension-v4-shipping/regression/README.md
+ M docs/validation/extension-v4-shipping/regression/SHA256SUMS
+ M docs/validation/extension-v4-shipping/security/vm-seccomp-audit.log
+ M docs/validation/extension-v4-shipping/security/vm-seccomp-audit.md
+ M docs/validation/extension-v4-shipping/security/vm-seccomp-ingest.log
+ M gates/shipping-browser.md
+ M gates/shipping-import.md
+ M gates/shipping-runtime.md
+ M gates/shipping-security.md
+ M gates/shipping-upgrade.md
+ M tasks/lessons.md
+ M tasks/todo.md
+ M web/e2e/real-auth/extension-lifecycle-flow.spec.ts
+?? docs/extension-v4-shipping-validation-report.md
+?? docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime-232cad4a.sh.txt
+?? docs/validation/extension-v4-shipping/browser-engines/README.md
+?? docs/validation/extension-v4-shipping/parent/
+?? docs/validation/extension-v4-shipping/security/available-checks-receipt.json
+?? docs/validation/extension-v4-shipping/security/provider-environment-presence.json
+?? docs/validation/extension-v4-shipping/security/provider-inputs.md

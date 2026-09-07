@@ -1,0 +1,4 @@
+coverage_path=docs/validation/extension-v4-shipping/regression/full-final-5133652d.coverage.log.gz
+coverage_commit=ffefb2ac848d975729cc98bd510714604391dec6
+coverage_blob=7e439f31abab81a280515c0f0e0a1aa740a197fc
+coverage_bytes=38329

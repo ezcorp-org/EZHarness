@@ -1,0 +1,26 @@
+[
+  {
+    "source_path": "web/src/lib/server/security/payload.ts",
+    "artifact": "payload.ts.txt",
+    "sha256": "21402d05e13f9aef521cb56dc32b2201f1dc4810e8532a422f1ffeeeeafdf504",
+    "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050"
+  },
+  {
+    "source_path": "web/src/lib/server/security/__tests__/payload.test.ts",
+    "artifact": "payload.test.ts.txt",
+    "sha256": "c743e9f85d663c254b96fa4a3c9adcbac6602314c63e38b3e918fa59518d0403",
+    "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050"
+  },
+  {
+    "source_path": "web/src/lib/server/security/__tests__/payload-retention-child.ts",
+    "artifact": "payload-retention-child.ts.txt",
+    "sha256": "dcf5f1ce187c05c4a7d677c718fda6b470348774516294ddebbc492390d9e5b0",
+    "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050"
+  },
+  {
+    "source_path": "src/__tests__/production-image-lifecycle-launch.integration.test.ts",
+    "artifact": "production-image-lifecycle-launch.integration.test.ts.txt",
+    "sha256": "13f94b1a97237ccd2208bd5800cc03d716a78832aa21792d1fb1ebce9944d19c",
+    "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050"
+  }
+]

@@ -1,0 +1,15 @@
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (36 ratcheted file(s) excluded)...
+src/__tests__/production-image-lifecycle-launch.integration.test.ts(101,20): error TS2345: Argument of type 'number | ReadableStream<Uint8Array<ArrayBuffer>> | undefined' is not assignable to parameter of type 'BodyInit | null | undefined'.
+  Type 'number' is not assignable to type 'BodyInit | null | undefined'.
+src/__tests__/production-image-lifecycle-launch.integration.test.ts(102,20): error TS2345: Argument of type 'number | ReadableStream<Uint8Array<ArrayBuffer>> | undefined' is not assignable to parameter of type 'BodyInit | null | undefined'.
+  Type 'number' is not assignable to type 'BodyInit | null | undefined'.
+→ Typechecking web-e2e (15 ratcheted file(s) excluded)...
+✗ tests-typecheck failed (backend-tests exit 2, web-e2e exit 0).
+
+✗ Tests/e2e typecheck failed (see scripts/typecheck-tests.ts output).
+error: script "typecheck" exited with code 1

@@ -1,0 +1,27 @@
+{
+  "mode": "duration",
+  "requestedMinimumDurationMs": 1800000,
+  "actualDurationMs": 543922,
+  "completedCycles": 100,
+  "sampleCount": 101,
+  "totalReconnects": 1000,
+  "memoryViolationCount": 59,
+  "firstMemoryViolation": {
+    "cycle": 34,
+    "observedMemoryBytes": 952631296,
+    "warmMemoryBytes": 882481562,
+    "excessBytes": 70149734
+  },
+  "lastMemoryViolation": {
+    "cycle": 100,
+    "observedMemoryBytes": 1085552984,
+    "warmMemoryBytes": 882481562,
+    "excessBytes": 203071422
+  },
+  "guardFailure": {
+    "kind": "max_tool_calls_per_turn",
+    "attemptedCount": 101,
+    "limit": 100
+  },
+  "fullThirtyMinuteSuccess": false
+}

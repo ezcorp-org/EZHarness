@@ -1,0 +1,32 @@
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.280Z","level":"info","msg":"Database mode: embedded PGlite","subsystem":"db","path":"/app/data/ezcorp"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.695Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.808Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.822Z","level":"info","msg":"Embedding warmup kicked","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.822Z","level":"info","msg":"Decay sweep started","subsystem":"startup.timers","intervalHours":1}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.822Z","level":"info","msg":"Audit-log retention sweep started","subsystem":"startup.timers","retentionDays":180}
+ezcorp-production-lifecycle-1495526295-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+ezcorp-production-lifecycle-1495526295-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer_config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+ezcorp-production-lifecycle-1495526295-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.823Z","level":"info","msg":"Compaction started","subsystem":"startup.timers","intervalHours":6}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.826Z","level":"info","msg":"ScheduleDaemon started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.830Z","level":"info","msg":"WorkflowRunner started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.833Z","level":"info","msg":"WebhookDeliveryDaemon started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.836Z","level":"info","msg":"BriefingDaemon started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.836Z","level":"info","msg":"HostMaintenanceDaemon started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.838Z","level":"info","msg":"EmbedWorker started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.840Z","level":"info","msg":"github-projects daemon wake loop armed","subsystem":"ext.github-projects.daemon","wakeMs":30000}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.840Z","level":"info","msg":"GithubProjectsDaemon started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.854Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/app/.ezcorp/data"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.854Z","level":"info","msg":"PreviewPortWatcher source selected by capability mode","subsystem":"startup.timers","mode":"uid","source":"ProcPortSource","dataDirLocked":true}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:23.856Z","level":"info","msg":"PreviewPortWatcher started","subsystem":"startup.timers"}
+ezcorp-production-lifecycle-1495526295-app  | Listening on http://0.0.0.0:3000/ 
+ezcorp-production-lifecycle-1495526295-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/onnx/model.onnx": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+ezcorp-production-lifecycle-1495526295-app  | Unable to determine content-length from response headers. Will expand buffer when needed.
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:26.839Z","level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode","subsystem":"embed-worker"}
+ezcorp-production-lifecycle-1495526295-app  | {"ts":"2026-09-07T03:59:31.914Z","level":"error","msg":"embedding generation failed","subsystem":"api.memories","error":"undefined is not an object (evaluating 'InferenceSession.create')","memoryId":"81614134-a265-49a3-962a-18e0918fa531"}
+ Container ezcorp-production-lifecycle-1495526295-app Stopping 
+ Container ezcorp-production-lifecycle-1495526295-app Stopped 
+ Container ezcorp-production-lifecycle-1495526295-app Removing 
+ Container ezcorp-production-lifecycle-1495526295-app Removed 
+ Network ezcorp-production-lifecycle-1495526295_default Removing 
+ Network ezcorp-production-lifecycle-1495526295_default Removed 

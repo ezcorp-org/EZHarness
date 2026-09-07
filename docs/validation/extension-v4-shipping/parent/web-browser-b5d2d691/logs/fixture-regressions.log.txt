@@ -1,0 +1,23 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/real-auth-fixture-cleanup.test.ts:
+(pass) real-auth fixture root cleanup > removes its default DB and encryption-key root after the preview command exits [21.26ms]
+(pass) real-auth fixture root cleanup > preserves a caller-supplied database path [4.49ms]
+(pass) real-auth fixture root cleanup > refuses a tampered owned marker instead of deleting the root [17.99ms]
+(pass) real-auth fixture root cleanup > keeps the preview failure visible after it cleans its owned root [17.87ms]
+
+src/__tests__/e2e-lanes.test.ts:
+(pass) e2e lane manifest > lane set is exactly the five known lanes [0.03ms]
+(pass) e2e lane manifest > exhaustive + unique: every on-disk spec in exactly one lane, no phantom entries [0.35ms]
+(pass) e2e lane manifest > real-auth lane == the real config's testDir population [0.07ms]
+(pass) e2e lane manifest > evidence-soft members all carry @evidence; no @evidence spec is unwired [0.07ms]
+(pass) e2e lane manifest > docker lane members are DOCKER_TEST-gated [0.02ms]
+(pass) e2e lane manifest > unwired backlog only shrinks (ceiling is the exact current size) [0.02ms]
+(pass) e2e lane manifest > mock-gate args generator emits one anchored web-relative regex per member [0.15ms]
+(pass) e2e lane manifest > the MOCK config cannot reach the real-auth tier [1801.66ms]
+(pass) e2e lane manifest > ci.yml consumes the manifest via the generator (one home for the gate list) [9.76ms]
+
+ 13 pass
+ 0 fail
+ 102 expect() calls
+Ran 13 tests across 2 files. [2.29s]

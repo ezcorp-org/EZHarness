@@ -1,0 +1,3 @@
+source_commit_sha=7f9a70356d3b3096984b52d0f31d05afa3339498
+original_state=/tmp/ez-r4-kernel-state-0617/app-data/ezcorp
+query_scope=read-only queries against a new owned copy; constructor may write only the copy

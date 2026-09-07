@@ -1,0 +1,17 @@
+{
+  "driver_source_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "files": [
+    {
+      "path": "scripts/verify-shipping-embeddings.sh",
+      "sha256": "72bdf166c98f6b5b68bed69e0691058619c3941a06168f5ac5b75c290268c88e"
+    },
+    {
+      "path": "scripts/verify-shipping-embeddings.ts",
+      "sha256": "ae5bbd48d61a4d9814ee7a18aa002b5d7e4741084917fa26b76a147500378ad9"
+    },
+    {
+      "path": "scripts/lib/production-lifecycle-client.ts",
+      "sha256": "63a84134f96f3cdfdfc098955c9129cbd2f11347e5b36bc75be62fb20e6d1826"
+    }
+  ]
+}

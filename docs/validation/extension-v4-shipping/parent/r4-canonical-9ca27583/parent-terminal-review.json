@@ -1,0 +1,22 @@
+{
+  "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050",
+  "actual_duration_ms": 1800154,
+  "completed_cycles": 317,
+  "reconnects": 3170,
+  "warm_memory_bytes": 896008192,
+  "max_post_warm_memory_bytes": 923480883,
+  "last_memory_bytes": 543896371,
+  "max_post_warm_growth_bytes": 27472691,
+  "growth_limit_bytes": 67108864,
+  "runner_fd_counts": [
+    24
+  ],
+  "runner_container_counts": [
+    0
+  ],
+  "app_tcp_counts": [
+    0,
+    1
+  ],
+  "pre_launch_hashes_match": true
+}

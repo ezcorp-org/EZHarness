@@ -1,0 +1,21 @@
+{
+  "scope": "sanitized-publication",
+  "originals": "Exact original compressed archives were retained privately before public replacement. Their historical identities remain the original archive identities.",
+  "public": "The public archives are new compressed containers produced by the documented one-field sanitization.",
+  "archives": [
+    {
+      "archive": "final-coverage-curated-3a56a869.tar.zst",
+      "originalSha256": "ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335",
+      "originalBytes": 8716871,
+      "sanitizedPublicSha256": "f4bd6d5a38b86145de31588af3b46107c6e0c6e128eab4d4f5c8350352f7075b",
+      "sanitizedPublicBytes": 3822744
+    },
+    {
+      "archive": "final-coverage-curated-ea445e9e-plus4d.tar.zst",
+      "originalSha256": "dc49e57619ec3ff242cf8ffe6ef716c57c5331882b8d106be3d06b1e7985230e",
+      "originalBytes": 8825673,
+      "sanitizedPublicSha256": "cfaba67dbd53c6e1b141683e591bcd0b623af732518af7299d6ae70af2c768a8",
+      "sanitizedPublicBytes": 3824002
+    }
+  ]
+}

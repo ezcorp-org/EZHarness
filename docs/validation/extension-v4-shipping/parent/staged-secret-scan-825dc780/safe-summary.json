@@ -1,0 +1,1368 @@
+{
+  "actualScanExit": 0,
+  "actualControllerExit": 0,
+  "actualCleanupExit": 0,
+  "findings": 0,
+  "memberCount": 15943,
+  "headerCount": 18844,
+  "expandedBytes": 7445289360,
+  "privateExpansionManifestSha256": "e7aeb1e14aa2a155c08fd913ab4bf39349e04a94d881038b4e1af4457380c22b",
+  "archives": [
+    {
+      "path": "docs/validation/extension-v4-flows/import/raw/marketplace-lifecycle-6c7ce08a.log.gz",
+      "members": 1,
+      "bytes": 23955,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/import/raw/source-choices-c95b1b8d.log.gz",
+      "members": 1,
+      "bytes": 23417,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/component-full.log.gz",
+      "members": 1,
+      "bytes": 14389,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/component-lcov.info.gz",
+      "members": 1,
+      "bytes": 26838,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/final-focused-browser.log.gz",
+      "members": 1,
+      "bytes": 21790,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-app.log.gz",
+      "members": 1,
+      "bytes": 4938,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-build.log.gz",
+      "members": 1,
+      "bytes": 147211,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-commands.log.gz",
+      "members": 1,
+      "bytes": 96,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-playwright.log.gz",
+      "members": 1,
+      "bytes": 3464,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-provenance.log.gz",
+      "members": 1,
+      "bytes": 456,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-runner.log.gz",
+      "members": 1,
+      "bytes": 0,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-runtime-events.log.gz",
+      "members": 1,
+      "bytes": 179,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/image-26541024-verifier.log.gz",
+      "members": 1,
+      "bytes": 264,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/lane-map-green.log.gz",
+      "members": 1,
+      "bytes": 5157,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/lane-registration-red.log.gz",
+      "members": 1,
+      "bytes": 1803,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/mock-gate.log.gz",
+      "members": 1,
+      "bytes": 75039,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/real-auth-full.log.gz",
+      "members": 1,
+      "bytes": 46402,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/runner-registration.log.gz",
+      "members": 1,
+      "bytes": 7169,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/secret-scan.log.gz",
+      "members": 1,
+      "bytes": 133,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/visual-evidence.log.gz",
+      "members": 1,
+      "bytes": 95272,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/visual-gate.log.gz",
+      "members": 1,
+      "bytes": 92,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/canvas-followup/raw/web-bun-full.log.gz",
+      "members": 1,
+      "bytes": 165,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/contrast-lifecycle.log.gz",
+      "members": 1,
+      "bytes": 24955,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/four-browser-specs.log.gz",
+      "members": 1,
+      "bytes": 31493,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-app.log.gz",
+      "members": 1,
+      "bytes": 4938,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-build.log.gz",
+      "members": 1,
+      "bytes": 146498,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-commands.log.gz",
+      "members": 1,
+      "bytes": 96,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-playwright.log.gz",
+      "members": 1,
+      "bytes": 3464,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-provenance.log.gz",
+      "members": 1,
+      "bytes": 456,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-runner.log.gz",
+      "members": 1,
+      "bytes": 0,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-runtime-events.log.gz",
+      "members": 1,
+      "bytes": 179,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/image-39d181a8-verifier.log.gz",
+      "members": 1,
+      "bytes": 264,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/real-auth-full.log.gz",
+      "members": 1,
+      "bytes": 47300,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/route-coverage.lcov.gz",
+      "members": 1,
+      "bytes": 790307,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/route-coverage.log.gz",
+      "members": 1,
+      "bytes": 345,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/runtime-route.log.gz",
+      "members": 1,
+      "bytes": 552,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/secret-scan.log.gz",
+      "members": 1,
+      "bytes": 133,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/ci-followup/raw/visual-evidence.log.gz",
+      "members": 1,
+      "bytes": 95565,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/control-routes.log.gz",
+      "members": 1,
+      "bytes": 565,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/check-coverage.log.gz",
+      "members": 1,
+      "bytes": 67,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/check-new-file-coverage.log.gz",
+      "members": 1,
+      "bytes": 61,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/check-patch-coverage.log.gz",
+      "members": 1,
+      "bytes": 80,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-baseline.info.gz",
+      "members": 1,
+      "bytes": 1533726,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-lcov_x_cov_aikit.info.gz",
+      "members": 1,
+      "bytes": 1533726,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-lcov_x_cov_hc.info.gz",
+      "members": 1,
+      "bytes": 788848,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-lcov_x_cov_sdk.info.gz",
+      "members": 1,
+      "bytes": 780965,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-lcov_x_cov_suggest.info.gz",
+      "members": 1,
+      "bytes": 768251,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-input-lcov_x_cov_vitest.info.gz",
+      "members": 1,
+      "bytes": 366148,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/coverage-merge.log.gz",
+      "members": 1,
+      "bytes": 48,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/evidence-map-final.log.gz",
+      "members": 1,
+      "bytes": 927,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/final-image-build.log.gz",
+      "members": 1,
+      "bytes": 146498,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/final-image-verifier.log.gz",
+      "members": 1,
+      "bytes": 264,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/final-lcov.info.gz",
+      "members": 1,
+      "bytes": 1576430,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-final-image-build.log.gz",
+      "members": 1,
+      "bytes": 173114,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-final-image-verifier.log.gz",
+      "members": 1,
+      "bytes": 264,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-runtime-command.log.gz",
+      "members": 1,
+      "bytes": 69,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-runtime-compose.log.gz",
+      "members": 1,
+      "bytes": 4938,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-runtime-playwright.log.gz",
+      "members": 1,
+      "bytes": 3464,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-runtime-provenance.txt.gz",
+      "members": 1,
+      "bytes": 456,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/image-717e6fed-runtime-runner.log.gz",
+      "members": 1,
+      "bytes": 0,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/mock-gate.log.gz",
+      "members": 1,
+      "bytes": 75255,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/real-auth-full.log.gz",
+      "members": 1,
+      "bytes": 47056,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/registration-meta-final.log.gz",
+      "members": 1,
+      "bytes": 1013,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/runtime-final-command.log.gz",
+      "members": 1,
+      "bytes": 69,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/runtime-final-compose.log.gz",
+      "members": 1,
+      "bytes": 4938,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/runtime-final-playwright.log.gz",
+      "members": 1,
+      "bytes": 3464,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/runtime-final-provenance.txt.gz",
+      "members": 1,
+      "bytes": 456,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/runtime-final-runner.log.gz",
+      "members": 1,
+      "bytes": 0,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/secret-scan.log.gz",
+      "members": 1,
+      "bytes": 133,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/sidebar-final.log.gz",
+      "members": 1,
+      "bytes": 24324,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/web-bun.log.gz",
+      "members": 1,
+      "bytes": 165,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/web-vitest-combined.log.gz",
+      "members": 1,
+      "bytes": 14364,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/raw/web-vitest-final.log.gz",
+      "members": 1,
+      "bytes": 14382,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/parent/source-adoption.log.gz",
+      "members": 1,
+      "bytes": 1046,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/extension-v4-review-backend-coverage-20260906.log.gz",
+      "members": 1,
+      "bytes": 162353,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/extension-v4-review-backend-final-20260906.log.gz",
+      "members": 1,
+      "bytes": 125,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-chat-graph-observability-green-05a8539f.log.gz",
+      "members": 1,
+      "bytes": 22359,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-chat-graph-observability-red-05a8539f.log.gz",
+      "members": 1,
+      "bytes": 25144,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-four-visual-specs-green-f950d27d.log.gz",
+      "members": 1,
+      "bytes": 37435,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-observability-fixtures-green-05a8539f.log.gz",
+      "members": 1,
+      "bytes": 26336,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-observability-four-specs-05a8539f.log.gz",
+      "members": 1,
+      "bytes": 42859,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-stale-dock-fault-8e67c0fe.log.gz",
+      "members": 1,
+      "bytes": 24561,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/review/raw/terra-review-stale-dock-green-8e67c0fe.log.gz",
+      "members": 1,
+      "bytes": 22384,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.compose.log.gz",
+      "members": 1,
+      "bytes": 5323,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.playwright.log.gz",
+      "members": 1,
+      "bytes": 3464,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.runner.log.gz",
+      "members": 1,
+      "bytes": 0,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.compose.log.gz",
+      "members": 1,
+      "bytes": 4788,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.playwright.log.gz",
+      "members": 1,
+      "bytes": 6212,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.compose.log.gz",
+      "members": 1,
+      "bytes": 5078,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.playwright.log.gz",
+      "members": 1,
+      "bytes": 3730,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/static-final/raw/provenance.log.gz",
+      "members": 1,
+      "bytes": 57,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/static-final/raw/root-lint.log.gz",
+      "members": 1,
+      "bytes": 16513,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/static-final/raw/root-typecheck.log.gz",
+      "members": 1,
+      "bytes": 304,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/runtime/static-final/raw/web-check.log.gz",
+      "members": 1,
+      "bytes": 7972,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/canvas-pending-hydration-fault-9e1ea3ed.log.gz",
+      "members": 1,
+      "bytes": 25431,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/canvas-pending-hydration-green-32797796.log.gz",
+      "members": 1,
+      "bytes": 22256,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/extension-lifecycle-sidebar-720-5c8feefe-green.log.gz",
+      "members": 1,
+      "bytes": 24324,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/extension-lifecycle-sidebar-720-red.log.gz",
+      "members": 1,
+      "bytes": 25250,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/runtime-events-idle8-green-77312330.log.gz",
+      "members": 1,
+      "bytes": 25150,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-flows/ui/raw/runtime-events-idle8-red-05a8539f.log.gz",
+      "members": 1,
+      "bytes": 26649,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/build/build-supplemental-receipts.tar.zst",
+      "members": 15,
+      "bytes": 350122,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/build/build-validation-logs.tar.zst",
+      "members": 28,
+      "bytes": 1526423,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/build/final-coverage-curated-3a56a869.tar.zst",
+      "members": 7776,
+      "bytes": 3685740616,
+      "hardlinks": 1550
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/build/final-coverage-curated-ea445e9e-plus4d.tar.zst",
+      "members": 7788,
+      "bytes": 3704633747,
+      "hardlinks": 1550
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/build/final-replacement-validation-logs.tar.zst",
+      "members": 11,
+      "bytes": 438796,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/coordinator-checkpoints.tar.gz",
+      "members": 25,
+      "bytes": 481601,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/final-ci-merged.lcov.gz",
+      "members": 1,
+      "bytes": 1528542,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/hosted-ci.log.gz",
+      "members": 1,
+      "bytes": 2980178,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/hosted-coverage-producers.tar.gz",
+      "members": 30,
+      "bytes": 11958763,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/hosted-sdk-failure.txt.gz",
+      "members": 1,
+      "bytes": 4488,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/parent/pre-aikit-ci-merged.lcov.gz",
+      "members": 1,
+      "bytes": 1528304,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/ai-kit-lifecycle-after.txt.gz",
+      "members": 1,
+      "bytes": 497,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/ai-kit-lifecycle.txt.gz",
+      "members": 1,
+      "bytes": 1736,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/default-after.txt.gz",
+      "members": 1,
+      "bytes": 3916,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/default-skips.txt.gz",
+      "members": 1,
+      "bytes": 2678,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/fanout-local-ollama-server.txt.gz",
+      "members": 1,
+      "bytes": 8785,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/fanout-local-ollama.txt.gz",
+      "members": 1,
+      "bytes": 1812,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/local-obo-after.txt.gz",
+      "members": 1,
+      "bytes": 840,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/local-obo.txt.gz",
+      "members": 1,
+      "bytes": 840,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/owned-server-bundled.txt.gz",
+      "members": 1,
+      "bytes": 3646,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/owned-server-expanded.txt.gz",
+      "members": 1,
+      "bytes": 3646,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/owned-server-on-behalf.txt.gz",
+      "members": 1,
+      "bytes": 2991,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/owned-server-safe-after.txt.gz",
+      "members": 1,
+      "bytes": 2706,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/package-after.txt.gz",
+      "members": 1,
+      "bytes": 26899,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/package-final.txt.gz",
+      "members": 1,
+      "bytes": 26987,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/quickstart-local-ollama-server.txt.gz",
+      "members": 1,
+      "bytes": 5324,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/quickstart-local-ollama.txt.gz",
+      "members": 1,
+      "bytes": 356,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/unreachable-after.txt.gz",
+      "members": 1,
+      "bytes": 2463,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/ai-kit-e2e-audit/unreachable-false-pass.txt.gz",
+      "members": 1,
+      "bytes": 1929,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/file-organizer-replay/green.txt.gz",
+      "members": 1,
+      "bytes": 14836,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/file-organizer-replay/matrix-green.txt.gz",
+      "members": 1,
+      "bytes": 5039,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/file-organizer-replay/red.txt.gz",
+      "members": 1,
+      "bytes": 1400,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/final-crossaudit-gate.log.gz",
+      "members": 1,
+      "bytes": 18137,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/final-gate-freeze3.log.gz",
+      "members": 1,
+      "bytes": 18137,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/freeze2-event-grant-filter-deterministic-fault.diff.gz",
+      "members": 1,
+      "bytes": 1054,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/freeze2-event-grant-filter-deterministic-fault.log.gz",
+      "members": 1,
+      "bytes": 1502,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/freeze2-todo-event-green.log.gz",
+      "members": 1,
+      "bytes": 5210,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/freeze2-todo-root-denial-fault.log.gz",
+      "members": 1,
+      "bytes": 866,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/memory-list/combined-green.txt.gz",
+      "members": 1,
+      "bytes": 3883,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/memory-list/red.txt.gz",
+      "members": 1,
+      "bytes": 1023,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/artifacts/policy-raw-receipts.tar.gz",
+      "members": 28,
+      "bytes": 85179,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/baseline.txt.gz",
+      "members": 1,
+      "bytes": 617,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-compiler.txt.gz",
+      "members": 1,
+      "bytes": 6153,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/final-gate.txt.gz",
+      "members": 1,
+      "bytes": 18137,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/policy/seccomp-compiler-proof/fixed-compiler.txt.gz",
+      "members": 1,
+      "bytes": 6153,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/all-first-party-lifecycle-freeze2.jsonl.gz",
+      "members": 1,
+      "bytes": 26482,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/all-first-party-lifecycle.jsonl.gz",
+      "members": 1,
+      "bytes": 26539,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/background-timers-green-final.log.gz",
+      "members": 1,
+      "bytes": 9140,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/background-timers-setting-coverage.log.gz",
+      "members": 1,
+      "bytes": 9284,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/background-timers-setting-green.log.gz",
+      "members": 1,
+      "bytes": 9276,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/changed-extensions-lifecycle.jsonl.gz",
+      "members": 1,
+      "bytes": 1097,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/changed-lifecycle-green.log.gz",
+      "members": 1,
+      "bytes": 1097,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/changed-lifecycle-red.log.gz",
+      "members": 1,
+      "bytes": 2096,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/claude-design-browser.log.gz",
+      "members": 1,
+      "bytes": 287,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/claude-design-final.log.gz",
+      "members": 1,
+      "bytes": 7386,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/file-organizer-daemon-green-final.log.gz",
+      "members": 1,
+      "bytes": 9103,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/file-organizer-dynamic-lifecycle-green.log.gz",
+      "members": 1,
+      "bytes": 9140,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/file-organizer-lock-race-green.log.gz",
+      "members": 1,
+      "bytes": 17796,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/file-organizer-lock-race-red.log.gz",
+      "members": 1,
+      "bytes": 833,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-lifecycle-composite.jsonl.gz",
+      "members": 1,
+      "bytes": 26560,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/db-migration-postgres.log.gz",
+      "members": 1,
+      "bytes": 3388,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/hard-disabled-sdk-replay.log.gz",
+      "members": 1,
+      "bytes": 12096,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/netns-production-image-setup-red.log.gz",
+      "members": 1,
+      "bytes": 562,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/platform-conditionals.log.gz",
+      "members": 1,
+      "bytes": 3534,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/price-chart-all4-red.log.gz",
+      "members": 1,
+      "bytes": 3492,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/price-chart-v4-green.log.gz",
+      "members": 1,
+      "bytes": 937,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/final-skip-closure/task-todo-parity-green.log.gz",
+      "members": 1,
+      "bytes": 2570,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/github-stats-keyless-direct.log.gz",
+      "members": 1,
+      "bytes": 110,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/invocation-runtime-receipts.tar.gz",
+      "members": 10,
+      "bytes": 109759,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-direct.log.gz",
+      "members": 1,
+      "bytes": 751,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-after-fetch-fix.log.gz",
+      "members": 1,
+      "bytes": 7422,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-final.log.gz",
+      "members": 1,
+      "bytes": 531,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-harness.log.gz",
+      "members": 1,
+      "bytes": 5204,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-production-resolver-detail.log.gz",
+      "members": 1,
+      "bytes": 694,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-real-dns.log.gz",
+      "members": 1,
+      "bytes": 3855,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-replay-final.log.gz",
+      "members": 1,
+      "bytes": 672,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/keyless-installed-transport-diagnostic.log.gz",
+      "members": 1,
+      "bytes": 694,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/lessons-installed-ollama-green.log.gz",
+      "members": 1,
+      "bytes": 258,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/lessons-installed-ollama-red.log.gz",
+      "members": 1,
+      "bytes": 2754,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/llm-json-safe-green.log.gz",
+      "members": 1,
+      "bytes": 3347,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/local-llm-production-delivery-db.log.gz",
+      "members": 1,
+      "bytes": 5337,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/local-llm-quota-persistence.log.gz",
+      "members": 1,
+      "bytes": 5493,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/memory-installed-ollama-combined-green.log.gz",
+      "members": 1,
+      "bytes": 257,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/memory-installed-ollama-combined-replay.log.gz",
+      "members": 1,
+      "bytes": 263,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/memory-installed-ollama-json-unsafe-red.log.gz",
+      "members": 1,
+      "bytes": 7583,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/openmeteo-guarded-user-agent.log.gz",
+      "members": 1,
+      "bytes": 365,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/policy-event-grant-filter-deterministic-fault.diff.gz",
+      "members": 1,
+      "bytes": 1054,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/policy-event-grant-filter-deterministic-fault.log.gz",
+      "members": 1,
+      "bytes": 1502,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/policy-gap-final.log.gz",
+      "members": 1,
+      "bytes": 5210,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/policy-todo-root-denial-fault.log.gz",
+      "members": 1,
+      "bytes": 866,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/postgres-final.log.gz",
+      "members": 1,
+      "bytes": 867,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/postgres-wrapper-exit127.log.gz",
+      "members": 1,
+      "bytes": 977,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/repo-activity-green.log.gz",
+      "members": 1,
+      "bytes": 371,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/repo-activity-red.log.gz",
+      "members": 1,
+      "bytes": 1027,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-compiler-regression-green.log.gz",
+      "members": 1,
+      "bytes": 1192,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-default-gate.log.gz",
+      "members": 1,
+      "bytes": 245,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-deny-all-production-envelope-red.log.gz",
+      "members": 1,
+      "bytes": 1351,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-final-image-effect-audit.log.gz",
+      "members": 1,
+      "bytes": 959,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-final-journal-root.log.gz",
+      "members": 1,
+      "bytes": 17,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-final-journal-user.log.gz",
+      "members": 1,
+      "bytes": 17,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-journal-sudo.log.gz",
+      "members": 1,
+      "bytes": 17,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-journal-user.log.gz",
+      "members": 1,
+      "bytes": 17,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-owned-image-audit-red.log.gz",
+      "members": 1,
+      "bytes": 1333,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/seccomp-owned-image-db-init-red.log.gz",
+      "members": 1,
+      "bytes": 1387,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/sha256sums-normalized-green.log.gz",
+      "members": 1,
+      "bytes": 2374,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/tailwind-vendor-livefetch.log.gz",
+      "members": 1,
+      "bytes": 254,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/weather-city-fetch-capture-fault-red.log.gz",
+      "members": 1,
+      "bytes": 1957,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/weather-city-fetch-green.log.gz",
+      "members": 1,
+      "bytes": 364,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/weather-city-lifecycle.log.gz",
+      "members": 1,
+      "bytes": 1055,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/runtime/artifacts/weather-pinned-ip-diagnostic.log.gz",
+      "members": 1,
+      "bytes": 2858,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production-19d9-historical.zip",
+      "members": 6,
+      "bytes": 11616,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production-3ec53-historical.zip",
+      "members": 6,
+      "bytes": 11616,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production.zip",
+      "members": 6,
+      "bytes": 11456,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-device-diagnostic.log.gz",
+      "members": 1,
+      "bytes": 989,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-green.log.gz",
+      "members": 1,
+      "bytes": 488,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/mcp-bwrap-optins-red.log.gz",
+      "members": 1,
+      "bytes": 1646,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/preview-docker-optins-final.log.gz",
+      "members": 1,
+      "bytes": 1769,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-independent/web/artifacts/web-test-entrypoint-green.log.gz",
+      "members": 1,
+      "bytes": 203,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/backend-d2222840/lcov.info.gz",
+      "members": 1,
+      "bytes": 1539703,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/candidate-29eefc05-archive-build.log.gz",
+      "members": 1,
+      "bytes": 239771,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/candidate-29eefc05-transfer.log.gz",
+      "members": 1,
+      "bytes": 3449,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/candidate-60a3421b/candidate-archive-build.log.gz",
+      "members": 1,
+      "bytes": 207282,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/candidate-60a3421b/transfer.log.gz",
+      "members": 1,
+      "bytes": 3449,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/candidate-suite-60a3421b/runtime-resources/runtime/r4-resource-samples.json.gz",
+      "members": 1,
+      "bytes": 214158,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/r4-resource-samples.json.gz",
+      "members": 1,
+      "bytes": 20980717,
+      "hardlinks": 0
+    },
+    {
+      "path": "docs/validation/extension-v4-shipping/regression/full-final-5133652d.coverage.log.gz",
+      "members": 1,
+      "bytes": 162371,
+      "hardlinks": 0
+    }
+  ]
+}

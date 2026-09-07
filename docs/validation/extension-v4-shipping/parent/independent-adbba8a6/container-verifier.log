@@ -1,0 +1,5 @@
+Bundled 5 modules in 3ms
+
+  verify.js  22.78 KB  (entry point)
+
+{"passed":true,"profile":"rootless-podman-v4","checks":["production-boot","file-credential","real-isolated-build","human-approval","activation","tool-invocation","disable-denial","retained-history"]}

@@ -1,0 +1,22 @@
+     9	export const GET: RequestHandler = async ({ request, url, locals }) => {
+    10	  const scopeErr = requireScope(locals, "read");
+    11	  if (scopeErr) return scopeErr;
+    12	  requireAuth(locals);
+    13	
+    14	  // `?name=<exact>` short-circuits the full list — used by the
+    15	  // browser-side resolved-settings store to look up an extension's id
+    16	  // by manifest name. Filtering server-side avoids shipping the full
+    17	  // list on every cold-start lookup.
+    18	  // Every row is served with its manifest — strip MCP transport secrets
+    19	  // (headers/env) so a read-scope member can never exfiltrate a bearer token /
+    20	  // API key. New installs already store a redacted manifest at rest; this also
+    21	  // scrubs any legacy row whose manifest still carries plaintext.
+    22	  const nameFilter = url.searchParams.get("name");
+    23	  if (nameFilter !== null) {
+    24	    const ext = await getExtensionByName(nameFilter);
+    25	    return cacheableResponse(request, ext ? [withListFlags(redactExtensionSecrets(ext))] : [], { maxAge: 60, staleWhileRevalidate: 300 });
+    26	  }
+    27	
+    28	  const extensions = await listExtensions();
+    29	  return cacheableResponse(request, withListFlagsAll(extensions.map(redactExtensionSecrets)), { maxAge: 60, staleWhileRevalidate: 300 });
+    30	};

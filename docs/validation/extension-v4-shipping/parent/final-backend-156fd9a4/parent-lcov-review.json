@@ -1,0 +1,22 @@
+{
+  "reviewer": "parent",
+  "reviewed_at_utc": "2026-09-07T06:20:21.163087+00:00",
+  "source_commit_sha": "156fd9a46c3666e711e54f71350a53b6646e997f",
+  "actual_controller_exit": 0,
+  "actual_gate_exits": {
+    "runner-probe": "0",
+    "coverage": "0",
+    "residual": "0",
+    "new-file-coverage": "0",
+    "patch-coverage": "0"
+  },
+  "lcov_bytes": 1539147,
+  "lcov_sha256": "fb7846ca3790070d404ee4c3559aa6e4c2c83f7671dad06751bcac89ea362d3c",
+  "accounting_helper": {
+    "recorded_lines": 30,
+    "uncovered_lines": [],
+    "scope": "Canonical pool executes the helper; product-file threshold and diff-policy counts exclude scripts."
+  },
+  "generated_svelte_kit_records": 0,
+  "real_api_route_records": 223
+}

@@ -1,0 +1,39 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/mcp-proxy.test.ts:
+(pass) parseConnectRequest > happy path: CONNECT host:port HTTP/1.1 + Proxy-Authorization [0.22ms]
+(pass) parseConnectRequest > rejects non-CONNECT methods [0.02ms]
+(pass) parseConnectRequest > rejects port out of range [0.01ms]
+(pass) parseConnectRequest > missing Proxy-Authorization → empty providedToken [0.02ms]
+(pass) parseConnectRequest > malformed Basic header → empty providedToken [0.02ms]
+(pass) parseConnectRequest > HTTP/1.0 also accepted [0.01ms]
+(pass) createMcpProxy — auth + token > missing token → 407 Proxy Authentication Required [252.08ms]
+(pass) createMcpProxy — auth + token > wrong token → 407 [201.66ms]
+(pass) createMcpProxy — auth + token > token comparison uses node:crypto timingSafeEqual (no plain !==) [0.29ms]
+(pass) createMcpProxy — auth + token > each proxy instance mints a unique token (auditor N1) [0.28ms]
+(pass) createMcpProxy — auth + token > token never appears in audit metadata after a 407 (auditor N2) [252.80ms]
+(pass) createMcpProxy — internal-host hard deny > CONNECT to localhost / 127.0.0.1 → 403 + audit reason='internal' [251.26ms]
+(pass) createMcpProxy — internal-host hard deny > internal-host deny fires BEFORE PDP — engine is not consulted [200.69ms]
+(pass) createMcpProxy — PDP + tunneling > allow-all engine + valid token + upstream → 200 Connection Established + bytes flow [123.04ms]
+(pass) createMcpProxy — PDP + tunneling > deny-all engine → 403 Forbidden + host-blocked audit reason='host' [250.95ms]
+(pass) createMcpProxy — PDP + tunneling > malformed CONNECT line → 400 Bad Request [200.64ms]
+(pass) createMcpProxy — quota > connectionsCount() reflects N successful CONNECTs (auditor N3) [151.51ms]
+(pass) createMcpProxy — quota > concurrent-connection cap blocks the over-the-line CONNECT with 503 [354.94ms]
+(pass) createMcpProxy — quota > byte-budget exhaustion tears down the tunnel + audits quota:bytes (auditor N4) [224.91ms]
+(pass) createMcpProxy — lifecycle > stop closes a gateway listener requested in the same turn [0.52ms]
+(pass) createMcpProxy — lifecycle > gateway listener shares authentication and stops with the primary listener [201.41ms]
+(pass) createMcpProxy — lifecycle > start() is idempotent; stop() unbinds and stop()ing again no-ops [0.26ms]
+(pass) createMcpProxy — lifecycle > missing engine throws at construction (fail-closed contract) [0.10ms]
+(pass) createMcpProxy — lifecycle > _resetCountersForTests clears activeTunnels (fix-pass nit) [81.21ms]
+(pass) DNS rebind recheck > rebind to 127.0.0.1 → 403 + rebind audit [251.36ms]
+(pass) DNS rebind recheck > rebind to 192.168.x.x → 403 + rebind audit [251.58ms]
+(pass) DNS rebind recheck > public IP passes through to engine.authorize [251.84ms]
+(pass) DNS rebind recheck > DNS resolution failure → 502 fail-closed + rebind audit [252.37ms]
+(pass) DNS rebind recheck > literal 127.0.0.1 hostname → reason='internal', NOT 'rebind' (literal pre-empts recheck) [251.69ms]
+(pass) DNS rebind recheck > kill-switch: EZCORP_MCP_STAGE1_DNS_RECHECK=0 skips recheck [251.56ms]
+(pass) DNS rebind recheck > DNS recheck kill-switch emits one-time MCP_NETNS_FALLBACK boot row [563.12ms]
+
+ 31 pass
+ 0 fail
+ 69 expect() calls
+Ran 31 tests across 1 file. [5.29s]

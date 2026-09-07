@@ -1,0 +1,2 @@
+5cbe3612da04a0d3d2209491c6e863e60ba601f828167a3d402dc0dad06f6877  scripts/verify-shipping-runtime-resources.ts
+3587978021d26c6dac628815ace0a999025ff0e564f543b2b3a70eef83f6e3ed  scripts/lib/shipping-runtime-resource-accounting.ts

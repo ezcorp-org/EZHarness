@@ -1,0 +1,118 @@
+{
+  "reviewer": "parent",
+  "reviewed_at_utc": "2026-09-07T06:35:10.244435+00:00",
+  "source_commit_sha": "156fd9a46c3666e711e54f71350a53b6646e997f",
+  "spec_sha256": "e65a18a442d021364c62a2bb8b3c5d5d3eb8a090454436ec7fd7ef21d01d8e8e",
+  "source_blob_sha256": "69f36d3b2e5e9b9cbadbbbd64c1b0afcbfb51d352cd8044675024b9a60a8b9eb",
+  "scope": "All 12 final WebKit screenshots were opened. Chromium and Firefox pass logs are retained; their blob screenshots were not archived by this controller.",
+  "images": [
+    {
+      "file": "screenshots/extension-lifecycle-sidebar-720.png",
+      "sha256": "4d9c1bac31df987587fefb31acf40481dccf94c3072bc4714c1b5aeaaf7d2eb0",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-review-desktop.png",
+      "sha256": "ab1bef0470c82b33fa11d251dec1d1ec298149b78886dad18e90d9d8255044fe",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-live-output.png",
+      "sha256": "fbf5754b8ef476e2ed69a0567aadffeebe793a0461372d53920c121629bd0775",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-revoked-mention-list.png",
+      "sha256": "dbcc9ce9700499efc7ffcc133e1e52d6b9374e0a455ba4a6bb6002694e0a26ac",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-tool-selection-mobile.png",
+      "sha256": "5da390df3a0d303be8c6cf7168bef31ccc23b3048419597b6181a8eccea03b63",
+      "width": 390,
+      "height": 844,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-tool-selection-mobile-narrow.png",
+      "sha256": "6cf17acff0e39a12f18cf19a429381245c0010fe2732b5fd3d3d1dd02e780e67",
+      "width": 320,
+      "height": 844,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "sha256": "687d56af920ad351e6ac715229dc97487af994baec51b27e8243ded7f50b6b6f",
+      "width": 1280,
+      "height": 900,
+      "blob_test_id": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-browser-build-diagnostics.png",
+      "sha256": "b4b051b4c5b5752f1d819f02e977a73ce114a32dc87d999106fb6975f9552c9e",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-35b4c8750ae9554a3081",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-browser-repaired-output.png",
+      "sha256": "f3654de50065068cd8663d0a609741ae8900c9674e548216281755906b4f0778",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-35b4c8750ae9554a3081",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-stale-tab-denial.png",
+      "sha256": "d607299f9064c3f93a19683c129d37ab521ab0f9b5c9438761f04716097f92d9",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-stale-tab-uninstall.png",
+      "sha256": "7e34ec881db93135c0dfceda3f3ab989015e7e0eb5d8dc7ceb0ee6761a83022f",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    },
+    {
+      "file": "screenshots/extension-stale-tab-uninstall-release.png",
+      "sha256": "2e2825c420aef4c8186ac7cae2d65fb15a59ef21f1f5d72b556aa648e8ee0a91",
+      "width": 1280,
+      "height": 720,
+      "blob_test_id": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "opened_at_full_resolution": true,
+      "finding": "No visible clipping, overlap of controls, or unreadable text found."
+    }
+  ]
+}

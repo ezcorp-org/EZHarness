@@ -1,0 +1,23 @@
+ Network ezcorp-production-lifecycle-1495526295_default Creating 
+ Network ezcorp-production-lifecycle-1495526295_default Created 
+ Container ezcorp-production-lifecycle-1495526295-app Creating 
+ Container ezcorp-production-lifecycle-1495526295-app Created 
+ Container ezcorp-production-lifecycle-1495526295-app Starting 
+ Container ezcorp-production-lifecycle-1495526295-app Started 
+25 |       vector = stored.embedding;
+26 |       break;
+27 |     }
+28 |     await Bun.sleep(250);
+29 |   }
+30 |   assert(Array.isArray(vector), "The built server did not persist a memory embedding within three minutes");
+       ^
+AssertionError: The built server did not persist a memory embedding within three minutes
+ generatedMessage: false,
+     actual: false,
+   expected: true,
+   operator: "==",
+       code: "ERR_ASSERTION"
+
+      at /home/dev/work/EZCorp/extension-v4-independent-audit/scripts/verify-shipping-embeddings.ts:30:3
+
+Bun v1.3.14 (Linux x64)

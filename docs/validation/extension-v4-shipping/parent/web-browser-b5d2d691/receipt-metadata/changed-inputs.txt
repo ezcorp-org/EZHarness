@@ -1,0 +1,10 @@
+src/__tests__/real-auth-fixture-cleanup.test.ts
+web/e2e/extension-install-granted-caps.spec.ts
+web/e2e/extensions-bundled-drift-reapproval.spec.ts
+web/e2e/extensions-mcp-permissions.spec.ts
+web/e2e/extensions-workflows-grant.spec.ts
+web/e2e/fixtures/extension-source-import.ts
+web/e2e/lanes.json
+web/e2e/real-auth-teardown.ts
+web/e2e/run-real-auth-fixture.sh
+web/playwright.real.config.ts

@@ -1,0 +1,2 @@
+r4_full_duration_diagnostic_exit=1
+derived_image_cleanup_exit=0

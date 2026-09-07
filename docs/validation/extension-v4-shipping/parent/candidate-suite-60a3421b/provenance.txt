@@ -1,0 +1,6 @@
+candidate=localhost/ezcorp-extension-v4:shipping-60a3421b
+docker_image_id=sha256:5c4ccd4383d56cfe605003a39bc48ae9ce0267bbb80d76064fab87685bcfb9e9
+podman_image_id=5c4ccd4383d56cfe605003a39bc48ae9ce0267bbb80d76064fab87685bcfb9e9
+app_uid=0
+app_gid=0
+runner_uid=1001

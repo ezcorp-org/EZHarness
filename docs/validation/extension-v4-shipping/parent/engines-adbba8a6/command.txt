@@ -1,0 +1,4 @@
+CI=1 PI_E2E_REAL=1 EZCORP_E2E_EVIDENCE=1
+bunx playwright test --config playwright.real.config.ts extension-lifecycle-flow.spec.ts --project=firefox
+PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3333/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' \
+bunx playwright test --config playwright.real.config.ts extension-lifecycle-flow.spec.ts --project=webkit

@@ -1,0 +1,67 @@
+archived_image=localhost/ezcorp-extension-v4:parent-baseline-3ec53eaa
+archived_source=3ec53eaa66409a39d66b502f79d74139ec94dcf2
+archived_build=reused
+
+==> Use supplied candidate image for semantic retry
+  ✓ Previous image source=3ec53eaa66409a39d66b502f79d74139ec94dcf2; candidate image source=adbba8a693cdcd4410c51023dfca93517f9db1e8; driver source=adbba8a693cdcd4410c51023dfca93517f9db1e8
+
+==> Semantic lifecycle seed on the previous image
+ Network ezcorp-upgrade-semantic-old-282c027e8f7a_default Creating 
+ Network ezcorp-upgrade-semantic-old-282c027e8f7a_default Created 
+ Container ezcorp-upgrade-semantic-old-282c027e8f7a-app Creating 
+ Container ezcorp-upgrade-semantic-old-282c027e8f7a-app Created 
+ Container ezcorp-upgrade-semantic-old-282c027e8f7a-app Starting 
+ Container ezcorp-upgrade-semantic-old-282c027e8f7a-app Started 
+UPGRADE_STATE_SEEDED
+  ✓ Previous image created user-owned extension, exact human approval, conversation and tool sentinel
+
+==> Semantic lifecycle upgrade to the candidate
+ Network ezcorp-upgrade-semantic-candidate-282c027e8f7a_default Creating 
+ Network ezcorp-upgrade-semantic-candidate-282c027e8f7a_default Created 
+ Container ezcorp-upgrade-semantic-candidate-282c027e8f7a-app Creating 
+ Container ezcorp-upgrade-semantic-candidate-282c027e8f7a-app Created 
+ Container ezcorp-upgrade-semantic-candidate-282c027e8f7a-app Starting 
+ Container ezcorp-upgrade-semantic-candidate-282c027e8f7a-app Started 
+UPGRADE_STATE_ASSERTED
+  ✓ Candidate preserved exact installation, active release, human approval, conversation and tool sentinel
+
+==> Semantic backup restore into a separate owned candidate instance
+ Network ezcorp-upgrade-semantic-restore-282c027e8f7a_default Creating 
+ Network ezcorp-upgrade-semantic-restore-282c027e8f7a_default Created 
+ Container ezcorp-upgrade-semantic-restore-282c027e8f7a-app Creating 
+ Container ezcorp-upgrade-semantic-restore-282c027e8f7a-app Created 
+ Container ezcorp-upgrade-semantic-restore-282c027e8f7a-app Starting 
+ Container ezcorp-upgrade-semantic-restore-282c027e8f7a-app Started 
+UPGRADE_STATE_ASSERTED
+  ✓ Separate restored instance preserved the same lifecycle sentinel
+
+==> Phase 1: Start container A
+curl: (56) Recv failure: Connection reset by peer
+curl: (56) Recv failure: Connection reset by peer
+  ✓ A booted, /api/ready=200
+  ✓ /api/version reports a previous-image version
+  ✓ A populated volume: 23 DB entries, 00 pre-boot snapshot(s)
+
+==> Phase 2: Stop the previous image
+
+==> Phase 3: Upgrade — start B against A's volume
+curl: (56) Recv failure: Connection reset by peer
+  ✓ B booted against A's data, /api/ready=200
+  ✓ /api/version now reports 1.3.0 (upgrade surfaced to the user)
+  ✓ B readiness: state=ready (no residual circuit-breaker)
+  ✓ DB preserved: 23 → 23 entries
+  ✓ B boot took a fresh pre-boot snapshot (00 → 1)
+  ✓ No stale circuit-breaker marker after upgrade
+
+==> Phase 4: Restore a stopped candidate backup into a separate owned volume
+curl: (56) Recv failure: Connection reset by peer
+  ✓ Backup restored into a separate owned candidate instance and reached ready
+
+==> Phase 5: Downgrade B → A (documentation of behavior)
+  ✓ Downgrade succeeded: version=1.3.0, state=ready, entries=23
+    Note: This works today because migrate.ts uses only idempotent
+    CREATE IF NOT EXISTS DDL. A future major release with destructive
+    migrations would break downgrade. Pin your tag for real deployments.
+
+UPGRADE VERIFIED — two-image forward upgrade preserves data, migrates cleanly, and updates /api/version.
+upgrade_command_exit=0 upgrade_cleanup_exit=0

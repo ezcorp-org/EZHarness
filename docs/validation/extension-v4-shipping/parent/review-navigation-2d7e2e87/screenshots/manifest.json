@@ -1,0 +1,83 @@
+{
+  "archive": {
+    "source_path_private": "/home/dev/work/EZCorp/extension-v4-review-link-fixtures/.cache/terra-review-link-fixtures/final/review-destinations-r2.zip",
+    "sha256": "ed33051428642f5c7d67f7b8988f4ee58aa1f29671ba08e6ed38e76c5ee56c92",
+    "entry": "report.jsonl",
+    "retained": false,
+    "reason": "Playwright blob report remains private; only image/png test attachments are curated."
+  },
+  "attachments": [
+    {
+      "test_id": "796f8abb6d2d21fcdbbd-4a2c93327f9772cd4cae",
+      "test_title": "extensions-bundled-drift-reapproval.spec.ts > bundled city-conditions shows Atlanta website access and opens release review @evidence",
+      "label": "bundled-release-permissions-v4",
+      "file": "bundled-release-permissions-v4.png",
+      "sha256": "51c86609d1aab8184d5e1c079088b93c9097ea016de9f4e50730495c3b84cb35",
+      "bytes": 63194
+    },
+    {
+      "test_id": "796f8abb6d2d21fcdbbd-4a2c93327f9772cd4cae",
+      "test_title": "extensions-bundled-drift-reapproval.spec.ts > bundled city-conditions shows Atlanta website access and opens release review @evidence",
+      "label": "bundled-release-review-v4",
+      "file": "bundled-release-review-v4.png",
+      "sha256": "a944ddf24eb7b27b15f428f183abd847d555b530830556668657998752196ac9",
+      "bytes": 68376
+    },
+    {
+      "test_id": "99b74afb28e2cefcfda9-e5fbb598c6511f142be6",
+      "test_title": "extensions-workflows-grant.spec.ts > Extensions review \u2014 workflow declaration > renders the workflows release declaration and captures evidence @evidence",
+      "label": "extensions-workflows-grant-v4",
+      "file": "extensions-workflows-grant-v4.png",
+      "sha256": "4d905cb1f41ce7f8ddb3d49e3e39414921814e9ed80de8615317c684b119c382",
+      "bytes": 56655
+    },
+    {
+      "test_id": "99b74afb28e2cefcfda9-e5fbb598c6511f142be6",
+      "test_title": "extensions-workflows-grant.spec.ts > Extensions review \u2014 workflow declaration > renders the workflows release declaration and captures evidence @evidence",
+      "label": "extensions-workflows-review-v4",
+      "file": "extensions-workflows-review-v4.png",
+      "sha256": "a944ddf24eb7b27b15f428f183abd847d555b530830556668657998752196ac9",
+      "bytes": 68376
+    },
+    {
+      "test_id": "1177250530ae432aa95b-f6fb2776db14c4352895",
+      "test_title": "extension-install-granted-caps.spec.ts > Extension install-granted capabilities > renders storage / spawnAgents / event subscriptions read-only @evidence",
+      "label": "install-granted-capabilities-read-only-v4",
+      "file": "install-granted-capabilities-read-only-v4.png",
+      "sha256": "84a78cf58fa2bddb694ac86b67c3df683801621dfc636c42a26e7f03b71de3be",
+      "bytes": 64663
+    },
+    {
+      "test_id": "1177250530ae432aa95b-7a7638deb8aa9eca2bab",
+      "test_title": "extension-install-granted-caps.spec.ts > Extension install-granted capabilities > displays install-granted caps and captures evidence @evidence",
+      "label": "install-granted-capabilities-review-v4",
+      "file": "install-granted-capabilities-review-v4.png",
+      "sha256": "a944ddf24eb7b27b15f428f183abd847d555b530830556668657998752196ac9",
+      "bytes": 68376
+    },
+    {
+      "test_id": "1177250530ae432aa95b-7a7638deb8aa9eca2bab",
+      "test_title": "extension-install-granted-caps.spec.ts > Extension install-granted capabilities > displays install-granted caps and captures evidence @evidence",
+      "label": "install-granted-capabilities-v4",
+      "file": "install-granted-capabilities-v4.png",
+      "sha256": "84a78cf58fa2bddb694ac86b67c3df683801621dfc636c42a26e7f03b71de3be",
+      "bytes": 64663
+    },
+    {
+      "test_id": "1702572a35f21754bb98-023f7a371e03f14a8904",
+      "test_title": "extensions-mcp-permissions.spec.ts > Extensions \u2014 MCP network permission > @evidence shows the derived host in the current release grant",
+      "label": "mcp-network-permission-granted",
+      "file": "mcp-network-permission-granted.png",
+      "sha256": "4a78198f1fb3886c6ee34ea3ac31ba3e048e4af72b502627fb897705c3c7100a",
+      "bytes": 58857
+    },
+    {
+      "test_id": "1702572a35f21754bb98-023f7a371e03f14a8904",
+      "test_title": "extensions-mcp-permissions.spec.ts > Extensions \u2014 MCP network permission > @evidence shows the derived host in the current release grant",
+      "label": "mcp-network-permission-review-v4",
+      "file": "mcp-network-permission-review-v4.png",
+      "sha256": "a944ddf24eb7b27b15f428f183abd847d555b530830556668657998752196ac9",
+      "bytes": 68376
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+File Organizer final web/static/browser validation receipt
+
+Frozen source baseline: adbba8a693cdcd4410c51023dfca93517f9db1e8
+Original full-controller exit: 1.
+Result columns are label, exit, duration seconds, and log line count.
+
+Original full-controller results:
+  typecheck exit 1, 28 s. This was caused only by a container-only compiled probe file with an /app import in curated evidence.
+  svelte-check, Vitest, web-bun, lint-boundaries, manifest lock, mock browser, real-auth browser, visual gate, visual selection, and visual capture all exited 0.
+  mock browser: 210 passed. real-auth browser: 59 passed. visual capture: 180 passed plus 10 passed.
+
+Focused follow-up after the evidence probe was renamed to a non-TypeScript evidence artifact:
+  typecheck exit 0, 28 s.
+  lint-boundaries exit 0, 1 s.
+
+Visual evidence:
+  294 PNG onAttach payloads: mock-full 18, visual-mock 213, real-auth-full 33, visual-real-auth 30.
+  Images have archive-prefixed occurrence names. No report JSON, trace/network content, resources, HTML, JSON, executable source, or blob archive is included.
+
+Source and configuration byte comparison at evidence creation:
+  web/e2e/lanes.json	869916ef8d1e72684269561931c44b2e9734dcf4deca0a4402dd97a9a777f5e2	COMMIT_MATCH
+  web/playwright.real.config.ts	44c2617d3ec6de7a48cd536ffdcab31b5eab4107391bc679b98f8caa04d30a1e	COMMIT_MATCH
+  web/e2e/file-organizer-real.spec.ts	1a441fa4da4c68befdfd741314c13e9373fcd35c037238657b275282a35dd5b6	COMMIT_MATCH
+  web/src/lib/components/hub/HubPageView.svelte	9437e00e961a8d487e10b9d4995e768a013e88547bd98b6659fbf1bbae6b2625	COMMIT_MATCH
+  web/src/routes/(app)/extensions/author/+page.svelte	5cd10bfac3db43b156451fbc7450113ebbb94fbff9510fe0dc5153975ee2c750	COMMIT_MATCH
+  web/src/__tests__/file-organizer-hub-authority.integration.test.ts	d747a853b3985fc139bb63baf5270446306a548c28de45ad85247f0b655156da	COMMIT_MATCH
+  web/src/routes/api/extensions/[name]/events/[event]/+server.ts	46725aa57bc6ae43e6f50a1e2fdd73d35fcb07718181da74df6480fa7d318eee	COMMIT_MATCH
+
+Current non-runtime configuration differences:
+  web/vitest.config.ts committed SHA-256: 95d5e1f48fb04bf24cbf6811f7b09b8117d9e7e93f0c469aea3376be7028ea2e
+  web/vitest.config.ts current SHA-256: b394343be0614ba9bdc4b0cd1d9d041a45d074a4e49d0d6805a042b909b703b7
+  This coverage-only generated-file exclusion appeared during visual capture: it is absent from the controller status-before record and present in status-after.
+  scripts/audit-allowlist.json committed SHA-256: daa1a425e3d1591b55c504142fdb7d8d9c79c27063b562ebbae45a580a5f90ea
+  scripts/audit-allowlist.json current SHA-256: cfcc75efb58e5aa104dea46be41d540c4354cfb118dca15b23bc7ae9ca1b9529
+  This later allowlist description/path correction changes no browser runtime or browser-test byte listed above. The current tree therefore has these two non-runtime configuration differences; it is not claimed to be globally clean.
+
+No raw authorization/session values, trace/network data, report JSON, blobs, or archive files are included.

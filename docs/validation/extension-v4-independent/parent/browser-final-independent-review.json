@@ -176,5 +176,12 @@
     }
   },
   "production_receipt_sha256": "8c778e01c63d3a51a56fa5fb42be9d08ca28fb3c37debadb6b909290c8d0cbb9",
-  "checked_utc": "2026-09-06T03:03:30.118191+00:00"
+  "checked_utc": "2026-09-06T03:03:30.118191+00:00",
+  "publication_quarantine": {
+    "recorded_utc": "2026-09-07T11:00:30Z",
+    "status": "removed-from-current-published-tree-private-unpublished",
+    "inventory": "docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json",
+    "scope": "raw browser report/trace archives and browser server-state attachments",
+    "history": "Earlier repository history may retain these files; this action does not erase history."
+  }
 }

@@ -2,14 +2,24 @@
 
 Scope: actual process death, in-flight disable/uninstall, and repeat lifecycle resource cleanup.
 
-- [ ] R1: Actual app death during a paused upgrade build recovers the same operation without duplicate release or unapproved activation.
-  EVIDENCE: pending
-- [ ] R2: Worker death before and after an owned effect exposes the correct outcome, never repeats an uncertain effect, and permits a fresh invocation.
-  EVIDENCE: pending
-- [ ] R3: Disable and uninstall before effect admission deny the paused handler's next real effect and retain history/data.
-  EVIDENCE: pending
-- [ ] R4: Repeated lifecycle and reconnect work has measured resource usage, no owned orphan workers or connections, and a stated duration/cycle count.
-  EVIDENCE: pending
-- [ ] R5: Runnable verification commands and controlled red/green proofs establish fault sensitivity without sleeps as ordering barriers.
-  EVIDENCE: pending
+Current test/verifier source `d2222840` passes the complete production suite on image source `9ca27583`. The earlier R1 path failure at `d4ffe706` is retained with the controlled red and repaired-consumer proof. Parent reads all terminal phase records and all 11 app logs. Durable current evidence: `docs/validation/extension-v4-shipping/parent/candidate-suite-d2222840/`. The separate canonical 30-minute resource proof uses image/source `9ca27583`.
 
+- [x] R1: Actual app death during a paused upgrade build recovers the same operation without duplicate release or unapproved activation.
+  EVIDENCE: SIGKILL interrupts the observed paused build. The exact same runner operation is building before restart and after unpause, then succeeds after recovery. The lifecycle operation verifies at 09:25:36.891 UTC and creates exactly one candidate. Old output remains until human approval; new output works afterward. All 28 bundled builds verify. Command, app-log and cleanup exits are 0. Current receipts: candidate-suite-d2222840/runtime/ and its parent-log-review.json.
+- [x] R2: Worker death before and after an owned effect exposes the correct outcome, never repeats an uncertain effect, and permits a fresh invocation.
+  EVIDENCE: Parent current image `9ca27583` completes all six actual R2 checks: positive effect, worker SIGKILL before effect, SIGKILL after effect, durable outcome-unknown, same-key no replay after restart, and fresh distinct delivery. Command/log/cleanup exits0; all28 bundled builds verify. Durable receipts: docs/validation/extension-v4-shipping/parent/candidate-suite-d2222840/delivery/ and parent-log-review.json in the suite directory.
+- [x] R3: Disable and uninstall before effect admission deny the paused handler's next real effect and retain history/data.
+  EVIDENCE: Current image `9ca27583` positive control succeeds; held real handlers produce terminal tool-failure after disable/uninstall. Three prior storage records remain and the denied effect stays absent after fresh invocation and app stop. Command/log/cleanup0. Parent inspected exact verification and command receipts: docs/validation/extension-v4-shipping/parent/candidate-suite-d2222840/revocation/.
+- [x] R4: Repeated lifecycle and reconnect work has measured resource usage, no owned orphan workers or connections, and a stated duration/cycle count.
+  CHECK: bash scripts/verify-shipping-runtime-resources-soak.sh
+  EXPECT: R4
+  EVIDENCE: Parent independently verifies canonical image/source `9ca27583`: 317 sequential lifecycle cycles, 3,170 reconnects, and 1,800,154 ms. Driver, duration guard, launcher, app-log and owned-cleanup exits are 0. Max post-warm growth is 27,472,691 bytes against the unchanged 67,108,864-byte limit. Every cleanup sample has zero owned runners and 24 runner descriptors; live relation identity/accounting and connection cleanup assertions pass. Parent verifies full resource bytes and all recorded pre-launch hashes. Durable proof: docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/. Earlier failed memory attempts remain diagnostic evidence. No 24-hour result or relation-file cardinality cap is claimed.
+- [x] R5: Runnable verification commands and controlled red/green proofs establish fault sensitivity without sleeps as ordering barriers.
+  EVIDENCE: Parent earlier image `adbba8a6` R3 controlled fault omits only disable before the observed held handler resumes. The unchanged denial predicate fails at verify-shipping-revocation.ts:101, command1 and cleanup0; source/image identities and exact command bytes match the private receipt. Normal candidate R3 passes both disable/uninstall with retained data and absent denied effects. Durable red: docs/validation/extension-v4-shipping/parent/revocation-fault-adbba8a6/. R1/R2 supply actual SIGKILL fault proofs and R2 a positive effect control. R4 supplies measured resource assertions; no separate injected-leak control is claimed.
+
+- [x] R6: The built production server creates and stores a real finite, normalized memory vector; the same HTTP check fails on the defective prior image.
+  CHECK: bash scripts/verify-shipping-embeddings.sh
+  EXPECT: production-memory-embedding
+  EVIDENCE: Parent canonical HTTP check at driveradbba8a6 fails on old image6c05453e at the missing-vector assertion; app logs InferenceSession.create undefined. New image3800bd95 (sourceadbba8a6) creates and persists384 finite normalized values in8242ms/33polls and returns embeddings ready/db up; command0/log0/cleanup0. Exact red and green receipts: docs/validation/extension-v4-shipping/parent/embedding-repair-red and embedding-http-green-adbba8a6. Parent independently checked both engine image IDs and full source labels.
+
+Current R6 repeat: image `9ca27583` stores 384 finite normalized values in 7,901 ms over 32 polls; vector and ready-health assertions pass. Command, app-log and cleanup exits are 0 in candidate-suite-d2222840/embeddings/. The earlier controlled defective-image failure remains the fault proof.

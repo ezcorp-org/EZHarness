@@ -1,0 +1,2 @@
+command=flock --close <audit-worktree>/.cache/validation-heavy.lock bunx playwright test e2e/chat-graph.spec.ts --project=chromium --grep ^header button opens the panel and level 1 renders one node per prompt$
+exit=1

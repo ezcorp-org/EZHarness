@@ -1,0 +1,3 @@
+normal=0
+fault=1
+typecheck=1

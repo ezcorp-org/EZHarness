@@ -1,0 +1,24 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 409 (Conflict)",
+    "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "failedApiResponses": [
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    },
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    }
+  ],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [],
+  "expectedRuntimeEventTeardownMarks": 4,
+  "browserEngine": "chromium"
+}

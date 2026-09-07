@@ -1,0 +1,2 @@
+bun_exit=0
+typecheck_exit=1

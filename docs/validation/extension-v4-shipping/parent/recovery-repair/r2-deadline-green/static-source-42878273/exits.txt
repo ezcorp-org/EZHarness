@@ -1,0 +1,4 @@
+bootstrap_exit=0
+lifecycle_exit=0
+typecheck_exit=0
+coverage_exit=0

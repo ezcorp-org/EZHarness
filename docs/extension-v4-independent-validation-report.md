@@ -2,6 +2,8 @@
 
 **Audit complete with explicit product, policy, provider, and platform gaps. This is not approval to merge.**
 
+This report records the earlier Sol audit at the revisions below. Later Terra repairs and shipping checks are tracked in [the shipping validation report](extension-v4-shipping-validation-report.md). Their results do not change the source attribution of these historical receipts.
+
 Four fresh Sol agents audited build checks, runtime/security and extension coverage, browser flows, and migration assertions. The coordinator reviewed their changes, repeated checks independently, inspected raw evidence, and scheduled heavy commands through one shared lock.
 
 ## Revisions

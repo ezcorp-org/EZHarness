@@ -1,0 +1,25 @@
+{
+  "rawBrowserResults": {
+    ".cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/mock.zip": {
+      "passed": 220,
+      "skipped": 13
+    },
+    ".cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/real-auth.zip": {
+      "passed": 59
+    },
+    ".cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/visual-blobs/mock.zip": {
+      "passed": 181
+    },
+    ".cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/visual-blobs/real-auth.zip": {
+      "passed": 10
+    }
+  },
+  "comparedPngAttachments": 308,
+  "uniqueImageHashes": 271,
+  "exactRawToPublishedBytes": true,
+  "reporterErrors": 0,
+  "repeatedTestIds": 0,
+  "exactB5SourceInputs": 10,
+  "controllerMatchesDeclaredTransformation": true,
+  "exactDeclaredLogTransformations": 14
+}

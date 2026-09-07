@@ -1,0 +1,2 @@
+adbba8a693cdcd4410c51023dfca93517f9db1e8
+72bdf166c98f6b5b68bed69e0691058619c3941a06168f5ac5b75c290268c88e  scripts/verify-shipping-embeddings.sh

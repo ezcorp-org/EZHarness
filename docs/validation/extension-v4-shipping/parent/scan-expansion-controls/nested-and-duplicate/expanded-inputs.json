@@ -1,0 +1,55 @@
+{
+  "archives": [
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [],
+      "member": "duplicate.txt",
+      "expandedPath": "archive-000001/member-000001/duplicate.txt",
+      "payloadSha256": "26ce38207c54ce9922e75dbf229a3ea5620afdba59d688c4e79a7d7f22c0a1e9"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [],
+      "member": "duplicate.txt",
+      "expandedPath": "archive-000001/member-000002/duplicate.txt",
+      "payloadSha256": "4df738519ce912d0447edcaf71b3ef0647bda9370d40a4cd4f7fa0ec59449f6f"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [],
+      "member": "nested.tar.gz",
+      "expandedPath": "archive-000001/member-000003/nested.tar.gz",
+      "payloadSha256": "054f2261ab374931c3de84fc98f154a05861b3c43ba539bebaf7628718d2829b"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [
+        "nested.tar.gz"
+      ],
+      "member": "nested.txt.gz",
+      "expandedPath": "archive-000002/member-000004/nested.txt.gz",
+      "payloadSha256": "df5bd37841b30558bede942ce612b49f77b7b8ca7d9f75bdf34931bc57a10d31"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [
+        "nested.tar.gz"
+      ],
+      "member": "tar.txt",
+      "expandedPath": "archive-000002/member-000005/tar.txt",
+      "payloadSha256": "cb4ff8a3df1a60a8d7a9c57cb530ee650d6268d76cb1ce09b42f1acdbb57c316"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/mixed.zip",
+      "archiveChain": [
+        "nested.tar.gz",
+        "nested.txt.gz"
+      ],
+      "member": "nested.txt",
+      "expandedPath": "archive-000003/member-000006/nested.txt",
+      "payloadSha256": "ef982726fbc0d6162ea098d5d7ac23cd89f3db3e9ef2daf6121ed863c45fe9f8"
+    }
+  ],
+  "memberCount": 6,
+  "bytes": 271
+}

@@ -1,0 +1,10 @@
+{
+  "sourceCommitSha": "825dc780bb6e407ef29408fc3b31757d55336048",
+  "baseCommitSha": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "bunVersion": "1.3.14",
+  "command": "env -u GATE_CHANGE_APPROVED BASE_REF=origin/main bun scripts/gate-integrity.ts",
+  "findingCount": 84,
+  "identicalToB5Findings": true,
+  "actualExit": 1,
+  "approvalApplied": false
+}

@@ -1,0 +1,14 @@
+{
+  "scan": "staged checkpoint before commit",
+  "scanExit": 1,
+  "controllerExit": 1,
+  "cleanupExit": 0,
+  "findings": 1522,
+  "rules": {
+    "generic-api-key": 7,
+    "jwt": 1512,
+    "square-access-token": 3
+  },
+  "indexTree": "e6a560307cf869d565050939f991e80ca19a02b2",
+  "action": "Remove raw authenticated browser archives and raw state from publishable evidence; keep private originals and safe identities. No scanner exception."
+}

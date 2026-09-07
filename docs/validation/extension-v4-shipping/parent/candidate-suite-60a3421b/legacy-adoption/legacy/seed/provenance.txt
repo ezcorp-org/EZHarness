@@ -1,0 +1,6 @@
+launcher_source=890df5405dd1b2a59a0eba16acce013a639696dd
+image=localhost/ezcorp-extension-v4:legacy-main-537f074e-derived
+project=ezcorp-legacy-adoption-old-54226ad9d4ab
+container=ezcorp-legacy-adoption-old-54226ad9d4ab-app
+port=13124
+image_id=sha256:0552ca8b37dfbfe6b43752b68dcfeeaa443d7127d523e78ae7dcb5a0188b68c1 revision=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3

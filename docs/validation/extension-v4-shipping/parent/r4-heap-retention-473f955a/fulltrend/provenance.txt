@@ -1,0 +1,8 @@
+source_commit_sha=473f955aa1c8d4d8dfa4d8a73761bdae998c9151
+base_image=localhost/ezcorp-extension-v4:shipping-adbba8a6
+base_image_id=sha256:3800bd95cd2e106d1d3b9fb304cddce94db5872006f5a4b782d673e01a601b8f
+diagnostic=private-full-duration-memory-trend
+memory_budget_bytes=67108864
+requested_minimum_duration_seconds=1800
+post_duration_snapshot=SIGUSR2 after measurement, awaited-done-marker-before-cleanup
+controller_final_assertion=mode-duration,requestedMinimumDurationMs-1800000,actualDurationMs-gte-1800000,completedCycles-gte-10

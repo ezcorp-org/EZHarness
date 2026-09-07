@@ -1,0 +1,29 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-hub-authority.integration.test.ts:
+(pass) human-approved project write scope permits the exact real move [2168.61ms]
+{"ts":"2026-09-07T03:00:16.850Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/file-organizer-authority-1HXJal/watched/sorted/proof.tmp","reason":"invalid-file-organizer-project-binding"}
+(pass) an empty project write scope cannot move a watched proposal [369.87ms]
+{"ts":"2026-09-07T03:00:17.182Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/file-organizer-authority-1HXJal/watched/sorted/proof.tmp","reason":"invalid-file-organizer-project-binding"}
+(pass) a non-directory or sibling write scope cannot widen to a move (watched/proof.tmp) [332.82ms]
+{"ts":"2026-09-07T03:00:17.525Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/file-organizer-authority-1HXJal/watched/sorted/proof.tmp","reason":"invalid-file-organizer-project-binding"}
+(pass) a non-directory or sibling write scope cannot widen to a move (watched-sibling/) [338.93ms]
+(pass) a sealed directory-scope move preserves a collision and writes its planned suffix [340.04ms]
+(pass) a non-bundled V4 action quarantines through its private /data companion write [346.64ms]
+(pass) one confirmed batch uses separate sealed quarantine effects and can restore both files [402.01ms]
+(pass) a sealed restore plans its collision suffix and an explicit private purge is auditable [450.52ms]
+(pass) a cap-based purge-expired action seals and removes every selected private entry [630.82ms]
+(pass) revoked project membership cannot mutate the host configuration through the Hub shortcut [577.14ms]
+(pass) revoked release project binding cannot be replaced by caller payload [520.66ms]
+(pass) exact active owner and project binding still permit the real host action [560.79ms]
+(pass) disabled authority refuses the real host action [537.15ms]
+(pass) sealed-grant authority refuses the real host action [559.82ms]
+(pass) current-grant authority refuses the real host action [636.08ms]
+(pass) inactive-user authority refuses the real host action [582.57ms]
+(pass) foreign-owner authority refuses the real host action [525.44ms]
+(pass) wrong-project authority refuses the real host action [578.11ms]
+
+ 18 pass
+ 0 fail
+ 93 expect() calls
+Ran 18 tests across 1 file. [11.20s]

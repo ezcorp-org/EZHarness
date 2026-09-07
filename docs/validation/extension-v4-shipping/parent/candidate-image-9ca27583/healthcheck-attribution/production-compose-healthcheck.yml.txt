@@ -1,0 +1,8 @@
+    healthcheck:
+      # Liveness probe. Readiness is served separately at /api/ready — hook
+      # that into your orchestrator if you have one.
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3

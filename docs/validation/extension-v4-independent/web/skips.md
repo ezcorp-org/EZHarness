@@ -2,8 +2,8 @@
 
 ## Executed browser lanes
 
-- The exact 30-spec mock gate collected 222 tests: 210 passed, 12 skipped, 0 failed, and 0 retried. The 12 names below are the complete actual skip set from member `mock-gate-final.log` in `artifacts/browser-raw-logs.tar.gz`.
-- The complete 29-spec real-auth configuration passed 54 tests with no skips, failures, or retries (member `real-auth-full-final.log` in `artifacts/browser-raw-logs.tar.gz`).
+- The exact 30-spec mock gate collected 222 tests: 210 passed, 12 skipped, 0 failed, and 0 retried. The 12 names below are the complete actual skip set from member `mock-gate-final.log` in the private browser-log inventory `docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json`.
+- The complete 29-spec real-auth configuration passed 54 tests with no skips, failures, or retries (member `real-auth-full-final.log` in the private browser-log inventory `docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json`).
 - The required visual selection contained 29 spec files. Its mock group passed 42 evidence tests and its real-auth group passed 7; neither group skipped a test (member `visual-selected-final4-green.log` and `artifacts/final3-blob/`).
 
 ## Exact 12 mock-gate skips

@@ -1,0 +1,7 @@
+check_cleanup() {
+  local label=$1
+  find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/default-roots.$label.txt" || return $?
+  comm -13 "$receipt/default-roots.before.txt" "$receipt/default-roots.$label.txt" > "$receipt/default-roots.new.$label.txt" || return $?
+  test ! -s "$receipt/default-roots.new.$label.txt" || return $?
+  test ! -e web/e2e/.real-auth.json || return $?
+}

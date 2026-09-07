@@ -1,0 +1,54 @@
+{
+  "blobFile": "real-auth.zip",
+  "blobSha256": "6fce7ad4470c39aac72bb4d160a50b9baec0915449e0d2b6ce15b5c0bc62ef8e",
+  "shots": [
+    {
+      "file": "extension-source-import-form.png",
+      "label": "extension-source-import-form",
+      "bytes": 121453,
+      "sha256": "ecc541fb355c1c6b2c237def594ccdebadeb497df4c43bf786785e82e7fb39d1"
+    },
+    {
+      "file": "extension-source-import-mobile.png",
+      "label": "extension-source-import-mobile",
+      "bytes": 44303,
+      "sha256": "4e95043b6d635fa4890bac98e7f29c002d6f999168e4125c1a228c19947845bd"
+    },
+    {
+      "file": "extension-source-import-visible-output.png",
+      "label": "extension-source-import-visible-output",
+      "bytes": 94392,
+      "sha256": "97bc341892bd65cf166b2e91c4c84a8610c0fc7c6996bd338d73b169801797fa"
+    },
+    {
+      "file": "extension-source-import-permission-update.png",
+      "label": "extension-source-import-permission-update",
+      "bytes": 92060,
+      "sha256": "6b8072ede353fc20a0e168c1905f0768284a1b13e5bf96c7cbfecf1d7d023b53"
+    },
+    {
+      "file": "extension-source-import-local-form.png",
+      "label": "extension-source-import-local-form",
+      "bytes": 107224,
+      "sha256": "5e20e34e6b39cec8e32e73f3bf90b9a97d775642efe36ac2bb932253541de843"
+    },
+    {
+      "file": "extension-binary-assets-mobile.png",
+      "label": "extension-binary-assets-mobile",
+      "bytes": 38299,
+      "sha256": "233223003e216ac5a4e8c725d3191af0e9207da76d20b7a2f2657fdc8655e903"
+    },
+    {
+      "file": "extension-detail-release-permissions.png",
+      "label": "extension-detail-release-permissions",
+      "bytes": 81920,
+      "sha256": "8048764e0d350c42b66d5a45155f215852108c60df537a41f0ef1ec175084e04"
+    },
+    {
+      "file": "extension-uninstall-retains-data.png",
+      "label": "extension-uninstall-retains-data",
+      "bytes": 122425,
+      "sha256": "580d9b8f8db4d644c238377ae0dd263c901b82dd8dd997fb13eec9210dd2fb92"
+    }
+  ]
+}

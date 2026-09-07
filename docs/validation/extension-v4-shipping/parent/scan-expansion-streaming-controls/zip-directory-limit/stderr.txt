@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 120, in <module>
+    if __name__=='__main__': main()
+                             ~~~~^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 118, in main
+    path,source,chain=queue.popleft(); serial+=1; expand(path,source,chain,output,queue,records,serial,totals)
+                                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 102, in expand
+    if len(archive.infolist())>MAX_MEMBERS-totals['headers']: fail('archive header limit exceeded')
+                                                              ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 8, in fail
+    def fail(message): raise ValueError(message)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: archive header limit exceeded

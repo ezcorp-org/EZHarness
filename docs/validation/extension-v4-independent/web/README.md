@@ -80,7 +80,7 @@ A targeted opaque iframe capture passed and was inspected directly.
 - The selected visual runner passed 42 mock and 7 real-auth tests in one clean
   two-group invocation. It retained both report zips and extracted 67 PNGs.
 - The final-tree rerun after the disabled-page and contrast repairs produced the
-  same clean counts. Its 67-shot manifest and reports are in `artifacts/final3-blob/`.
+  same clean counts. Its 67-shot manifest and extracted PNGs are public; raw reports are removed from the current published tree and private (see `docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json`).
 - Direct screenshot inspection covered desktop and mobile approval, release,
   uninstall retention, project authority, scanner isolation, failed actions,
   disabled state, and canvas light/dark/mobile layouts. The final canvas controls
@@ -89,6 +89,6 @@ A targeted opaque iframe capture passed and was inspected directly.
   `skips.md` records the exact runtime skip names and configuration exclusions.
   `artifacts/final3-blob/` and `screenshots/final3/` contain reports, PNGs, manifests,
   and SHA-256 indexes.
-- `artifacts/browser-raw-logs.tar.gz` contains the sanitized red and green raw
-  logs. `artifacts/file-organizer-real-production.zip` contains the exact
+- Raw browser logs are removed from the current published tree and private; their original identifiers are in
+  `docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json`. `artifacts/file-organizer-real-production.zip` contains the exact
   12-case receipt plus its disposable Compose configuration and command.

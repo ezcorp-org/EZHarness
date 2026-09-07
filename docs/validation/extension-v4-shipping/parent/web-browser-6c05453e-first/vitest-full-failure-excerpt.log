@@ -1,0 +1,38 @@
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/file-organizer-events-route.server.test.ts > file-organizer hub in-process branch > accept dispatched in-process w/ SESSION userId + cache invalidate
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ src/__tests__/file-organizer-events-route.server.test.ts:135:24
+    133|   test("accept dispatched in-process w/ SESSION userId + cache invalid…
+    134|     const res = await POST(hubReq("accept", { proposalId: "p1" }) as n…
+    135|     expect(res.status).toBe(200);
+       |                        ^
+    136|     expect(h.state.dispatchCalls).toHaveLength(1);
+    137|     expect(h.state.dispatchCalls[0]!.event).toBe("accept");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/file-organizer-events-route.server.test.ts > file-organizer hub in-process branch > caller-supplied userId in payload is ignored (host stamps it)
+TypeError: undefined is not an object (evaluating 'h.state.dispatchCalls[0].deps')
+ ❯ src/__tests__/file-organizer-events-route.server.test.ts:147:35
+    145|   test("caller-supplied userId in payload is ignored (host stamps it)"…
+    146|     await POST(hubReq("accept", { proposalId: "p1", userId: "attacker"…
+    147|     expect((h.state.dispatchCalls[0]!.deps as { userId: string }).user…
+       |                                   ^
+    148|   });
+    149|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 543 passed (544)
+      Tests  2 failed | 7105 passed (7107)
+   Start at  23:36:49
+   Duration  33.47s (transform 112.19s, setup 315.93s, import 255.52s, tests 111.87s, environment 259.90s)

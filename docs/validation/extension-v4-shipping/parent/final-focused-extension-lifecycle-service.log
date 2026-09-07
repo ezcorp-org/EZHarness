@@ -1,0 +1,29 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/extension-lifecycle-service.test.ts:
+(pass) production lifecycle authorization > only active human administrators approve [80.96ms]
+(pass) production lifecycle authorization > admin approval cannot reactivate a deleted or inactive owner [0.17ms]
+(pass) production lifecycle authorization > exact grants cannot omit or add a permission [0.29ms]
+(pass) production lifecycle authorization > another owner cannot read state or activate by a known ID [0.18ms]
+(pass) production lifecycle authorization > name takeover and namespace rename fail before activation [0.22ms]
+(pass) production lifecycle authorization > legacy modifiable does not block owner candidates, while scope and approval remain enforced [0.33ms]
+(pass) deferred recovery re-enters after an unexpired lease and clears its timer [0.45ms]
+(pass) deferred recovery stops when the installation is uninstalled before its lease ends [0.08ms]
+(pass) a repeated recovery entry replaces its prior wake-up timer [0.08ms]
+{"ts":"2026-09-07T00:12:11.476Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+(pass) recovery reports and rejects an immediate lifecycle failure [0.44ms]
+{"ts":"2026-09-07T00:12:11.476Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-09-07T00:12:11.476Z","level":"error","msg":"Deferred extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+(pass) deferred recovery contains a later lifecycle failure [0.17ms]
+(pass) recovery wake-up selects the earliest live recoverable lease only [0.08ms]
+(pass) candidate verification > storage migration binds identity, denies effects, validates output and closes its worker [9.73ms]
+(pass) candidate verification > smoke error status assertions check both expected outcomes [7.22ms]
+(pass) candidate verification > text assertions inspect literal tool text rather than JSON-escaped transport [0.97ms]
+(pass) candidate verification > checks runtime metadata and output using a separate verification identity [0.56ms]
+(pass) candidate verification > changed catalog and schema-invalid output fail and close the worker [0.73ms]
+(pass) candidate verification > sealed catalogs do not invent an undeclared smoke invocation [0.42ms]
+
+ 18 pass
+ 0 fail
+ 62 expect() calls
+Ran 18 tests across 1 file. [575.00ms]

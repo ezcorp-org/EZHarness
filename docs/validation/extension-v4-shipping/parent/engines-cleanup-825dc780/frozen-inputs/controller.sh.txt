@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Rechecks the changed real-auth wrapper/configuration. It deliberately does not
+# build or exercise a production image.
+set -euo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+lock=$repo/.cache/validation-heavy.lock
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close "$lock" "$0" --locked "$@"
+fi
+shift
+
+expected_source=${1:?full checked-out source SHA required}
+receipt=${2:?new absolute receipt directory required}
+[[ "$expected_source" =~ ^[0-9a-f]{40}$ ]] || exit 64
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 64
+
+cd "$repo"
+[[ "$(git rev-parse HEAD)" == "$expected_source" ]] || exit 65
+# Evidence and task files may remain dirty. Test, product, and production-driver
+# inputs must be exactly the checked-out source used below.
+git diff --quiet HEAD -- Dockerfile .dockerignore package.json bun.lock src packages scripts web .github || exit 66
+
+mkdir -p "$receipt/private-auth" "$receipt/frozen-inputs"
+receipt=$(realpath "$receipt")
+cp "${BASH_SOURCE[0]}" "$receipt/frozen-inputs/controller.sh.txt"
+for input in \
+  web/playwright.real.config.ts \
+  web/e2e/run-real-auth-fixture.sh \
+  web/e2e/real-auth-teardown.ts \
+  web/e2e/real-auth/extension-lifecycle-flow.spec.ts \
+  src/__tests__/real-auth-fixture-cleanup.test.ts; do
+  mkdir -p "$receipt/frozen-inputs/$(dirname "$input")"
+  cp "$input" "$receipt/frozen-inputs/$input.txt"
+  sha256sum "$input" >> "$receipt/frozen-inputs/source-inputs.sha256"
+done
+sha256sum "$receipt/frozen-inputs/controller.sh.txt" > "$receipt/frozen-inputs/controller.sha256"
+
+git diff --name-status HEAD > "$receipt/working-tree.before.txt"
+printf 'checkout_source_sha=%s\n' "$expected_source" > "$receipt/provenance.txt"
+printf 'purpose=real-auth wrapper/configuration and cleanup follow-up; no product image or production driver is run\n' >> "$receipt/provenance.txt"
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon
+printf 'bun=' >> "$receipt/provenance.txt"; bun --version >> "$receipt/provenance.txt"
+printf 'node=' >> "$receipt/provenance.txt"; node --version >> "$receipt/provenance.txt"
+printf 'conmon=%s\n' "$CONMON" >> "$receipt/provenance.txt"
+python3 - "$receipt/inherited-fixture-env-presence.json" <<'PY'
+import json, os, sys
+keys = ['PI_E2E_REAL_DB_PATH', 'EZCORP_JWT_SECRET', 'EZCORP_SECRETS_DIR']
+open(sys.argv[1], 'w').write(json.dumps({key: bool(os.environ.get(key)) for key in keys}, indent=2) + '\n')
+PY
+unset PI_E2E_REAL_DB_PATH EZCORP_JWT_SECRET EZCORP_SECRETS_DIR
+
+fixture_parent=$(realpath "${TMPDIR:-/tmp}")
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/default-roots.before.txt"
+: > "$receipt/results.tsv"
+failed=0
+
+run() {
+  local label=$1
+  shift
+  local started rc
+  started=$(date +%s)
+  if "$@" > "$receipt/$label.log" 2>&1; then rc=0; else rc=$?; fi
+  printf '%s\t%s\t%s\t%s\n' "$label" "$rc" "$(( $(date +%s) - started ))" "$(wc -l < "$receipt/$label.log")" >> "$receipt/results.tsv"
+  return "$rc"
+}
+
+check_cleanup() {
+  local label=$1
+  find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/default-roots.$label.txt" || return $?
+  comm -13 "$receipt/default-roots.before.txt" "$receipt/default-roots.$label.txt" > "$receipt/default-roots.new.$label.txt" || return $?
+  test ! -s "$receipt/default-roots.new.$label.txt" || return $?
+  test ! -e web/e2e/.real-auth.json || return $?
+}
+
+run_engine() {
+  local engine=$1
+  shift
+  (
+    cd "$repo/web" || return $?
+    env "$@" CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS="$engine" EZCORP_E2E_EVIDENCE=1 \
+      PLAYWRIGHT_BLOB_OUTPUT_FILE="$receipt/private-auth/$engine.blob.zip" \
+      bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts \
+        --project="$engine" --output="$receipt/$engine-test-results"
+  )
+}
+
+finish() {
+  local primary_rc=$?
+  trap - EXIT
+  if check_cleanup final > "$receipt/cleanup-boundary.log" 2>&1; then cleanup_rc=0; else cleanup_rc=$?; fi
+  printf 'cleanup_boundary\t%s\n' "$cleanup_rc" >> "$receipt/results.tsv"
+  if [[ "$primary_rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then primary_rc=$cleanup_rc; fi
+  [[ "$(git rev-parse HEAD)" == "$expected_source" ]] || primary_rc=67
+  git diff --quiet HEAD -- Dockerfile .dockerignore package.json bun.lock src packages scripts web .github || primary_rc=66
+  git diff --name-status HEAD > "$receipt/working-tree.after.txt"
+  printf '%s\n' "$primary_rc" > "$receipt/controller.exit"
+  exit "$primary_rc"
+}
+trap finish EXIT
+
+# `bun run typecheck` is the canonical four-section typecheck. The cleanup test
+# contains four direct wrapper ownership cases.
+run typecheck-all4 bun run typecheck || failed=1
+run fixture-cleanup-4 bun test ./src/__tests__/real-auth-fixture-cleanup.test.ts || failed=1
+
+for engine in firefox webkit; do
+  extra=()
+  if [[ "$engine" == webkit ]]; then
+    podman --remote=false ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}' > "$receipt/webkit-remote-container-check.txt"
+    if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3333/ > "$receipt/webkit-remote-browser-health.txt" 2>&1 && grep --quiet '^Running$' "$receipt/webkit-remote-browser-health.txt"; then
+      extra=(PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3333/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>')
+    else
+      printf 'webkit-remote-health\t2\t0\t%s\n' "$(wc -l < "$receipt/webkit-remote-browser-health.txt")" >> "$receipt/results.tsv"
+      failed=1
+      run cleanup-after-webkit check_cleanup after-webkit || failed=1
+      continue
+    fi
+  fi
+  run "$engine-lifecycle" run_engine "$engine" "${extra[@]}" || failed=1
+  run "cleanup-after-$engine" check_cleanup "after-$engine" || failed=1
+done
+
+exit "$failed"

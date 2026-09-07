@@ -1,0 +1,13 @@
+# R4 heap-retention observations
+
+This directory records observations from app candidate `adbba8a693cdcd4410c51023dfca93517f9db1e8`. The runner launcher base is `473f955aa1c8d4d8dfa4d8a73761bdae998c9151`. It is not a successful 30-minute resource proof.
+
+`fulltrend/` records the private memory-observer controller. Its exact copied driver and imported dependencies are in `private-*.ts.txt`; `private-execution-freeze.json` verifies copied-byte hashes and the captured private-driver hash. `committed-base-*.ts.txt` are comparison bases only. `private-driver-vs-committed-base.diff` shows the observer change. The empty `private-driver.diff` only compares two already-private observer copies and is retained as historical metadata.
+
+The full trend requested 1,800,000 ms but stopped after 543,922 ms. It accepted 100 cycles and 1,000 reconnects. The safe result has 59 memory-budget violations. In the same controller attempt, its 101st tool call reached the API limit of 100 and ended the attempt. `timed-heap-rows-safe.json` has exactly 111 rows selected from the archived compose log with an allowlist for timestamps, process memory, JSC heap statistics, selected request/stream counts, and allocator values. It does not include compose text, auth data, or heap snapshots. The private observer defers the unchanged 64 MiB assertion until it has collected all violations, then exits 1.
+
+`als-tdz-073139Z/` records the original pinned isolated Bun controller failure: exit 1, no result JSON, and a temporal-dead-zone failure. `als-isolated-073245Z/` records the corrected isolated controller: exit 0, 10 warm requests and 500 measured requests per mode with a 4,082-byte payload. Its `als-admit-read` RSS delta is 174,325,760 bytes (174.3 MB decimal; 166.25 MiB). `controller_hashes_captured_after_completion=true` is in its provenance.
+
+The two temporary controller sources no longer match the 073245Z recorded hashes, so they are deliberately not copied as baseline source. `controller-source-availability.json` records that condition. The current matching `payload.ts.txt` and `bounded-json.ts.txt` are copied with their receipt hashes. Snapshot files remain private and are not copied.
+
+Parent dependency review: the private driver imported helpers through mutable symlinks. The copied production client was initially taken after its later `cbe76b84` edit; the parent rejected that copy and restored all four imported helpers from the observed run-start commit `473f955a`. Their manifest explicitly records this reconstruction and the absence of per-helper hashes captured before execution. Final controller hashes take precedence over the earlier diagnostic setup index.

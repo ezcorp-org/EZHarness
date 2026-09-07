@@ -1,0 +1,17 @@
+ Network ezcorp-production-lifecycle-888514706_default Creating 
+ Network ezcorp-production-lifecycle-888514706_default Created 
+ Container ezcorp-production-lifecycle-888514706-app Creating 
+ Container ezcorp-production-lifecycle-888514706-app Created 
+ Container ezcorp-production-lifecycle-888514706-app Starting 
+ Container ezcorp-production-lifecycle-888514706-app Started 
+39 |         return { bootstrapInstallations: lifecycleIds.length, initialPending, maximumPending, terminalOperationStates, terminalOperations: states.map(({ name, installationId, state }) => ({ name, installationId, operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })) })) };
+40 |       }
+41 |     }
+42 |     await Bun.sleep(1_000);
+43 |   }
+44 |   throw new Error("Candidate bootstrap did not reach a terminal runner state before the deadline");
+                 ^
+error: Candidate bootstrap did not reach a terminal runner state before the deadline
+      at waitForBundledBootstrap (/home/dev/work/EZCorp/extension-v4-independent-audit/scripts/lib/shipping-bootstrap-state.ts:44:13)
+
+Bun v1.3.14 (Linux x64)

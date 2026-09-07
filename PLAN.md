@@ -1,5 +1,7 @@
 # Extension v4 implementation
 
+Current shipping status is in [the validation report](docs/extension-v4-shipping-validation-report.md) and [shipping gates](gates/shipping-root.md). The implementation checkpoints below are historical. The user has authorized a normal push to the existing draft PR #246; policy approval and merge remain separate.
+
 Base: bb19b8be7a6669f61e41e4e9baa3658026e87b8a. Full requirements: docs/extension-system-v4-plan.md. User authorized implementation, separate worktree, all validation before push, and a PR. The review-only restriction in the copied historical plan is superseded by that authorization.
 
 ## Shared contracts
@@ -132,3 +134,13 @@ Contracts and ownership:
 All agents use separate new worktrees. They are not alone; no reverting others. Only parent updates shared PLAN.md/tasks. Pin Bun1.3.14 and Node22.22.2 for tests and hooks, login:false. Heavy builds/browser/full suites use flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock. Test source changes use explicit observed barriers, no retries or sleep-based ordering, no reduced gates. Capture exact source, commands/exits and bounded logs, no credentials/raw authenticated artifacts. Replace manual gates with actual CHECK/EXPECT commands once their executable exists. No approval labels, merge, deploy, or messages to other people.
 
 Status: gates written; implementation begins with four fresh Terra agents and import queued for the next available slot.
+
+Shipping status update, 2026-09-07 UTC: recovery, revocation, import, browser, security, and historical/legacy proof implementations are integrated. Full backend and web regressions, final static checks, and parent coverage gates pass at recorded revisions. Product image29eefc05 is built; independent legacy adoption verifies all28 bundles and retained data. Parent canonical production replay is active. A new adversarial review found the File Organizer move assertion accepts a failed proposal; this is assigned for diagnosis and strict disk-effect verification. Final gates, secret scan, publication, and current-head hosted checks remain open.
+
+Current shipping verification checkpoint: intermediate image 60a3421b completed the seven-leaf production suite with five passing leaves and two failures. The File Organizer host-action permission boundary and R2 post-restart bootstrap timeout are active repairs. Parent source is 890df540. Full final regressions and publication remain pending; passing intermediate leaves retain separate source-pinned receipts.
+
+Final product checkpointadbba8a6: finite File Organizer authority and strict disk-effect/browser approval repair pass; all28bundles recover in the R1/R2 intermediate proofs. Full regression found and fixed the older route fixture, evidence extension mismatch and SDK cache cleanup. The real production embedding failure was reproduced via the compiled function and HTTP memory path; a web runtime dependency preserves the native backend. The same new required HTTP guard now passes against image3800bd95 with actual384-value persistence and readyhealth. Complete final backend/web/eight-leaf production/engines/resource and publication gates remain open.
+
+Parent checkpoint2026-09-07T04:49Z: imageadbba8a6 passes strict File Organizer13, real HTTP embedding and R1 app death/recovery. R1 verifies the same operation after its real lease, one candidate, old/new output boundaries and all28 bundled builds; owned cleanup0. Current fullweb/browser passes7109 component,4079 webBun,210mock,59real and180+10visual; original evidence-suffix typecheck1 is retained beside corrected typecheck0. SDK all1029 pass alone with production env; exact concurrent canonical entry point is queued for timeout diagnosis. Finalimagechain and root gates remain active.
+
+- 2026-09-07: Parent committed short runner transport and independent resource conversations as `cbe76b84` after direct checks. The full observation remains red and short (100 cycles / 543,922 ms). A pinned HTTP reproduction now isolates the body-rematerialization/context retention defect; Terra is implementing the measured JavaScript stream repair before rebuilding and repeating final checks.

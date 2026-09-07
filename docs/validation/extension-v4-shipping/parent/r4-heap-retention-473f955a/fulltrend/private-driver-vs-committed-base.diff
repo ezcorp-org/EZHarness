@@ -1,0 +1,42 @@
+--- /tmp/r4-base-473.ts	2026-09-07 03:42:15.572986462 -0400
++++ /tmp/ez-r4-trend-review-20260907T072500Z/driver/verify-shipping-runtime-resources.ts	2026-09-07 03:12:08.743913870 -0400
+@@ -32,6 +32,7 @@
+   kernelMemoryError?: string;
+   warmKernelMemory?: KernelMemorySnapshot;
+ };
++type MemoryViolation = { cycle: number; observedMemoryBytes: number; warmMemoryBytes: number; excessBytes: number };
+ type Sample = {
+   cycle: number;
+   runnerContainers: number;
+@@ -260,6 +261,7 @@
+ let relationCacheWarmEvidence: FdEvidence | undefined;
+ let relationCacheWarmKernelMemory: KernelMemorySnapshot | undefined;
+ let firstLifecycleFdSnapshot: FdSnapshot | undefined;
++const memoryViolations: MemoryViolation[] = [];
+ 
+ async function writeReceipt(completedCycles: number, failure?: FailureEvidence): Promise<void> {
+   const actualDurationMs = Date.now() - start;
+@@ -279,6 +281,7 @@
+     relationCacheWarmup,
+     samples,
+     ...(failure ? { failure } : {}),
++    memoryViolations,
+   };
+   await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "r4-resource-samples.json"), JSON.stringify(receipt) + "\n", { mode: 0o600 });
+ }
+@@ -354,7 +357,7 @@
+     relationCacheWarmEvidence = { descriptors: fdSnapshot.descriptors, mappedPgliteFiles: await mappedPgliteFiles(appProcessPid, pgliteDataRoot) };
+     relationCacheWarmKernelMemory = await kernelMemorySnapshot(appProcessPid);
+   } else if (cycle > relationCacheWarmupCycles) {
+-    if (after.appContainerMemoryBytes > relationCacheWarmup!.appContainerMemoryBytes + 64 * 1024 ** 2) await failResourceCheck(cycle, `Cycle ${cycle} app container memory exceeded the relation-cache warm baseline by more than 64 MiB.`, after, fdSnapshot);
++    if (after.appContainerMemoryBytes > relationCacheWarmup!.appContainerMemoryBytes + 64 * 1024 ** 2) memoryViolations.push({ cycle, observedMemoryBytes: after.appContainerMemoryBytes, warmMemoryBytes: relationCacheWarmup!.appContainerMemoryBytes, excessBytes: after.appContainerMemoryBytes - relationCacheWarmup!.appContainerMemoryBytes });
+   }
+   samples.push(after);
+   await writeReceipt(cycle);
+@@ -366,4 +369,5 @@
+ if (config.mode === "duration" && !resourceRunReachedTarget(config, actualDurationMs, completedCycles)) {
+   throw new Error(`R4 duration soak reached its ${count}-cycle ceiling after ${actualDurationMs}ms and ${completedCycles} cycles; it requires ${requestedMinimumDurationMs}ms and at least 10 completed cycles.`);
+ }
+-console.log(JSON.stringify({ check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, cycles: completedCycles, completedCycles, reconnectsPerCycle, totalReconnects: completedCycles * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, durationMs: actualDurationMs, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), samples: samples.map(resourceReport) }));
++console.log(JSON.stringify({ check: "R4", diagnostic: "full-duration-memory-trend", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, cycles: completedCycles, completedCycles, reconnectsPerCycle, totalReconnects: completedCycles * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, durationMs: actualDurationMs, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), memoryViolations, samples: samples.map(resourceReport) }));
++if (memoryViolations.length) throw new Error("R4 diagnostic observed " + memoryViolations.length + " memory-budget violations; this private full-duration run is intentionally red.");

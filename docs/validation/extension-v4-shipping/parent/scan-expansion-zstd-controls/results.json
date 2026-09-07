@@ -1,0 +1,47 @@
+[
+  {
+    "case": "nested-and-duplicate",
+    "exit": 0,
+    "entries": 6
+  },
+  {
+    "case": "corrupt-gzip",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "corrupt-zip",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "nested-zstd",
+    "exit": 0,
+    "entries": 3
+  },
+  {
+    "case": "corrupt-zstd",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "zstd-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-directory-limit",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "zip-directory-limit",
+    "exit": 1,
+    "entries": 0
+  }
+]

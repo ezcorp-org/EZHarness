@@ -1,0 +1,35 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 409 (Conflict)",
+    "Failed to load resource: the server responded with a status of 409 (Conflict)"
+  ],
+  "failedApiResponses": [
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    },
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    }
+  ],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    }
+  ],
+  "expectedPendingBuildInspectionCancellations": [],
+  "pendingBuildInspectionRequestObservations": [],
+  "pendingBuildInspectionRouteObservations": [],
+  "serviceWorkerState": null,
+  "expectedRuntimeEventTeardownMarks": 4,
+  "browserEngine": "webkit"
+}

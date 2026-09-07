@@ -66,5 +66,3 @@ ce89260833502b579bc870ce4fffc48e85a61b9e14f67cbea4974f9bd9741411  ./extracted/pr
 dc92afba528d2e4896ed49bba8632d1660a487d67cd8865f21dc58238870c279  ./extracted/project-hub.spec.ts__project-hub-per-project.png
 517c09a5e2fbae47a122769b30c110ca9c388089db1056cb99c96e2b7394dcc7  ./extracted/workflow-service-release-flow.spec.ts__service-workflow-exact-release-review.png
 faaad37ca9ebed41d56f05df76f1f58ea504f2ef32c07892e9dd50b028779da9  ./manifest.json
-54bb14d57bd8dd0bcbfb54c467149aa93e235c26166f6ee124437e3987634dc7  ./mock.zip
-118f4d8283184d984b60c92b91d955728f1bb5e86e53a199ac179453d70e1b95  ./real-auth.zip

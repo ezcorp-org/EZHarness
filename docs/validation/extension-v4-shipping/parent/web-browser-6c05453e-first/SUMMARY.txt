@@ -1,0 +1,39 @@
+File Organizer web/static/browser first-run receipt
+
+Source baseline recorded by the controller: 6c05453edbb4148d53cbc37b67d05907b5459c67
+Controller exit: 1
+Result columns: label, exit, duration seconds, log line count.
+
+Successful static lanes:
+  runner-probe exit 0, 1 s, 1 log line
+  typecheck exit 0, 28 s, 10 log lines
+  svelte-check exit 0, 5 s, 148 log lines
+  web-bun exit 0, 5 s, 5 log lines
+  manifest-lock exit 0, 1 s, 0 log lines
+
+Successful browser lanes:
+  mock-full exit 0, 94 s, 210 passed
+  real-auth-full exit 0, 343 s, 59 passed
+  visual-gate exit 0, 0 s
+  visual-selection exit 0, 1 s; selected __ALL__
+  visual-capture exit 0, 319 s; 180 passed plus 10 passed
+
+Preserved first-run failures:
+  vitest-full exit 1, 34 s: 2 failed and 7105 passed. Both failures are in file-organizer-events-route.server.test.ts, where accept returned 404 and no dispatch call existed.
+  lint-boundaries exit 1, 0 s: one error, 97 warnings, 11 infos. The controller reported 359 log lines; this is not a 359-second duration.
+
+The copied Vitest report is an exact failure-only excerpt. Browser reports and blob archives are not copied because they contain runtime traces. The screenshot directory contains exactly 294 PNG attachments extracted from all four controller blob reports with archive-prefixed names. Trace, network, report, HTML, JSON, and archive resources were omitted.
+
+Run source comparison at evidence creation:
+  web/e2e/file-organizer-real.spec.ts  1a441fa4da4c68befdfd741314c13e9373fcd35c037238657b275282a35dd5b6  COMMIT_MATCH
+  web/src/lib/components/hub/HubPageView.svelte  9437e00e961a8d487e10b9d4995e768a013e88547bd98b6659fbf1bbae6b2625  COMMIT_MATCH
+  web/src/routes/(app)/extensions/author/+page.svelte  5cd10bfac3db43b156451fbc7450113ebbb94fbff9510fe0dc5153975ee2c750  COMMIT_MATCH
+  web/src/__tests__/file-organizer-hub-authority.integration.test.ts  d747a853b3985fc139bb63baf5270446306a548c28de45ad85247f0b655156da  COMMIT_MATCH
+  web/src/routes/api/extensions/[name]/events/[event]/+server.ts  46725aa57bc6ae43e6f50a1e2fdd73d35fcb07718181da74df6480fa7d318eee  COMMIT_MATCH
+
+Later WIP test harness: web/src/__tests__/file-organizer-events-route.server.test.ts
+  committed baseline SHA-256: 10fc9ad0b51c0206d05cbb2ec8c744cedfbc51f2772680429cea72485b31cda8
+  current SHA-256: 97a61417ea7a85843bcc522c9cec6f2887c93505d729020ce5e9ef11434ccfa6
+  The controller status-before record did not include this path. The current status-after record does include it. This later WIP change was not the source baseline for this first run.
+
+No raw authorization/session data, trace/network files, report JSON, blobs, or archive files are included.

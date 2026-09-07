@@ -12,7 +12,7 @@ sandbox child. The probe calls logged `getpid` and undeclared `io_uring_setup`.
 The script requires a `getpid` audit `type=1326` record for the exact sandbox
 child in one captured kernel window, plus the allowed and denied syscall
 effects. In this guest,
-the rows are `SCMP_ACT_LOG` (`code=0x7ffc0000`) records for `getpid` and the
+the rows are `SCMP_ACT_LOG` (`code=0x7ffc0000`) records, including `getpid` and the
 probe's `writev` output. The undeclared `io_uring_setup` returns ENOSYS but has
 no audit row, so this receipt does not describe it as audit emission.
 

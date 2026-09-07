@@ -1,0 +1,23 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/file-organizer-action-authority.test.ts:
+141 |   if (prompt.decision !== "prompt") throw new Error("Expected actual private-write consent prompt");
+142 |   await f.engine.resolvePrompt(prompt.promptId, true, "forever", "*");
+143 |   expect((await f.engine.authorize(ordinary, needed)).decision).toBe("allow");
+144 |   expect((await f.authorize(effect)).decision).toBe("allow");
+145 |   expect((await f.authorize(effect, effect.privatePath!)).decision).toBe("allow");
+146 |   expect((await f.authorize(effect, effect.privatePath!)).decision).toBe("deny");
+                                                                          ^
+error: expect(received).toBe(expected)
+
+Expected: "deny"
+Received: "allow"
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-fo-repair/src/extensions/file-organizer-action-authority.test.ts:146:69)
+(fail) prior always-allow consent cannot revive a revoked or consumed browser action [626.37ms]
+
+ 0 pass
+ 16 filtered out
+ 1 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [1339.00ms]

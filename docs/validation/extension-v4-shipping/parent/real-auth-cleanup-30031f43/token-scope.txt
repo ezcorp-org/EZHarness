@@ -1,0 +1,5 @@
+Source-only scope statement:
+
+The real-auth web-server environment does not set EZCORP_JWT_SECRET itself, but its environment inherits caller variables. The fixed replay logged only that this invocation had the variable unset; this does not establish universal absence.
+
+Without an inherited JWT secret, the application generates a JWT signing key and persists it encrypted in the fixture PGlite settings. Browser authentication also requires the token-hash session row in that same database. A separate normal instance does not have that per-fixture signing key or session row. A locally retained fixture database plus its local encryption material could support a restart against that exact fixture state; this curation makes no stronger claim. No token, key, cookie, decoded claim, or auth state is included.

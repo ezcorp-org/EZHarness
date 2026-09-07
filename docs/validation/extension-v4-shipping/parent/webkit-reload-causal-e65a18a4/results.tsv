@@ -1,0 +1,8 @@
+label	exit	test_summary
+strict-red-webkit	1	1 failed; exact cancelled inspection remained in failedApiRequests
+repaired-webkit	0	1 passed (1.3m)
+lifecycle-chromium	0	3 passed (1.9m)
+lifecycle-firefox	0	3 passed (1.9m)
+lifecycle-webkit	0	3 passed (2.4m)
+canonical-e2e-typecheck	0	backend, web, backend-tests, and web-e2e typechecks passed
+controller-overall	0	session 23665 completed

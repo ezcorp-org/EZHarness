@@ -1,0 +1,2 @@
+[WebServer] {"ts":"2026-09-07T11:00:09.530Z","level":"error","msg":"server error","subsystem":"hooks.server","method":"GET","path":"/api/extensions","status":500}
+  1 passed (38.8s)

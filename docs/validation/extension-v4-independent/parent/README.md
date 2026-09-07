@@ -23,7 +23,7 @@ All four commands exited 0. The merge produced 1,390 source records; 1,246 thres
 
 ## Confirmed evidence defects at the starting candidate
 
-1. **Visual capture failed inside a green job.** `hosted-visual/manifest.json` has `shots: []`. The report ZIP contains only `report.jsonl`, with `onError` for the missing `BarcodeFormat` export from `@zxing/library` and `onEnd` status `failed`. No screenshot can be validated from this artifact. The source selector returns `__ALL__`; that workflow path tolerates a capture failure.
+1. **Visual capture failed inside a green job.** `hosted-visual/manifest.json` has `shots: []`. The raw report is removed from the current published tree and private; its original path, hash, and byte count are in `docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json`. Its safe result summary records the missing `BarcodeFormat` export from `@zxing/library` and terminal `failed` status. No screenshot can be validated from this artifact. The source selector returns `__ALL__`; that workflow path tolerates a capture failure.
 2. **The SDK container test failed inside a green coverage job.** The coverage extras log reports `1025 pass`, `1 fail`, and `tolerated leg exit codes (not gated): sdk=1 suggest=0`. The failing test is `MCP executable discovers and invokes in a networkless rootless container`, with a conmon error. See `hosted-sdk-failure.txt.gz`. A green coverage job is not proof of a successful opt-in MCP check.
 
 Both findings have local repairs. Final selected visual capture and opted-in MCP evidence pass; complete lane results are recorded separately. Historical claims of 32 passing checks describe job conclusions; they overstate successful validation of these two behaviors.

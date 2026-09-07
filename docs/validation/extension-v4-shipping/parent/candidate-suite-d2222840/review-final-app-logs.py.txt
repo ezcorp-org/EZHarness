@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Summarize structured application records in completed compose logs.
+
+This read-only private review aid retains hashes and line references, not raw compose
+logs. Warnings, errors, fatals, malformed records, unknown levels, and unknown record
+shapes remain visible for review. It does not approve or suppress any record.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+COMPOSE_PREFIX = re.compile(r"^(?P<prefix>.+?)\s+\|\s(?P<payload>.*)$")
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+HISTORICAL_MAIN_SEED = "legacy-adoption/legacy/seed/compose.log"
+PRIOR_V4_CANDIDATE_SEED = "historical-upgrade/upgrade/seed-previous/compose.log"
+KNOWN_CANDIDATE_LOGS = {
+    "delivery/runtime/compose.log",
+    "embeddings/runtime/compose.log",
+    "file-organizer/runtime/compose.log",
+    "historical-upgrade/upgrade/assert-candidate/compose.log",
+    "historical-upgrade/upgrade/assert-restore/compose.log",
+    "legacy-adoption/legacy/adopt/compose.log",
+    "revocation/runtime/compose.log",
+    "runtime-resources/runtime/compose.log",
+    "runtime/runtime/compose.log",
+}
+KNOWN_LEVELS = {"debug", "info", "warn", "error", "fatal"}
+ATTENTION_LEVELS = {"warn", "error", "fatal"}
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def role_for(relative: Path) -> str:
+    name = relative.as_posix()
+    if name == HISTORICAL_MAIN_SEED:
+        return "historical_main_seed"
+    if name == PRIOR_V4_CANDIDATE_SEED:
+        return "prior_v4_candidate_seed"
+    if name in KNOWN_CANDIDATE_LOGS:
+        return "candidate"
+    return "unknown"
+
+
+def signature(record: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(record.get("level", "<missing>")),
+        str(record.get("subsystem", "<missing>")),
+        str(record.get("msg", "<missing>")),
+        str(record.get("code", "<missing>")),
+    )
+
+
+def embedding_transition(record: dict[str, Any]) -> str | None:
+    text = " ".join(str(record.get(key, "")) for key in ("subsystem", "msg", "code")).casefold()
+    if "embed" not in text:
+        return None
+    if "not ready" in text or "degraded" in text:
+        return "not_ready"
+    if "ready" in text:
+        return "ready"
+    if "warmup" in text or "started" in text:
+        return "startup"
+    return "other_embedding"
+
+
+def grouped_signatures(records: list[tuple[int, dict[str, Any]]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
+    for line, record in records:
+        grouped[signature(record)].append(line)
+    return [
+        {"level": level, "subsystem": subsystem, "message": message, "code": code, "count": len(lines), "lines": lines}
+        for (level, subsystem, message, code), lines in sorted(grouped.items())
+    ]
+
+
+def summarize_log(root: Path, path: Path) -> dict[str, Any]:
+    raw = path.read_bytes()
+    lines = raw.splitlines()
+    relative = path.relative_to(root)
+    parsed: list[tuple[int, dict[str, Any]]] = []
+    unknown_structured: list[dict[str, Any]] = []
+    malformed_json: list[dict[str, Any]] = []
+    nonstructured: list[dict[str, Any]] = []
+    levels: Counter[str] = Counter()
+    sources: Counter[str] = Counter()
+    embedding: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        text = ANSI_ESCAPE.sub("", raw_line.decode("utf-8", "replace"))
+        matched = COMPOSE_PREFIX.match(text)
+        payload = matched.group("payload") if matched else text
+        payload = payload.lstrip()
+        source = "compose_prefixed" if matched else "plain_json"
+        if not payload.startswith("{"):
+            nonstructured.append({
+                "line": line_number,
+                "rawSha256": sha256_bytes(raw_line),
+                "reason": "non_json_payload" if matched else "missing_compose_prefix_and_non_json_payload",
+            })
+            continue
+        try:
+            value = json.loads(payload)
+        except json.JSONDecodeError as error:
+            malformed_json.append({"line": line_number, "rawSha256": sha256_bytes(raw_line), "source": source, "error": error.msg})
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("level"), str) or not isinstance(value.get("msg"), str):
+            keys = sorted(value) if isinstance(value, dict) else []
+            unknown_structured.append({"line": line_number, "rawSha256": sha256_bytes(raw_line), "source": source, "jsonType": type(value).__name__, "keys": keys})
+            continue
+        parsed.append((line_number, value))
+        sources[source] += 1
+        levels[value["level"]] += 1
+        transition = embedding_transition(value)
+        if transition is not None:
+            embedding[transition].append((line_number, value))
+
+    attention = [(line, record) for line, record in parsed if record["level"].casefold() in ATTENTION_LEVELS]
+    unknown_levels = [(line, record) for line, record in parsed if record["level"].casefold() not in KNOWN_LEVELS]
+    return {
+        "relativePath": relative.as_posix(),
+        "origin": role_for(relative),
+        "rawSha256": sha256_bytes(raw),
+        "rawLineCount": len(lines),
+        "parsedStructuredJsonCount": len(parsed),
+        "structuredJsonSourceCounts": dict(sorted(sources.items())),
+        "levelCounts": dict(sorted(levels.items())),
+        "warningErrorFatalSignatures": grouped_signatures(attention),
+        "unknownLevelSignatures": grouped_signatures(unknown_levels),
+        "embeddingTransitions": {kind: grouped_signatures(entries) for kind, entries in sorted(embedding.items())},
+        "unknownStructuredRecords": unknown_structured,
+        "malformedJsonRecords": malformed_json,
+        "nonStructuredRecords": nonstructured,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("runtime_root", type=Path, help="completed canonical runtime receipt root")
+    parser.add_argument("output_json", type=Path, help="private summary output path")
+    args = parser.parse_args()
+    root = args.runtime_root.resolve()
+    if not root.is_dir():
+        raise SystemExit(f"runtime root is not a directory: {root}")
+    logs = sorted(root.rglob("compose.log"))
+    if not logs:
+        raise SystemExit(f"no compose.log files below: {root}")
+    summaries = [summarize_log(root, path) for path in logs]
+    result = {
+        "inputRoot": str(root),
+        "composeLogCount": len(summaries),
+        "roleCounts": dict(sorted(Counter(summary["origin"] for summary in summaries).items())),
+        "logs": summaries,
+        "reviewRequired": "Warnings, errors, fatals, malformed JSON, non-structured lines, unknown levels, and unknown structured records are retained for review; no record is auto-approved.",
+    }
+    args.output_json.parent.mkdir(parents=True, exist_ok=True)
+    args.output_json.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,33 @@
+{
+  "archives": [
+    {
+      "source": "docs/validation/extension-v4-fixture/nested.tar.zst",
+      "archiveChain": [],
+      "member": "nested.tar",
+      "expandedPath": "archive-000001/member-000001/nested.tar",
+      "payloadSha256": "a7b046b90d3650746ae84cddb5b68fe66fc35cf85b85aea472ea687990312cb8"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/nested.tar.zst",
+      "archiveChain": [
+        "nested.tar"
+      ],
+      "member": "zstd-inner.txt.gz",
+      "expandedPath": "archive-000002/member-000002/zstd-inner.txt.gz",
+      "payloadSha256": "7b284d790c3fba717da43a35ea3490776a91ca551487f2a21e5ba1fd563b1e4f"
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/nested.tar.zst",
+      "archiveChain": [
+        "nested.tar",
+        "zstd-inner.txt.gz"
+      ],
+      "member": "zstd-inner.txt",
+      "expandedPath": "archive-000003/member-000003/zstd-inner.txt",
+      "payloadSha256": "20beb0ad83d96e2b3aa897078fb5af9803976cb5e8a0f6a701290450991dfb54"
+    }
+  ],
+  "memberCount": 3,
+  "headerCount": 1,
+  "bytes": 10296
+}

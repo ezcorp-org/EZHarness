@@ -1,0 +1,4 @@
+raw_receipt=.cache/terra-shipping/backend/sdk-leg-offline-adbba8a6-20260907T054600Z
+lcov_path=coverage/lcov.info
+lcov_bytes=784135
+lcov_sha256=1dddbc4c6b368190c00c265fbf2ad2bb0389c468c45db55a35a819933be104a9

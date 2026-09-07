@@ -1,0 +1,12 @@
+diff --git a/web/e2e/extension-install-granted-caps.spec.ts b/web/e2e/extension-install-granted-caps.spec.ts
+index 3cdb9766..35c8f3ba 100644
+--- a/web/e2e/extension-install-granted-caps.spec.ts
++++ b/web/e2e/extension-install-granted-caps.spec.ts
+@@ -112,6 +112,7 @@ test.describe("Extension install-granted capabilities", () => {
+ 		await captureEvidence(page, testInfo, "install-granted-capabilities-v4", { fullPage: true });
+ 		await page.getByTestId("review-extension-release").click();
+ 		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
++		await expect(page.getByRole("heading", { name: "Extension workspace", exact: true })).toBeVisible();
+ 
+ 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+ 			expect(

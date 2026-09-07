@@ -1,0 +1,6 @@
+{
+  "PI_E2E_REAL_DB_PATH": false,
+  "EZCORP_DB_PATH": false,
+  "EZCORP_JWT_SECRET": false,
+  "EZCORP_SECRETS_DIR": false
+}

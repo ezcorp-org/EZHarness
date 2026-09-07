@@ -1,0 +1,8 @@
+5d916d14a0b00de1216da492c36c4c892446f97f949f256ec94c582cb6082357  ./README.md
+359ad56e3012629f607fdfde73b5d92fb9215c2ff2284de0cffdf99858641bce  ./failed-scan-safe-summary.json
+61fce3a0c1ff97178c9b501c905b1de77674e92d5806d80e7aeeed70348575a3  ./parent-private-byte-verification.json
+42962cdbb8bd36fa4b93e84464685dddc9a2b34746912d41e755782a87957129  ./private-artifact-inventory.json
+635e2796e61ebc66d144cd09b319346c1a6c76e2f44bfd2d1e66c4374ea045cc  ./scanned-head.txt
+00bde88e0abeff82bdd142aad327c3b29242d1057ec8ba11615e86bab7f584e1  ./scanned-index-tree.txt
+61d29babbe1a8654df46f8214c892da25cf109f05f282a48e33093b2c4e2ba69  ./scanner-config.sha256
+d3e199abe60c98151531d075cbce4d9e827e094685d5f3385aa9cf62d4362dd5  ./scope.txt

@@ -1,0 +1,8 @@
+{
+  "driver_commit_sha": "65486295a8e61c37dc5af2eb9fe6b187f8020cbf",
+  "candidate_commit_sha": "60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+  "command": "bash scripts/verify-shipping-delivery.sh",
+  "command_exit": 1,
+  "owned_cleanup_exit": 0,
+  "finding": "At observer timeout 2026-09-07T02:24:13.744Z, 27 bundles were verified and scratchpad was verifying after lease recovery (fence 2). Its verifying event was 2026-09-07T02:24:13.242Z. The observer gave no time beyond the six-minute lease for final verification and two idle observations. A bounded observer repair and passing replay remain pending."
+}

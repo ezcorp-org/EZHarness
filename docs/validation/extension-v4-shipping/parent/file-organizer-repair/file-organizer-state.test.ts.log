@@ -1,0 +1,46 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-state.test.ts:
+(pass) acceptProposal > applies a move: fs effect + status applied + audit [9.64ms]
+(pass) acceptProposal > CAS: double-accept is a no-op (already applied) [0.52ms]
+(pass) acceptProposal > unknown id ⇒ not found (no mutation) [0.51ms]
+{"ts":"2026-09-07T01:20:03.539Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-state-U8XNsr/watched/sub/a.txt","reason":"deny"}
+(pass) acceptProposal > engine deny ⇒ blocked, file intact [2.25ms]
+(pass) acceptProposal > orphaned proposal (folder removed) ⇒ blocked, file NOT moved [0.76ms]
+(pass) acceptProposal > delete-quarantine: applies + records manifest entry [2.04ms]
+(pass) acceptProposal > first delete-quarantine creates its private trash root and preserves bytes [1.57ms]
+(pass) acceptProposal > stale source ⇒ status stale-source + 'Source gone' message [0.84ms]
+{"ts":"2026-09-07T01:20:03.551Z","level":"warn","msg":"file-organizer move failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-state-Sh7nep/watched/a.txt","dst":"/tmp/fo-state-Sh7nep/watched/sub/a.txt","error":"Error: copy verify failed: expected 999 bytes, got 5"}
+(pass) acceptProposal > a failed apply ⇒ status failed + 'Failed:' message (original intact) [6.70ms]
+(pass) acceptProposal > a skipped apply (symlink) ⇒ no-op, proposal left pending [0.91ms]
+(pass) rejectProposal > rejects + adds to suppressed-set [0.81ms]
+(pass) rejectProposal > CAS no-op on already-resolved [0.44ms]
+(pass) confirmDeletes (batch) > applies all pending deletes with a shared batchId [3.69ms]
+(pass) confirmDeletes (batch) > an orphaned delete (folder removed) is blocked, never falls back to / [0.73ms]
+(pass) rejectSegment > rejects every pending proposal of a kind [0.84ms]
+(pass) quarantine restore / undo / purge > restore one by id puts the file back [1.61ms]
+(pass) quarantine restore / undo / purge > undoBatch restores every entry in a batch [1.29ms]
+(pass) quarantine restore / undo / purge > undoBatch with unknown batch is a no-op [0.76ms]
+(pass) quarantine restore / undo / purge > purge hard-deletes one entry [1.42ms]
+(pass) quarantine restore / undo / purge > emptyQuarantine clears all [1.16ms]
+(pass) quarantine restore / undo / purge > purgeExpired removes expired entries only [1.03ms]
+(pass) config mutations > addWatchedFolder validates + writes [0.96ms]
+(pass) config mutations > addWatchedFolder refuses .ezcorp/data [0.44ms]
+(pass) config mutations > addWatchedFolder refuses an unreachable (unmounted) path [0.42ms]
+(pass) config mutations > setFolderBacklog writes the policy [0.69ms]
+(pass) config mutations > setMode / togglePreset / addIgnore / removeFolder [2.61ms]
+(pass) config mutations > addRule parses the mini-DSL (valid + invalid) [1.05ms]
+(pass) retryFailed > resets failed rows back to pending (others untouched) [0.81ms]
+(pass) retryFailed > no failed rows ⇒ no-op (changed:false) [0.48ms]
+(pass) dismissStale > dismisses a stale-source proposal [0.68ms]
+(pass) dismissStale > no-op on a non-stale proposal [0.49ms]
+(pass) internals > rootForRestore finds the owning folder, else the parent [0.34ms]
+(pass) internals > segmentKind maps segment → proposal kind [0.31ms]
+(pass) internals > readConfig recovers to defaults on malformed JSON [0.47ms]
+(pass) internals > readManifest recovers to empty on malformed JSON [0.42ms]
+(pass) internals > applyMessage maps every status (incl. the defensive default) [0.29ms]
+
+ 36 pass
+ 0 fail
+ 102 expect() calls
+Ran 36 tests across 1 file. [583.00ms]

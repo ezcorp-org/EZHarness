@@ -1,0 +1,17 @@
+{
+  "hash_matches_native_image_id": true,
+  "native_image_id": "0f64f92d69ca2c38512f6a0f202c2027494166a250d82a7cd9621c10b42f63c0",
+  "oci_config_healthcheck": {
+    "Interval": 30000000000,
+    "Retries": 3,
+    "StartPeriod": 60000000000,
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "Timeout": 5000000000
+  },
+  "raw_config_bytes": 17093,
+  "raw_config_path": "/home/dev/.local/share/containers/storage/overlay-images/0f64f92d69ca2c38512f6a0f202c2027494166a250d82a7cd9621c10b42f63c0/=c2hhMjU2OjBmNjRmOTJkNjljYTJjMzg1MTJmNmEwZjIwMmMyMDI3NDk0MTY2YTI1MGQ4MmE3Y2Q5NjIxYzEwYjQyZjYzYzA=",
+  "raw_config_sha256": "0f64f92d69ca2c38512f6a0f202c2027494166a250d82a7cd9621c10b42f63c0"
+}

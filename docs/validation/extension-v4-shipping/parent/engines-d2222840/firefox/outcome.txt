@@ -1,0 +1,6 @@
+exit=0
+project=firefox
+tests=3
+1=human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension
+2=reload transport control: reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable
+3=same-session stale tabs cannot replace a new active release or restore an uninstall

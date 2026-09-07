@@ -1,0 +1,1 @@
+Parent independently read the raw native config, verified its 17,093-byte size and image-ID SHA-256, and compared its Healthcheck object to the original Docker inspect receipt. The objects match exactly. No raw environment or whole image config is published.

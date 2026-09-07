@@ -1,0 +1,19 @@
+archived_image=localhost/ezcorp-extension-v4:legacy-main-537f074e
+archived_source=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+archived_build=reused
+ Network ezcorp-legacy-adoption-old-9a51ad9514a2_default Creating 
+ Network ezcorp-legacy-adoption-old-9a51ad9514a2_default Created 
+ Container ezcorp-legacy-adoption-old-9a51ad9514a2-app Creating 
+ Container ezcorp-legacy-adoption-old-9a51ad9514a2-app Created 
+ Container ezcorp-legacy-adoption-old-9a51ad9514a2-app Starting 
+ Container ezcorp-legacy-adoption-old-9a51ad9514a2-app Started 
+LEGACY_ADOPTION_SEEDED
+ Network ezcorp-legacy-adoption-v4-9a51ad9514a2_default Creating 
+ Network ezcorp-legacy-adoption-v4-9a51ad9514a2_default Created 
+ Container ezcorp-legacy-adoption-v4-9a51ad9514a2-app Creating 
+ Container ezcorp-legacy-adoption-v4-9a51ad9514a2-app Created 
+ Container ezcorp-legacy-adoption-v4-9a51ad9514a2-app Starting 
+ Container ezcorp-legacy-adoption-v4-9a51ad9514a2-app Started 
+LEGACY_ADOPTION_ASSERTED
+LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED
+Legacy adoption receipts: /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-adbba8a6/legacy-adoption/legacy

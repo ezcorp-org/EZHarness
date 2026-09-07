@@ -1,0 +1,4 @@
+raw_receipt=.cache/terra-shipping/backend/final-after-r4-156fd9a4-20260907T060500Z
+lcov_path=lcov.info
+lcov_bytes=1539147
+lcov_sha256=fb7846ca3790070d404ee4c3559aa6e4c2c83f7671dad06751bcac89ea362d3c

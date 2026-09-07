@@ -1,0 +1,11 @@
+--- /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/r4-heap-trend-review-20260907T072500Z/committed-launcher-473f955aa1c8d4d8dfa4d8a73761bdae998c9151.sh	2026-09-07 03:17:59.507442441 -0400
++++ /tmp/ez-r4-trend-review-20260907T072500Z/verify-production-image-lifecycle.sh	2026-09-07 03:17:59.501774370 -0400
+@@ -5,7 +5,7 @@
+ # The command after -- runs only after health and a fresh owner/API key exist.
+ set -euo pipefail
+ 
+-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++repo_root="/home/dev/work/EZCorp/extension-v4-independent-audit"
+ cd "$repo_root"
+ : "${EZ_PRODUCTION_IMAGE:?Set the exact production image tag}"
+ : "${EZ_PRODUCTION_RECEIPT_DIR:?Set an empty owned receipt directory}"

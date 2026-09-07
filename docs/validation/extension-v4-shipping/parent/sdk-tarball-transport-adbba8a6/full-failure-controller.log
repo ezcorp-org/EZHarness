@@ -1,0 +1,5 @@
+runner-probe exit=0
+coverage exit=1
+residual exit=0
+new-file-coverage exit=0
+patch-coverage exit=0

@@ -139,5 +139,12 @@
       "blob_report": "not enabled"
     }
   },
-  "production_receipt_sha256": "46200582e02347e4a68c1ac146ec2d7543e2891d0dbd528d62c566cba78ee9ec"
+  "production_receipt_sha256": "46200582e02347e4a68c1ac146ec2d7543e2891d0dbd528d62c566cba78ee9ec",
+  "publication_quarantine": {
+    "recorded_utc": "2026-09-07T11:00:30Z",
+    "status": "removed-from-current-published-tree-private-unpublished",
+    "inventory": "docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json",
+    "scope": "raw browser report/trace archives and browser server-state attachments",
+    "history": "Earlier repository history may retain these files; this action does not erase history."
+  }
 }

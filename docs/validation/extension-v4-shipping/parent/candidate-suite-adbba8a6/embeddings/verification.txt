@@ -1,0 +1,1 @@
+{"proof":"production-memory-embedding","dimensions":384,"norm":0.9999999999401207,"polls":33,"durationMs":8239,"status":"passed"}

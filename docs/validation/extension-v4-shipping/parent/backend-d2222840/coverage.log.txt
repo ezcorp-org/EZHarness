@@ -1,0 +1,1864 @@
+$ bash scripts/test-coverage.sh
+== full local coverage mode: 1557 host files ==
+
+── leg output: sdk ──
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/sdk/test/http.test.ts:
+(pass) fetchPermitted (thin shim of globalThis.fetch) > forwards string URL to fetch verbatim [1.52ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > forwards URL object to fetch verbatim [0.06ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > forwards init second-arg unchanged [0.07ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > init omitted → init forwarded as undefined (covers undefined branch) [0.04ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > returns the Response that fetch returns (200 OK) [0.03ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > returns the Response that fetch returns (non-200 status echoes through) [0.05ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > surfaces fetch's throw without modification (wrapper-deny pass-through) [0.09ms]
+(pass) fetchPermitted (thin shim of globalThis.fetch) > surfaces fetch's throw for upstream failures [0.06ms]
+
+packages/@ezcorp/sdk/test/reverse-rpc-provenance.test.ts:
+(pass) reverse-RPC ezCallId echo > echoes inbound _meta.ezCallId on a reverse-RPC from a tools/call handler [6.99ms]
+(pass) reverse-RPC ezCallId echo > works for a schedule-fire notification too (central chokepoint, not per-handler) [5.27ms]
+(pass) reverse-RPC ezCallId echo > preserves a pre-existing _meta on the reverse-RPC params (merge, not clobber) [5.24ms]
+(pass) reverse-RPC ezCallId echo > reverse-RPC outside any inbound scope carries no ezCallId [0.19ms]
+(pass) reverse-RPC ezCallId echo > concurrent inbound frames each echo their OWN ezCallId (ALS isolation, not last-writer-wins) [6.39ms]
+(pass) reverse-RPC ezCallId echo > inbound frame with NO _meta → reverse-RPC has no ezCallId; its own pre-set _meta survives [5.30ms]
+(pass) reverse-RPC ezCallId echo > lifecycle/* inbound method also propagates the token (central chokepoint) [5.27ms]
+(pass) reverse-RPC ezCallId echo > ezcorp/event/* inbound notification also propagates the token (central chokepoint) [6.58ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta is a string) → no echo, no crash [5.26ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta is an array) → no echo, no crash [5.12ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta is null) → no echo, no crash [6.22ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta.ezCallId is a number) → no echo, no crash [5.14ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta.ezCallId is an object) → no echo, no crash [5.13ms]
+(pass) reverse-RPC ezCallId echo > malformed inbound _meta (_meta.ezCallId is empty string) → no echo, no crash [6.25ms]
+
+packages/@ezcorp/sdk/test/agent-configs.test.ts:
+(pass) AgentConfigs — wire format > list() sends { v:1, action:'list' } to ezcorp/agent-configs [0.34ms]
+(pass) AgentConfigs — wire format > resolve(id) sends { v:1, action:'resolve', idOrName } to ezcorp/agent-configs [0.12ms]
+(pass) AgentConfigs — return unwrapping > list() returns the configs array from the envelope [0.07ms]
+(pass) AgentConfigs — return unwrapping > list() with empty result returns empty array [0.06ms]
+(pass) AgentConfigs — return unwrapping > resolve() returns the config object when match is found [0.06ms]
+(pass) AgentConfigs — return unwrapping > resolve() returns null when host reports no match [0.05ms]
+(pass) AgentConfigs — error propagation > -32001 (permission denied) propagates as JsonRpcError [0.11ms]
+(pass) AgentConfigs — error propagation > -32029 (rate limited) propagates — no client-side retry [0.09ms]
+(pass) AgentConfigs — error propagation > -32602 (bad params) propagates [0.08ms]
+
+packages/@ezcorp/sdk/test/rpc.test.ts:
+(pass) toolResult > returns the canonical text-content envelope [0.03ms]
+(pass) toolResult > merges meta keys onto the top-level object [0.02ms]
+(pass) toolResult > meta can override isError [0.01ms]
+(pass) toolResult > empty meta object still goes through the merge branch [0.01ms]
+(pass) toolError > returns isError: true with no code when code is omitted [0.02ms]
+(pass) toolError > attaches code when supplied [0.01ms]
+(pass) createToolDispatcher (default state) > throws 'channel not ready' before channel.ts is loaded [0.05ms]
+(pass) _setDispatcherRegister + createToolDispatcher > forwards handlers without opts when none supplied [0.04ms]
+(pass) _setDispatcherRegister + createToolDispatcher > forwards opts when supplied [0.02ms]
+(pass) _setDispatcherRegister + createToolDispatcher > the registered onError can be invoked from outside (smoke) [0.04ms]
+
+packages/@ezcorp/sdk/test/loop-core.test.ts:
+(pass) approval states > APPROVAL_STATES lists the four primitive-owned states in order [0.01ms]
+(pass) approval states > APPROVAL_TERMINAL_STATES is the terminal subset (approved + declined) [0.02ms]
+(pass) isUntrustedInputTrigger > a webhook trigger is untrusted-input [0.02ms]
+(pass) isUntrustedInputTrigger > cron / event / manual triggers are NOT untrusted-input [0.02ms]
+(pass) hasUntrustedInputTrigger > single webhook trigger → true [0.02ms]
+(pass) hasUntrustedInputTrigger > single trusted trigger → false
+(pass) hasUntrustedInputTrigger > ANY webhook in a multi-trigger array taints the whole loop [0.01ms]
+(pass) hasUntrustedInputTrigger > an all-trusted trigger array → false
+(pass) isUntrustedInputLoop > a webhook trigger taints the loop even without a contentTrust declaration [0.02ms]
+(pass) isUntrustedInputLoop > an explicit contentTrust declaration taints an all-trusted-trigger loop (seo-watcher's fetch-based shape) [0.01ms]
+(pass) isUntrustedInputLoop > declaring contentTrust can only ADD the marker — a webhook trigger stays tainted regardless
+(pass) isUntrustedInputLoop > a trusted-trigger loop with NO declaration → false
+(pass) resolveContract > empty contract → terminal 'done' loop with parity defaults [0.06ms]
+(pass) resolveContract > empty states array falls back to default [0.02ms]
+(pass) resolveContract > terminal defaults to all states when omitted/empty [0.03ms]
+(pass) resolveContract > explicit terminal subset is honored [0.01ms]
+(pass) resolveContract > retention + failure overrides are threaded through [0.04ms]
+(pass) resolveContract > approval present → injects the owned states + defaults mode/staleAfterDays [0.05ms]
+(pass) resolveContract > approval staleAfterDays=0 is preserved (sweep disabled), not defaulted [0.02ms]
+(pass) resolveContract > an unknown approval.mode throws LOUDLY at construction (Phase 7/8 guard) [0.04ms]
+(pass) status predicates > isTerminal [0.02ms]
+(pass) status predicates > isLive is the negation of isTerminal [0.03ms]
+(pass) status predicates > isKnownState [0.02ms]
+(pass) appendEvent > prepends newest first [0.03ms]
+(pass) appendEvent > caps at maxEventsPerRun, evicting oldest [0.08ms]
+(pass) appendEvent > maxEventsPerRun of 0 keeps nothing; negative is clamped to 0 [0.01ms]
+(pass) appendEvent > does not mutate the input array [0.01ms]
+(pass) createRun > minimal terminal-loop run [0.06ms]
+(pass) createRun > threads optional fields incl. initial note + deferred ids [0.04ms]
+(pass) transition > eventStatus records a DISTINCT event status from the run status [0.05ms]
+(pass) transition > eventStatus defaults to status when omitted [0.03ms]
+(pass) transition > deferred → running → completed, carrying outcome + capped log [0.05ms]
+(pass) transition > each terminal sink (failed, cancelled) is reachable [0.03ms]
+(pass) transition > threads deferred correlation ids on transition [0.03ms]
+(pass) transition > does not mutate the input run [0.04ms]
+(pass) validateActResult > skip always passes (carries no status) [0.04ms]
+(pass) validateActResult > terminal with known status passes [0.01ms]
+(pass) validateActResult > deferred with known status passes [0.01ms]
+(pass) validateActResult > unknown status is rejected with a helpful message [0.02ms]
+(pass) validateCheckResult > proceed:true always passes (with or without enrichment) [0.03ms]
+(pass) validateCheckResult > proceed:false with a non-empty reason passes
+(pass) validateCheckResult > proceed:false with an empty reason is rejected
+(pass) validateCheckResult > proceed:false with a non-string reason is rejected
+(pass) validateCheckResult > a non-object result is rejected (runtime junk, not a CheckResult) [0.01ms]
+(pass) validateCheckResult > a null result is rejected
+(pass) validateCheckResult > a non-boolean proceed is rejected (a truthy non-bool must NOT act)
+(pass) findOpenDuplicate > no key → never a dupe [0.05ms]
+(pass) findOpenDuplicate > matching key on an OPEN run → duplicate (no-op signal) [0.03ms]
+(pass) findOpenDuplicate > matching key only on a TERMINAL run → NOT a dupe (may re-run) [0.01ms]
+(pass) findOpenDuplicate > prefers the open run when both terminal + open share a key [0.02ms]
+(pass) trimRetention > under budget → returned unchanged (copy) [0.06ms]
+(pass) trimRetention > evicts the OLDEST terminal runs first, preserving order of survivors [0.28ms]
+(pass) trimRetention > never evicts an OPEN run, even when it is the oldest [0.04ms]
+(pass) trimRetention > keeps ALL open runs when they exceed maxRuns (never drop live state) [0.02ms]
+(pass) trimRetention > PARKED runs (awaiting_approval / finalizing) are non-terminal → never evicted [0.04ms]
+(pass) classifyFailure > transient resets the consecutive count and never disables [0.04ms]
+(pass) classifyFailure > permanent increments and disables at EXACTLY the threshold [0.03ms]
+(pass) classifyFailure > autoDisableAfter of 0 never disables (even on many permanent errors) [0.01ms]
+(pass) classifyFailure > default classify treats everything as transient [0.01ms]
+(pass) classifyFailure > autoDisableContext snapshots the loop, count, and last error [0.04ms]
+
+packages/@ezcorp/sdk/test/llm.test.ts:
+(pass) Llm — wire format > complete() sends `op:'complete'` to ezcorp/llm-complete [0.32ms]
+(pass) Llm — wire format > getBudget() sends `op:'budget'` [0.09ms]
+(pass) Llm — error mapping > -32101 → LlmProviderError [0.19ms]
+(pass) Llm — error mapping > -32103 → LlmQuotaError with retryAfterMs [0.13ms]
+(pass) Llm — error mapping > -32104 → LlmCredentialError [0.12ms]
+(pass) Llm — stream() is stub-only > stream() throws NotImplementedError immediately (deferred to v1.4) [0.30ms]
+
+packages/@ezcorp/sdk/test/types-host-parity.test.ts:
+(pass) SDK/host manifest type parity — exact field sets > ToolDefinition — same fields on both sides [0.22ms]
+(pass) SDK/host manifest type parity — exact field sets > CapabilityDeclaration — same fields on both sides [0.07ms]
+(pass) SDK/host manifest type parity — exact field sets > SkillDefinition — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > PreprocessorDecl — same fields on both sides
+(pass) SDK/host manifest type parity — exact field sets > McpServerHttp — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > McpServerSse — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > AgentComponentDefinition — same fields on both sides [0.05ms]
+(pass) SDK/host manifest type parity — exact field sets > ScriptDefinition — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > DependencySpec — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsFieldSelect — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsFieldText — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsFieldNumber — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsFieldBoolean — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsFieldSecret — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > MessageToolbarItem — same fields on both sides [0.03ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionPageDeclaration — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > JsonRpcRequest — same fields on both sides [0.03ms]
+(pass) SDK/host manifest type parity — exact field sets > JsonRpcResponse — same fields on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > ToolCallResult — same fields on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionManifestV2 — same top-level fields on both sides [0.25ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionManifestV2["author"] — same nested fields [0.06ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionManifestV2["panel"] — same nested fields [0.04ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionManifestV2["resources"] — same nested fields [0.04ms]
+(pass) SDK/host manifest type parity — exact field sets > ExtensionManifestV2["smokeTest"] — same nested fields [0.05ms]
+(pass) SDK/host manifest type parity — exact field sets > McpTransport — identical alias text on both sides [0.06ms]
+(pass) SDK/host manifest type parity — exact field sets > McpServerDefinition — identical alias text on both sides [0.01ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsField — identical alias text on both sides [0.02ms]
+(pass) SDK/host manifest type parity — exact field sets > SettingsSchema — identical alias text on both sides [0.02ms]
+(pass) SDK/host manifest type parity — permissions block (with documented host-only exceptions) > author-declarable permission keys match (host minus the documented bundled-only allowlist) [0.15ms]
+(pass) SDK/host manifest type parity — McpServerStdio (with documented host-only exceptions) > author-declarable McpServerStdio fields match (host minus the documented sandbox-wiring allowlist) [0.04ms]
+(pass) SDK/host manifest type parity — ExtensionPermissions (granted/installed representation) > every SDK ExtensionPermissions field exists on the host's ExtensionPermissions [0.08ms]
+
+packages/@ezcorp/sdk/test/fs.test.ts:
+(pass) findProjectRoot > returns dir containing .git when called from that dir [0.27ms]
+(pass) findProjectRoot > walks up from a nested dir until it finds .git [0.17ms]
+(pass) findProjectRoot > throws when no .git ancestor exists up to filesystem root [0.13ms]
+(pass) findProjectRoot > uses process.cwd() when called with no argument [0.07ms]
+(pass) getExtensionDataDir > composes <root>/.ezcorp/extension-data/<name> using opts.projectRoot [0.17ms]
+(pass) getExtensionDataDir > creates the dir if missing [0.14ms]
+(pass) getExtensionDataDir > is idempotent on a second call [0.15ms]
+(pass) getExtensionDataDir > falls back to findProjectRoot() when opts is undefined [0.20ms]
+(pass) atomicWrite > writes content to the target path [0.27ms]
+(pass) atomicWrite > overwrites an existing file [0.25ms]
+(pass) atomicWrite > creates the parent directory if missing [0.26ms]
+(pass) atomicWrite > tmp sibling file is gone after success [0.18ms]
+(pass) atomicWrite > does not leave a partial when Bun.write throws [0.22ms]
+(pass) atomicWrite > accepts a Uint8Array body [0.19ms]
+(pass) atomicRead > returns the content for an existing file [0.21ms]
+(pass) atomicRead > returns null when the file does not exist [0.11ms]
+(pass) atomicRead > rethrows on unexpected fs errors (e.g. EACCES from .text()) [0.19ms]
+(pass) loadJSON > returns the parsed object for a valid JSON file [0.25ms]
+(pass) loadJSON > returns the fallback when the file is missing [0.10ms]
+(pass) loadJSON > returns the fallback on malformed JSON and warns to stderr [0.25ms]
+(pass) loadJSON > logs String(err) when JSON.parse throws a non-Error [0.23ms]
+(pass) saveJSON > round-trips with loadJSON [0.23ms]
+(pass) saveJSON > writes 2-space indent [0.19ms]
+
+packages/@ezcorp/sdk/test/loop-approval.test.ts:
+(pass) park — proposal ActResult > act proposal → run parks at awaiting_approval + emits pending nudge [2.26ms]
+(pass) park — proposal ActResult > a pending-emit failure never leaves the run unparked (best-effort) [0.21ms]
+(pass) approve → finalize (exactly once) > approve finalizes, terminalizes at approved, appends the label + resolved nudge [1.02ms]
+(pass) approve → finalize (exactly once) > a second approve after resolution is an idempotent no-op (no double finalize) [0.21ms]
+(pass) finalize exactly-once fail-safe > a finalize that throws leaves the run in finalizing + verifyManually [0.32ms]
+(pass) finalize exactly-once fail-safe > approving a run in finalizing is refused (never re-invokes finalize) [0.21ms]
+(pass) finalize exactly-once fail-safe > approve after a restart (closure lost) flags verify-manually, never finalizes [0.20ms]
+(pass) decline → discard > decline terminalizes at declined, appends label, runs discard, emits resolved [0.52ms]
+(pass) decline → discard > a discard that throws still leaves the run declined (best-effort cleanup) [0.31ms]
+(pass) decline → discard > decline with no discard closure is a clean terminal [0.24ms]
+(pass) resolution guard rails > unknown loop / unknown run [0.18ms]
+(pass) resolution guard rails > approve/decline refuse a non-parked run [0.32ms]
+(pass) resolution guard rails > a parked run with no proposal snapshot is refused [0.24ms]
+(pass) resolution guard rails > already-declined run refuses a subsequent approve [0.29ms]
+(pass) staleness auto-decline > a parked proposal past the horizon auto-declines with a system label [0.42ms]
+(pass) staleness auto-decline > sweep is a no-op for an unknown loop, a non-approval loop, or staleAfterDays 0 [0.16ms]
+(pass) staleness auto-decline > every fire opportunistically runs the staleness sweep (best-effort) [0.29ms]
+(pass) deferred → proposal composition > onComplete → proposal parks the completed deferred run for approval [1.18ms]
+(pass) deferred → proposal composition > onComplete → terminal terminalizes with the outcome [0.38ms]
+(pass) deferred → proposal composition > onComplete opting out (skip) falls back to the default terminalize [0.32ms]
+(pass) deferred → proposal composition > onComplete that throws falls back to the default terminalize [0.32ms]
+(pass) deferred → proposal composition > onComplete returning an invalid proposal falls back to terminalize [0.20ms]
+(pass) auto-disable emits a user-visible notice > tripping autoDisableAfter emits loops:auto_disabled (never a silent stop) [0.69ms]
+(pass) manual trigger + label isolation > the label store is not surfaced by any run/skip accessor an agent can read [0.37ms]
+(pass) dispatchAssignmentUpdate — parked / closed guard > a DUPLICATE terminal assignment_update while parked is a no-op (onComplete not re-run, no duplicate nudge) [0.33ms]
+(pass) dispatchAssignmentUpdate — parked / closed guard > a LATE assignment_update during finalizing is a no-op (never flipped to terminal without a decision) [0.28ms]
+(pass) dispatchAssignmentUpdate — parked / closed guard > a duplicate assignment_update for an already-terminal run appends nothing [0.26ms]
+(pass) dispatchAssignmentUpdate — parked / closed guard > a LOST CAS on the terminalize (concurrent resolver moved the run) is a clean no-op [0.24ms]
+(pass) runFire proposal — duplicate fire keeps the original snapshot + closures > a duplicate fire (same idempotencyKey) on a parked run does not re-park or re-bind closures [0.52ms]
+(pass) approve — label-append failure never wedges the run in finalizing > a failed label append flags verifyManually and lets a human decline the finalizing run [0.43ms]
+(pass) approve — label-append failure never wedges the run in finalizing > a finalizing run WITHOUT the verifyManually flag is NOT declinable [0.21ms]
+(pass) sweepAllStaleProposals — reaps every registered loop > one pass auto-declines stale parked proposals across all loops [0.44ms]
+(pass) sweepAllStaleProposals — reaps every registered loop > a loop without approval is skipped by the sweep [0.10ms]
+(pass) kill-switch honesty — manual tool fires stay live > a manual-trigger tool fire runs unconditionally (the SDK holds no host-kill-switch state) [0.40ms]
+
+packages/@ezcorp/sdk/test/fs-host-mediated.test.ts:
+(pass) fsRead / fsWrite / ... — pre-flight EZCORP_FS_ALLOWED > fsRead throws BEFORE any RPC when EZCORP_FS_ALLOWED is unset [0.31ms]
+(pass) fsRead / fsWrite / ... — pre-flight EZCORP_FS_ALLOWED > fsWrite throws BEFORE any RPC when EZCORP_FS_ALLOWED is unset [0.11ms]
+(pass) fsRead / fsWrite / ... — pre-flight EZCORP_FS_ALLOWED > fsList / fsStat / fsExists / fsMkdir / fsUnlink all fail-fast [0.19ms]
+(pass) fsRead > UTF-8 decoding (default) returns a string [0.27ms]
+(pass) fsRead > binary encoding returns a Uint8Array [0.17ms]
+(pass) fsRead > wire shape: method + params correct [0.09ms]
+(pass) fsRead > rethrows host error (-32001 deny) [0.08ms]
+(pass) fsWrite > string content sends utf-8 encoding [0.10ms]
+(pass) fsWrite > Uint8Array content is base64-encoded with binary encoding [0.13ms]
+(pass) fsWrite > large Uint8Array (>1MB) base64-encodes without stack overflow (regression) [45.40ms]
+(pass) fsWrite > host returns bytes + resolvedPath; SDK passes through [0.24ms]
+(pass) fsWrite > (N1) pre-base64 size guard: oversized Uint8Array throws BEFORE allocating base64 [0.16ms]
+(pass) fsWrite > (N1) pre-base64 size guard: oversized utf-8 string throws BEFORE allocating [93.11ms]
+(pass) fsList > returns entries array; method + params correct [0.33ms]
+(pass) fsStat > returns size + mtime + flags [0.09ms]
+(pass) fsExists > true when host says exists:true [0.06ms]
+(pass) fsExists > false when host says exists:false [0.05ms]
+(pass) fsExists > rethrows host -32001 (out-of-grant existence is a deny, not a leak) [3.95ms]
+(pass) fsMkdir > default recursive=false, params correct [0.16ms]
+(pass) fsMkdir > recursive=true is forwarded [0.09ms]
+(pass) fsUnlink > calls ezcorp/fs.unlink with path [0.08ms]
+(pass) fsRead — streaming round-trip via real channel > 5MB chunked response reassembles correctly [47.71ms]
+(pass) fsRead — streaming round-trip via real channel > out-of-order chunk rejects the streaming request [0.40ms]
+(pass) fsRead — streaming round-trip via real channel > cancel frame surfaces error to caller [0.30ms]
+
+packages/@ezcorp/sdk/test/spawn.test.ts:
+(pass) spawnAssignment — JSON-RPC frame shape > sends method 'ezcorp/spawn-assignment' with v:1 and agentConfigId [0.31ms]
+(pass) spawnAssignment — JSON-RPC frame shape > sends agentName when only name is supplied (no agentConfigId key) [0.08ms]
+(pass) spawnAssignment — JSON-RPC frame shape > omits title when not provided (no key, not {title: undefined}) [0.05ms]
+(pass) spawnAssignment — JSON-RPC frame shape > includes title when provided [0.04ms]
+(pass) spawnAssignment — JSON-RPC frame shape > workingDir: echoed verbatim when provided (the containment cwd pin) [0.04ms]
+(pass) spawnAssignment — JSON-RPC frame shape > workingDir omitted → no key on params (host applies the project-path default) [0.04ms]
+(pass) spawnAssignment — JSON-RPC frame shape > if BOTH agentConfigId and agentName are supplied, both are sent (host decides precedence) [0.07ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > no Phase 4 fields in params when none supplied (absence test) [0.07ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > reuseSubConversationFor: echoed verbatim [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > parentMessageId: echoed verbatim [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > overrides: full TeamMemberOverrides bundle is echoed verbatim [0.07ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > teamToolScope: both lists echoed verbatim [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > orchestrationDepth: numeric value echoed verbatim [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > orchestrationDepth: zero is a valid value (not filtered as falsy) [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > orchestrationDepth: non-numeric is dropped (typeof gate) [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > parentRunId: echoed verbatim when provided [0.05ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > parentRunId: omitted when absent (no key on the wire) [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > autonomousContinuation: { maxCycles } echoed verbatim [0.05ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > autonomousContinuation: presence-only `{}` still echoed (opt-in flag) [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > outputSchema: echoed verbatim when provided [0.05ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > outputSchema: omitted when absent (no key on the wire) [0.04ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > notifyParentOnTerminal: sent as true when set (background spawn) [0.07ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > notifyParentOnTerminal: omitted when absent or false (no key on the wire) [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > detached: sent as true when set (background child outlives parent) [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > detached: omitted when absent or false (no key on the wire) [0.06ms]
+(pass) spawnAssignment — Phase 4 new-field serialization > all 5 Phase 4 fields together — each sits at its own key [0.07ms]
+(pass) spawnAssignment — input validation (pre-channel) > missing both agentConfigId and agentName → throws before channel call [0.08ms]
+(pass) spawnAssignment — input validation (pre-channel) > empty task → throws before channel call [0.05ms]
+(pass) spawnAssignment — input validation (pre-channel) > whitespace-only task → throws before channel call [0.04ms]
+(pass) spawnAssignment — input validation (pre-channel) > non-string task → throws before channel call [0.04ms]
+(pass) spawnAssignment — host error propagation > -32029 Rate limited surfaces as JsonRpcError [0.11ms]
+(pass) spawnAssignment — host error propagation > -32000 hourly-exceeded preserves data.reason [0.11ms]
+(pass) spawnAssignment — host error propagation > -32001 permission-missing surfaces as JsonRpcError [0.10ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > sends 'ezcorp/queue-agent-message' with v:1, subConversationId, message; maps queued:true [0.12ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > passes through a not-found reason (queued:false) [0.04ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > passes through a not-running reason (queued:false) [0.04ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > omits reason key when host returns none [0.04ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > empty subConversationId → throws before channel call [0.06ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > empty / non-string message → throws before channel call [0.06ms]
+(pass) queueAgentMessage — JSON-RPC frame shape + result mapping > host permission error propagates as JsonRpcError [0.06ms]
+
+packages/@ezcorp/sdk/test/lessons.test.ts:
+(pass) Lessons.list > no opts → only { action: 'list' }, returns lessons array [0.21ms]
+(pass) Lessons.list > projectId only attaches projectId, omits limit [0.07ms]
+(pass) Lessons.list > limit only attaches limit (including 0), omits projectId [0.06ms]
+(pass) Lessons.list > both projectId + limit attached [0.06ms]
+(pass) Lessons.list > empty opts object omits both optional keys [0.05ms]
+(pass) Lessons.get > sends { action: 'get', id } and returns the lesson [0.11ms]
+(pass) Lessons.get > returns null when host has no row [0.05ms]
+(pass) Lessons.getBySlug > sends { action: 'get', slug, projectId } and returns the lesson [0.09ms]
+(pass) Lessons.getBySlug > returns null when slug not found [0.05ms]
+(pass) Lessons.write > forwards input verbatim and returns {lesson, created} [0.08ms]
+(pass) Lessons.write > slug-collision soft outcome surfaces created:false [0.07ms]
+(pass) Lessons.update / archive / recordFired / recordDismissed > update sends { action:'update', id, patch } and returns {ok:true} [0.07ms]
+(pass) Lessons.update / archive / recordFired / recordDismissed > archive sends { action:'archive', id } [0.06ms]
+(pass) Lessons.update / archive / recordFired / recordDismissed > recordFired sends { action:'recordFired', id } [0.07ms]
+(pass) Lessons.update / archive / recordFired / recordDismissed > recordDismissed sends { action:'recordDismissed', id } [0.06ms]
+
+packages/@ezcorp/sdk/test/events.test.ts:
+(pass) registerEventHandler — wire format > subscribes onRequest with method name ezcorp/event/<type> [20.62ms]
+(pass) registerEventHandler — wire format > registerEventHandler routes via the singleton channel [2.22ms]
+(pass) registerEventHandler — handler typing > handlers observe the host payload verbatim [21.54ms]
+(pass) registerEventHandler — handler typing > handler exception does NOT crash the channel [21.85ms]
+(pass) registerEventHandler — handler typing > id-bearing request with same method also dispatches + responds [21.84ms]
+
+packages/@ezcorp/sdk/test/schedule.test.ts:
+(pass) Schedule.on + receiver dispatch > receiver closure was captured on first install [0.02ms]
+(pass) Schedule.on + receiver dispatch > registered cron handler fires with the host ctx [0.12ms]
+(pass) Schedule.on + receiver dispatch > async handler is awaited [5.14ms]
+(pass) Schedule.on + receiver dispatch > unregistered cron is silently dropped (no throw, returns undefined) [0.06ms]
+(pass) Schedule.on + receiver dispatch > last on() for a cron wins (Map overwrite semantics) [0.07ms]
+(pass) Schedule.on + receiver dispatch > on() after the receiver is installed does not re-register (idempotent) [0.04ms]
+(pass) Schedule.fireNow > sends { action:'fire-now', cron } over ezcorp/schedule [0.11ms]
+
+packages/@ezcorp/sdk/test/rbac.test.ts:
+(pass) Rbac.check > sends { scope } on ezcorp/rbac-check and resolves true for granted:true [1.62ms]
+(pass) Rbac.check > granted:false resolves false (deny is a value, not an error) [0.08ms]
+(pass) Rbac.check > core verbs go over the same wire shape [0.07ms]
+(pass) Rbac.check > fail-closed on malformed host replies: only literal true grants [0.14ms]
+(pass) Rbac.check > unknown-scope JsonRpcError (-32602) propagates as-is, naming valid scopes [0.13ms]
+(pass) Rbac.check > non-JsonRpcError transport failures propagate verbatim [0.11ms]
+
+packages/@ezcorp/sdk/test/loop-events.test.ts:
+(pass) LoopEvents.emitApprovalPending > emits v1 approval_pending with a content-free payload (no conversation) [0.17ms]
+(pass) LoopEvents.emitApprovalPending > threads conversationId when the loop is conversation-wired [0.05ms]
+(pass) LoopEvents.emitApprovalResolved > emits v1 approval_resolved carrying the decision [0.08ms]
+(pass) LoopEvents.emitApprovalResolved > threads conversationId + declined decision [0.04ms]
+(pass) LoopEvents.emitAutoDisabled > emits v1 auto_disabled with the loop id + error count (no runId) [0.07ms]
+(pass) LoopEvents.emitAutoDisabled > threads conversationId when present [0.04ms]
+
+packages/@ezcorp/sdk/test/lifecycle.test.ts:
+(pass) registerLifecycleHook — method-name forwarding > agent:spawn → channel.onRequest("lifecycle/agent:spawn", handler) [0.09ms]
+(pass) registerLifecycleHook — method-name forwarding > agent:complete → channel.onRequest("lifecycle/agent:complete", handler)
+(pass) registerLifecycleHook — method-name forwarding > run:start → channel.onRequest("lifecycle/run:start", handler)
+(pass) registerLifecycleHook — method-name forwarding > run:complete → channel.onRequest("lifecycle/run:complete", handler)
+(pass) registerLifecycleHook — handler wiring > forwarded handler receives params verbatim when the channel invokes it [0.09ms]
+(pass) registerLifecycleHook — handler wiring > async handler (Promise<void>) compiles and resolves [0.08ms]
+(pass) registerLifecycleHook — handler wiring > sync void handler (no await) also compiles and fires [0.03ms]
+(pass) registerLifecycleHook — handler wiring > registering multiple events installs one onRequest per event [0.04ms]
+
+packages/@ezcorp/sdk/test/events-dispatch.test.ts:
+(pass) registerEventHandler — singleton wiring > registers method ezcorp/event/<type> and the closure forwards the payload [0.12ms]
+(pass) registerEventHandler — singleton wiring > awaits an async handler before returning [5.17ms]
+(pass) Events class facade > on() delegates to registerEventHandler with the same method name [0.16ms]
+
+packages/@ezcorp/sdk/test/task-events.test.ts:
+(pass) TaskEvents — wire format > snapshot carries an atomic assignment batch and revision without undefined fields [0.28ms]
+(pass) TaskEvents — wire format > emitSnapshot sends { v:1, type:'snapshot', payload:{tasks} } to ezcorp/emit-task-event [0.12ms]
+(pass) TaskEvents — wire format > emitSnapshot with activeTaskId attaches it to payload [0.07ms]
+(pass) TaskEvents — wire format > emitAssignmentUpdate sends { v:1, type:'assignment_update', payload:{taskId, assignment} } [0.09ms]
+(pass) TaskEvents — wire format > emitSnapshot never sends a `conversationId` field (host forces it) [0.07ms]
+(pass) TaskEvents — error propagation > -32001 (permission / wiring) propagates as rejection [0.10ms]
+(pass) TaskEvents — error propagation > -32029 (rate limited) propagates — no client retry [0.08ms]
+(pass) TaskEvents — error propagation > -32602 (bad payload) propagates [0.07ms]
+
+packages/@ezcorp/sdk/test/scaffold-workspace.test.ts:
+(pass) public workspace seed preserves the host echo contract and bounded source [0.58ms]
+
+packages/@ezcorp/sdk/test/lock.test.ts:
+(pass) v4 locks poll bounded host ownership and release the exact fence on failure [51.26ms]
+(pass) v4 mutexes require stable keys while standalone mutexes retain local behavior [0.38ms]
+(pass) contended host polling backs off without extending the invocation deadline [1802.00ms]
+(pass) cancelling a host polling delay prevents another acquisition [0.52ms]
+(pass) v4 lock validation rejects malformed responses, unsafe keys and expired waits [0.46ms]
+(pass) aborted invocation does not enter the critical section or send late release [0.18ms]
+(pass) nested local lock cycles stop at the invocation deadline without running delayed actions [31.49ms]
+(pass) a queued local mutex call observes cancellation before host admission [0.46ms]
+(pass) withLock > serializes two concurrent calls with the same key [3.45ms]
+(pass) withLock > runs concurrent calls with DIFFERENT keys in parallel [1.16ms]
+(pass) withLock > rejected fn does NOT stall subsequent calls on the same key [0.12ms]
+(pass) withLock > forwards the return value of fn [0.06ms]
+(pass) withLock > opportunistic map cleanup drops the entry once the chain settles [2.18ms]
+(pass) withLock > does not delete the entry when a newer caller has overtaken the tail [0.15ms]
+(pass) createMutex > serializes all calls in a single chain [7.13ms]
+(pass) createMutex > rejection does not poison the chain [0.20ms]
+(pass) createMutex > each createMutex() call returns an independent chain [1.16ms]
+
+packages/@ezcorp/sdk/test/canvas.test.ts:
+(pass) createCanvas — input validation > rejects empty cardType [0.21ms]
+(pass) createCanvas — input validation > rejects non-string cardType [0.03ms]
+(pass) createCanvas — input validation > rejects namespace not matching extension-name regex [0.04ms]
+(pass) createCanvas — input validation > accepts namespace at the regex edge (single char, hyphens, dots) [0.05ms]
+(pass) createCanvas — input validation > rejects namespace longer than 64 chars [0.03ms]
+(pass) createCanvas — input validation > rejects events not being an object [0.02ms]
+(pass) createCanvas — input validation > rejects non-function handler value [0.08ms]
+(pass) createCanvas — inbound event handlers > registers handlers at ezcorp/event/<namespace>:<event> [0.08ms]
+(pass) createCanvas — inbound event handlers > inbound frame routes typed context + raw payload to user handler [0.19ms]
+(pass) createCanvas — inbound event handlers > frame missing toolCallId still calls the handler when conversationId is present (messageToolbar shape) [0.11ms]
+(pass) createCanvas — inbound event handlers > frame missing conversationId is dropped silently — handler not called [0.06ms]
+(pass) createCanvas — inbound event handlers > null params is dropped silently — does not throw [0.06ms]
+(pass) createCanvas — inbound event handlers > user handler exceptions propagate (channel handles error envelope) [0.07ms]
+(pass) createCanvas — inbound event handlers > same namespace:eventName twice — second call wins (Map semantics) [0.12ms]
+(pass) createCanvas — inbound event handlers > two namespaces with the same event suffix do not collide [0.16ms]
+(pass) createCanvas — inbound event handlers > non-string toolCallId is coerced to empty — handler still called (messageToolbar shape) [0.14ms]
+
+packages/@ezcorp/sdk/test/page.test.ts:
+(pass) PageBuilder page-only components > heading [0.17ms]
+(pass) PageBuilder page-only components > markdownBlock pushes the page markdown node (not panel text) [0.03ms]
+(pass) PageBuilder page-only components > stats [0.05ms]
+(pass) PageBuilder page-only components > table [0.05ms]
+(pass) PageBuilder page-only components > button without style [0.03ms]
+(pass) PageBuilder page-only components > button with style [0.02ms]
+(pass) PageBuilder page-only components > button with a prompt descriptor emits the prompt on the action [0.02ms]
+(pass) PageBuilder page-only components > button without a prompt is prompt-less (additive — no regression) [0.03ms]
+(pass) PageBuilder page-only components > a prompt rides a table-row action too [0.04ms]
+(pass) PageBuilder page-only components > button with a multi-field form descriptor passes the form through the action [0.04ms]
+(pass) PageBuilder page-only components > button without a form is form-less (additive — no regression) [0.02ms]
+(pass) PageBuilder page-only components > form node: fields + action + submitLabel [0.05ms]
+(pass) PageBuilder page-only components > form node passes select options + visibleWhen conditions through verbatim [0.04ms]
+(pass) PageBuilder page-only components > form node without submitLabel omits the key (host defaults to Save) [0.02ms]
+(pass) PageBuilder page-only components > link [0.02ms]
+(pass) PageBuilder page-only components > emptyState without detail [0.02ms]
+(pass) PageBuilder page-only components > emptyState with detail [0.02ms]
+(pass) PageBuilder page-only components > section with title nests child builder nodes [0.04ms]
+(pass) PageBuilder page-only components > section without title [0.02ms]
+(pass) PageBuilder page-only components > inherits the panel-vocabulary methods (chainable) [0.06ms]
+(pass) PageBuilder page-only components > build() resolves the title from .title() first-wins [0.03ms]
+(pass) PageBuilder page-only components > build() falls back to the constructor title [0.01ms]
+(pass) PageBuilder page-only components > build() throws without a title [0.06ms]
+(pass) definePage > installs ONE ezcorp/page.render handler across multiple pages [0.17ms]
+(pass) definePage > render dispatches on pageId; PageBuilder results are built [0.26ms]
+(pass) definePage > unknown pageId / malformed params throw JsonRpcError -32602 [0.16ms]
+(pass) definePage > registers action handlers at ezcorp/event/<full-event-name> [0.12ms]
+(pass) definePage > pages without actions register no event handlers [0.03ms]
+(pass) definePage > re-registering a pageId replaces its definition [0.08ms]
+(pass) pushPage > notifies ezcorp/page-state with a built PageBuilder [0.04ms]
+(pass) pushPage > passes raw trees through unchanged [0.02ms]
+(pass) invalidatePage > notifies ezcorp/page-state with the pageId and NO tree [0.03ms]
+(pass) render context (perProject pages) > host {project} arrives as ctx.project [0.15ms]
+(pass) render context (perProject pages) > host {projects} list arrives as ctx.projects (malformed refs dropped) [0.10ms]
+(pass) render context (perProject pages) > no project params → ctx is undefined (zero-arg renders unaffected) [0.06ms]
+(pass) render context (perProject pages) > malformed project object → ctx is undefined, render still succeeds [0.06ms]
+(pass) render context (perProject pages) > host {run} arrives as ctx.run — on its own (no project) [0.06ms]
+(pass) render context (perProject pages) > run rides ALONGSIDE a single project [0.06ms]
+(pass) render context (perProject pages) > run rides alongside a {projects} list [0.06ms]
+(pass) render context (perProject pages) > an empty run string is ignored (no ctx.run, no context) [0.05ms]
+(pass) render context (perProject pages) > a non-string run is ignored but project context survives [0.05ms]
+(pass) render context (perProject pages) > host {run, step} arrives as ctx.run + ctx.step — on its own (no project) [0.06ms]
+(pass) render context (perProject pages) > step rides ALONGSIDE a single project + run [0.06ms]
+(pass) render context (perProject pages) > step rides alongside a {projects} list + run [0.07ms]
+(pass) render context (perProject pages) > a step WITHOUT run (and no project) is dropped → no context [0.07ms]
+(pass) render context (perProject pages) > a step WITHOUT run is dropped but project context survives [0.07ms]
+(pass) render context (perProject pages) > an empty step string is ignored (run survives, no ctx.step) [0.20ms]
+(pass) render context (perProject pages) > a non-string step is ignored (run survives, no ctx.step) [0.07ms]
+(pass) render context (perProject pages) > host {view} arrives as ctx.view — on its own (no project, no run) [0.07ms]
+(pass) render context (perProject pages) > view rides ALONGSIDE a single project (independent of run) [0.07ms]
+(pass) render context (perProject pages) > view rides alongside a {projects} list [0.08ms]
+(pass) render context (perProject pages) > view rides alongside run + step (all three present) [0.09ms]
+(pass) render context (perProject pages) > view folds in WITHOUT a run (unlike step — view is independent) [0.06ms]
+(pass) render context (perProject pages) > an empty view string is ignored (no ctx.view, no context) [0.06ms]
+(pass) render context (perProject pages) > a non-string view is ignored but project context survives [0.07ms]
+(pass) render context — malformed-list fallback > a genuinely EMPTY projects list is a real (no projects yet) home render [0.18ms]
+(pass) render context — malformed-list fallback > a non-empty list where every ref is malformed falls back to NO context [0.08ms]
+(pass) render context — malformed-list fallback > a run request survives the malformed-list fallback (detail is project-independent) [0.08ms]
+(pass) render context — malformed-list fallback > a run+step request survives the malformed-list fallback [0.09ms]
+(pass) render context — malformed-list fallback > a view request survives the malformed-list fallback (view is project-independent) [0.09ms]
+
+packages/@ezcorp/sdk/test/loop-approval-core.test.ts:
+(pass) resolveContract — approval > no approval → states unchanged, no approval block, configVersion 0 [0.04ms]
+(pass) resolveContract — approval > approval present → injects the four owned states + terminal subset [0.06ms]
+(pass) resolveContract — approval > mode defaults to proactive; staleAfterDays defaults; both overridable [0.05ms]
+(pass) resolveContract — approval > de-dupes when a declared state already names an owned approval state [0.04ms]
+(pass) resolveContract — approval > APPROVAL_TERMINAL_STATES is exactly approved + declined [0.01ms]
+(pass) isParked / countActiveRuns > isParked true for awaiting_approval + finalizing, false otherwise [0.02ms]
+(pass) isParked / countActiveRuns > countActiveRuns excludes parked AND terminal runs [0.09ms]
+(pass) isProposalStale > staleAfterDays <= 0 disables the sweep [0.02ms]
+(pass) isProposalStale > only awaiting_approval runs are candidates [0.02ms]
+(pass) isProposalStale > age >= horizon → stale; age < horizon → fresh [0.01ms]
+(pass) isProposalStale > unparseable createdAt is never stale (fail-safe) [0.01ms]
+(pass) validateProposal > accepts a well-formed proposal [0.02ms]
+(pass) validateProposal > rejects non-object / null [0.03ms]
+(pass) validateProposal > rejects empty/absent title [0.02ms]
+(pass) validateProposal > rejects non-string summary [0.01ms]
+(pass) validateProposal > rejects an unknown kind [0.01ms]
+(pass) validateProposal > rejects a non-string ref when present [0.02ms]
+(pass) validateActResult — proposal > proposal without contract.approval is a misconfiguration [0.03ms]
+(pass) validateActResult — proposal > proposal without a finalize function is rejected [0.03ms]
+(pass) validateActResult — proposal > proposal with a malformed descriptor is rejected [0.03ms]
+(pass) validateActResult — proposal > a valid proposal passes (status is NOT checked against states) [0.02ms]
+
+packages/@ezcorp/sdk/test/preview.test.ts:
+(pass) SANDBOX_FLAGS_STRICT > equals 'allow-scripts' [1.12ms]
+(pass) SANDBOX_FLAGS_STRICT > does NOT include any escape-hatch flags [0.07ms]
+(pass) extensionDataUrl — happy paths > builds a relative URL under /api/extensions/<extName>/data/ [0.35ms]
+(pass) extensionDataUrl — happy paths > encodes URL meta-characters in path segments [0.04ms]
+(pass) extensionDataUrl — happy paths > normalizes Windows-style backslashes to forward slashes [0.01ms]
+(pass) extensionDataUrl — happy paths > collapses repeated slashes [0.01ms]
+(pass) extensionDataUrl — happy paths > handles single-segment paths [0.01ms]
+(pass) extensionDataUrl — validation > rejects empty extName [0.04ms]
+(pass) extensionDataUrl — validation > rejects extName with spaces or uppercase [0.03ms]
+(pass) extensionDataUrl — validation > rejects extName longer than 64 chars [0.02ms]
+(pass) extensionDataUrl — validation > rejects empty relativePath [0.02ms]
+(pass) extensionDataUrl — validation > rejects absolute relativePath (leading /) [0.02ms]
+(pass) extensionDataUrl — validation > rejects absolute relativePath (leading \) [0.01ms]
+(pass) extensionDataUrl — validation > rejects path traversal via .. [0.06ms]
+(pass) extensionDataUrl — validation > rejects bare .. [0.02ms]
+(pass) contentTypeForPath > recognizes html / htm [0.03ms]
+(pass) contentTypeForPath > recognizes common image types [0.02ms]
+(pass) contentTypeForPath > is case-insensitive on the extension [0.01ms]
+(pass) contentTypeForPath > returns undefined for unknown extensions [0.02ms]
+(pass) contentTypeForPath > returns undefined when there is no extension [0.01ms]
+(pass) contentTypeForPath > returns undefined when the path ends with a dot
+(pass) contentTypeForPath > uses the LAST dot as extension separator [0.01ms]
+(pass) assertContentType > passes when path's type matches expected [0.05ms]
+(pass) assertContentType > throws when path's type differs from expected [0.03ms]
+(pass) assertContentType > throws when path's extension is unknown [0.02ms]
+(pass) assertContentType > throws when path is empty [0.02ms]
+(pass) assertContentType > throws when expected is empty [0.02ms]
+(pass) assertContentType > includes both actual and expected types in the error message [0.03ms]
+
+packages/@ezcorp/sdk/test/triggers.test.ts:
+(pass) register > sends {v, action, kind, key, cron} over ezcorp/triggers [0.24ms]
+(pass) register > passes an explicit timezone through [0.07ms]
+(pass) register > a webhook registration carries NO slug field [0.08ms]
+(pass) register > returns the host's registered trigger verbatim [0.05ms]
+(pass) register > propagates a host rejection [0.09ms]
+(pass) unregister > sends {v, action, kind, key} [0.08ms]
+(pass) list > unwraps the host's {triggers} envelope [0.11ms]
+(pass) the orphan-sync responder > answers with the keys that have wired handlers [0.19ms]
+(pass) the orphan-sync responder > a key removed with `off` drops out of the answer [0.09ms]
+(pass) the orphan-sync responder > the responder is NOT installed until a handler is wired [0.04ms]
+(pass) fire dispatch — keyed on `key` > TWO JOBS SHARING A CRON reach their OWN handlers [0.23ms]
+(pass) fire dispatch — keyed on `key` > the handler receives the full fire context [0.12ms]
+(pass) fire dispatch — keyed on `key` > a fire for an unregistered key is dropped silently [0.08ms]
+(pass) fire dispatch — keyed on `key` > the receiver installs once across many `on` calls [0.08ms]
+(pass) fire dispatch — keyed on `key` > `off` stops handling without unregistering the row [0.09ms]
+(pass) fire dispatch — keyed on `key` > re-registering a key replaces its handler [0.07ms]
+(pass) fire dispatch — keyed on `key` > an async handler is awaited [1.27ms]
+
+packages/@ezcorp/sdk/test/workflows.test.ts:
+(pass) Workflows.run > sends { v:1, workflow, input } over ezcorp/workflows [0.48ms]
+(pass) Workflows.run > defaults input to an empty object [0.11ms]
+(pass) Workflows.run > sends the BARE name verbatim — the host owns the namespace prefix [0.09ms]
+(pass) Workflows.run > returns the host's acceptance envelope [0.07ms]
+(pass) Workflows.run > propagates a host refusal to the caller (never swallowed) [0.13ms]
+(pass) Workflows.runFor > sends { v:1, op:'runFor', jobRef, input } over ezcorp/workflows-delegated [0.15ms]
+(pass) Workflows.runFor > NEVER goes to ezcorp/workflows — that method answers this op with WORKFLOWS_BAD_OP [0.08ms]
+(pass) Workflows.runFor > the frame carries NO owner/user/principal key and NO workflow key [0.19ms]
+(pass) Workflows.runFor > defaults input to an empty object rather than omitting it [0.08ms]
+(pass) Workflows.runFor > sends the jobRef VERBATIM — a rewritten handle selects the wrong authority [0.08ms]
+(pass) Workflows.runFor > returns the host's envelope, runAs intact [0.09ms]
+(pass) Workflows.runFor > propagates a host refusal with its structured reason (never swallowed) [0.17ms]
+(pass) Workflows.pendingApprovals > sends { v:1, op:'approvals' } and nothing else — the read names no workflow [0.12ms]
+(pass) Workflows.pendingApprovals > returns the host's envelope with the relay intact [0.12ms]
+(pass) Workflows.pendingApprovals > propagates a host refusal (never swallowed into an empty list) [0.09ms]
+(pass) Workflows.runs > sends { v:1, op:'runs' } with NO filters when called bare [0.10ms]
+(pass) Workflows.runs > an empty query object OMITS every filter key, rather than sending undefined [0.07ms]
+(pass) Workflows.runs > forwards each filter only when the caller set it [0.06ms]
+(pass) Workflows.runs > forwarding workflow alone leaves the other keys absent [0.07ms]
+(pass) Workflows.runs > forwarding status alone leaves the other keys absent [0.01ms]
+(pass) Workflows.runs > forwarding limit alone leaves the other keys absent [0.01ms]
+(pass) Workflows.runs > sends the BARE name verbatim — the host owns the namespace prefix [0.05ms]
+(pass) Workflows.runs > returns the host's envelope, run ids intact [0.08ms]
+(pass) Workflows.runs > propagates a host refusal (never swallowed into an empty list) [0.07ms]
+
+packages/@ezcorp/sdk/test/webhook.test.ts:
+(pass) Webhook.on + receiver dispatch > receiver closure was captured on first install [0.03ms]
+(pass) Webhook.on + receiver dispatch > registered slug handler fires with the host ctx (delimited input) [0.19ms]
+(pass) Webhook.on + receiver dispatch > async handler is awaited [5.73ms]
+(pass) Webhook.on + receiver dispatch > unregistered slug is silently dropped (no throw, returns undefined) [0.17ms]
+(pass) Webhook.on + receiver dispatch > last on() for a slug wins (Map overwrite semantics) [0.10ms]
+(pass) Webhook.on + receiver dispatch > on() after the receiver is installed does not re-register (idempotent) [0.05ms]
+(pass) __resetWebhooksForTests > clears the handler registry so a re-registered slug re-fires [0.10ms]
+
+packages/@ezcorp/sdk/test/storage.test.ts:
+(pass) Storage — scope wiring > constructor with no arg defaults scope to 'global' [0.44ms]
+(pass) Storage — scope wiring > explicit scope 'user' flows through to every method [0.48ms]
+(pass) Storage — scope wiring > scope 'conversation' forwards as-is [0.10ms]
+(pass) Storage — get / delete > get sends { action:'get', scope, key } and returns channel payload [0.10ms]
+(pass) Storage — get / delete > get returns {value:null, exists:false} when host signals miss [0.08ms]
+(pass) Storage — get / delete > delete sends { action:'delete', scope, key } and returns {deleted} [0.08ms]
+(pass) Storage — get / delete > request method is always 'ezcorp/storage' [0.07ms]
+(pass) Storage — set > set with no opts omits encrypted + ttlSeconds from params [0.09ms]
+(pass) Storage — set > set with empty opts omits both fields (undefined branch) [0.09ms]
+(pass) Storage — set > set with opts.encrypted attaches encrypted on wire [0.09ms]
+(pass) Storage — set > set with opts.ttlSeconds attaches ttlSeconds on wire [0.09ms]
+(pass) Storage — set > set with both options attaches both fields [0.08ms]
+(pass) Storage — set > set returns the channel's {ok, sizeBytes} result [0.07ms]
+(pass) Storage — 1 MB guardValueSize > set throws pre-send when JSON-encoded value exceeds 1 MB [0.46ms]
+(pass) Storage — 1 MB guardValueSize > set passes the 1 MB boundary exactly — value at the limit goes through [0.27ms]
+(pass) Storage — list > list() with no opts sends { action:'list', scope } only [0.10ms]
+(pass) Storage — list > list({}) with empty opts omits prefix/limit [0.08ms]
+(pass) Storage — list > list({ prefix }) attaches prefix on wire [0.06ms]
+(pass) Storage — list > list({ limit }) attaches limit on wire [0.06ms]
+(pass) Storage — list > list({ prefix, limit }) attaches both [0.08ms]
+(pass) Storage — list > list() normalizes host row OBJECTS to plain string keys [0.07ms]
+(pass) Storage — list > list() passes plain string elements through unchanged [0.05ms]
+(pass) Storage — list > list() drops non-string / non-{key:string} garbage elements [0.06ms]
+(pass) Storage — list > list() yields [] when the host omits keys or sends a non-array [0.08ms]
+(pass) Storage — batch > batch with mixed ops sends {action:'batch', scope, operations} and unwraps results [0.09ms]
+(pass) Storage — batch > batch guardValueSize enforced per 'set' op — one oversized op rejects whole batch pre-send [0.28ms]
+(pass) Storage — batch > batch with only non-'set' ops skips guard loop (no guard call) [0.07ms]
+(pass) Storage — batch > batch([]) sends an empty operations array (no throw) [0.07ms]
+(pass) Storage — batch > batch with 'set' that includes encrypted/ttl still guards on value only [0.08ms]
+(pass) Storage — -32029 throttle backoff > one transient -32029 then success → 2 attempts, result resolves [21.28ms]
+(pass) Storage — -32029 throttle backoff > 5 consecutive -32029 → exhausted retries, final attempt rejects [622.97ms]
+(pass) Storage — -32029 throttle backoff > retry delays follow the 20→40→80→160→320 ms doubling ladder [623.68ms]
+(pass) Storage — -32029 throttle backoff > non-32029 error rejects immediately — no retry [0.37ms]
+(pass) Storage — -32029 throttle backoff > error without numeric code (plain Error) rejects immediately [0.16ms]
+(pass) Storage — -32029 throttle backoff > duck-typed rejection { code: -32029 } also triggers backoff [22.86ms]
+(pass) Storage — -32029 throttle backoff > duck-typed rejection with non-numeric code falls through to null → no retry [0.34ms]
+(pass) Storage — -32029 throttle backoff > primitive rejection (non-object, non-Error) falls through to null → no retry [0.10ms]
+(pass) Storage — -32029 throttle backoff > null rejection falls through to null → no retry (covers err !== null guard) [0.10ms]
+(pass) Storage — -32004 rate-limit backoff > one transient -32004 then success → retried on the same ladder, resolves [22.30ms]
+(pass) Storage — -32004 rate-limit backoff > duck-typed { code: -32004 } also triggers backoff [23.64ms]
+(pass) Storage — -32004 rate-limit backoff > persistent -32004 exhausts retries and rethrows (a real limit still surfaces) [629.79ms]
+
+packages/@ezcorp/sdk/test/memory.test.ts:
+(pass) Memory.list > no opts → only { action: 'list' }, returns memories [0.45ms]
+(pass) Memory.list > category only attaches category, omits limit [0.12ms]
+(pass) Memory.list > limit only attaches limit (including 0), omits category [0.10ms]
+(pass) Memory.list > both category + limit attached [0.12ms]
+(pass) Memory.list > empty opts omits both [0.11ms]
+(pass) Memory.get > sends { action:'get', id } and returns the record [0.21ms]
+(pass) Memory.get > maps -32001 JsonRpcError to null (host 'not found') [0.15ms]
+(pass) Memory.get > rethrows a JsonRpcError with a different code [0.09ms]
+(pass) Memory.get > rethrows a non-JsonRpcError verbatim [0.11ms]
+(pass) Memory.write > forwards input + returns the created record [0.15ms]
+(pass) Memory.update / archive > update sends { action:'update', id, patch } and returns {ok:true} [0.09ms]
+(pass) Memory.update / archive > archive sends { action:'archive', id } and returns {ok:true} [0.07ms]
+
+packages/@ezcorp/sdk/test/invoke.test.ts:
+(pass) invoke — JSON-RPC frame shape > sends method 'ezcorp/invoke' with params { tool, arguments } [0.19ms]
+(pass) invoke — JSON-RPC frame shape > wraps args under `arguments` key — NOT passed raw [0.08ms]
+(pass) invoke — JSON-RPC frame shape > empty args object still arrives as `arguments: {}` [0.07ms]
+(pass) invoke — timeoutMs pass-through > opts.timeoutMs forwarded as 3rd arg to channel.request [0.07ms]
+(pass) invoke — timeoutMs pass-through > 3rd arg is undefined when opts is omitted entirely [0.06ms]
+(pass) invoke — timeoutMs pass-through > 3rd arg is undefined when opts is {} (no timeoutMs field) [0.07ms]
+(pass) invoke — timeoutMs pass-through > timeoutMs: 0 is forwarded literally (disables channel timer) [0.06ms]
+(pass) invoke — channel behavior propagation > channel rejection propagates to the caller (timeout case) [0.11ms]
+(pass) invoke — channel behavior propagation > channel rejection propagates to the caller (host protocol error case) [0.11ms]
+(pass) invoke — channel behavior propagation > generic type parameter narrows the resolved value [0.05ms]
+
+packages/@ezcorp/sdk/test/loop.test.ts:
+(pass) resolveProviderModel (centralized map) > override wins; blank model → provider default; unknown → google [0.22ms]
+(pass) formatMessages > canonical [id] role: content join [0.09ms]
+(pass) terminal loop > event trigger → act terminal → run persisted with outcome [0.53ms]
+(pass) terminal loop > act sees resolved settings + recentMessages slice [0.37ms]
+(pass) webhook trigger > webhook fire → act sees the delimited untrusted input; deliveryId is the fire id [2.13ms]
+(pass) webhook trigger > a webhook-triggered loop is stamped permanently untrusted-input [0.13ms]
+(pass) webhook trigger > a cron-only loop is NOT untrusted-input [0.07ms]
+(pass) webhook trigger > a duplicate delivery (same deliveryId) maps to the same run (idempotent) [0.40ms]
+(pass) skip > act skip → no run persisted, not an error [0.32ms]
+(pass) skip > event filter rejection → pre-skip without invoking act [0.22ms]
+(pass) deferred loop > act deferred → open run; assignment_update transitions it terminal [0.42ms]
+(pass) deferred loop > assignment_update for an unknown run is a no-op [0.16ms]
+(pass) idempotent fires > two fires with the same idempotencyKey produce ONE open run [0.30ms]
+(pass) failure policy > permanent errors auto-disable at exactly N + onAutoDisable fires once [0.32ms]
+(pass) failure policy > a transient error resets the consecutive counter and never disables [0.24ms]
+(pass) failure policy > a successful act after errors resets the counter [0.28ms]
+(pass) act-result validation > returning an undeclared status is treated as a failure (not persisted) [0.21ms]
+(pass) act-result validation > invalid act results ACCUMULATE toward auto-disable (validate before reset) [0.24ms]
+(pass) check stage > proceed:true (no enrichment) → act runs on the raw trigger input [0.22ms]
+(pass) check stage > proceed:true with input ENRICHES what act sees + what the run stores [0.36ms]
+(pass) check stage > proceed:false → first-class skip (act NOT called, no run, reason logged) [0.21ms]
+(pass) check stage > a proceed:false with an empty reason is a check ERROR (act not called) [0.21ms]
+(pass) check stage > a thrown check is classified permanent → auto-disables at exactly N [0.36ms]
+(pass) check stage > a thrown-then-transient check resets the consecutive counter [0.26ms]
+(pass) check stage > a proceed:false skip RESETS a prior error count (a healthy fire) [0.30ms]
+(pass) check stage > cursor get/set delegates to the run store across fires [0.51ms]
+(pass) check stage > check exposes an injectable host-mediated fetch + the fire meta [0.31ms]
+(pass) check stage > FIREWALL: the check context has no llm / spawn / recentMessages at runtime [0.33ms]
+(pass) check stage > a malformed check result is fail-soft (classified, never thrown to the host) [0.18ms]
+(pass) check stage > a non-boolean proceed is fail-soft (never silently acts) [0.29ms]
+(pass) check stage > idempotency keys on the ENRICHED input (check enrichment feeds the dedup) [0.39ms]
+(pass) check stage > the default check fetch lazily forwards to the CURRENT global fetch [0.45ms]
+(pass) check stage > the default check fetch is a live-ish wrapper (seam resets cleanly) [0.05ms]
+(pass) skip journal (durable decline audit through runFire) > event check proceed:false is journaled with reason + logLines + trigger kind [0.25ms]
+(pass) skip journal (durable decline audit through runFire) > cron check proceed:false is journaled (trigger kind = cron) [0.18ms]
+(pass) skip journal (durable decline audit through runFire) > a manual act skip is journaled (trigger kind = manual) [0.37ms]
+(pass) skip journal (durable decline audit through runFire) > a rejected event filter (pre-gate) is journaled with empty logLines [0.21ms]
+(pass) skip journal (durable decline audit through runFire) > an auto_disabled skip is NOT journaled (the latch would spam the capped journal) [0.15ms]
+(pass) cron + manual triggers > cron fire (catchUp) runs the act and persists a run [0.22ms]
+(pass) cron + manual triggers > manual tool returns runId on terminal, reason on skip, error on throw [0.35ms]
+(pass) cron + manual triggers > a bare manual trigger with no tool wires nothing (no throw) [0.07ms]
+(pass) default resolvers + ctx helpers > default settings + messages resolvers ride the channel invoke RPC [0.43ms]
+(pass) default resolvers + ctx helpers > default settings resolver swallows an invoke error → {} [0.22ms]
+(pass) default resolvers + ctx helpers > seam setters reset to defaults without throwing [0.07ms]
+(pass) terminal idempotency > two terminal fires with the same key collapse to one run [0.45ms]
+(pass) registered task:assignment_update handler > the channel-registered handler drives the deferred transition [0.60ms]
+(pass) mapAssignmentStatus fallbacks > a 'running' host status maps to the running state (stays open) [0.53ms]
+(pass) mapAssignmentStatus fallbacks > a 'failed' host status maps to a terminal state [0.17ms]
+(pass) mapAssignmentStatus fallbacks > an unknown host status keeps the run open (first non-terminal state) [0.19ms]
+(pass) mapAssignmentStatus fallbacks > a terminal-ish host status NOT in the vocabulary maps to terminal[0] [0.27ms]
+(pass) multi-loop + duplicate-id > two loops register independently; assignment routes to the owner [0.31ms]
+(pass) multi-loop + duplicate-id > getLoopTools exposes the accumulated manual-trigger handlers [0.09ms]
+(pass) multi-loop + duplicate-id > a manual-tool NAME collision across loops throws (no silent clobber) [0.19ms]
+(pass) multi-loop + duplicate-id > an array of triggers wires each one [0.24ms]
+(pass) multi-loop + duplicate-id > duplicate loop id throws [0.11ms]
+
+packages/@ezcorp/sdk/test/settings.test.ts:
+(pass) getSetting > returns the value when present [0.05ms]
+(pass) getSetting > returns undefined when the key is absent [0.02ms]
+(pass) getSetting > returns undefined when no settings attached [0.02ms]
+(pass) getSetting > returns undefined when ctx has no invocationMetadata [0.02ms]
+(pass) getSetting > returns undefined when ctx itself is undefined [0.01ms]
+(pass) getSetting > type narrowing flows through the generic [0.03ms]
+(pass) getSetting > settings holding falsy primitives (false, 0, '') round-trip [0.03ms]
+(pass) getAllSettings > returns the full settings map when present [0.03ms]
+(pass) getAllSettings > returns {} when no settings attached [0.02ms]
+(pass) getAllSettings > returns {} when ctx has no invocationMetadata [0.01ms]
+(pass) getAllSettings > returns {} when ctx itself is undefined [0.02ms]
+(pass) getAllSettings > returns a fresh copy (mutation is isolated) [0.03ms]
+(pass) getAllSettings > second call returns a different reference [0.03ms]
+
+packages/@ezcorp/sdk/test/loop-store.test.ts:
+(pass) contract acceptance > accepts an already-RESOLVED contract (loop.ts production path) [10.66ms]
+(pass) contract acceptance > defaults to the real Storage backend when no factory is given [0.10ms]
+(pass) key grammar > per-run key + index + meta + cursor are distinct, namespaced [0.12ms]
+(pass) transitionIf — compare-and-set > applies the transition only when the status matches the expectation [0.23ms]
+(pass) transitionIf — compare-and-set > returns null (no write) when the status no longer matches [0.14ms]
+(pass) transitionIf — compare-and-set > returns null for a missing run [0.08ms]
+(pass) transitionIf — compare-and-set > only ONE of two concurrent CAS flips wins [0.20ms]
+(pass) transitionIf — compare-and-set > carries proposal + verifyManually onto the run [0.18ms]
+(pass) approval-labels — append-only > unset store reads empty [0.11ms]
+(pass) approval-labels — append-only > appendLabel appends OLDEST-first under loop:<id>:labels [0.23ms]
+(pass) approval-labels — append-only > captures the exact LOCKED schema [0.13ms]
+(pass) approval-labels — append-only > is NOT capped (the eval signal must stay complete) [3.82ms]
+(pass) approval-labels — append-only > two concurrent appends both land (withLock serialized) [16.77ms]
+(pass) claim — per-run keys, not a packed blob > each claim writes its own run key + appends to the index [0.42ms]
+(pass) claim — per-run keys, not a packed blob > list() reads runs in index (newest-first) order [0.19ms]
+(pass) claim — idempotency (open dupe = no-op) > second claim with the same key on an OPEN run returns the existing run [0.23ms]
+(pass) claim — idempotency (open dupe = no-op) > same key after the prior run went terminal → a fresh run is created [0.18ms]
+(pass) transition + get > advances status + appends a capped event; unknown run → null [0.43ms]
+(pass) transition + get > get() reads one run by id, or null when absent [0.13ms]
+(pass) transition + get > an OMITTED status keeps the run's CURRENT status (resolved under lock) [0.16ms]
+(pass) transition + get > TOCTOU: an event-only update does NOT revert a concurrent status flip [0.23ms]
+(pass) retention > evicts the oldest TERMINAL run key + index entry beyond maxRuns [0.28ms]
+(pass) retention > never evicts an OPEN run even when over budget [0.51ms]
+(pass) meta — failure bookkeeping > defaults then round-trips [0.14ms]
+(pass) cursor — durable check marker > unset cursor reads undefined [0.07ms]
+(pass) cursor — durable check marker > set → get round-trips, persisted under loop:<id>:cursor [0.12ms]
+(pass) cursor — durable check marker > a later set overwrites the prior cursor [0.11ms]
+(pass) cursor — durable check marker > falsy cursor values round-trip (presence keyed on existence) [0.12ms]
+(pass) cursor — durable check marker > structured cursor value survives the JSON round-trip [0.15ms]
+(pass) skip journal — durable decline audit > unset journal reads empty [0.09ms]
+(pass) skip journal — durable decline audit > recordSkip appends newest-first under loop:<id>:skips [0.18ms]
+(pass) skip journal — durable decline audit > reason + trigger + logLines round-trip [0.12ms]
+(pass) skip journal — durable decline audit > caps at DEFAULT_MAX_SKIPS, evicting the oldest [1.67ms]
+(pass) cursor + skip journal — withLock serializes writes > two simultaneous setCursor calls serialize; the second value wins [17.15ms]
+(pass) concurrency — withLock serializes interleaved claims > two simultaneous claims both land; the index keeps BOTH ids [16.88ms]
+
+packages/@ezcorp/sdk/test/cancel-run.test.ts:
+(pass) cancelRun — JSON-RPC frame shape > sends method 'ezcorp/cancel-run' with v:1 and agentRunId [0.50ms]
+(pass) cancelRun — JSON-RPC frame shape > surfaces { cancelled: false, reason: 'not-owned' } verbatim [0.10ms]
+(pass) cancelRun — JSON-RPC frame shape > surfaces { cancelled: false, reason: 'missing-run' } verbatim [0.12ms]
+(pass) cancelRun — input validation (pre-channel) > empty string → throws before channel call [0.17ms]
+(pass) cancelRun — input validation (pre-channel) > whitespace-only → throws before channel call [0.09ms]
+(pass) cancelRun — input validation (pre-channel) > non-string → throws before channel call [0.08ms]
+(pass) cancelRun — host error propagation > -32001 permission-missing surfaces as JsonRpcError [0.17ms]
+(pass) cancelRun — host error propagation > -32602 invalid-params surfaces with message intact [0.15ms]
+(pass) cancelRun — wire-level round-trip through getChannel() > writes a well-formed ezcorp/cancel-run frame to stdout and resolves on the matching response [2.40ms]
+(pass) cancelRun — wire-level round-trip through getChannel() > passes the host's `reason` field back through verbatim (not-owned) [0.43ms]
+(pass) cancelRun — wire-level round-trip through getChannel() > host error frame surfaces as JsonRpcError with code preserved [0.43ms]
+
+packages/@ezcorp/sdk/test/loop-log.test.ts:
+(pass) loopDataDir > v4 loop artifacts use isolated data paths, not environment or host cwd [2.09ms]
+(pass) loopDataDir > resolves under EZCORP_PROJECT_ROOT/.ezcorp/extension-data/<loop> [0.10ms]
+(pass) loopDataDir > falls back to cwd when EZCORP_PROJECT_ROOT is unset [0.06ms]
+(pass) artifact mirror > terminal outcome writes the artifact (mkdir parent first) [0.37ms]
+(pass) artifact mirror > a null artifact writes nothing [0.22ms]
+(pass) artifact mirror > artifact write failure is FAIL-SOFT (run still persisted) [0.39ms]
+(pass) artifact mirror > a loop with no log block writes nothing + does not throw [0.19ms]
+(pass) dashboard scope guard (privacy footgun → install crash) > log.dashboard on a non-global scope THROWS at registration [0.22ms]
+(pass) dashboard scope guard (privacy footgun → install crash) > log.dashboard on a global scope is allowed [0.11ms]
+(pass) dashboard > wireLog registers the page + a row action handler [0.14ms]
+(pass) dashboard > a row action's input prompt (with format) survives the render [0.29ms]
+(pass) dashboard > dashboard is pushed on a terminal outcome [0.26ms]
+(pass) dashboard > dashboard is pushed on a deferred dispatch + on its completion [0.45ms]
+(pass) dashboard > render accepts a finished tree (not just a PageBuilder) [0.14ms]
+(pass) PRIVACY — user-scope runs never reach the shared dashboard > a user-dispatched run NEVER appears in the rendered global dashboard tree [0.57ms]
+(pass) PRIVACY — user-scope runs never reach the shared dashboard > a task:assignment_update for a USER run does NOT push the shared page [0.22ms]
+(pass) PRIVACY — user-scope runs never reach the shared dashboard > a GLOBAL (cron) run DOES appear in the dashboard + DOES push on completion [0.40ms]
+(pass) runTerminalLog direct > no log block → no writes, no pushes, no throw [0.11ms]
+
+packages/@ezcorp/sdk/test/channel.test.ts:
+(pass) request/response > resolves with `result` when stdin emits a matching response frame [0.67ms]
+(pass) request/response > rejects with the error.message when response carries an error [0.16ms]
+(pass) request/response > falls back to 'rpc error' when error.message is missing [0.12ms]
+(pass) request/response > times out when no response arrives within timeoutMs [22.46ms]
+(pass) request/response > timeoutMs=0 disables the timer (no rejection) [0.43ms]
+(pass) request/response > omits `params` from the wire frame when params is undefined [0.14ms]
+(pass) request/response > response with non-numeric/string id is dropped silently [25.70ms]
+(pass) request/response > response for unknown id is dropped silently [24.48ms]
+(pass) notify > writes a notification frame to stdout (no id, no pending entry) [6.59ms]
+(pass) notify > omits params when undefined [0.12ms]
+(pass) incoming request dispatch > registered handler receives params and result is written to stdout [5.40ms]
+(pass) incoming request dispatch > handler throwing an Error → error response with code -32000 + message [7.43ms]
+(pass) incoming request dispatch > handler throwing a non-Error → message is String(err) [5.27ms]
+(pass) incoming request dispatch > handler throwing JsonRpcError → error envelope echoes code+message (omits data when undefined) [5.25ms]
+(pass) incoming request dispatch > handler throwing JsonRpcError with `data` → data is included on the wire [7.16ms]
+(pass) incoming request dispatch > unregistered method with id → -32601 'Method not found' response [5.28ms]
+(pass) incoming request dispatch > notification (no id) with handler — handler runs, no response written [34.07ms]
+(pass) incoming request dispatch > notification with handler that throws — error swallowed, no response [33.32ms]
+(pass) incoming request dispatch > notification with no registered handler — silent no-op [33.95ms]
+(pass) runLoop edge cases > blank lines are skipped [33.60ms]
+(pass) runLoop edge cases > malformed JSON lines are skipped silently [36.59ms]
+(pass) runLoop edge cases > frames without method and without id are ignored (fall-through branch) [34.84ms]
+(pass) runLoop edge cases > stop() causes the loop to break on the next iteration [34.38ms]
+(pass) start > two calls do NOT double-attach the stdin loop [27.41ms]
+(pass) __resetChannelForTests > pending requests on the singleton reject with 'channel reset' [19.77ms]
+(pass) __resetChannelForTests > clears the timer on pending entries (timer-truthy branch) [15.48ms]
+(pass) production channel wiring > getChannel() lazy-creates and routes a real tools/call frame end-to-end [119.48ms]
+(pass) production channel wiring > tools/call binds _meta.ezProjectRoot onto the tool context (B5) [18.28ms]
+(pass) production channel wiring > ensureDispatcherRegistered is idempotent across getChannel() calls [0.17ms]
+(pass) production channel wiring > dispatcher with no opts → fallback toolError(message) [18.72ms]
+(pass) tools/call dispatcher — _meta.invocationMetadata → ctx round-trip > ctx.invocationMetadata is populated / omitted / filtered across 4 frames [29.57ms]
+(pass) runLoop fatal error > stderr logs '[HostChannel] runLoop fatal: ...' when stdin iterator throws [5.77ms]
+(pass) runLoop does not block on concurrent in-flight handler requests > handler that awaits an outbound request completes after its response arrives [13.28ms]
+(pass) runLoop does not block on concurrent in-flight handler requests > multiple concurrent incoming requests all resolve without serializing on each other [14.71ms]
+(pass) tools/call dispatcher — withToolContext ALS binding > handler reads {toolName, conversationId} via getToolContext() [58.48ms]
+(pass) tools/call dispatcher — ALS smoke through production getChannel() > handler dispatched via real channel singleton reads {toolName, conversationId} [6.15ms]
+(pass) chunked-frame streaming — defense-in-depth validations (M3) > M3a: oversized base64 chunk payload → reject before atob() inflates [3.47ms]
+(pass) chunked-frame streaming — defense-in-depth validations (M3) > M3b: seq >= announced total → reject (mirrors host json-rpc.ts:252-265) [1.10ms]
+(pass) chunked-frame streaming — defense-in-depth validations (M3) > M3c: assembled bytes > 100MB cap → reject (mirrors host json-rpc.ts:287-299) [0.25ms]
+
+packages/@ezcorp/sdk/test/filesystem-harness.test.ts:
+(pass) filesystem harness preserves validation, containment and file operation envelopes [3.76ms]
+(pass) custom filesystem wiring can answer or fall through without losing request identity [0.46ms]
+(pass) in-process filesystem stub rejects unrelated host calls [0.35ms]
+(pass) filesystem harness environment grants are explicit and overridable [0.25ms]
+
+packages/@ezcorp/sdk/test/loop-acceptance.test.ts:
+(pass) a terminal capture loop fires on its event and persists + mirrors its artifact > a run:complete event drives one fire → a completed run + an artifact on disk [1.44ms]
+(pass) a deferred dispatch loop opens a run, then an assignment update drives it terminal > act spawns + defers (run open), then a completion event closes it with the preview note [0.64ms]
+(pass) a cron-triggered loop fires on its schedule and persists a run > a catch-up cron tick runs act and persists a completed run carrying the catchUp flag [0.32ms]
+(pass) a manual-trigger loop runs when its tool is called via the getLoopTools merge > the loop's tool surfaces in getLoopTools and a call returns the runId + persists a run [0.43ms]
+(pass) an idempotent re-fire while a run is still open does not create a duplicate > two events with the same idempotency key collapse onto ONE open run (act not re-committed) [0.43ms]
+(pass) a user-scoped run never appears in a global dashboard render > a user loop's run is persisted privately and the global dashboard renders zero runs [0.64ms]
+(pass) registration guards crash loudly instead of shipping a silent footgun > pairing a dashboard with a non-global scope throws at registration (privacy guard) [0.15ms]
+(pass) registration guards crash loudly instead of shipping a silent footgun > two manual loops claiming the same tool name throw at registration (clobber guard) [0.21ms]
+(pass) registration guards crash loudly instead of shipping a silent footgun > registering the same loop id twice throws (no silent re-register) [0.13ms]
+(pass) an event-only update does not revert a concurrent status flip (TOCTOU) > a status flip racing an event-only note lands at the flipped status, with both events recorded [0.52ms]
+(pass) repeated permanent failures auto-disable the loop and subsequent fires are skipped > the loop disables at exactly N permanent errors, notifies once, then skips further fires [0.54ms]
+(pass) retention caps the persisted run history to the configured maximum > firing past maxRuns evicts the oldest terminal runs, keeping the newest N [0.64ms]
+(pass) an extension with multiple loops routes each trigger and completion to the right loop > a capture loop and a deferred loop coexist; an assignment update lands on the deferred owner only [0.90ms]
+
+packages/@ezcorp/sdk/test/search.test.ts:
+(pass) Search.web > sends { action:'web', query } and returns the result [0.43ms]
+(pass) Search.web > attaches maxResults when supplied [8.52ms]
+(pass) Search.web > omits maxResults when not supplied [0.23ms]
+(pass) Search.web > -32101 → SearchDisabledError [0.30ms]
+(pass) Search.web > -32105 → SearchError [0.15ms]
+(pass) Search.web > rethrows an unmapped JsonRpcError verbatim [0.11ms]
+(pass) Search.web > rethrows a non-JsonRpcError verbatim [0.09ms]
+(pass) Search.read > sends { action:'read', url } and returns the result [0.19ms]
+(pass) Search.read > attaches maxChars when supplied [0.10ms]
+(pass) Search.read > omits maxChars when not supplied [0.10ms]
+(pass) Search.read > -32101 → SearchDisabledError [0.16ms]
+(pass) Search.read > -32105 → SearchError [0.10ms]
+(pass) Search.read > rethrows an unmapped error [0.12ms]
+(pass) error classes > SearchDisabledError has a stable code + default message [0.05ms]
+(pass) error classes > SearchError carries the message + code [0.03ms]
+
+packages/@ezcorp/sdk/test/panel.test.ts:
+(pass) PanelBuilder chainable components — all optional branches > title(title) without subtitle → header with only title [0.50ms]
+(pass) PanelBuilder chainable components — all optional branches > title(title, subtitle) → header carries both [0.10ms]
+(pass) PanelBuilder chainable components — all optional branches > markdown(content) without variant [0.10ms]
+(pass) PanelBuilder chainable components — all optional branches > markdown(content, variant) with variant [0.09ms]
+(pass) PanelBuilder chainable components — all optional branches > list(items) → list component with items array verbatim [0.16ms]
+(pass) PanelBuilder chainable components — all optional branches > action({ label }) without command [0.13ms]
+(pass) PanelBuilder chainable components — all optional branches > action({ label, command }) with command [0.11ms]
+(pass) PanelBuilder chainable components — all optional branches > divider() → divider component [0.09ms]
+(pass) PanelBuilder chainable components — all optional branches > badge(label) without color [0.08ms]
+(pass) PanelBuilder chainable components — all optional branches > badge(label, color) with color [0.10ms]
+(pass) PanelBuilder chainable components — all optional branches > counter(label, value) without total [0.14ms]
+(pass) PanelBuilder chainable components — all optional branches > counter(label, value, total) with total [0.09ms]
+(pass) PanelBuilder chainable components — all optional branches > kv(pairs) → kv component with pairs verbatim [0.09ms]
+(pass) PanelBuilder chainable components — all optional branches > progress(value) without label [0.10ms]
+(pass) PanelBuilder chainable components — all optional branches > progress(value, label) with label [0.08ms]
+(pass) PanelBuilder chainable components — all optional branches > status(label, state) → status component [0.10ms]
+(pass) PanelBuilder chainable components — all optional branches > components accumulate in insertion order across chained calls [0.12ms]
+(pass) PanelBuilder title resolution > first .title() wins when no constructor arg given [0.09ms]
+(pass) PanelBuilder title resolution > constructor title is used as fallback when .title() never called [0.07ms]
+(pass) PanelBuilder title resolution > .title() overrides constructor fallback when both present [0.08ms]
+(pass) PanelBuilder title resolution > .send() throws when no title set via either constructor or .title() [0.18ms]
+(pass) PanelBuilder.send wire payload > fires channel.notify with method 'ezcorp/state' and { title, components } [0.12ms]
+(pass) PanelBuilder.send wire payload > empty builder (title only, no components) still sends with empty components array [0.10ms]
+(pass) PanelBuilder fluent chain > every chainable setter returns the same builder instance [0.09ms]
+
+packages/@ezcorp/sdk/test/integration/tarball.test.ts:
+(pass) installed @ezcorp/sdk tarball: fixture extension test suite passes [549.12ms]
+
+packages/@ezcorp/sdk/src/entities/__tests__/slug.test.ts:
+(pass) isValidSlug — accept cases > accepts "a" [0.09ms]
+(pass) isValidSlug — accept cases > accepts "1"
+(pass) isValidSlug — accept cases > accepts "ab"
+(pass) isValidSlug — accept cases > accepts "a1"
+(pass) isValidSlug — accept cases > accepts "weekly"
+(pass) isValidSlug — accept cases > accepts "ad-hoc"
+(pass) isValidSlug — accept cases > accepts "post-type"
+(pass) isValidSlug — accept cases > accepts "a-b-c"
+(pass) isValidSlug — accept cases > accepts "double--hyphen"
+(pass) isValidSlug — accept cases > accepts "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+(pass) isValidSlug — accept cases > accepts "1234567890"
+(pass) isValidSlug — accept cases > accepts "0"
+(pass) isValidSlug — reject cases > rejects "" [0.01ms]
+(pass) isValidSlug — reject cases > rejects "-"
+(pass) isValidSlug — reject cases > rejects "-leading"
+(pass) isValidSlug — reject cases > rejects "trailing-"
+(pass) isValidSlug — reject cases > rejects "-a-"
+(pass) isValidSlug — reject cases > rejects "A"
+(pass) isValidSlug — reject cases > rejects "Weekly"
+(pass) isValidSlug — reject cases > rejects "post_type"
+(pass) isValidSlug — reject cases > rejects "post.type"
+(pass) isValidSlug — reject cases > rejects "post type"
+(pass) isValidSlug — reject cases > rejects "post/type"
+(pass) isValidSlug — reject cases > rejects "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+(pass) isValidSlug — reject cases > rejects "é"
+(pass) isValidSlug — reject cases > rejects "🎉"
+(pass) isValidSlug — reject cases > rejects non-string null
+(pass) isValidSlug — reject cases > rejects non-string undefined
+(pass) isValidSlug — reject cases > rejects non-string 123
+(pass) isValidSlug — reject cases > rejects non-string true
+(pass) isValidSlug — reject cases > rejects non-string false
+(pass) isValidSlug — reject cases > rejects non-string {}
+(pass) isValidSlug — reject cases > rejects non-string []
+(pass) isValidSlug — reject cases > rejects non-string {
+  slug: "weekly",
+}
+(pass) assertValidSlug > returns void for valid slug [0.05ms]
+(pass) assertValidSlug > throws on invalid slug with full regex in message [0.08ms]
+(pass) assertValidSlug > throws on non-string input [0.03ms]
+(pass) assertValidSlug > throws on undefined [0.05ms]
+(pass) assertValidSlug > custom label is used in error message [0.04ms]
+(pass) SLUG_REGEX export > matches expected pattern source
+(pass) SLUG_REGEX export > SLUG_MAX_LENGTH is 64 [1.00ms]
+
+packages/@ezcorp/sdk/src/entities/__tests__/tools.test.ts:
+(pass) snakeCaseToolSegment > "Post Types" → "post_types" [0.28ms]
+(pass) snakeCaseToolSegment > "Post Type" → "post_type" [0.01ms]
+(pass) snakeCaseToolSegment > "Characters" → "characters"
+(pass) snakeCaseToolSegment > "Research Playbooks" → "research_playbooks"
+(pass) snakeCaseToolSegment > "data sources" → "data_sources"
+(pass) snakeCaseToolSegment > "Multi   Space" → "multi_space"
+(pass) snakeCaseToolSegment > "with-hyphen" → "with_hyphen"
+(pass) snakeCaseToolSegment > "UPPER" → "upper"
+(pass) snakeCaseToolSegment > "mix-of_Things 3" → "mix_of_things_3"
+(pass) snakeCaseToolSegment > "  leading and trailing  " → "leading_and_trailing"
+(pass) snakeCaseToolSegment > throws on empty result [0.16ms]
+(pass) assertValidToolName > accepts a well-formed derived name [0.07ms]
+(pass) assertValidToolName > throws when the name starts with a non-letter [0.07ms]
+(pass) assertValidToolName > throws when the name contains an illegal character [0.05ms]
+(pass) assertValidToolName > throws on an empty name [0.04ms]
+(pass) entityToolNames > post-type derivation matches spec [0.15ms]
+(pass) entityToolNames > characters derivation (regression — singular = plural minus 's' is NOT required) [0.06ms]
+(pass) entityToolNames > accepts digit-starting label (list_/get_ prefix makes the full name valid) [0.05ms]
+(pass) entityToolNames > snakeCaseToolSegment throws on empty input — propagates from entityToolNames [0.08ms]
+(pass) buildEntityToolDefinitions > returns 5 tool definitions with correct names [0.26ms]
+(pass) buildEntityToolDefinitions > descriptions include label + field summary [0.07ms]
+(pass) buildEntityToolDefinitions > list/delete input schemas are minimal [0.05ms]
+(pass) buildEntityToolDefinitions > create requires slug + data [0.06ms]
+(pass) buildEntityToolDefinitions > update requires slug + patch [0.05ms]
+(pass) list handler > empty store returns {items: []} [0.77ms]
+(pass) list handler > returns all records from index [0.68ms]
+(pass) list handler > attaches _validationWarning to drifted records (soft-read) [0.19ms]
+(pass) list handler > softRead=false omits warnings even on drift [0.12ms]
+(pass) list handler > propagates storage failure as isError [0.20ms]
+(pass) get handler > returns record by slug [0.27ms]
+(pass) get handler > missing slug → NOT_FOUND error [0.09ms]
+(pass) get handler > non-string slug rejected before storage [0.12ms]
+(pass) get handler > invalid slug shape rejected [0.15ms]
+(pass) get handler > attaches _validationWarning on drift [0.14ms]
+(pass) get handler > softRead=false omits warnings [0.11ms]
+(pass) get handler > storage failure produces isError result [0.35ms]
+(pass) create handler > creates a record + writes index entry [0.81ms]
+(pass) create handler > dup slug → ALREADY_EXISTS (caught via index) [0.15ms]
+(pass) create handler > dup slug detected via direct record read when index is empty [0.10ms]
+(pass) create handler > validation failure → VALIDATION_FAILED [0.31ms]
+(pass) create handler > non-string slug [0.11ms]
+(pass) create handler > invalid slug shape [0.12ms]
+(pass) create handler > non-object data [0.20ms]
+(pass) create handler > storage failure during write [0.21ms]
+(pass) update handler > shallow-merges patch + re-validates [0.43ms]
+(pass) update handler > slug-immutable: rejects patch.slug [0.13ms]
+(pass) update handler > missing slug → NOT_FOUND [0.10ms]
+(pass) update handler > invalid patch (validation fails on merged result) [0.20ms]
+(pass) update handler > non-object patch [0.21ms]
+(pass) update handler > non-string slug [0.10ms]
+(pass) update handler > invalid slug shape [0.09ms]
+(pass) update handler > storage failure during write [0.23ms]
+(pass) delete handler > deletes existing record + updates index [0.38ms]
+(pass) delete handler > missing slug → {deleted: false} (no error) [0.08ms]
+(pass) delete handler > non-string slug [0.10ms]
+(pass) delete handler > invalid slug shape [0.11ms]
+(pass) delete handler > storage failure [0.13ms]
+(pass) buildEntityToolMap > returns the 5 tools keyed by name [0.08ms]
+(pass) buildEntityToolMap > returned handlers dispatch through the store [0.16ms]
+(pass) buildEntityToolMap > respects softRead option [0.14ms]
+
+packages/@ezcorp/sdk/src/entities/__tests__/validate.test.ts:
+(pass) validateRecord — happy paths > valid record produces zero issues [0.11ms]
+(pass) validateRecord — happy paths > optional nested object validates [0.08ms]
+(pass) validateRecord — happy paths > missing optional property is fine [0.04ms]
+(pass) validateRecord — object branch > rejects non-object [0.07ms]
+(pass) validateRecord — object branch > rejects null [0.04ms]
+(pass) validateRecord — object branch > rejects array as object [0.03ms]
+(pass) validateRecord — object branch > rejects Date as object (not POJO) [0.04ms]
+(pass) validateRecord — object branch > missing required field produces path-tagged issue [0.05ms]
+(pass) validateRecord — object branch > multiple missing required fields [0.06ms]
+(pass) validateRecord — object branch > additionalProperties=false rejects unknown keys [0.08ms]
+(pass) validateRecord — object branch > additionalProperties=true allows unknown keys [0.07ms]
+(pass) validateRecord — object branch > default additionalProperties (omitted) rejects unknown [0.05ms]
+(pass) validateRecord — object branch > object with no properties + no required is permissive [0.04ms]
+(pass) validateRecord — object branch > nested object validation reports nested path [0.06ms]
+(pass) validateRecord — string branch > non-string [0.06ms]
+(pass) validateRecord — string branch > below minLength [0.08ms]
+(pass) validateRecord — string branch > above maxLength [0.05ms]
+(pass) validateRecord — string branch > at minLength is accepted [0.03ms]
+(pass) validateRecord — string branch > at maxLength is accepted [0.03ms]
+(pass) validateRecord — string branch > pattern accepts [0.07ms]
+(pass) validateRecord — string branch > pattern rejects [0.06ms]
+(pass) validateRecord — string branch > malformed pattern surfaces structured error [0.09ms]
+(pass) validateRecord — string branch > enum accepts valid value [0.04ms]
+(pass) validateRecord — string branch > enum rejects unknown value [0.04ms]
+(pass) validateRecord — number branch > rejects non-number [0.12ms]
+(pass) validateRecord — number branch > rejects NaN [0.05ms]
+(pass) validateRecord — number branch > rejects Infinity [0.04ms]
+(pass) validateRecord — number branch > rejects below minimum [0.04ms]
+(pass) validateRecord — number branch > rejects above maximum [0.03ms]
+(pass) validateRecord — number branch > accepts boundary values [0.02ms]
+(pass) validateRecord — number branch > integer flag rejects floats [0.04ms]
+(pass) validateRecord — boolean branch > accepts true / false [0.05ms]
+(pass) validateRecord — boolean branch > rejects truthy non-boolean [0.06ms]
+(pass) validateRecord — array branch > rejects non-array [0.13ms]
+(pass) validateRecord — array branch > rejects below minItems [0.05ms]
+(pass) validateRecord — array branch > rejects above maxItems [0.06ms]
+(pass) validateRecord — array branch > validates each item with [i] path [0.04ms]
+(pass) validateRecord — array branch > array with no items schema accepts anything-shaped contents [0.04ms]
+(pass) validateRecord — array branch > nested array path encoding [0.05ms]
+(pass) validateRecord — unsupported type > unknown schema type surfaces a structured issue, never throws [0.06ms]
+(pass) assertRecord — hard fail > does not throw on valid record [0.05ms]
+(pass) assertRecord — hard fail > throws EntityValidationError with issues attached [0.11ms]
+(pass) assertRecord — hard fail > uses ctx prefix in the error message [0.11ms]
+(pass) assertRecord — hard fail > truncates issue list to 5 with a (+N more) suffix [0.14ms]
+(pass) assertRecord — hard fail > renders (root) path for top-level structural failure [0.06ms]
+(pass) EntityValidationError > preserves issues and name [0.05ms]
+
+packages/@ezcorp/sdk/src/entities/__tests__/tools-rethrow.test.ts:
+(pass) create handler — rethrow of non-validation errors > a non-EntityValidationError from assertRecord surfaces as a generic failure [0.24ms]
+(pass) update handler — rethrow of non-validation errors > a non-EntityValidationError from assertRecord surfaces as a generic failure [0.10ms]
+
+packages/@ezcorp/sdk/src/entities/__tests__/storage.test.ts:
+(pass) key construction > entityRecordKey: __entity:<type>:<slug> [0.07ms]
+(pass) key construction > entityIndexKey: __entity-index:<type> [0.05ms]
+(pass) key construction > entityRecordKey rejects malformed type [0.16ms]
+(pass) key construction > entityRecordKey rejects malformed slug [0.07ms]
+(pass) key construction > entityIndexKey rejects malformed type [0.04ms]
+(pass) type validators > isValidEntityType — accept [0.03ms]
+(pass) type validators > isValidEntityType — reject [0.04ms]
+(pass) type validators > assertValidEntityType throws on bad input [0.03ms]
+(pass) type validators > assertValidEntityType doesn't throw on good input [0.03ms]
+(pass) reserved-key guards > isReservedEntityKey identifies managed keys [0.06ms]
+(pass) reserved-key guards > isReservedEntityKey rejects non-managed keys [0.04ms]
+(pass) reserved-key guards > assertNotReserved throws on managed key [0.10ms]
+(pass) reserved-key guards > assertNotReserved passes for safe keys [0.04ms]
+(pass) reserved-key guards > assertNotReserved uses ctx prefix [0.04ms]
+(pass) readEntityIndex > returns [] when index is absent [0.26ms]
+(pass) readEntityIndex > returns slugs as stored [0.10ms]
+(pass) readEntityIndex > filters non-string entries (corruption-tolerant) [0.10ms]
+(pass) readEntityIndex > filters invalid slugs (e.g. uppercase) [0.07ms]
+(pass) readEntityIndex > returns [] when index value is not an array [0.07ms]
+(pass) writeEntityIndex > sorts and dedupes [0.15ms]
+(pass) writeEntityIndex > filters invalid slugs from the persisted set [0.08ms]
+(pass) writeEntityIndex > empty input writes [] [0.06ms]
+(pass) readEntityRecord > returns null when record is absent [0.08ms]
+(pass) readEntityRecord > returns {slug, data} when record exists [0.08ms]
+(pass) readEntityRecord > returns null when stored value is explicitly null [0.07ms]
+(pass) writeEntityRecord > writes record AND appends slug to fresh index [0.12ms]
+(pass) writeEntityRecord > appends to existing index without disturbing other slugs [0.10ms]
+(pass) writeEntityRecord > re-writing the same slug doesn't duplicate the index entry [0.10ms]
+(pass) deleteEntityRecord > deletes record + removes from index [0.17ms]
+(pass) deleteEntityRecord > missing record returns false (no-op) [0.07ms]
+(pass) deleteEntityRecord > orphan slug in index is self-healed (record absent, index dirty) [0.12ms]
+(pass) listEntityRecords > returns [] for empty index [0.07ms]
+(pass) listEntityRecords > returns all records for indexed slugs [0.11ms]
+(pass) listEntityRecords > filters out slugs whose record is missing (index drift) [0.09ms]
+(pass) error propagation from backing store > writeEntityRecord rethrows storage failure [0.14ms]
+(pass) error propagation from backing store > readEntityRecord rethrows storage failure [0.08ms]
+
+packages/@ezcorp/sdk/src/v4/invocation-channel.test.ts:
+(pass) pure definitions use scoped helpers and reject retained channels after completion [10.84ms]
+(pass) pure definition notification failure rejects the invocation rather than racing its teardown [0.25ms]
+(pass) handler failure waits for an admitted notification before invocation teardown [4.89ms]
+(pass) notification failure waits for every admitted host effect [4.54ms]
+(pass) delayed callbacks cannot add notifications while admitted effects drain [11.56ms]
+
+packages/@ezcorp/sdk/src/v4/native-proxy.test.ts:
+(pass) native HTTP uses only authenticated scoped broker requests and strips proxy credentials [17.75ms]
+(pass) proxy authentication is unique per invocation and cancellation closes listeners [7.58ms]
+
+packages/@ezcorp/sdk/src/v4/context.test.ts:
+(pass) cancellation signal is invocation-scoped and absent outside invocation [0.28ms]
+
+packages/@ezcorp/sdk/src/v4/mcp.test.ts:
+(pass) remote descriptors never execute network calls inside the worker [22.72ms]
+(pass) catalog pagination is bounded and rejects repeated cursors [0.40ms]
+(pass) empty catalog pages and cursor bytes have independent limits [0.31ms]
+(pass) stdio MCP discovery and invocation use a fresh protocol client and checked schemas [274.02ms]
+(pass) native credentials are resolved only for invocation, with explicit denial and cleanup [300.36ms]
+(pass) MCP catalogs reject unsafe schemas, duplicates and invalid data [12.76ms]
+(pass) MCP executable discovers and invokes in a networkless rootless container [1250.92ms]
+
+packages/@ezcorp/sdk/src/v4/network.test.ts:
+(pass) raw credential helper is explicit, bounded and invocation-only [0.95ms]
+(pass) credential handles are invocation scoped and never use process environment [0.64ms]
+(pass) network calls broker headers and body and restore global fetch [1.07ms]
+(pass) network bodies larger than a control frame use bounded chunks [84.85ms]
+(pass) invalid network responses, lengths and oversized requests fail closed [3.06ms]
+
+packages/@ezcorp/sdk/src/v4/serve.test.ts:
+(pass) v4 protocol > host CAS conflicts preserve their stable public discriminator [12.90ms]
+(pass) v4 protocol > discovery returns immutable data and typed invocation enforces both schemas [0.98ms]
+(pass) v4 protocol > host requests bind exact invocation and expire after completion [0.63ms]
+(pass) v4 protocol > served invocation drains a direct admitted host call before replying [0.67ms]
+(pass) v4 protocol > served invocation preserves a handled host-request fallback [1.34ms]
+(pass) v4 protocol > served invocation rejects delayed credential calls while admitted effects drain [19.81ms]
+(pass) v4 protocol > cancellation interrupts handlers and late side effects fail [1.25ms]
+(pass) v4 protocol > deadline, concurrency, malformed frames and secret errors fail closed [1.25ms]
+(pass) v4 protocol > stream rejects oversized unterminated frames, malformed UTF8 and truncation [1.27ms]
+(pass) v4 protocol > host errors, pending cancellation and output failures settle requests [1.36ms]
+(pass) v4 protocol > real Bun process discovers and invokes through SDK stdin transport [395.00ms]
+
+packages/@ezcorp/sdk/src/v4/runtime.test.ts:
+(pass) runtime notifications acknowledge before handler success [2.43ms]
+(pass) filesystem paths use project and own data virtual roots [0.79ms]
+(pass) runtime vocabulary uses invocation-bound host calls without starting legacy transport [1.37ms]
+(pass) registration failures restore the adapter and tool envelopes reject errors [0.87ms]
+
+packages/@ezcorp/sdk/src/browser/index.test.ts:
+(pass) connects once to the exact parent origin and carries responses only on its private port [1.02ms]
+(pass) cancels one exact call, keeps its sibling active, and closes on pagehide [0.44ms]
+(pass) bounds timeouts and propagates only well-formed host error responses [10.68ms]
+(pass) rejects unsafe input, invalid methods and duplicate identifiers before posting [0.85ms]
+(pass) limits outstanding calls and tears down all pending callers [0.68ms]
+(pass) camera events require the bound nonce, fixed shape and bounded JPEG data [0.62ms]
+(pass) oversized host frames close the session and reject outstanding callers [3.96ms]
+(pass) host authority revocation rejects requests and notifies camera subscribers immediately [0.31ms]
+(pass) rejects missing trusted context and compiles as a pure browser module [12.59ms]
+(pass) browser authors can pass a DOM Window without installing Node ambient types [498.87ms]
+
+ 1029 pass
+ 0 fail
+ 2348 expect() calls
+Ran 1029 tests across 55 files. [10.15s]
+
+── leg output: hc ──
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/harness-client/src/index.test.ts:
+(pass) SseDataBuffer > splits records and skips comments/heartbeats [0.65ms]
+(pass) SseDataBuffer > buffers across chunk boundaries [0.03ms]
+(pass) SseDataBuffer > joins multi-line data fields [0.02ms]
+(pass) extension control exposes the shared lifecycle without a key-based approval method [2.18ms]
+(pass) event-name parity with the app > package list === app list (no drift) [0.03ms]
+(pass) HarnessClient > sends the bearer token [0.17ms]
+(pass) HarnessClient > createConversation defaults projectId to the global project [0.21ms]
+(pass) HarnessClient > createConversation lets an explicit projectId win over the default [0.13ms]
+(pass) HarnessClient > configure: get/set settings [0.30ms]
+(pass) HarnessClient > getRun (non-wait) returns the run row [0.17ms]
+(pass) HarnessClient > getConversationTree returns the tree; a UUID-ish id is path-encoded [0.15ms]
+(pass) HarnessClient > getConversationTree throws HarnessApiError 409 when the flag is off [0.22ms]
+(pass) HarnessClient > rewindConversation posts the target (+ optional summary) and returns the tree [0.27ms]
+(pass) HarnessClient > retryMessage posts the clean-A/B path (mid in the URL) + optional overrides [0.36ms]
+(pass) HarnessClient > retryMessage percent-encodes a traversal-ish message id into one segment [0.14ms]
+(pass) HarnessClient > resolveToolPermission posts approval with scope [0.18ms]
+(pass) HarnessClient > clearLlmScripts clears the mock scripts [0.29ms]
+(pass) HarnessClient > runToCompletion drives a message and returns the terminal result [0.31ms]
+(pass) HarnessClient > runScripted seeds the mock then drives with the mock provider [0.34ms]
+(pass) HarnessClient > non-2xx throws HarnessApiError with status + parsed body [0.16ms]
+(pass) HarnessClient > percent-encodes ids with special chars in the request path [0.28ms]
+(pass) HarnessClient > encodes the wait-path runId without disturbing the query [0.12ms]
+(pass) HarnessClient > encodes conversationId and toolCallId path segments [0.25ms]
+(pass) HarnessClient > refuses to follow a redirect (no bearer-token replay) [0.17ms]
+(pass) HarnessClient > streamEvents refuses to follow a redirect (no bearer-token replay) [0.64ms]
+(pass) HarnessClient > streamEvents yields parsed runtime events [1.95ms]
+(pass) HarnessClient — extension control > listExtensions returns a bare array (includes scratchpad) [0.20ms]
+(pass) HarnessClient — extension control > listExtensions normalizes a { extensions } wrapper [0.14ms]
+(pass) HarnessClient — extension control > listExtensions throws on an unexpected shape (does not silently return []) [0.15ms]
+(pass) HarnessClient — extension control > wireExtensions posts { names } and returns wired + extensionIds [0.21ms]
+(pass) HarnessClient — extension control > wireExtensions percent-encodes the conversationId path segment [0.15ms]
+(pass) HarnessClient — extension control > wireExtensions throws HarnessApiError 404 on an unknown name [0.18ms]
+(pass) HarnessClient — extension control > wireExtensions maps a 403 to HarnessApiError [0.16ms]
+(pass) HarnessClient — extension control > listWiredExtensions returns the wired set (encoded path) [0.16ms]
+(pass) HarnessClient — extension control > invokeExtensionTool auto-generates an invocationId and returns the result [0.18ms]
+(pass) HarnessClient — extension control > invokeExtensionTool honours an explicit invocationId + messageId, defaults input to {} [0.15ms]
+(pass) HarnessClient — extension control > invokeExtensionTool RESOLVES with a tool-level failure (HTTP 200 { success:false }) [0.13ms]
+(pass) HarnessClient — extension control > invokeExtensionTool maps a 403 to HarnessApiError [0.16ms]
+(pass) route table (HARNESS_ROUTES + buildPath) > every table entry has an uppercase HTTP method and an /api path template [0.09ms]
+(pass) route table (HARNESS_ROUTES + buildPath) > getRun and awaitRun intentionally share GET /api/runs/:id [0.02ms]
+(pass) route table (HARNESS_ROUTES + buildPath) > buildPath percent-encodes each param as a single segment [0.03ms]
+(pass) route table (HARNESS_ROUTES + buildPath) > buildPath leaves a template with no params untouched [0.01ms]
+(pass) route table (HARNESS_ROUTES + buildPath) > buildPath throws loudly on a missing route param [0.03ms]
+(pass) HarnessClient — extension lifecycle > installExtension posts the source body and returns the new row (201) [0.19ms]
+(pass) HarnessClient — extension lifecycle > installExtension supports the git source shape [0.15ms]
+(pass) HarnessClient — extension lifecycle > activateExtension without perms posts an empty body and enables [0.18ms]
+(pass) HarnessClient — extension lifecycle > activateExtension forwards grantedPermissions when supplied [0.15ms]
+(pass) HarnessClient — extension lifecycle > setExtensionEnabled(false) disables and returns the updated row [1.78ms]
+(pass) HarnessClient — extension lifecycle > setExtensionEnabled(true) is rejected by the server (enable via /activate) [0.18ms]
+(pass) HarnessClient — extension lifecycle > uninstallExtension resolves with no body on 204 [0.17ms]
+(pass) HarnessClient — extension lifecycle > updateExtensionPermissions PUTs the permissions and returns the row [0.21ms]
+(pass) HarnessClient — extension lifecycle > lifecycle methods percent-encode the extension id path segment [0.16ms]
+(pass) HarnessClient — extension secrets > setExtensionSecret posts name+value (no projectId) and never echoes the value [0.20ms]
+(pass) HarnessClient — extension secrets > setExtensionSecret forwards an explicit projectId (including null) [0.26ms]
+(pass) HarnessClient — extension secrets > setExtensionSecret maps a per-extension RBAC 403 to HarnessApiError [0.17ms]
+(pass) HarnessClient — extension secrets > deleteExtensionSecret returns { deleted } and forwards projectId when given [0.25ms]
+(pass) HarnessClient — hub actions + cancel run > triggerHubAction posts an empty body when no payload and returns { ok } [0.15ms]
+(pass) HarnessClient — hub actions + cancel run > triggerHubAction forwards a scalar payload and surfaces a rendered page [0.15ms]
+(pass) HarnessClient — hub actions + cancel run > cancelRun deletes the run and returns { ok:true } [0.14ms]
+(pass) HarnessClient — hub actions + cancel run > cancelRun maps a not-running 404 to HarnessApiError [0.11ms]
+(pass) HarnessClient — deliverHook (Loops EZ Mode Phase 4) > route table entry matches the registered path [0.02ms]
+(pass) HarnessClient — deliverHook (Loops EZ Mode Phase 4) > posts to the hook path with a Bearer token and NEVER the harness key [0.22ms]
+(pass) HarnessClient — deliverHook (Loops EZ Mode Phase 4) > sends an X-Hub-Signature-256 header and no Authorization when using HMAC [0.06ms]
+(pass) HarnessClient — deliverHook (Loops EZ Mode Phase 4) > maps a 401 to HarnessApiError [0.05ms]
+(pass) HarnessClient — deliverHook (Loops EZ Mode Phase 4) > path params are percent-encoded (no traversal) [0.06ms]
+(pass) SseDataBuffer — lastEventId > starts empty and tracks the most recent id: field [0.03ms]
+(pass) SseDataBuffer — lastEventId > an id-only record still updates the cursor and yields no payload [0.02ms]
+(pass) SseDataBuffer — lastEventId > a record with no id: leaves the cursor where it was (SSE persistence) [0.02ms]
+(pass) HarnessClient — caller-tool route table + methods > every caller-tools route is in the shared table at the registered path [0.02ms]
+(pass) HarnessClient — caller-tool route table + methods > declare / read / clear / submit / drain each drive their own verb+path [0.30ms]
+(pass) HarnessClient — serveCallerTools > drains pending calls from active-run BEFORE consuming any event [4.25ms]
+(pass) HarnessClient — serveCallerTools > a call delivered by BOTH drain and SSE executes exactly once [1.57ms]
+(pass) HarnessClient — serveCallerTools > an unknown tool is answered immediately, never parked [1.34ms]
+(pass) HarnessClient — serveCallerTools > a throwing handler reports a tool-level failure and keeps serving [1.34ms]
+(pass) HarnessClient — serveCallerTools > a non-Error throw is stringified rather than lost [1.32ms]
+(pass) HarnessClient — serveCallerTools > a call for another conversation is ignored [1.25ms]
+(pass) HarnessClient — serveCallerTools > a malformed caller:tool-call payload is dropped, not thrown on [1.25ms]
+(pass) HarnessClient — serveCallerTools > auto-approves a _caller__* gate and leaves every other gate alone [1.34ms]
+(pass) HarnessClient — serveCallerTools > a _caller__* gate from ANOTHER conversation is not auto-approved [1.29ms]
+(pass) HarnessClient — serveCallerTools > a gate with a missing or non-string conversationId fails CLOSED [1.33ms]
+(pass) HarnessClient — serveCallerTools > a REFUSED approval is reported and the stream keeps running [2.67ms]
+(pass) HarnessClient — serveCallerTools > autoApprove:false answers no gate at all [1.29ms]
+(pass) HarnessClient — serveCallerTools > a run's terminal event drops that run's open calls (and a runId-less one is ignored) [1.33ms]
+(pass) HarnessClient — serveCallerTools > reconnects after a transport failure, re-drains, and reports the error [2.33ms]
+(pass) HarnessClient — serveCallerTools > sends Last-Event-ID on the reconnect, and nothing on the first connect [2.38ms]
+(pass) HarnessClient — serveCallerTools > the dedupe set is bounded — the oldest id is evicted past the ceiling [4.34ms]
+(pass) HarnessClient — serveCallerTools > a pre-aborted signal never opens a connection [0.09ms]
+(pass) serveCallerTools — the two events disagree about the tool-name form > dispatch works on the BARE name the caller:tool-call actually carries [1.30ms]
+(pass) mintApiKey / updateConversation > mintApiKey posts name + scopes and omits the optional fields when absent [0.35ms]
+(pass) mintApiKey / updateConversation > mintApiKey forwards role + toolPolicy, bundle NAME included [0.17ms]
+(pass) mintApiKey / updateConversation > updateConversation PUTs the patch at the conversation path [0.15ms]
+(pass) mintApiKey / updateConversation > updateConversation can CLEAR the mode (which bricks a locked key, by design) [1.56ms]
+(pass) mintApiKey / updateConversation > both routes are in the shared table (one place a path is written) [0.05ms]
+
+ 93 pass
+ 0 fail
+ 276 expect() calls
+Ran 93 tests across 1 file. [698.00ms]
+
+── leg output: suggest ──
+bun test v1.3.14 (0d9b296a)
+
+src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts:
+(pass) upsertSetting jsonb roundtrip > boolean false roundtrips with correct jsonb type [438.32ms]
+(pass) upsertSetting jsonb roundtrip > boolean true roundtrips with correct jsonb type [240.82ms]
+(pass) upsertSetting jsonb roundtrip > number roundtrips with correct jsonb type [411.55ms]
+(pass) upsertSetting jsonb roundtrip > string roundtrips with correct jsonb type [809.59ms]
+(pass) upsertSetting jsonb roundtrip > object roundtrips with correct jsonb type [433.93ms]
+(pass) upsertSetting jsonb roundtrip > null roundtrips with correct jsonb type [276.26ms]
+(pass) upsertSetting jsonb roundtrip > update path re-encodes too (false → true on existing row) [230.58ms]
+
+src/db/queries/__tests__/suggestion-feedback.test.ts:
+(pass) insertSuggestionFeedback > persists a full event [231.98ms]
+(pass) insertSuggestionFeedback > optional fields default to null (content-free minimal event) [248.00ms]
+
+src/suggest/__tests__/config.test.ts:
+(pass) getSuggestConfig > defaults: enabled, no baseUrl, CPU-default model [266.75ms]
+(pass) getSuggestConfig > env vars supply url + model when settings absent [372.50ms]
+(pass) getSuggestConfig > settings win over env vars [404.79ms]
+(pass) getSuggestConfig > blank/non-string setting values fall through to env [533.21ms]
+(pass) getSuggestConfig > suggest:enabled=false disables; any non-true value disables; absence enables [422.98ms]
+(pass) isSuggestEnabledForProject > key follows the project:<id>: settings convention [353.74ms]
+(pass) isSuggestEnabledForProject > default ON: no row → enabled; null projectId (no project context) → enabled [397.62ms]
+(pass) isSuggestEnabledForProject > explicit false disables ONLY that project [347.51ms]
+(pass) isSuggestEnabledForProject > true re-enables; non-boolean values disable (mirror the global read) [424.32ms]
+
+src/suggest/__tests__/embedding-cache.test.ts:
+(pass) getToolEmbedding > embeds 'name: description' and caches by content [0.46ms]
+(pass) getToolEmbedding > a changed description is a NEW key (lazy reindex) [0.07ms]
+(pass) getToolEmbedding > name/description boundary is unambiguous [0.06ms]
+(pass) getToolEmbedding > evicts the least-recently-used entry beyond the cap [5.35ms]
+(pass) getToolEmbedding > cap is 4096 — tools plus their authored example texts [0.06ms]
+(pass) getRawTextEmbedding > embeds text VERBATIM (no 'name:' prefix) and caches by content [0.23ms]
+(pass) getRawTextEmbedding > raw key never collides with a tool embedding of the same visible text [0.07ms]
+(pass) getRawTextEmbedding > no collision even with a tool literally named 'raw' [0.06ms]
+(pass) getRawTextEmbedding > shares the one bounded LRU with getToolEmbedding (cross-writer eviction) [6.35ms]
+
+src/suggest/__tests__/enhance.test.ts:
+(pass) isEnhanceAvailable > reachable /v1/models → true; result is TTL-cached [0.63ms]
+(pass) isEnhanceAvailable > failure is ALSO cached, and re-probes after the TTL [0.17ms]
+(pass) isEnhanceAvailable > network error → false [0.17ms]
+(pass) parseEnhanceResponse > plain JSON object parses [0.14ms]
+(pass) parseEnhanceResponse > strips <think> blocks and surrounding prose [0.03ms]
+(pass) parseEnhanceResponse > no JSON object → null [0.02ms]
+(pass) parseEnhanceResponse > malformed JSON → null [0.05ms]
+(pass) parseEnhanceResponse > empty enhanced → null [0.02ms]
+(pass) parseEnhanceResponse > non-string fields tolerated → reason defaults empty, bad enhanced → null [0.02ms]
+(pass) parseEnhanceResponse > over-long enhanced → null [0.04ms]
+(pass) enhancePrompt > happy path: sends schema-constrained request, parses result [0.59ms]
+(pass) enhancePrompt > context without mode/tools omits those sections [0.11ms]
+(pass) enhancePrompt > response_format rejection retries once without the schema [0.15ms]
+(pass) enhancePrompt > both attempts failing → null [0.09ms]
+(pass) enhancePrompt > non-string content → null [0.07ms]
+(pass) enhancePrompt > network error → null [0.11ms]
+(pass) base URL normalization — trailing /v1 is not doubled > isEnhanceAvailable probes /v1/models exactly once, not /v1/v1/models [0.09ms]
+(pass) base URL normalization — trailing /v1 is not doubled > enhancePrompt POSTs to a single-/v1 chat-completions URL [0.10ms]
+
+src/suggest/__tests__/intent-rank.test.ts:
+(pass) cosineSimilarity > identical unit vectors → 1 [0.07ms]
+(pass) cosineSimilarity > orthogonal vectors → 0 [0.01ms]
+(pass) cosineSimilarity > opposite vectors → -1 [0.02ms]
+(pass) cosineSimilarity > unnormalized inputs are normalized by magnitude [0.01ms]
+(pass) cosineSimilarity > mismatched lengths → 0 [0.01ms]
+(pass) cosineSimilarity > empty vectors → 0 [0.01ms]
+(pass) cosineSimilarity > zero-norm vector → 0 (no NaN) [0.01ms]
+(pass) rankCandidates > orders by blended score, filters below minScore [0.25ms]
+(pass) rankCandidates > minScore gates on RAW cosine — a huge prior cannot rescue an irrelevant tool [0.03ms]
+(pass) rankCandidates > prior boosts among relevant candidates [0.04ms]
+(pass) rankCandidates > cold start: unused relevant tool still surfaces with zero prior [0.02ms]
+(pass) rankCandidates > topK caps the result [0.36ms]
+(pass) rankCandidates > equal scores tie-break deterministically by key [0.05ms]
+(pass) rankCandidates > option overrides apply on top of defaults [0.03ms]
+(pass) rankCandidates > blended score formula: relevance*(1-w) + prior*w [0.03ms]
+(pass) maxExampleCosine > no examples → plain description cosine (back-compat) [0.03ms]
+(pass) maxExampleCosine > folds in the best example when it beats the description cosine [0.02ms]
+(pass) maxExampleCosine > a weak example never drags the score below the description cosine [0.02ms]
+(pass) rankCandidates — example-aware cosine (suggestExamples) > an authored example rescues a candidate whose description cosine is below the gate [0.04ms]
+(pass) rankCandidates — example-aware cosine (suggestExamples) > without a matching example the low-cosine candidate stays gated out [0.05ms]
+(pass) EXTENSION_SUGGEST_DEFAULTS > 2 slots, gate above the 0.32 live noise cosine, shared prior weight [0.03ms]
+(pass) contentTokens > lowercases, splits on non-alphanumerics, drops stop-words and short tokens [0.03ms]
+(pass) contentTokens > empty/stop-word-only text → empty set [0.03ms]
+(pass) lexicalScore > name hits count double, capped at 1 [0.03ms]
+(pass) lexicalScore > no overlap → 0; empty draft → 0; missing token sets → 0 [0.03ms]
+(pass) lexicalScore > saturates at 1 when every draft token hits a name token [0.02ms]
+(pass) rankCandidates — hybrid relevance (live regression 2026-07-10) > lexical overlap rescues the low-cosine right tool and ranks it first [0.06ms]
+(pass) rankCandidates — hybrid relevance (live regression 2026-07-10) > without draft tokens the old embedding-only behavior holds (back-compat) [0.04ms]
+(pass) rankCandidates — hybrid relevance (live regression 2026-07-10) > lexical cannot drag DOWN a strong cosine (relevance is the max) [0.03ms]
+
+src/suggest/__tests__/training-export.test.ts:
+(pass) buildTrainingExamples (pure) > groups tools per message, dedupes, sorts, wraps in chat format [0.49ms]
+(pass) buildTrainingExamples (pure) > drops prompts below the signal floor [0.03ms]
+(pass) buildTrainingExamples (pure) > caps pasted walls of text [0.07ms]
+(pass) toJsonl > one JSON object per line with trailing newline; empty → empty string [0.11ms]
+(pass) syntheticPromptToolRows (pure) > per-tool example → one namespaced row with a `synthetic:` messageId [0.15ms]
+(pass) syntheticPromptToolRows (pure) > extension-level example → one shared-messageId row per declared tool [0.04ms]
+(pass) syntheticPromptToolRows (pure) > extension-level example on a tool-less manifest yields no rows [0.03ms]
+(pass) syntheticPromptToolRows (pure) > a manifest with no authored examples yields no rows [0.02ms]
+(pass) dedupeSyntheticRows (pure) > drops synthetic whose normalized prompt already appears in real history [0.12ms]
+(pass) dedupeSyntheticRows (pure) > empty real history keeps every synthetic row [0.02ms]
+(pass) buildTrainingExamples — synthetic provenance + grouping > stamps source from the `synthetic:` messageId prefix [0.07ms]
+(pass) buildTrainingExamples — synthetic provenance + grouping > extension-level synthetic rows group into one example over the whole tool set [0.05ms]
+(pass) buildTrainingExamples — synthetic provenance + grouping > synthetic prompts below the signal floor are dropped like real ones [0.04ms]
+(pass) buildTrainingExamples — synthetic provenance + grouping > toJsonl carries the source provenance on each line [0.04ms]
+(pass) collectPromptToolRows (DB) > pairs each successful call with the nearest preceding user message [513.92ms]
+(pass) collectPromptToolRows (DB) > failed calls, conversation-less calls, and out-of-window calls are excluded [442.15ms]
+(pass) collectPromptToolRows (DB) > assistant-only conversations produce no pairs (LATERAL finds no user turn) [387.89ms]
+
+src/suggest/__tests__/user-tool-priors.test.ts:
+(pass) computeToolPriors (pure) > empty history → empty record [0.14ms]
+(pass) computeToolPriors (pure) > most-used recent tool normalizes to 1 [0.10ms]
+(pass) computeToolPriors (pure) > recency decay: a tool last used one half-life ago counts half [0.04ms]
+(pass) computeToolPriors (pure) > future timestamps clamp to zero age (no boost beyond 1) [0.03ms]
+(pass) computeToolPriors (pure) > invalid timestamps and non-positive counts are skipped [0.02ms]
+(pass) deriveExtensionPriors (pure) > per extension: MAX over its `<name>__`-prefixed tool keys [0.09ms]
+(pass) deriveExtensionPriors (pure) > built-in (un-namespaced) keys are ignored [0.03ms]
+(pass) deriveExtensionPriors (pure) > unrequested extensions are omitted; empty names → {} [0.04ms]
+(pass) deriveExtensionPriors (pure) > empty priors → {} [0.02ms]
+(pass) deriveExtensionPriors (pure) > keeps the [0,1] normalization (max, not sum, of many tools) [0.03ms]
+(pass) getUserToolPriors (DB) > aggregates per-tool usage for the user only [442.16ms]
+(pass) getUserToolPriors (DB) > usage outside the window is excluded entirely [374.96ms]
+(pass) getUserToolPriors (DB) > TTL cache: repeat call within TTL skips the query [384.67ms]
+
+ 104 pass
+ 0 fail
+ 190 expect() calls
+Ran 104 tests across 8 files. [10.22s]
+
+── leg output: aikit ──
+bun test v1.3.14 (0d9b296a)
+
+packages/@ezcorp/ai-kit/test/integration/extension.test.ts:
+(pass) ezcorp.config manifest > passes the canonical v4 manifest validator [1.12ms]
+(pass) ezcorp.config manifest > schemaVersion is the literal number 4 [0.02ms]
+(pass) ezcorp.config manifest > name is 'ai-kit' [0.01ms]
+(pass) ezcorp.config manifest > version is '0.1.0' [0.01ms]
+(pass) ezcorp.config manifest > entrypoint is set (required because tools[] is non-empty) [0.02ms]
+(pass) ezcorp.config manifest > every declared tool name is in the locked list [0.06ms]
+(pass) ezcorp.config manifest > all 19 locked tool names are declared [0.04ms]
+(pass) ezcorp.config manifest > every tool has a non-empty description [0.02ms]
+(pass) ezcorp.config manifest > every tool has an inputSchema object [0.03ms]
+(pass) ezcorp.config manifest > skills array has entries with name + description [0.04ms]
+(pass) ezcorp.config manifest > declares exact host API routes without direct localhost networking or credentials [0.04ms]
+(pass) ezcorp.config manifest > scripts.postinstall points to postinstall script [0.01ms]
+(pass) tool–client parity (stub server) > list_projects → array of projects [1.14ms]
+(pass) tool–client parity (stub server) > list_agents → array [0.21ms]
+(pass) tool–client parity (stub server) > list_models → array [0.07ms]
+(pass) tool–client parity (stub server) > list_extensions → array [0.05ms]
+(pass) tool–client parity (stub server) > search_mentions → array of hits [1.05ms]
+(pass) tool–client parity (stub server) > create_agent → agent with id, name, prompt [0.85ms]
+(pass) tool–client parity (stub server) > get_agent (list_agents then pick by id) → agent object [0.09ms]
+(pass) tool–client parity (stub server) > generate_agent (first turn) → text with no config [0.58ms]
+(pass) tool–client parity (stub server) > generate_agent (second turn) → text with config [0.12ms]
+(pass) tool–client parity (stub server) > start_chat → conversation with id and projectId [0.49ms]
+(pass) tool–client parity (stub server) > start_chat with parentConversationId → sub-conversation row [0.18ms]
+(pass) tool–client parity (stub server) > send_message → userMessage + runId [0.47ms]
+(pass) tool–client parity (stub server) > get_messages → array of messages [0.11ms]
+(pass) tool–client parity (stub server) > cancel_run → { ok: true } [0.11ms]
+(pass) tool–client parity (stub server) > spawn_chats → chats array with conversationId + runId [0.77ms]
+(pass) tool–client parity (stub server) > spawn_agents → sends message with ![agent:…] tokens [0.13ms]
+(pass) tool–client parity (stub server) > spawn_team → sends message with ![team:…] token [0.12ms]
+(pass) tool–client parity (stub server) > list_sub_conversations → array filtered by parent [0.18ms]
+(pass) tool–client parity (stub server) > assign_task → assignment with id and status [0.36ms]
+(pass) tool–client parity (stub server) > start_assignment → runId + subConversationId [0.39ms]
+(pass) tool–client parity (stub server) > stream_run → consumes run:complete event [2.67ms]
+
+packages/@ezcorp/ai-kit/test/integration/install.test.ts:
+(pass) CLI install claude-code (spawned process) > exits 0 and writes ~/.claude.json [38.30ms]
+(pass) CLI install claude-code (spawned process) > written config has valid JSON shape [40.53ms]
+(pass) CLI install claude-code (spawned process) > idempotent — second run produces identical file [74.32ms]
+(pass) CLI install claude-code (spawned process) > --dry-run does not create any files [52.58ms]
+(pass) CLI install claude-code (spawned process) > --project writes to cwd/.claude.json [195.33ms]
+(pass) CLI install unknown target > exits non-zero with error message [34.10ms]
+(pass) CLI install missing target > exits non-zero with usage hint [32.04ms]
+(pass) CLI --help > exits 0 and prints usage [32.37ms]
+(pass) CLI no subcommand > exits non-zero [37.71ms]
+(pass) CLI install file-based targets (spawned) > cursor: exits 0 and writes syntactically valid config [36.95ms]
+(pass) CLI install file-based targets (spawned) > zed: exits 0 and writes syntactically valid config [63.22ms]
+(pass) CLI install file-based targets (spawned) > windsurf: exits 0 and writes syntactically valid config [50.82ms]
+
+packages/@ezcorp/ai-kit/test/integration/on-behalf-of.test.ts:
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > tools/call with _meta.ezOnBehalfOf → outbound HTTP carries the header [21.40ms]
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > tools/call WITHOUT _meta → no header is sent (baseline) [3.14ms]
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > nested tools/call uses each call's own OBO (ALS is per-run, not per-client) [2.92ms]
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > non-string _meta.ezOnBehalfOf is ignored (defense against malformed meta) [1.98ms]
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > empty-string _meta.ezOnBehalfOf is ignored [1.74ms]
+(pass) ai-kit OBO propagation: _meta.ezOnBehalfOf → X-Ezcorp-On-Behalf-Of > OBO propagates through a fan-out tool (spawn_chats) to EACH outbound call [2.71ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > start_chat with _meta.ezModel sends that model in the create body [2.44ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > LLM-supplied `model` arg WINS over inherited _meta.ezModel [1.91ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > send_message inherits _meta.ezModel when arg omits it [2.61ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > spawn_chats batch inherits _meta.ezModel for EVERY sub-conversation [2.08ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > tools/call WITHOUT model meta → no model field in body (server picks its own default) [1.87ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > model context does not leak between calls (ALS is per-call scope) [6.04ms]
+(pass) ai-kit model propagation: _meta.ezModel → outbound body > OBO + model inherited together, both propagate [5.44ms]
+
+packages/@ezcorp/ai-kit/test/integration/tool-handlers.test.ts:
+(pass) every MCP tool handler round-trips through the transport > list_projects [4.23ms]
+(pass) every MCP tool handler round-trips through the transport > list_agents [20.50ms]
+(pass) every MCP tool handler round-trips through the transport > search_mentions [2.56ms]
+(pass) every MCP tool handler round-trips through the transport > list_models [1.78ms]
+(pass) every MCP tool handler round-trips through the transport > list_extensions [8.50ms]
+(pass) every MCP tool handler round-trips through the transport > start_chat + send_message + get_messages + cancel_run [2.78ms]
+(pass) every MCP tool handler round-trips through the transport > stream_run collects events then hits run:complete [3.04ms]
+(pass) every MCP tool handler round-trips through the transport > stream_run times out when runId never appears [115.20ms]
+(pass) every MCP tool handler round-trips through the transport > stream_run filters out mismatched conversationId [508.61ms]
+(pass) every MCP tool handler round-trips through the transport > create_agent + get_agent (found + not-found) [5.92ms]
+(pass) every MCP tool handler round-trips through the transport > generate_agent wizard (first turn returns clarifying text, second returns config) [5.04ms]
+(pass) every MCP tool handler round-trips through the transport > list_sub_conversations returns empty for a fresh parent [1.92ms]
+(pass) every MCP tool handler round-trips through the transport > assign_task + start_assignment spawns a sub-conversation [5.47ms]
+(pass) every MCP tool handler round-trips through the transport > spawn_agents composes ![agent:…] mentions [5.27ms]
+(pass) every MCP tool handler round-trips through the transport > spawn_team composes a ![team:name] mention [5.06ms]
+(pass) every MCP tool handler round-trips through the transport > spawn_chats batches N root conversations [1.67ms]
+
+packages/@ezcorp/ai-kit/test/shape.test.ts:
+(pass) ai-kit surface drift guard > docs/OVERVIEW.md enumerates the capabilities the kit exposes [0.16ms]
+(pass) ai-kit surface drift guard > openapi.yaml declares every capability from OVERVIEW [0.16ms]
+(pass) ai-kit surface drift guard > every MCP tool is mentioned in at least one SKILL.md [0.92ms]
+(pass) ai-kit surface drift guard > ezcorp.config.ts exports orchestration tools for Tier 4 [0.06ms]
+(pass) ai-kit surface drift guard > every SSE event type used by tools/chat.ts is documented [0.15ms]
+
+packages/@ezcorp/ai-kit/test/unit/cli-doctor.test.ts:
+(pass) doctor — all checks pass > returns true when backend healthy + auth valid [4.69ms]
+(pass) doctor — all checks pass > prints 'All checks passed' line [0.29ms]
+(pass) doctor — all checks pass > prints health check row with ok status [0.26ms]
+(pass) doctor — all checks pass > prints auth row with user info [0.28ms]
+(pass) doctor — all checks pass > prints mcp tools row [0.22ms]
+(pass) doctor — no API key > returns true when backend healthy and no apiKey [0.25ms]
+(pass) doctor — no API key > auth row shows 'skipped' message [0.22ms]
+(pass) doctor — server unreachable > returns false when backend is down [2.18ms]
+(pass) doctor — server unreachable > prints failure message [0.28ms]
+(pass) doctor — wrong API key > health passes but auth row fails, returns false [0.33ms]
+(pass) doctor — wrong API key > prints FAIL on auth row [0.23ms]
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+(pass) install claude-code (user scope) > writes ~/.claude.json with mcpServers entry [21.97ms]
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+(pass) install claude-code (user scope) > idempotent — running twice produces identical config [60.77ms]
+Installed: claude-code MCP config written.
+(pass) install claude-code (user scope) > merges into existing config without clobbering other keys [12.85ms]
+[dry-run] Would write /tmp/ai-kit-test-hpdWxy/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-hpdWxy/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-hpdWxy/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-hpdWxy/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-hpdWxy/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-hpdWxy/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+(pass) install claude-code (user scope) > dry-run does NOT write any files [10.12ms]
+Installed: claude-code MCP config written.
+(pass) install claude-code (project scope --project) > writes .claude.json in cwd, not in home [77.06ms]
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+(pass) install claude-code (project scope --project) > idempotent in project scope [49.10ms]
+[dry-run] Would write /tmp/ai-kit-test-YrGMmF/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-YrGMmF/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-YrGMmF/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-YrGMmF/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-YrGMmF/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-YrGMmF/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+(pass) install claude-code (project scope --project) > dry-run project scope does NOT write [6.74ms]
+Installed: cursor MCP config written.
+(pass) install cursor > writes ~/.cursor/mcp.json with mcpServers entry [2.71ms]
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+(pass) install cursor > idempotent [5.96ms]
+[dry-run] Would write /tmp/ai-kit-test-RAyywr/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+(pass) install cursor > dry-run does not write [0.97ms]
+Installed: zed context_servers config written.
+(pass) install zed > writes ~/.config/zed/settings.json with context_servers entry [2.15ms]
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+(pass) install zed > idempotent [2.07ms]
+[dry-run] Would write /tmp/ai-kit-test-VzEFFg/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+(pass) install zed > dry-run does not write [1.76ms]
+Installed: zed context_servers config written.
+(pass) install zed > merges with existing zed settings [14.27ms]
+Installed: windsurf MCP config written.
+(pass) install windsurf > writes ~/.codeium/windsurf/mcp_config.json with mcpServers entry [3.58ms]
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+(pass) install windsurf > idempotent [5.16ms]
+[dry-run] Would write /tmp/ai-kit-test-Vv3xlq/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+(pass) install windsurf > dry-run does not write [8.01ms]
+ai-kit: data directory initialized at /tmp/ai-kit-test-znfQyj/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-znfQyj)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-znfQyj/.ezcorp/extensions/ai-kit
+(pass) install ezcorp > creates symlink at <root>/.ezcorp/extensions/ai-kit [317.58ms]
+ai-kit: data directory initialized at /tmp/ai-kit-test-ODWiQE/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-ODWiQE)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-ODWiQE/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-ODWiQE/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-ODWiQE)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-ODWiQE/.ezcorp/extensions/ai-kit
+(pass) install ezcorp > idempotent — second install replaces existing symlink cleanly [505.35ms]
+[dry-run] Would create symlink: /tmp/ai-kit-test-SebdQ5/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/extension-v4-independent-audit/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+(pass) install ezcorp > dry-run does not create symlink [0.47ms]
+(pass) install ezcorp > throws when no git root found and no projectPath given [0.31ms]
+(pass) install unknown target > throws with helpful message [0.06ms]
+Installed: claude-code MCP config written.
+(pass) MCP entry shape across all file-based targets > claude-code: entry has command=bunx, args=[@ezcorp/ai-kit,mcp], env keys [0.97ms]
+Installed: cursor MCP config written.
+(pass) MCP entry shape across all file-based targets > cursor: entry has command=bunx, args=[@ezcorp/ai-kit,mcp], env keys [0.20ms]
+Installed: zed context_servers config written.
+(pass) MCP entry shape across all file-based targets > zed: entry has command=bunx, args=[@ezcorp/ai-kit,mcp], env keys [0.24ms]
+Installed: windsurf MCP config written.
+(pass) MCP entry shape across all file-based targets > windsurf: entry has command=bunx, args=[@ezcorp/ai-kit,mcp], env keys [0.21ms]
+
+packages/@ezcorp/ai-kit/test/unit/client.test.ts:
+(pass) EzcorpClient — auth + errors > injects Authorization header when apiKey provided [0.20ms]
+(pass) EzcorpClient — auth + errors > health requires no auth [0.07ms]
+(pass) EzcorpClient — auth + errors > rejects malformed health and identity response envelopes [0.11ms]
+(pass) EzcorpClient — auth + errors > maps the valid degraded health status to not ok [0.08ms]
+(pass) EzcorpClient — auth + errors > throws EzcorpApiError with status + url on non-2xx [0.16ms]
+(pass) EzcorpClient — auth + errors > baseUrl trailing slash is normalized [0.03ms]
+(pass) EzcorpClient — projects + conversations > listProjects returns seeded global [0.07ms]
+(pass) EzcorpClient — projects + conversations > createProject + getProject round-trip [0.16ms]
+(pass) EzcorpClient — projects + conversations > listConversations filters by projectId [0.26ms]
+(pass) EzcorpClient — projects + conversations > getConversation returns a single row [0.12ms]
+(pass) EzcorpClient — projects + conversations > getTasks returns stub shape [0.10ms]
+(pass) EzcorpClient — projects + conversations > createConversation + sendMessage round-trip [0.18ms]
+(pass) EzcorpClient — projects + conversations > createConversation validates uuid projectId [0.18ms]
+(pass) EzcorpClient — projects + conversations > sendMessage enforces content length [0.11ms]
+(pass) EzcorpClient — fan-out > spawnChats rejects batches larger than 10 (amplification defense) [0.16ms]
+(pass) EzcorpClient — fan-out > spawnChats accepts a batch of exactly 10 (the hard cap) [0.42ms]
+(pass) EzcorpClient — fan-out > spawnChats creates N independent root conversations [0.23ms]
+(pass) EzcorpClient — fan-out > assignTask + startAssignment produces a sub-conversation [0.26ms]
+(pass) EzcorpClient — agents > createAgent round-trips [0.11ms]
+(pass) EzcorpClient — agents > generateAgent returns clarifying text then config on second turn [0.16ms]
+(pass) EzcorpClient — agents > searchMentions with type filter [0.11ms]
+(pass) EzcorpClient — call context > onBehalfOfContext back-compat shim round-trips through callContext [0.13ms]
+(pass) EzcorpClient — call context > callContext defaults fill in missing model + provider [0.17ms]
+(pass) EzcorpClient — call context > explicit args override callContext defaults [0.18ms]
+(pass) EzcorpClient — redirects > refuses to follow a redirect (no bearer-token replay) [0.13ms]
+(pass) EzcorpClient — redirects > streamEvents refuses to follow a redirect (no bearer-token replay) [0.17ms]
+(pass) EzcorpClient — SSE streaming > streamEvents yields emitted frames in order [22.20ms]
+
+packages/@ezcorp/ai-kit/test/unit/extension-bridge.test.ts:
+(pass) broker carries route and body without client credentials [0.34ms]
+(pass) events are bounded broker polls with cursors and cancellation [0.37ms]
+(pass) empty responses use no body [0.09ms]
+
+packages/@ezcorp/ai-kit/test/unit/mcp-server.test.ts:
+(pass) mcp-server (in-memory transport) > tools/list returns all expected tool names [6.90ms]
+(pass) mcp-server (in-memory transport) > list_projects returns project list [1.38ms]
+(pass) mcp-server (in-memory transport) > start_chat creates a conversation [1.03ms]
+(pass) mcp-server (in-memory transport) > send_message returns runId [1.25ms]
+(pass) mcp-server (in-memory transport) > create_agent creates and returns agent [0.98ms]
+(pass) mcp-server (in-memory transport) > spawn_chats creates N conversations [1.30ms]
+
+packages/@ezcorp/ai-kit/test/unit/tool-responses-links.test.ts:
+(pass) tool responses include entity links > start_chat response includes url pointing at publicUrl [2.37ms]
+(pass) tool responses include entity links > send_message response includes conversationUrl + runUrl [1.11ms]
+(pass) tool responses include entity links > cancel_run response includes conversation url [0.96ms]
+(pass) tool responses include entity links > list_sub_conversations returns array with per-item urls [1.16ms]
+(pass) tool responses include entity links > create_agent response includes agent url by name [1.02ms]
+(pass) tool responses include entity links > spawn_chats response includes a url + runUrl per chat [1.49ms]
+(pass) tool responses include entity links > start_assignment response includes sub-chat + run urls [1.48ms]
+(pass) tool responses include entity links > spawn_agents response includes conversation + run urls [1.47ms]
+(pass) publicUrl precedence on EzcorpClient > explicit publicUrl option wins over env and baseUrl [0.06ms]
+(pass) publicUrl precedence on EzcorpClient > env var wins over baseUrl when publicUrl option absent [0.03ms]
+(pass) publicUrl precedence on EzcorpClient > baseUrl is the fallback when no option or env is set [0.03ms]
+(pass) publicUrl precedence on EzcorpClient > trailing slashes are stripped from publicUrl [0.01ms]
+(pass) _meta.ezPublicUrl overrides client.publicUrl inside a tool call > ezPublicUrl from _meta wins over client.publicUrl [1.24ms]
+(pass) _meta.ezPublicUrl overrides client.publicUrl inside a tool call > without ezPublicUrl, client.publicUrl is used [0.95ms]
+
+packages/@ezcorp/ai-kit/test/unit/tools-agents.test.ts:
+(pass) tools/agents > TOOLS has 3 entries [0.53ms]
+(pass) tools/agents > create_agent returns created agent with id [0.32ms]
+(pass) tools/agents > generate_agent single turn returns clarifying text with null config [0.26ms]
+(pass) tools/agents > generate_agent two-turn wizard returns config on second turn [0.28ms]
+(pass) tools/agents > get_agent returns agent by id [0.28ms]
+(pass) tools/agents > get_agent handles not-found gracefully [0.25ms]
+
+packages/@ezcorp/ai-kit/test/unit/tools-chat.test.ts:
+(pass) tools/chat > TOOLS has 5 entries [0.46ms]
+(pass) tools/chat > start_chat creates a conversation [0.32ms]
+(pass) tools/chat > send_message returns runId [0.36ms]
+(pass) tools/chat > get_messages returns messages after send [0.30ms]
+(pass) tools/chat > cancel_run returns ok [0.26ms]
+(pass) tools/chat > cancel_run with force=true also returns ok [0.26ms]
+(pass) tools/chat > stream_run collects events for a run [23.10ms]
+(pass) tools/chat > stream_run times out when no events match [102.59ms]
+
+packages/@ezcorp/ai-kit/test/unit/tools-discover.test.ts:
+(pass) tools/discover > TOOLS constant has 6 entries with correct names [0.89ms]
+(pass) tools/discover > list_extensions description carries DEPRECATED marker [0.30ms]
+(pass) tools/discover > extension_search description mentions tools projection [0.29ms]
+(pass) tools/discover > list_projects returns stub project list [0.39ms]
+(pass) tools/discover > list_agents returns empty list by default [0.30ms]
+(pass) tools/discover > search_mentions returns hits for a query [0.27ms]
+(pass) tools/discover > search_mentions with type filter passes type to stub [0.24ms]
+(pass) tools/discover > list_models returns model list [0.25ms]
+(pass) tools/discover > list_extensions returns empty array [0.24ms]
+(pass) tools/discover > all tool descriptions are action-oriented (start with a verb) [0.19ms]
+(pass) tools/discover > extension_search > returns all extensions when query is omitted [0.38ms]
+(pass) tools/discover > extension_search > filters by case-insensitive substring match on name [0.28ms]
+(pass) tools/discover > extension_search > filters by case-insensitive substring match on description [0.24ms]
+(pass) tools/discover > extension_search > returns curated tools projection without inputSchema [0.28ms]
+(pass) tools/discover > extension_search > returns tools: [] for skill-only extensions with no manifest.tools [0.23ms]
+(pass) tools/discover > extension_search > returns empty array when query matches nothing [0.25ms]
+(pass) tools/discover > extension_search > trims and lowercases the query [0.23ms]
+(pass) tools/discover > extension_search > returns hits with the expected curated shape [0.26ms]
+
+packages/@ezcorp/ai-kit/test/unit/tools-error-branches.test.ts:
+(pass) MCP tool handler error / fallback branches > cancel_run falls back to a project/unknown link when getConversation fails [1.23ms]
+(pass) MCP tool handler error / fallback branches > stream_run rethrows a non-abort stream error (returns an error result) [0.75ms]
+(pass) MCP tool handler error / fallback branches > assign_task falls back to a project/unknown link when getConversation fails [0.78ms]
+(pass) MCP tool handler error / fallback branches > generate_agent links to the agent once a persisted config (id + name) is returned [0.63ms]
+(pass) MCP tool handler error / fallback branches > extension_search returns the client's hits verbatim [0.67ms]
+
+packages/@ezcorp/ai-kit/test/unit/tools-orchestrate.test.ts:
+(pass) tools/orchestrate > TOOLS has 6 entries [0.55ms]
+(pass) tools/orchestrate > spawn_chats description mentions 'root-level' [0.24ms]
+(pass) tools/orchestrate > list_sub_conversations returns empty list for a new conversation [0.39ms]
+(pass) tools/orchestrate > assign_task returns an assignment [0.34ms]
+(pass) tools/orchestrate > start_assignment spawns a sub-conversation [0.37ms]
+(pass) tools/orchestrate > spawn_chats creates N independent conversations [0.45ms]
+(pass) tools/orchestrate > spawn_agents fan-out: sends message with agent mentions [0.36ms]
+(pass) tools/orchestrate > spawn_team fan-out: sends message with team mention [0.34ms]
+
+packages/@ezcorp/ai-kit/test/unit/urls.test.ts:
+(pass) entityUrl > builds a conversation URL under its project [0.03ms]
+(pass) entityUrl > builds an agent URL by name [0.02ms]
+(pass) entityUrl > url-encodes agent names with spaces [0.01ms]
+(pass) entityUrl > builds a run URL
+(pass) entityUrl > builds a project URL [0.01ms]
+(pass) entityUrl > strips a trailing slash from the base [0.01ms]
+(pass) entityUrl > strips multiple trailing slashes [0.01ms]
+(pass) entityUrl > works with a cross-domain HTTPS base
+(pass) entityUrl > preserves a path prefix on the base
+
+ 220 pass
+ 0 fail
+ 540 expect() calls
+Ran 220 tests across 17 files. [3.69s]
+
+── leg output: vitest ──
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:25:18). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/dev/work/EZCorp/extension-v4-independent-audit/web
+      Coverage enabled with v8
+
+Not implemented: navigation to another Document
+{"ts":"2026-09-07T09:51:43.493Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-07T09:51:43.494Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-09-07T09:51:43.494Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-09-07T09:51:43.494Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-09-07T09:51:43.494Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.496Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.496Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-09-07T09:51:43.496Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.497Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.498Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":1}
+{"ts":"2026-09-07T09:51:43.498Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.499Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-09-07T09:51:43.500Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.501Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-09-07T09:51:43.501Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-09-07T09:51:43.501Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T09:51:43.500Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-09-07T09:51:43.501Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-09-07T09:51:43.501Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":1}
+{"ts":"2026-09-07T09:52:08.502Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang","ms":25001}
+{"ts":"2026-09-07T09:52:08.502Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-09-07T09:51:43.507Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.507Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-07T09:51:43.507Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-07T09:51:43.507Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-07T09:52:08.501Z","level":"error","msg":"forced-exit — shutdown teardown exceeded hard timeout","subsystem":"shutdown","timeoutMs":25000,"pending":1}
+{"ts":"2026-09-07T09:51:43.646Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-09-07T09:51:43.646Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-07T09:51:43.646Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+{"ts":"2026-09-07T09:51:45.842Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-09-07T09:51:48.068Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+{"ts":"2026-09-07T09:51:49.779Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"explode","error":"Error: boom"}
+{"ts":"2026-09-07T09:51:49.781Z","level":"error","msg":"streamChat error","subsystem":"api.messages","error":"stream boom"}
+{"ts":"2026-09-07T09:51:49.787Z","level":"warn","msg":"route-once model pin failed (conversation stays unpinned)","subsystem":"api.messages","conversationId":"c1","error":"db gone"}
+{"ts":"2026-09-07T09:51:49.796Z","level":"warn","msg":"fork attachment inheritance failed (continuing without image)","subsystem":"api.messages","conversationId":"c1","sourceMessageId":"a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa","error":"disk gone"}
+{"ts":"2026-09-07T09:51:50.465Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+{"ts":"2026-09-07T09:51:50.968Z","level":"warn","msg":"goal-host rehydrate failed (continuing)","subsystem":"api.messages","error":"read explosion"}
+{"ts":"2026-09-07T09:51:51.556Z","level":"error","msg":"provider model fetch failed","subsystem":"api.refresh-models","provider":"anthropic","error":"models.dev returned 503"}
+{"ts":"2026-09-07T09:51:53.897Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+{"ts":"2026-09-07T09:51:54.917Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+
+ Test Files  279 passed (279)
+      Tests  4617 passed (4617)
+   Start at  05:51:38
+   Duration  39.16s (transform 98.70s, setup 154.60s, import 194.35s, tests 31.42s, environment 174.91s)
+
+tolerated leg exit code (not gated here): suggest=0
+
+── leg output: security ──
+Running 18 security bun:test suites under --coverage (6 parallel)...
+merged 205 source files → /tmp/tmp.uVtSKnP6LH/merged.lcov
+wrote 10 security source record(s) → /tmp/tmp.ja2LYhpOty/sec_out/lcov_security.info
+
+================================
+  25980 pass | 0 fail | 1558 shards
+================================
+merged 1401 source files → coverage/lcov.info
+Coverage gate PASSED: 1251 enforced file(s) at or above threshold.
+
+================================
+  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)
+  COVERAGE: passed
+  tolerated (not gated here): suggest=0 leg exit code; host files outside P
+================================

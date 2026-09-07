@@ -1,0 +1,5 @@
+archive	source_archive	source_archive_sha256	private_non_report_entries	total_results	passed	skipped	failed	png_attachments
+mock-full	.cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/mock.zip	25a8af510b92c2baff4f818be670041810dafb9388fd79e68cedbeb0aed17004	0	233	220	13	0	27
+real-auth-full	.cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/real-auth.zip	cd2dcd70998e17f48891f7d30b4d1d91ef9ed5dec2b8c9ba8f5edf37a6e1e7eb	1	59	59	0	0	33
+visual-mock	.cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/visual-blobs/mock.zip	77ffc6ecfdce34ec62622e7ec0faab44de16ee5bab725d69b6c6dcc600d501e7	0	181	181	0	0	218
+visual-real-auth	.cache/terra-shipping/parent/final-web-closeout-20260907T110824Z/visual-blobs/real-auth.zip	d2f94ed71f2afedca9882d9952e4149cb8d77efc4db8ec19fde528779a285e0c	1	10	10	0	0	30

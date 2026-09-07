@@ -1,0 +1,35 @@
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.418Z","level":"info","msg":"Database mode: embedded PGlite","subsystem":"db","path":"/app/data/ezcorp"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.833Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.934Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.946Z","level":"info","msg":"Embedding warmup kicked","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.946Z","level":"info","msg":"Decay sweep started","subsystem":"startup.timers","intervalHours":1}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.946Z","level":"info","msg":"Audit-log retention sweep started","subsystem":"startup.timers","retentionDays":180}
+extension-v4-runtime-replay-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+extension-v4-runtime-replay-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer_config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+extension-v4-runtime-replay-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.947Z","level":"info","msg":"Compaction started","subsystem":"startup.timers","intervalHours":6}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.950Z","level":"info","msg":"ScheduleDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.953Z","level":"info","msg":"WorkflowRunner started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.955Z","level":"info","msg":"WebhookDeliveryDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.959Z","level":"info","msg":"BriefingDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.959Z","level":"info","msg":"HostMaintenanceDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.963Z","level":"info","msg":"EmbedWorker started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.965Z","level":"info","msg":"github-projects daemon wake loop armed","subsystem":"ext.github-projects.daemon","wakeMs":30000}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.965Z","level":"info","msg":"GithubProjectsDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.973Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/app/.ezcorp/data"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.973Z","level":"info","msg":"PreviewPortWatcher source selected by capability mode","subsystem":"startup.timers","mode":"uid","source":"ProcPortSource","dataDirLocked":true}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:03.976Z","level":"info","msg":"PreviewPortWatcher started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | Listening on http://0.0.0.0:3000/ 
+extension-v4-runtime-replay-app  | Unable to determine content-length from response headers. Will expand buffer when needed.
+extension-v4-runtime-replay-app  | Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/onnx/model.onnx": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:20:06.965Z","level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode","subsystem":"embed-worker"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:21:02.344Z","level":"info","msg":"FileOrganizerDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:24:18.672Z","level":"info","msg":"FileOrganizerDaemon stopped after extension lifecycle change","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:24:20.283Z","level":"info","msg":"FileOrganizerDaemon started","subsystem":"startup.timers"}
+extension-v4-runtime-replay-app  | {"ts":"2026-09-07T03:24:21.538Z","level":"info","msg":"FileOrganizerDaemon stopped after extension lifecycle change","subsystem":"startup.timers"}
+ Container extension-v4-runtime-replay-app Stopping 
+ Container extension-v4-runtime-replay-app Stopped 
+ Container extension-v4-runtime-replay-app Removing 
+ Container extension-v4-runtime-replay-app Removed 
+ Network extension-v4-runtime-replay_default Removing 
+ Network extension-v4-runtime-replay_default Removed 

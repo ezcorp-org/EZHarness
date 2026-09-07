@@ -1,0 +1,19 @@
+Dependency audit — floor: high | roots: ., web
+  · .: 7 advisory/advisories
+  · web: 3 advisory/advisories
+
+Below the high floor (6) — not blocking:
+  moderate ajv  GHSA-2g4f-4pwh-qvx6
+  moderate esbuild  GHSA-67mh-4wv8-2f99
+  moderate qs  GHSA-x5fp-wj9c-mxmx
+  moderate qs  GHSA-4mjr-xmp4-gh2g
+  moderate uuid  GHSA-w5hq-g745-h8pq
+  low      cookie  GHSA-pxg6-pf52-xh8x
+
+Allowlisted (4):
+  high     adm-zip  GHSA-xcpc-8h2w-3j85  expires 2026-11-04 (58d)
+  high     sharp  GHSA-f88m-g3jw-g9cj  expires 2026-11-03 (57d)
+  high     adm-zip  GHSA-xcpc-8h2w-3j85  expires 2026-11-04 (58d)
+  high     sharp  GHSA-f88m-g3jw-g9cj  expires 2026-11-03 (57d)
+
+✔ dependency audit clean at the high floor (4 allowlisted, 6 below floor).

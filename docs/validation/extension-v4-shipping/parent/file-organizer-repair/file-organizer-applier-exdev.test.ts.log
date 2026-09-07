@@ -1,0 +1,26 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-applier-exdev.test.ts:
+(pass) applyQuarantine — EXDEV fallback (copy+fsync+verify+unlink) > a cross-device rename falls back to copy; original is gone, trash holds the bytes [10.46ms]
+{"ts":"2026-09-07T01:20:04.673Z","level":"warn","msg":"file-organizer move failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-U3FoaN/watched/a.txt","dst":"/tmp/fo-exdev-U3FoaN/watched/sub/a.txt","code":"ENOSPC","error":"Error: ENOSPC: no space left on device"}
+(pass) applyMove — ENOSPC abort (disk full) leaves the original intact > a copy that fails with ENOSPC aborts the move; src kept, dst absent [1.65ms]
+(pass) restoreFromQuarantine — EXDEV fallback > a cross-device restore falls back to copy; trash emptied, file back [6.20ms]
+(pass) applyQuarantine — failure aborts with the original intact > an mkdir failure surfaces as 'failed' before an operation starts [0.71ms]
+{"ts":"2026-09-07T01:20:04.681Z","level":"warn","msg":"file-organizer quarantine failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-zGM8xX/watched/rename-fails.tmp","error":"Error: EIO: input/output error, rename"}
+(pass) applyQuarantine — failure aborts with the original intact > a rename failure clears the journal and preserves the original [1.09ms]
+{"ts":"2026-09-07T01:20:04.682Z","level":"warn","msg":"file-organizer restore failed","subsystem":"ext.file-organizer-applier","trashPath":"/tmp/fo-exdev-77H4C0/.ezcorp/extension-data/file-organizer/.trash/q1/a.txt","error":"Error: EACCES: permission denied, mkdir"}
+(pass) restoreFromQuarantine — failure surfaces as 'failed' > an mkdir failure on the restore parent is caught [0.62ms]
+{"ts":"2026-09-07T01:20:04.682Z","level":"warn","msg":"file-organizer prune failed","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-pYC7pq/.ezcorp/extension-data/file-organizer/.trash/stuck","error":"Error: EBUSY: resource busy or locked, rm"}
+(pass) hardDeleteTrash — rm failure returns false > a prune that can't remove the dir returns false (swallowed + logged) [0.65ms]
+{"ts":"2026-09-07T01:20:04.683Z","level":"warn","msg":"file-organizer prune refused: entry escapes the trash root","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-uwQYiu/.ezcorp/extension-data/file-organizer/.trash/escape-me"}
+(pass) hardDeleteTrash — rm failure returns false > an entry whose realpath fails the containment re-check is refused [0.48ms]
+{"ts":"2026-09-07T01:20:04.683Z","level":"warn","msg":"file-organizer prune failed to unlink a symlinked entry","subsystem":"ext.file-organizer-applier","trashDir":"/tmp/fo-exdev-aKKnuU/.ezcorp/extension-data/file-organizer/.trash/linked","error":"Error: EPERM: operation not permitted, unlink"}
+(pass) hardDeleteTrash — rm failure returns false > a symlinked entry whose unlink fails returns false [0.40ms]
+(pass) resolveNonOverwrite — exhausted suffix loop falls back to a timestamp > when every candidate exists, the (timestamp) tail is returned [7.28ms]
+{"ts":"2026-09-07T01:20:04.692Z","level":"warn","msg":"journal replay entry failed","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-exdev-A5Ydqd/watched/a.txt","error":"Error: EPERM: operation not permitted, unlink"}
+(pass) replayJournal — a per-entry failure is swallowed (continue) > an unlink that throws synchronously is caught; replay still completes [1.74ms]
+
+ 11 pass
+ 0 fail
+ 27 expect() calls
+Ran 11 tests across 1 file. [529.00ms]

@@ -1,0 +1,8 @@
+proof	exit	receipt
+file-organizer	1	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/file-organizer
+runtime	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/runtime
+delivery	1	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/delivery
+revocation	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/revocation
+runtime-resources	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/runtime-resources
+historical-upgrade	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/historical-upgrade
+legacy-adoption	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-suite-60a3421b/legacy-adoption

@@ -1,0 +1,104 @@
+{
+  "status": "private-unpublished",
+  "artifactCount": 14,
+  "artifacts": [
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/parent/hosted-visual/report-chromium-4310c5e.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/parent/hosted-visual/report-chromium-4310c5e.zip",
+      "sha256": "848dab336227e813b1c9ddf4469d2883a1135541f6c9d13148c09244d1bec785",
+      "bytes": 41541
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/mock.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/mock.zip",
+      "sha256": "4bfa4bcc3430fbe6c81338ab1654d9a4e88c50529c23b48f88500ccab1b82551",
+      "bytes": 3411991
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/real-auth.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/real-auth.zip",
+      "sha256": "f6844ddd247a724c468583059a9877d3fbf3d5229e8633b9e1cc4c1ad6293da0",
+      "bytes": 1166
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final-blob/mock.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final-blob/mock.zip",
+      "sha256": "54bb14d57bd8dd0bcbfb54c467149aa93e235c26166f6ee124437e3987634dc7",
+      "bytes": 3500741
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final-blob/real-auth.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final-blob/real-auth.zip",
+      "sha256": "118f4d8283184d984b60c92b91d955728f1bb5e86e53a199ac179453d70e1b95",
+      "bytes": 4223820
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final2-blob/mock.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final2-blob/mock.zip",
+      "sha256": "1256e2a94756bfd577855aaf8f490c8b26ace5608198f1589037301141d62040",
+      "bytes": 3500073
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final2-blob/real-auth.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final2-blob/real-auth.zip",
+      "sha256": "1a71e93e05347d5657e2073ae98dc9f8ca8bf9ad14cbc59e8d9242323e578848",
+      "bytes": 4200035
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/report-chromium-1e0e360.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/report-chromium-1e0e360.zip",
+      "sha256": "bc3d950fe449ffabb346e87bb1f2da5c00cc67c2ad11e0c766c8913c081d2a5e",
+      "bytes": 168360
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final3-blob/mock.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final3-blob/mock.zip",
+      "sha256": "d2efc1ac9698af8ad1c33b6906ad2b11a61c6977652d92801b39c972fb9f75e6",
+      "bytes": 3489073
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final3-blob/real-auth.zip",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/final3-blob/real-auth.zip",
+      "sha256": "8da1598cf4204965f79d3d51f846f197bb06df280c8b4d9718ccca8cc273c5b5",
+      "bytes": 4263661
+    },
+    {
+      "kind": "archive",
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/browser-raw-logs.tar.gz",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-independent/web/artifacts/browser-raw-logs.tar.gz",
+      "sha256": "24e9bc06efef21a99876cb452e073082e58e8f537ce2a225729c3052e2e20954",
+      "bytes": 4301887
+    },
+    {
+      "kind": "server-state",
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "sha256": "f6eba4340e635d84b1159ffa6c4e9181f5569985dbc22c552814143346fb7456",
+      "bytes": 9979
+    },
+    {
+      "kind": "server-state",
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/firefox/diagnostic-02-extension-lifecycle-server-state.json",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-shipping/browser-engines/firefox/diagnostic-02-extension-lifecycle-server-state.json",
+      "sha256": "e201a088d5255a17bd7c32caf9bb4c7de495675cec2f3322b3a980fed0e1105d",
+      "bytes": 9979
+    },
+    {
+      "kind": "server-state",
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/webkit/diagnostic-02-extension-lifecycle-server-state.json",
+      "privatePath": ".cache/terra-shipping/parent/quarantined-browser-artifacts/docs/validation/extension-v4-shipping/browser-engines/webkit/diagnostic-02-extension-lifecycle-server-state.json",
+      "sha256": "b4b9be27d32a179047c65b0e4e59aa0991d764ffccee49b7bc977567472e7219",
+      "bytes": 9979
+    }
+  ]
+}

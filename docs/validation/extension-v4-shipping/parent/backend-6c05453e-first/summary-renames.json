@@ -1,0 +1,14 @@
+[
+  {
+    "old_path": ".cache/terra-shipping/browser/regression-5133652d6ba7-20260907T000055Z/real-auth.attachment-summary.json",
+    "new_path": ".cache/terra-shipping/browser/regression-5133652d6ba7-20260907T000055Z/real-auth.attachment-summary.txt",
+    "sha256": "5c0d06dd94dbc46c893da726a4ad9a2ae0aa74a013943b1ac40951f9e4fe22de",
+    "purpose": "Rename credential-shaped summary metadata; no content changes or mask exclusions."
+  },
+  {
+    "old_path": ".cache/terra-shipping/browser/regression-5133652d6ba7-20260907T000055Z/visual-real-auth.attachment-summary.json",
+    "new_path": ".cache/terra-shipping/browser/regression-5133652d6ba7-20260907T000055Z/visual-real-auth.attachment-summary.txt",
+    "sha256": "f0f0ac8699911c170311e1ab53967008b9757365de377d7929f6eabfa667576c",
+    "purpose": "Rename credential-shaped summary metadata; no content changes or mask exclusions."
+  }
+]

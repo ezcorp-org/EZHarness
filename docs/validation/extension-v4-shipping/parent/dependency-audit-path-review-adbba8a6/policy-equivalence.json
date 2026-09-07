@@ -1,0 +1,9 @@
+{
+  "source_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "changed_fields": [
+    "path",
+    "reason"
+  ],
+  "matches_severity_expiry_and_policy_unchanged": true,
+  "allowlist_sha256": "cfcc75efb58e5aa104dea46be41d540c4354cfb118dca15b23bc7ae9ca1b9529"
+}

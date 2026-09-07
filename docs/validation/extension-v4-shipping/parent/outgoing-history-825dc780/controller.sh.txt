@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Private, no-exception scan of the explicit outgoing Git range. Do not run it
+# concurrently with other heavyweight validation.
+set -uo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+harness_git=/home/dev/work/EZCorp/EZHarness/.git
+lock=$repo/.cache/validation-heavy.lock
+base_ref=origin/feat/extension-v4
+coverage_path=docs/validation/extension-v4-shipping/regression/full-final-5133652d.coverage.log.gz
+scanner_image=ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close "$lock" "$0" --locked "$@"
+fi
+shift
+expected_head=${1:?full expected HEAD SHA required}
+receipt=${2:?new absolute private receipt directory required}
+[[ "$expected_head" =~ ^[0-9a-f]{40}$ ]] || exit 64
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 64
+[[ -d "$harness_git" ]] || exit 65
+
+cd "$repo"
+export CONMON=/tmp/ez-audit-ci-conmon
+[[ "$(git rev-parse HEAD)" == "$expected_head" ]] || exit 66
+base_sha=$(git rev-parse --verify "$base_ref^{commit}") || exit 67
+mkdir -p "$receipt" || exit 71
+receipt=$(realpath "$receipt") || exit 72
+cp "${BASH_SOURCE[0]}" "$receipt/controller.sh.txt" || exit 73
+cp .gitleaks.toml "$receipt/gitleaks.toml.txt" || exit 74
+cp .cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py "$receipt/expand-helper.py.txt" || exit 75
+sha256sum "$receipt/controller.sh.txt" "$receipt/gitleaks.toml.txt" "$receipt/expand-helper.py.txt" > "$receipt/input-sha256.txt" || exit 76
+printf 'base_ref=%s\nbase_sha=%s\nexpected_head=%s\nscanner_image=%s\n' "$base_ref" "$base_sha" "$expected_head" "$scanner_image" > "$receipt/provenance.txt" || exit 77
+git rev-list --reverse "$base_sha..$expected_head" > "$receipt/outgoing-commits.txt" || exit 78
+git log --format='commit %H' --name-status -M "$base_sha..$expected_head" > "$receipt/outgoing-history-paths.txt" || exit 79
+git diff-tree --no-commit-id --name-status -r -M "$base_sha" "$expected_head" > "$receipt/range-net-paths.txt" || exit 80
+
+coverage_commit=$(git log --format=%H --diff-filter=A "$base_sha..$expected_head" -- "$coverage_path" | tail -n 1)
+[[ -n "$coverage_commit" ]] || exit 68
+coverage_blob=$(git rev-parse "$coverage_commit:$coverage_path") || exit 69
+coverage_bytes=$(git cat-file -s "$coverage_blob") || exit 70
+printf 'coverage_path=%s\ncoverage_commit=%s\ncoverage_blob=%s\ncoverage_bytes=%s\n' "$coverage_path" "$coverage_commit" "$coverage_blob" "$coverage_bytes" > "$receipt/compressed-blob-provenance.txt"
+
+snapshot=$(mktemp -d /tmp/ez-outgoing-history-compressed-XXXXXXXX) || exit 81
+[[ -d "$snapshot" ]] || exit 82
+finish() {
+  local primary_rc=$?
+  trap - EXIT
+  rm -rf "$snapshot"
+  cleanup_rc=$?
+  printf '%s\n' "$cleanup_rc" > "$receipt/cleanup.exit"
+  if [[ "$primary_rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then primary_rc=$cleanup_rc; fi
+  printf '%s\n' "$primary_rc" > "$receipt/controller.exit"
+  exit "$primary_rc"
+}
+trap finish EXIT
+
+run_scan() {
+  local label=$1
+  shift
+  if "$@" > "$receipt/$label.log" 2>&1; then rc=0; else rc=$?; fi
+  printf '%s\t%s\n' "$label" "$rc" >> "$receipt/results.tsv"
+  return "$rc"
+}
+: > "$receipt/results.tsv"
+
+# `git` reads plaintext added and deleted history in the exact explicit range.
+# Reports stay private in the receipt and are redacted by Gitleaks itself.
+run_scan gitleaks-version \
+  podman --remote=false run --rm "$scanner_image" version
+version_rc=$?
+podman --remote=false image inspect "$scanner_image" > "$receipt/scanner-image-inspect.json" 2>&1
+image_inspect_rc=$?
+printf 'scanner-image-inspect\t%s\n' "$image_inspect_rc" >> "$receipt/results.tsv"
+
+run_scan range-gitleaks \
+  podman --remote=false run --rm \
+    -v "$repo:$repo:ro" \
+    -v "$harness_git:$harness_git:ro" \
+    -v "$receipt:/receipts" \
+    -w "$repo" \
+    -e GIT_CONFIG_COUNT=1 \
+    -e GIT_CONFIG_KEY_0=safe.directory \
+    -e GIT_CONFIG_VALUE_0="$repo" \
+    "$scanner_image" git \
+      --log-opts="$base_sha..$expected_head" \
+      --no-banner --config "$repo/.gitleaks.toml" --redact --exit-code 1 \
+      --report-format json --report-path /receipts/range-findings.redacted.json
+range_rc=$?
+
+# The one compressed outgoing blob is materialized only in an owned temporary
+# snapshot, expanded by the same bounded helper, then scanned with the same
+# pinned rule set. No archive exception or allowlist is introduced here.
+mkdir -p "$snapshot/$(dirname "$coverage_path")" || exit 83
+git cat-file blob "$coverage_blob" > "$snapshot/$coverage_path" || exit 84
+mkdir -p "$receipt/compressed-expansion" || exit 85
+python3 "$receipt/expand-helper.py.txt" "$snapshot" "$receipt/compressed-expansion" > "$receipt/compressed-expand.log" 2>&1
+expand_rc=$?
+printf 'compressed-expand\t%s\n' "$expand_rc" >> "$receipt/results.tsv"
+if [[ "$expand_rc" -eq 0 ]]; then
+  run_scan compressed-blob-gitleaks \
+    podman --remote=false run --rm \
+      -v "$snapshot:/scan:ro" \
+      -v "$repo:$repo:ro" \
+      -v "$receipt:/receipts" \
+      -w /scan \
+      "$scanner_image" dir /scan \
+        --no-banner --config "$repo/.gitleaks.toml" --redact --exit-code 1 \
+        --report-format json --report-path /receipts/compressed-blob-findings.redacted.json
+  compressed_rc=$?
+else
+  compressed_rc=$expand_rc
+fi
+
+# Exit one means findings and remains a failed range, without classifying any
+# finding here. Other scanner errors retain their actual failure status.
+if [[ "$range_rc" -eq 0 && "$compressed_rc" -eq 0 && "$version_rc" -eq 0 && "$image_inspect_rc" -eq 0 ]]; then
+  exit 0
+fi
+if [[ "$range_rc" -eq 1 || "$compressed_rc" -eq 1 ]]; then
+  exit 1
+fi
+exit 2

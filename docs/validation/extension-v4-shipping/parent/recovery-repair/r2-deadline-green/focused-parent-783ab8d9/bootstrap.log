@@ -1,0 +1,14 @@
+bun test v1.3.14 (0d9b296a)
+
+scripts/lib/shipping-bootstrap-state.test.ts:
+(pass) waits for observed bundled work to become terminal and retains its receipt [1.31ms]
+(pass) allows a missed pending transition only when explicitly requested [0.35ms]
+(pass) rejects ambiguous installation mapping and failed bundled builds [0.21ms]
+(pass) reports no snapshot when the bounded bootstrap observer has no poll [0.10ms]
+(pass) reports the final pending operations in a bounded bootstrap timeout [0.57ms]
+(pass) allows an R2 observer to finish after a six-minute lease and two idle polls [0.60ms]
+
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [522.00ms]

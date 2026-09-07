@@ -1,0 +1,12 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:25:18). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/dev/work/EZCorp/extension-v4-independent-audit/web
+
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  23:50:18
+   Duration  1.38s (transform 711ms, setup 342ms, import 655ms, tests 41ms, environment 280ms)
+

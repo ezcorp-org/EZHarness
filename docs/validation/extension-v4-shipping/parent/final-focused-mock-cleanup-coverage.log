@@ -1,0 +1,24 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/mock-cleanup-coverage.test.ts:
+(pass) mock-cleanup coverage (meta-test) > source-external mocks resolve to the same snapshot from any test depth [0.07ms]
+(pass) mock-cleanup coverage (meta-test) > every mock.module target is either snapshotted or exempt [131.67ms]
+(pass) mock-cleanup coverage (meta-test) > IDX-07: '../../memory/embeddings' stays registered in MODULE_PATHS [0.23ms]
+(pass) mock-cleanup coverage (meta-test) > a commented-out MODULE_PATHS entry is not treated as snapshotted [0.07ms]
+(pass) mock-cleanup coverage (meta-test) > '../extensions/bundled' is held by an exemption, not a comment scrape [0.08ms]
+(pass) mock-cleanup coverage (meta-test) > a $server shim re-exporting the module the alias names is covered [0.12ms]
+(pass) mock-cleanup coverage (meta-test) > a $server alias REDIRECTED to another module is never covered [0.04ms]
+(pass) mock-cleanup coverage (meta-test) > a redirect in the same file condemns a well-formed sibling registration [0.03ms]
+(pass) mock-cleanup coverage (meta-test) > a $server STUB is not a shim — the wire-gate offender still fails [0.04ms]
+(pass) mock-cleanup coverage (meta-test) > a SNAPSHOT the restore loop never uses does not cover a stub [0.17ms]
+(pass) mock-cleanup coverage (meta-test) > a module BINDING is as good a shim as an inline require [0.08ms]
+(pass) mock-cleanup coverage (meta-test) > a documented SKIP_SERVER_ALIAS_RESTORE entry is the only excuse left [0.28ms]
+(pass) mock-cleanup coverage (meta-test) > a commented-out shim does not count as one [0.03ms]
+(pass) mock-cleanup coverage (meta-test) > a $server in-file restore must name the module its alias names [0.05ms]
+(pass) mock-cleanup coverage (meta-test) > the whole backlog is gone — no frozen $server allowlist remains [0.08ms]
+(pass) mock-cleanup coverage (meta-test) > extractMockPaths and parseModulePaths share the comment filter [0.03ms]
+
+ 16 pass
+ 0 fail
+ 39 expect() calls
+Ran 16 tests across 1 file. [613.00ms]

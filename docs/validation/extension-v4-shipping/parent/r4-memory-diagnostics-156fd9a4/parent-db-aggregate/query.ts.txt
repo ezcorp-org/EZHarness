@@ -1,0 +1,14 @@
+import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite-pgvector';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { APP_DATABASE } from '../../../../src/db/datadir-upgrade';
+const dataDir = process.argv[2];
+if (!dataDir) throw new Error('Owned database copy is required');
+const db = new PGlite({ dataDir, database: APP_DATABASE, extensions: { vector, pg_trgm } });
+try {
+  await db.waitReady;
+  await db.query('SET default_transaction_read_only = on');
+  const records = await db.query('SELECT kind, count(*)::int AS count, coalesce(sum(octet_length(payload::text)),0)::bigint AS payload_bytes FROM extension_release_records GROUP BY kind ORDER BY kind');
+  const relations = await db.query("SELECT relkind, count(*)::int AS count, coalesce(sum(pg_relation_size(oid)),0)::bigint AS bytes FROM pg_class WHERE relnamespace = 'public'::regnamespace GROUP BY relkind ORDER BY relkind");
+  console.log(JSON.stringify({ records: records.rows, publicRelations: relations.rows }));
+} finally { await db.close(); }

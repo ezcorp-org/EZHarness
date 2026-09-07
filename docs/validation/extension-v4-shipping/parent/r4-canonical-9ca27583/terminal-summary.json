@@ -1,0 +1,29 @@
+{
+  "classification": "canonical-r4-duration-green",
+  "source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050",
+  "image": "localhost/ezcorp-extension-v4:shipping-9ca27583",
+  "image_id": "sha256:0f64f92d69ca2c38512f6a0f202c2027494166a250d82a7cd9621c10b42f63c0",
+  "duration": {
+    "requested_ms": 1800000,
+    "actual_ms": 1800154
+  },
+  "completed_cycles": 317,
+  "fresh_conversation_cycles": 317,
+  "total_authenticated_sse_reconnects": 3170,
+  "failure": null,
+  "exits": {
+    "outer": "canonical_r4_exit=0",
+    "driver": "driver_exit=0",
+    "duration_guard": "duration_assertion_exit=0",
+    "launcher": [
+      "setup_http=201",
+      "login_http=not-needed",
+      "key_http=201",
+      "command_exit=0",
+      "compose_started=1",
+      "app_log_exit=0",
+      "owned_cleanup_exit=0"
+    ]
+  },
+  "hash_scope": "source-hashes-at-launch.sha256 hashes only its listed direct dependencies before app start; committed-dependency-verification.txt independently compares those current bytes to 9ca27583. It does not claim all transitive helpers were pre-hashed."
+}

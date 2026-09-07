@@ -1,0 +1,22 @@
+{"mode":"built","chunk":"/app/web/build/server/chunks/embeddings-DSaDPgvH.js"}
+{"progress":"Initializing embedding model..."}
+{"progress":"Initializing embedding model..."}
+{"progress":"Initializing embedding model..."}
+{"progress":"Initializing embedding model..."}
+Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/tokenizer_config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/config.json": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+{"progress":"Initializing embedding model..."}
+Unable to load from local path "/models/Xenova/all-MiniLM-L6-v2/onnx/model.onnx": "TypeError [ERR_INVALID_URL]: fetch() URL is invalid"
+Unable to determine content-length from response headers. Will expand buffer when needed.
+18153 | 		* @param {Object} session_config ONNX inference session configuration.
+18154 | 		* @returns {Promise<import('onnxruntime-common').InferenceSession & { config: Object}>} The ONNX inference session.
+18155 | 		*/
+18156 | 		async function createInferenceSession(buffer_or_path, session_options, session_config) {
+18157 | 			if (wasmInitPromise) await wasmInitPromise;
+18158 | 			const sessionPromise = InferenceSession.create(buffer_or_path, session_options);
+                                  ^
+TypeError: undefined is not an object (evaluating 'InferenceSession.create')
+      at createInferenceSession (/app/web/build/server/chunks/embeddings2-Cus1JhLJ.js:18158:27)
+      at <anonymous> (/app/web/build/server/chunks/embeddings2-Cus1JhLJ.js:21969:76)
+

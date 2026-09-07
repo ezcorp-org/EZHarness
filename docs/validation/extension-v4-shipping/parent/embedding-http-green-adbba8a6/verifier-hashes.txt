@@ -1,0 +1,3 @@
+72bdf166c98f6b5b68bed69e0691058619c3941a06168f5ac5b75c290268c88e  scripts/verify-shipping-embeddings.sh
+ae5bbd48d61a4d9814ee7a18aa002b5d7e4741084917fa26b76a147500378ad9  scripts/verify-shipping-embeddings.ts
+63a84134f96f3cdfdfc098955c9129cbd2f11347e5b36bc75be62fb20e6d1826  scripts/lib/production-lifecycle-client.ts

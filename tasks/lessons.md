@@ -55,3 +55,48 @@
 
 - For a binary kernel interface, verify the producer framing before writing a loader; do not infer a header from a byte dump. In single-quoted shell heredocs, use C `\n` only when it must become one backslash-n escape in source.
 - Bound each owned VM command with an explicit timeout and kill grace. For a no-row control, await every delegated persistence promise before the database assertion; a fixed delay is not proof.
+- When a parent explicitly says to hold a heavyweight validation run pending a source change, re-check messages immediately before launch. If the run has already started, terminate only its process group and mark its receipt as non-evidence.
+- A deferred callback test must assert that its controlled callback ran with the expected arguments. A downstream state count can stay unchanged when the callback is never invoked.
+- Before stopping a queued command, verify its exact current command and absence of children. Do not identify a process from a remembered PID or queue position.
+
+- A terminal operation is not proof of a successful effect. For a file move, assert the successful state, exact destination bytes, and source removal; a failed or blocked proposal must fail the success case.
+- A recovered target build does not prove restart health. Inspect every bundled bootstrap operation after restart and require eventual verification; transient runner capacity errors must not leave permanent failed installs.
+
+- Do not use Bun.file(directory).exists() to prove a directory is absent. Assert lstat returns ENOENT; otherwise an existing directory can satisfy the alleged absence check.
+
+- A fake permission engine can hide a host/worker path mismatch and an unanswerable consent prompt. Exercise the actual v4 grant, live projection, and consent branch before calling a filesystem repair complete.
+
+- Store historical container-only TypeScript probes as `.ts.txt` in evidence. A documentation path can still be included by the host TypeScript configuration; check the final curated tree before reporting static checks green.
+
+- Record the actual receipt directory from the launched command. A planned timestamp is not the command’s output path. Do not modify a test file while any active controller can load it; use the shared lock for controlled source faults and restore exact bytes before releasing it.
+
+- One captured request does not prove two failure events belong to the same request. Compare actual trace identities and start times before suppressing a duplicate. A request outside the capture window may still fail later.
+
+- In `lsof` output for the shared lock, `3rW` identifies the holder and `3r` identifies a waiter. Verify the mode, current children, and actual receipt before claiming a run started or changing queue order. A persistent tool session can still be waiting for the lock.
+
+- A nonempty snapshot file can still be writing. Wait for an explicit completion marker after the awaited write, validate its byte count, and retain the test exit separately from snapshot collection.
+- A planned duration is not observed duration. Record the selected mode and configuration before launch, then reject a final receipt that does not meet the required elapsed time.
+
+- Label byte measurements exactly: use decimal MB only for `/1_000_000` and MiB only for `/1_048_576`; retain the original byte value in evidence.
+- A hash receipt proves identity only if the matching input bytes are retained. Do not describe a baseline source as preserved when only its hash, result, or snapshot remains.
+- With `set -u`, never reference a variable in the same `local` declaration that initializes it. Declare dependent locals first, then assign them on separate lines; run `bash -n` and inspect the function before handing off a controller.
+
+- A sourced validation guard that returns nonzero does not stop a shell with only `set -uo pipefail`. Explicitly propagate its failure and prove the whole wrapper stops before launching tools; testing the helper alone is insufficient.
+- `set -u` does not stop a failed command. Stage controllers that rely on a guard must use `set -e` or explicitly propagate the guard status, and test rejection before any runtime command can execute.
+- A rejection probe that supports a delivery claim is evidence. Keep its logs and exit records in a named private receipt; do not clean it before the parent can inspect the path.
+
+- In fault-injection drivers, attempt cleanup and evidence capture after the primary failure, then report all failures. Never throw from `finally` and hide the event that caused the failure.
+
+- Before calling a validation interrupted, re-read its terminal exit files and current log tail after the process ends. A missing old PID or earlier partial output is not a failure verdict. Record UTC times and preserve actual terminal files; never rerun a completed passing suite based only on a stale process observation.
+
+- Before force-staging ignored evidence, inspect its publication scope and recursively scan nested archives. Raw browser reports can contain live test tokens in traces or inline attachments. Keep those reports private and publish safe logs, images, and identity metadata. Check remote history before claiming that a scan caught data before publication.
+
+- A web-only check does not cover backend test types. For a new backend test, run the canonical command and verify all four type-check sections.
+- Do not call a reconstructed evidence script the exact executed source. Check syntax, replay into a separate owned directory, and compare every output before making a provenance claim.
+
+- `git rev-list --objects BASE..HEAD` retains blobs reachable from commits in the range even when a later commit deletes their paths. Use explicit diff-tree path mapping for provenance; do not claim the object walk necessarily misses deleted blobs.
+- A function invoked in a conditional can continue after a failed intermediate command despite `set -e`. Return after each cleanup observation, and use a controlled leftover-resource case to prove the terminal predicate fails.
+- Before a helper writes a receipt, create its required receipt directory explicitly. Treat temporary snapshot creation and blob materialization as preflight steps with explicit failure propagation; do not rely on later scan failures to expose them.
+
+- Measure actual archive expansion before choosing a scan bound. Coverage bundles can contain many large repeated members and hardlinks despite small compressed sizes. Validate hardlinks within the same archive and reject a byte-limit breach before copying.
+- A streaming archive reader must consume the producer before requiring its successful exit. Returning after one member can close the pipe early and cause SIGPIPE; collect the result, drain the stream, then check the process exit.

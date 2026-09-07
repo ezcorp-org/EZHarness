@@ -1,0 +1,10 @@
+worktree=/home/dev/work/EZCorp/extension-v4-independent-audit
+source=156fd9a46c3666e711e54f71350a53b6646e997f
+tree=ff4cdbf35f58b49935fa89bf25099e86443a8299
+base_ref=origin/main
+base=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+bun=1.3.14
+node=v22.22.2
+conmon=/tmp/ez-audit-ci-conmon
+runner_probe=not-yet-run
+runner_probe_exit=0

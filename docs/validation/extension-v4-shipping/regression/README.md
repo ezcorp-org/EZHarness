@@ -11,7 +11,7 @@ The controller ran `bash scripts/test-coverage.sh` from
 `CONMON=/tmp/ez-audit-ci-conmon`, and six workers. Its controller and `tee`
 exit codes are both zero.
 
-The retained controller output reports 25,898 passing assertions, zero
+The retained controller output reports 25,898 passing tests, zero
 failures, and 1,552 shards. The per-file gate passed for 1,249 enforced files.
 The SDK, Vitest, harness-client, AI-kit, and security coverage legs exited
 zero. The suggest leg exited zero and remains a documented non-gating leg.

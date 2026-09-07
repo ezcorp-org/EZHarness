@@ -1,0 +1,6 @@
+The controlled red removes only the return for the already captured exact WebKit cancellation. It must therefore fail the normal diagnostics assertion. The recorded failure was:
+
+failedApiRequests expected []
+received [{ error: "Load request cancelled", method: "POST", path: "/api/extensions/control", status: 0 }]
+
+red.exit=1; repaired green.exit=0. This demonstrates that the expected-cancellation branch is required and that unmatched transport errors remain strict.

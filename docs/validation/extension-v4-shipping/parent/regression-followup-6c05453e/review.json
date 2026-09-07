@@ -1,0 +1,9 @@
+{
+  "product_source_commit_sha": "6c05453edbb4148d53cbc37b67d05907b5459c67",
+  "test_source_patch": "test-fixture.patch",
+  "test_file_sha256": "97a61417ea7a85843bcc522c9cec6f2887c93505d729020ce5e9ef11434ccfa6",
+  "route_tests": 11,
+  "mask_tests": 13,
+  "full_regression_pending": true,
+  "compiled_probe_result": "harness selector failed before product invocation"
+}

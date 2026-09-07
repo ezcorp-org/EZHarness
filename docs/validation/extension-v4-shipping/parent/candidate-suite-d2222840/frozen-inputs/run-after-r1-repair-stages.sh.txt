@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Caller holds validation-heavy.lock. This post-R1 controller intentionally does not acquire flock.
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+checkout_source_sha=${1:?test checkout SHA required}
+image=${2:?reviewed image required}
+receipt=${3:?new absolute receipt directory required}
+image_source_sha=${4:?immutable image source SHA required}
+[[ "$checkout_source_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$image_source_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$receipt" == /* && ! -e "$receipt" ]] || { echo "Receipt must be a new absolute directory" >&2; exit 64; }
+cd "$repo"
+[[ $(git rev-parse HEAD) == "$checkout_source_sha" ]] || { echo "Checked-out source is not authorized checkout" >&2; exit 2; }
+mkdir -p "$receipt/frozen-inputs/source"
+printf 'checkout_source_sha=%s\nimage_source_sha=%s\nimage=%s\nstarted_utc=%s\n' "$checkout_source_sha" "$image_source_sha" "$image" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$receipt/provenance.txt"
+git show -s --format='commit=%H%ntree=%T%nparent=%P%ncommit_time=%cI%nsubject=%s' "$checkout_source_sha" > "$receipt/frozen-inputs/checkout-commit.txt"
+git diff --name-status "$image_source_sha" "$checkout_source_sha" > "$receipt/checkout-image-source-diff.txt"
+git diff --binary "$image_source_sha" "$checkout_source_sha" > "$receipt/frozen-inputs/checkout-image-source.diff"
+for source_input in \
+  web/src/lib/server/security/__tests__/payload.test.ts \
+  src/__tests__/production-image-lifecycle-launch.integration.test.ts \
+  scripts/lib/production-lifecycle-client.ts \
+  scripts/verify-shipping-runtime.ts; do
+  mkdir -p "$receipt/frozen-inputs/source/$(dirname "$source_input")"
+  cp "$source_input" "$receipt/frozen-inputs/source/$source_input"
+done
+for private_input in \
+  "$0" \
+  "$repo/.cache/terra-shipping/parent/new-payload-final/verify-checkout-image-source.sh" \
+  "$repo/.cache/terra-shipping/parent/new-payload-final/run-canonical-eight.sh" \
+  "$repo/.cache/terra-shipping/parent/new-payload-final/run-independent-chromium.sh" \
+  "$repo/.cache/terra-shipping/parent/new-payload-final/run-firefox-webkit.sh"; do
+  cp "$private_input" "$receipt/frozen-inputs/$(basename "$private_input")"
+done
+git status --short > "$receipt/status.before.txt"
+sha256sum "$0" \
+  .cache/terra-shipping/parent/new-payload-final/verify-checkout-image-source.sh \
+  .cache/terra-shipping/parent/new-payload-final/run-canonical-eight.sh \
+  .cache/terra-shipping/parent/new-payload-final/run-independent-chromium.sh \
+  .cache/terra-shipping/parent/new-payload-final/run-firefox-webkit.sh \
+  scripts/verify-shipping-production-suite.sh scripts/verify-extension-container.sh \
+  web/playwright.real.config.ts > "$receipt/controller-and-verifier.sha256"
+: > "$receipt/stages.tsv"
+run_stage() {
+  local name script stage_receipt started ended rc
+  name=$1
+  script=$2
+  stage_receipt="$receipt/$name"
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if "$script" "$checkout_source_sha" "$image" "$stage_receipt" "$image_source_sha" > "$receipt/$name.log" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+  ended=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  printf '%s\t%s\t%s\t%s\n' "$name" "$rc" "$started" "$ended" >> "$receipt/stages.tsv"
+  return "$rc"
+}
+failed=0
+run_stage canonical-eight "$repo/.cache/terra-shipping/parent/new-payload-final/run-canonical-eight.sh" || failed=1
+if (( ! failed )); then run_stage independent-chromium "$repo/.cache/terra-shipping/parent/new-payload-final/run-independent-chromium.sh" || failed=1; fi
+if (( ! failed )); then run_stage firefox-webkit "$repo/.cache/terra-shipping/parent/new-payload-final/run-firefox-webkit.sh" || failed=1; fi
+git status --short > "$receipt/status.after.txt"
+printf 'finished_utc=%s\nexit=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$failed" > "$receipt/controller.exit"
+exit "$failed"

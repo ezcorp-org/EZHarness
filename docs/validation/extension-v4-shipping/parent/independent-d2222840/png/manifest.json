@@ -1,0 +1,103 @@
+{
+  "blobSha256": "06ac90d6265851369e9bd8be7fb36c5e854c2c8b726acf4e218ade23e5f3c18e",
+  "testResults": [
+    {
+      "testId": "db4a13fe03d4d80301ff-d8b769312c311ad8ef63",
+      "status": "passed"
+    },
+    {
+      "testId": "db4a13fe03d4d80301ff-13a989a430d21f43d297",
+      "status": "passed"
+    },
+    {
+      "testId": "db4a13fe03d4d80301ff-76dac840c7403d313538",
+      "status": "passed"
+    }
+  ],
+  "shots": [
+    {
+      "file": "01-extension-lifecycle-sidebar-720.png",
+      "label": "extension-lifecycle-sidebar-720",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 62253,
+      "sha256": "b9f50cb7b96d82e454315b9973de13de68fb48db61d618709c3dcbca7f45fa88"
+    },
+    {
+      "file": "02-extension-lifecycle-review-desktop.png",
+      "label": "extension-lifecycle-review-desktop",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 93199,
+      "sha256": "5c9257d354afae74ca72821ac29e3f82b5f6467027431de7762be49c1a98b92f"
+    },
+    {
+      "file": "03-extension-lifecycle-live-output.png",
+      "label": "extension-lifecycle-live-output",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 98307,
+      "sha256": "2b6d3fed58399f6443eb31092c258c9f3161c2a30cbea3b8526ff7a6ea6c5490"
+    },
+    {
+      "file": "04-extension-lifecycle-revoked-mention-list.png",
+      "label": "extension-lifecycle-revoked-mention-list",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 109483,
+      "sha256": "741a9cd2ccda6134cd8e8f3b7efd6769dbc00cdff4b9ef94c1f5b17986e16aa5"
+    },
+    {
+      "file": "05-extension-lifecycle-tool-selection-mobile.png",
+      "label": "extension-lifecycle-tool-selection-mobile",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 60077,
+      "sha256": "dd9a9e56528433173ab35dfd0706593b8adfb273276fda1886562f1e39ff4707"
+    },
+    {
+      "file": "06-extension-lifecycle-tool-selection-mobile-narrow.png",
+      "label": "extension-lifecycle-tool-selection-mobile-narrow",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 59246,
+      "sha256": "31e1836301eb16071034dac2ee0d1b3e48db4bb97f78047c3291610387579827"
+    },
+    {
+      "file": "07-extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "label": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 120097,
+      "sha256": "ee75d9881ba99fb4160c8f7c16eccce5e603b5ce8479ed583091ea963fa9814e"
+    },
+    {
+      "file": "08-extension-browser-build-diagnostics.png",
+      "label": "extension-browser-build-diagnostics",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 77985,
+      "sha256": "0c1072247ca904526e42da7c79ab633b7f27f669281b36f544c83fc2ffe4c022"
+    },
+    {
+      "file": "09-extension-browser-repaired-output.png",
+      "label": "extension-browser-repaired-output",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 76726,
+      "sha256": "b98acb83cf22f1e795d4b250a1fca7d6789e52f54fad0755dadf3f91b7bacb48"
+    },
+    {
+      "file": "10-extension-stale-tab-denial.png",
+      "label": "extension-stale-tab-denial",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 79392,
+      "sha256": "de4f3be685f3cf4f15c5f07afc247da357f01dc33b36276c606489739a8fe254"
+    },
+    {
+      "file": "11-extension-stale-tab-uninstall.png",
+      "label": "extension-stale-tab-uninstall",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 78446,
+      "sha256": "587be00b923da6776c0f652a952c6fa43601eeef41afbe3cfcf86d6f1043e573"
+    },
+    {
+      "file": "12-extension-stale-tab-uninstall-release.png",
+      "label": "extension-stale-tab-uninstall-release",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "bytes": 112106,
+      "sha256": "d04c0668c8a87e1b14ce0db1a10323c547fe749a4ed7e7763f52b28beaf78cbb"
+    }
+  ]
+}

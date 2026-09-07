@@ -1,0 +1,7 @@
+sse_path=/api/runtime-events
+sse_connected_frames=1
+sse_heartbeat_frames=3
+sse_connected_at_ms=8
+sse_heartbeat_at_ms=15007,30006,45006
+sse_elapsed_ms=45007
+sse_idle_check=passed

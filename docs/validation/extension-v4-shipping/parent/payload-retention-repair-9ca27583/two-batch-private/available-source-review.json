@@ -1,0 +1,26 @@
+[
+  {
+    "source_path": "/tmp/ez-bun-als-repro-20260907/server.ts",
+    "expected_sha256": "0e6c4d0604a903194d0bb571d4d9a347aad7d9f3096ee3ac70a5ea018ce43094",
+    "current_sha256": "0e6c4d0604a903194d0bb571d4d9a347aad7d9f3096ee3ac70a5ea018ce43094",
+    "matches": true
+  },
+  {
+    "source_path": "/tmp/ez-bun-als-repro-20260907/driver.ts",
+    "expected_sha256": "ec1d3c73d590d1100ca702763a7203ca7555a9e87e9f286e7ce35939a44dcf10",
+    "current_sha256": "ec1d3c73d590d1100ca702763a7203ca7555a9e87e9f286e7ce35939a44dcf10",
+    "matches": true
+  },
+  {
+    "source_path": "/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/server/security/payload.ts",
+    "expected_sha256": "21402d05e13f9aef521cb56dc32b2201f1dc4810e8532a422f1ffeeeeafdf504",
+    "current_sha256": "21402d05e13f9aef521cb56dc32b2201f1dc4810e8532a422f1ffeeeeafdf504",
+    "matches": true
+  },
+  {
+    "source_path": "/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/server/security/bounded-json.ts",
+    "expected_sha256": "0a4b121a0407b2a4bcfac766336a8b955fceba68429447add768e96f70fc8e54",
+    "current_sha256": "0a4b121a0407b2a4bcfac766336a8b955fceba68429447add768e96f70fc8e54",
+    "matches": true
+  }
+]

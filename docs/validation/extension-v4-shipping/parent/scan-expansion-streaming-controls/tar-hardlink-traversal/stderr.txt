@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 120, in <module>
+    if __name__=='__main__': main()
+                             ~~~~^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 118, in main
+    path,source,chain=queue.popleft(); serial+=1; expand(path,source,chain,output,queue,records,serial,totals)
+                                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 89, in expand
+    link_target='/'.join(safe_parts(info.linkname))
+                         ~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 12, in safe_parts
+    if path.is_absolute() or not path.parts or any(x in ('','.','..') or ':' in x for x in path.parts): fail(f'unsafe archive member path: {name!r}')
+                                                                                                        ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<audit-worktree>/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 8, in fail
+    def fail(message): raise ValueError(message)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: unsafe archive member path: '../outside.txt'

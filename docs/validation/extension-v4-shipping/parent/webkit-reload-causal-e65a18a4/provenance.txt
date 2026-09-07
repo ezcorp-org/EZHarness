@@ -1,0 +1,11 @@
+repository=/home/dev/work/EZCorp/extension-v4-independent-audit
+source_head=156fd9a46c3666e711e54f71350a53b6646e997f
+repaired_spec_sha256=e65a18a442d021364c62a2bb8b3c5d5d3eb8a090454436ec7fd7ef21d01d8e8e
+controlled_red_spec_sha256=af8c990be9dae3cf881744fbc40de9aadc5a6ceeccc48414b9b629077018be75
+controller_receipt=.cache/terra-shipping/parent/webkit-reload-causal-20260907T061731Z
+controller_session=23665
+controller_exit=0
+service_worker_scope=only the reload lifecycle case blocks service workers; the other lifecycle cases retain normal coverage
+final_webkit_blob=web/blob-report/report-webkit-9bcddb7.zip
+final_webkit_blob_sha256=69f36d3b2e5e9b9cbadbbbd64c1b0afcbfb51d352cd8044675024b9a60a8b9eb
+final_webkit_blob_attachment_mapping=onAttach events only; PNG attachments and client-diagnostics allowlist extracted

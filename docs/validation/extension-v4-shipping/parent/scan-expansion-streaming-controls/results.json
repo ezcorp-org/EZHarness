@@ -1,0 +1,82 @@
+[
+  {
+    "case": "nested-and-duplicate",
+    "exit": 0,
+    "entries": 6
+  },
+  {
+    "case": "corrupt-gzip",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "corrupt-zip",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "nested-zstd",
+    "exit": 0,
+    "entries": 3
+  },
+  {
+    "case": "corrupt-zstd",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "zstd-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-hardlink",
+    "exit": 0,
+    "entries": 2
+  },
+  {
+    "case": "tar-hardlink-byte-limit",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-hardlink-missing",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-hardlink-forward",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-hardlink-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-symlink",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "zstd-byte-limit",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-directory-limit",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "zip-directory-limit",
+    "exit": 1,
+    "entries": 0
+  }
+]

@@ -1,0 +1,6 @@
+launcher_source=890df5405dd1b2a59a0eba16acce013a639696dd
+image=localhost/ezcorp-extension-v4:parent-baseline-3ec53eaa
+project=ezcorp-upgrade-semantic-old-2c61400e9ea3
+container=ezcorp-upgrade-semantic-old-2c61400e9ea3-app
+port=13004
+image_id=sha256:71f383f13e87b5f697eb62f65dd123bb17e8c5f62761667ded277444dac9de48 revision=3ec53eaa66409a39d66b502f79d74139ec94dcf2

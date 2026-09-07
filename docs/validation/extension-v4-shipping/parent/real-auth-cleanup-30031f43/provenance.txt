@@ -1,0 +1,10 @@
+Original reproduction source: d2222840cf3d2b4963075ffc0f5cf0bdec5ef621.
+Repair commit: 30031f43d1a9a109b18c2ca6a225482322621038.
+Audit checkout at curation: b41b5dc76cc1c001844d2bd816b6238fbb950d7d (parent integration of the repair).
+
+Original run: the one-test real-auth harness passed and the filesystem delta recorded two new default fixture roots. Those pre-existing/unknown roots were not deleted by this curation.
+Fixed run: the same one-test real-auth harness passed; its filesystem delta recorded zero new fixture roots and the runner storage-state file was absent after completion.
+
+The included repair sources are exact commit-30031f43 blobs. They are not claimed as frozen pre-launch bytes for either historical replay.
+
+Focused regression and web typecheck were re-run from the integrated audit checkout at b41b5dc76cc1c001844d2bd816b6238fbb950d7d. Their exact terminal logs and exit lines are retained as focused-tests.txt and web-check.txt.

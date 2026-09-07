@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Source this helper from private final-validation stage controllers.
+assert_checkout_and_image_source() {
+  local checkout_source_sha=$1 image_source_sha=$2 receipt=$3 changed_path
+  [[ "$checkout_source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Checkout source must be a full SHA" >&2; return 64; }
+  [[ "$image_source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Image source must be a full SHA" >&2; return 64; }
+  [[ $(git rev-parse HEAD) == "$checkout_source_sha" ]] || { echo "Checked-out source is not requested source" >&2; return 2; }
+  if [[ "$checkout_source_sha" != "$image_source_sha" ]]; then
+    git merge-base --is-ancestor "$image_source_sha" "$checkout_source_sha" || { echo "Test checkout is not descended from image source" >&2; return 2; }
+    mapfile -t changed_paths < <(git diff --name-only "$image_source_sha" "$checkout_source_sha")
+    ((${#changed_paths[@]} > 0)) || { echo "Distinct checkout has no committed diff from image source" >&2; return 2; }
+    for changed_path in "${changed_paths[@]}"; do
+      [[ "$changed_path" == web/src/lib/server/security/__tests__/payload.test.ts ]] || {
+        echo "Checkout differs from image source outside the approved test-only path: $changed_path" >&2
+        return 2
+      }
+    done
+  fi
+  printf 'checkout_source_sha=%s\nimage_source_sha=%s\n' "$checkout_source_sha" "$image_source_sha" > "$receipt/source-image-provenance.txt"
+  git diff --name-status "$image_source_sha" "$checkout_source_sha" > "$receipt/checkout-image-source-diff.txt"
+}
+
+assert_tracked_product_inputs_clean() {
+  local checkout_source_sha=$1 receipt=$2
+  local -a product_paths=(
+    Dockerfile .dockerignore package.json bun.lock bunfig.toml tsconfig.json tsconfig.build.json
+    ':(glob)*.config.*' src packages web scripts .github
+  )
+  if git diff --quiet "$checkout_source_sha" -- "${product_paths[@]}"; then
+    printf 'checkout_source_sha=%s\ntracked_product_inputs=clean\n' "$checkout_source_sha" > "$receipt/tracked-product-inputs.txt"
+  else
+    git diff --name-status "$checkout_source_sha" -- "${product_paths[@]}" > "$receipt/tracked-product-inputs.txt"
+    echo "Tracked product inputs differ from the requested checkout" >&2
+    return 2
+  fi
+}

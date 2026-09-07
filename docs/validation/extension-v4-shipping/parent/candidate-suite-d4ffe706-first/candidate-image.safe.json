@@ -1,0 +1,21 @@
+{
+  "Architecture": "amd64",
+  "Created": "2026-09-07T03:58:11.957355755-04:00",
+  "Digest": "sha256:69a51a16cbac08c6a0524ac1ffb7d312c557171190c5c7b07374e2f288961e10",
+  "Id": "0f64f92d69ca2c38512f6a0f202c2027494166a250d82a7cd9621c10b42f63c0",
+  "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+  "Os": "linux",
+  "RepoTags": [
+    "localhost/ezcorp-extension-v4:shipping-9ca27583"
+  ],
+  "labels": {
+    "org.opencontainers.image.created": "2026-09-07T03:51:26-04:00",
+    "org.opencontainers.image.description": "EZ Corp AI \u2014 self-hosted agent runtime with embedded PGlite",
+    "org.opencontainers.image.licenses": "NOASSERTION",
+    "org.opencontainers.image.revision": "9ca275838faf30666da5dba1c0eba141dd053050",
+    "org.opencontainers.image.source": "https://github.com/ezcorp-org/EZcorp",
+    "org.opencontainers.image.title": "ezcorp",
+    "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+    "org.opencontainers.image.version": "1.3.0"
+  }
+}

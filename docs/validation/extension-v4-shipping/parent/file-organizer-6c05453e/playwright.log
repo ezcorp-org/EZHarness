@@ -1,0 +1,43 @@
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+Running 13 tests using 1 worker
+
+(node:1654466) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/13] [chromium] › e2e/file-organizer-real.spec.ts:286:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+[chromium] › e2e/file-organizer-real.spec.ts:286:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+
+
+cat: /app/.ezcorp/extension-data/file-organizer/config.json: No such file or directory
+
+
+
+[2/13] [chromium] › e2e/file-organizer-real.spec.ts:315:5 › file-organizer real-backend › add-folder: a RELATIVE path is refused by the REAL validator with the exact message
+[3/13] [chromium] › e2e/file-organizer-real.spec.ts:323:5 › file-organizer real-backend › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message
+[4/13] [chromium] › e2e/file-organizer-real.spec.ts:336:5 › file-organizer real-backend › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered
+[5/13] [chromium] › e2e/file-organizer-real.spec.ts:352:5 › file-organizer real-backend › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error
+[6/13] [chromium] › e2e/file-organizer-real.spec.ts:368:5 › file-organizer real-backend › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config
+[7/13] [chromium] › e2e/file-organizer-real.spec.ts:425:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk
+[chromium] › e2e/file-organizer-real.spec.ts:425:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk
+
+
+cat: /app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp: No such file or directory
+
+
+
+[8/13] [chromium] › e2e/file-organizer-real.spec.ts:506:5 › file-organizer real-backend › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)
+[9/13] [chromium] › e2e/file-organizer-real.spec.ts:516:5 › file-organizer real-backend › UI: a refused add surfaces a real error toast in the browser
+[10/13] [chromium] › e2e/file-organizer-real.spec.ts:556:5 › file-organizer real-backend › add-folder: the added folder APPEARS in the Hub render (data dirs aligned)
+[11/13] [chromium] › e2e/file-organizer-real.spec.ts:572:5 › file-organizer real-backend › config mutation REFLECTS in the Folders Hub render (data dirs aligned)
+[12/13] [chromium] › e2e/file-organizer-real.spec.ts:597:5 › file-organizer real-backend › Review Hub render loads against the live backend (data dirs aligned)
+[13/13] [chromium] › e2e/file-organizer-real.spec.ts:602:5 › file-organizer real-backend › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import
+[chromium] › e2e/file-organizer-real.spec.ts:602:5 › file-organizer real-backend › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import
+
+
+
+
+  13 passed (3.5m)

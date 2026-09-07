@@ -1,0 +1,7 @@
+Representative screenshots reviewed at full resolution:
+- screenshots/visual-mock-001.png — Admin dashboard routing view.
+- screenshots/visual-mock-100.png — Import skills and commands form.
+- screenshots/real-auth-full-001.png — Human extension-approval state.
+- screenshots/visual-real-auth-001.png — Independent human extension-approval capture.
+
+Observed result: all four render cleanly with intact layout, readable controls, and no visible overlap or clipping.

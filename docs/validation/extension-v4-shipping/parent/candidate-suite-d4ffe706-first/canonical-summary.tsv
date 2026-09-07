@@ -1,0 +1,9 @@
+proof	exit	receipt
+file-organizer	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/file-organizer
+embeddings	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/embeddings
+runtime	1	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/runtime
+delivery	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/delivery
+revocation	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/revocation
+runtime-resources	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/runtime-resources
+historical-upgrade	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/historical-upgrade
+legacy-adoption	0	/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d4ffe706-20260907T083722Z/canonical-eight/runtime/legacy-adoption

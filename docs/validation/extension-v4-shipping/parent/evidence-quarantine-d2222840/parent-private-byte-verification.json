@@ -1,0 +1,91 @@
+{
+  "verifiedArtifacts": 14,
+  "preQuarantineIndexTree": "e6a560307cf869d565050939f991e80ca19a02b2",
+  "remoteFeatureCommit": "86784b67c100fa78a1d8446cefab58080c8f5a73",
+  "artifacts": [
+    {
+      "originalPath": "docs/validation/extension-v4-independent/parent/hosted-visual/report-chromium-4310c5e.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/mock.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/failed-final-helper/real-auth.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final-blob/mock.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final-blob/real-auth.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final2-blob/mock.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final2-blob/real-auth.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/canvas-label-blob/report-chromium-1e0e360.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final3-blob/mock.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/final3-blob/real-auth.zip",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-independent/web/artifacts/browser-raw-logs.tar.gz",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": true
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": false
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/firefox/diagnostic-02-extension-lifecycle-server-state.json",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": false
+    },
+    {
+      "originalPath": "docs/validation/extension-v4-shipping/browser-engines/webkit/diagnostic-02-extension-lifecycle-server-state.json",
+      "privateBytesMatchPreQuarantineIndex": true,
+      "absentFromCurrentPublicTree": true,
+      "presentAtRemoteFeatureHead86784b67": false
+    }
+  ]
+}

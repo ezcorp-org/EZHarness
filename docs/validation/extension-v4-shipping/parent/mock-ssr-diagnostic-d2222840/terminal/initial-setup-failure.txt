@@ -1,0 +1,5 @@
+[WebServer] failed to load config from <diagnostic-worktree>/web/vite.config.ts
+[WebServer] Loading Svelte config from Vite config failed: error: Cannot find module '<audit-worktree>/web/node_modules/.vite-temp/vite.config.ts.timestamp-1788778604542-d58a763eef3ac8.mjs' from '' 
+[WebServer] failed to load config from <diagnostic-worktree>/web/vite.config.ts
+[WebServer] Build failed with 1 error:
+[WebServer] Error: Error: Cannot find module '<audit-worktree>/web/node_modules/.vite-temp/vite.config.ts.timestamp-1788778605038-5417a38add3ed.mjs' from ''

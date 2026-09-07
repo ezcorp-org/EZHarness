@@ -1,0 +1,21 @@
+{
+  "checkoutCommit": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "matchedExactPrivateFiles": [
+    "controller.exit.txt",
+    "outer.exit.txt",
+    "stages.tsv",
+    "parent-log-review.json",
+    "frozen-inputs/verify-checkout-image-source.sh.txt",
+    "frozen-inputs/run-after-r1-repair-stages.sh.txt",
+    "frozen-inputs/checkout-commit.txt",
+    "frozen-inputs/run-firefox-webkit.sh.txt",
+    "frozen-inputs/checkout-image-source.diff",
+    "frozen-inputs/run-canonical-eight.sh.txt",
+    "frozen-inputs/run-independent-chromium.sh.txt",
+    "frozen-inputs/source/scripts/verify-shipping-runtime.ts.txt",
+    "frozen-inputs/source/scripts/lib/production-lifecycle-client.ts.txt",
+    "frozen-inputs/source/src/__tests__/production-image-lifecycle-launch.integration.test.ts.txt",
+    "frozen-inputs/source/web/src/lib/server/security/__tests__/payload.test.ts.txt"
+  ],
+  "parentObserved": "Current canonical and all three terminal stages exit 0; all11 private app-log hashes and all36 raw PNG attachments independently verified."
+}

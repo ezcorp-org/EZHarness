@@ -1,0 +1,80 @@
+ Network extension-v4-runtime-replay_default Creating 
+ Network extension-v4-runtime-replay_default Created 
+ Container extension-v4-runtime-replay-app Creating 
+ Container extension-v4-runtime-replay-app Created 
+ Container extension-v4-runtime-replay-app Starting 
+ Container extension-v4-runtime-replay-app Started 
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+Running 13 tests using 1 worker
+
+(node:760009) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+[1/13] [chromium] › e2e/file-organizer-real.spec.ts:270:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+[chromium] › e2e/file-organizer-real.spec.ts:270:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+
+
+cat: /app/.ezcorp/extension-data/file-organizer/config.json: No such file or directory
+
+
+
+[2/13] [chromium] › e2e/file-organizer-real.spec.ts:299:5 › file-organizer real-backend › add-folder: a RELATIVE path is refused by the REAL validator with the exact message
+[3/13] [chromium] › e2e/file-organizer-real.spec.ts:307:5 › file-organizer real-backend › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message
+[4/13] [chromium] › e2e/file-organizer-real.spec.ts:320:5 › file-organizer real-backend › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered
+[5/13] [chromium] › e2e/file-organizer-real.spec.ts:336:5 › file-organizer real-backend › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error
+[6/13] [chromium] › e2e/file-organizer-real.spec.ts:352:5 › file-organizer real-backend › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config
+[7/13] [chromium] › e2e/file-organizer-real.spec.ts:409:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk
+[chromium] › e2e/file-organizer-real.spec.ts:409:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk
+
+
+cat: /app/.ezcorp/extension-data/file-organizer/.trash/manifest.json: No such file or directory
+
+
+
+cat: /app/.ezcorp/extension-data/file-organizer/journal.json: No such file or directory
+
+
+
+  1) [chromium] › e2e/file-organizer-real.spec.ts:409:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      477 |
+      478 |       expect(response.status()).toBe(200);
+    > 479 |       expect(body.ok).toBe(true);
+          |                       ^
+      480 |       expect(body.message).toBe("Applied");
+      481 |       expect(applied?.status).toBe("applied");
+      482 |       expect(recordedDestination?.originalPath).toBe(source);
+        at /home/dev/work/EZCorp/extension-v4-independent-audit/web/e2e/file-organizer-real.spec.ts:479:23
+
+    Error Context: test-results/file-organizer-real-file-o-e6d33-accepts-a-REAL-move-on-disk-chromium/error-context.md
+
+    Error Context: test-results/file-organizer-real-file-o-e6d33-accepts-a-REAL-move-on-disk-chromium/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/file-organizer-real-file-o-e6d33-accepts-a-REAL-move-on-disk-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/file-organizer-real-file-o-e6d33-accepts-a-REAL-move-on-disk-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+[8/13] [chromium] › e2e/file-organizer-real.spec.ts:490:5 › file-organizer real-backend › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)
+[9/13] [chromium] › e2e/file-organizer-real.spec.ts:500:5 › file-organizer real-backend › UI: a refused add surfaces a real error toast in the browser
+[10/13] [chromium] › e2e/file-organizer-real.spec.ts:540:5 › file-organizer real-backend › add-folder: the added folder APPEARS in the Hub render (data dirs aligned)
+[11/13] [chromium] › e2e/file-organizer-real.spec.ts:556:5 › file-organizer real-backend › config mutation REFLECTS in the Folders Hub render (data dirs aligned)
+[12/13] [chromium] › e2e/file-organizer-real.spec.ts:581:5 › file-organizer real-backend › Review Hub render loads against the live backend (data dirs aligned)
+[13/13] [chromium] › e2e/file-organizer-real.spec.ts:586:5 › file-organizer real-backend › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import
+  1 failed
+    [chromium] › e2e/file-organizer-real.spec.ts:409:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk 
+  6 did not run
+  6 passed (3.3m)

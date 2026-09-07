@@ -1,0 +1,4 @@
+base_ref=origin/feat/extension-v4
+base_sha=86784b67c100fa78a1d8446cefab58080c8f5a73
+expected_head=825dc780bb6e407ef29408fc3b31757d55336048
+scanner_image=ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f

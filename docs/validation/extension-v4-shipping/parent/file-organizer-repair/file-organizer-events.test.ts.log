@@ -1,0 +1,26 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/file-organizer-events.test.ts:
+(pass) dispatch routing > unknown event ⇒ handled:false (falls through) [1.21ms]
+(pass) dispatch routing > pure-view events are handled + changed but mutate nothing [0.51ms]
+(pass) dispatch routing > scan-now is honest: refreshes the view, doesn't claim a forced scan [0.45ms]
+(pass) dispatch routing > retry-failed actually resets failed rows to pending (button does something) [1.20ms]
+(pass) dispatch routing > accept routes to the applier (fs effect) [9.67ms]
+(pass) dispatch routing > accept without proposalId ⇒ validation error (no fs) [0.43ms]
+(pass) dispatch routing > reject routes + persists [0.95ms]
+(pass) dispatch routing > set-mode requires folderId + mode [0.98ms]
+(pass) dispatch routing > add-folder validates path [0.97ms]
+(pass) dispatch routing > undo-batch / purge require their ids [0.46ms]
+(pass) dispatch routing > add-rule surfaces the mini-DSL parse error [0.60ms]
+(pass) dispatch routing > config mutations: toggle-preset / set-backlog-policy / remove-folder / add-ignore [1.51ms]
+(pass) dispatch routing > add-rule wires the mini-DSL to state (valid path) [0.79ms]
+(pass) dispatch routing > reject-segment / confirm-deletes / dismiss-stale route to state [2.88ms]
+(pass) dispatch routing > quarantine events: restore / purge / empty-quarantine / purge-expired / undo-batch [2.69ms]
+{"ts":"2026-09-07T01:20:04.140Z","level":"warn","msg":"file-organizer hub event failed","subsystem":"ext.file-organizer-events","event":"accept","error":"TypeError: null is not an object (evaluating 'ctx.engine.authorize')"}
+(pass) dispatch routing > an unexpected error in a handler is caught and reported (no throw escapes) [1.31ms]
+(pass) dispatch routing > IN_PROCESS_EVENTS covers exactly the in-process handlers [0.39ms]
+
+ 17 pass
+ 0 fail
+ 72 expect() calls
+Ran 17 tests across 1 file. [542.00ms]

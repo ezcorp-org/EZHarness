@@ -1,0 +1,39 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/production-image-lifecycle-launch.integration.test.ts:
+101 |       child.exited,
+102 |       new Response(launched.stdout).text(),
+103 |       new Response(launched.stderr).text(),
+104 |     ]);
+105 |     expect(timedOut).toBe(false);
+106 |     expect(exit, `${stdout}\n${stderr}`).toBe(0);
+                                               ^
+error: 32 |   return cookies.join("; ");
+33 | }
+34 | 
+35 | /** Inspect the launcher's real authenticated runner transport. */
+36 | export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
+37 |   const token = (await readFile(join(required("EZ_PRODUCTION_RUN_ROOT"), "token"), "utf8")).trim();
+                            ^
+ENOENT: no such file or directory, open '/tmp/ez-r4-runner-private-socket-regression-xxxxxxxxxxxxxxxxxxxxxxxx-unWiFJ/token'
+    path: "/tmp/ez-r4-runner-private-socket-regression-xxxxxxxxxxxxxxxxxxxxxxxx-unWiFJ/token",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+      at async inspectProductionRunner (/home/dev/work/EZCorp/extension-v4-independent-audit/scripts/lib/production-lifecycle-client.ts:37:24)
+
+Bun v1.3.14 (Linux x64)
+
+
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-independent-audit/src/__tests__/production-image-lifecycle-launch.integration.test.ts:106:42)
+(fail) long persistent state keeps the authenticated runner transport below the Unix-path limit [1161.42ms]
+
+ 0 pass
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [1.59s]

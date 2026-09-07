@@ -1,0 +1,149 @@
+$ svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json
+Loading svelte-check in workspace: /home/dev/work/EZCorp/extension-v4-independent-audit/web
+Getting Svelte diagnostics...
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/+layout.svelte:447:2
+Warn: noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+	-->
+	<main
+		class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+		tabindex={isChatRoute ? undefined : 0}
+	>
+		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
+		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).
+		     Command Deck: graphite chrome via `data-deck-mobilebar`. -->
+		{#if !isChatRoute}
+		<div class="flex lg:hidden items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2" data-deck-mobilebar data-testid="mobile-header">
+			<button
+				onclick={() => (store.mobileMenuOpen = true)}
+				class="flex items-center justify-center rounded-sm p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+				aria-label="Open menu"
+				data-testid="mobile-menu-toggle"
+				style="min-width: 44px; min-height: 44px;"
+			>
+				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+				</svg>
+			</button>
+			<a href="/" class="min-w-0 flex-1 truncate text-sm font-semibold hover:text-[var(--color-accent)] transition-colors" title="Go to Home" aria-label="Home">{activeProject?.name ?? "EZCorp"}</a>
+			<button
+				onclick={() => (commandPaletteOpen = true)}
+				class="flex items-center justify-center rounded-sm p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+				aria-label="Command palette"
+				title="Command palette ({metaKey}+K)"
+				style="min-width: 44px; min-height: 44px;"
+			>
+				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+				</svg>
+			</button>
+			<ThemeToggle />
+			<span
+				class="h-2 w-2 rounded-full {store.connected ? 'bg-green-500' : 'bg-red-500'}"
+				title={store.connected ? "Connected" : "Disconnected"}
+			></span>
+		</div>
+		{/if}
+		<!-- Desktop breadcrumb context strip (≥lg, non-chat routes). -->
+		{#if !isChatRoute}
+		<div class="hidden lg:flex deck-breadcrumb" data-deck-breadcrumb data-testid="deck-breadcrumb">
+			<span class="text-[var(--color-text-muted)]">{isGlobalProject ? "global" : (activeProject?.name ?? "workspace")}</span>
+			<span class="deck-breadcrumb__sep">/</span>
+			<span class="text-[var(--color-text-secondary)]">{breadcrumbLabel}</span>
+		</div>
+		{/if}
+		{#if isChatRoute}
+			<div class="flex-1 relative">
+				{@render children()}
+			</div>
+		{:else}
+			<div class="p-6">
+				{@render children()}
+			</div>
+		{/if}
+	</main>
+</div>
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/components/ChatThread.svelte:402:19
+Warn: This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	// seed isn't clobbered by a `computeLatestLeaf` overwrite.
+	const __seeded = seedMessages !== undefined;
+	// svelte-ignore state_referenced_locally
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/components/ChatThreadBehaviorHarness.svelte:59:10
+Warn: This reference only captures the initial value of `initialMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	if (seedFn)
+		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/components/ChatThreadBehaviorHarness.svelte:59:29
+Warn: This reference only captures the initial value of `onInvalidate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	if (seedFn)
+		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/components/ChatThreadBehaviorHarness.svelte:59:43
+Warn: This reference only captures the initial value of `onLoadMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	if (seedFn)
+		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/components/ChatThreadBehaviorHarness.svelte:59:59
+Warn: This reference only captures the initial value of `onHydrate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	if (seedFn)
+		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/audit/+page.svelte:19:32
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+
+	let entries = $state<Entry[]>(data.entries);
+	let nextCursor = $state<string | null>(data.nextCursor);
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/audit/+page.svelte:20:41
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let entries = $state<Entry[]>(data.entries);
+	let nextCursor = $state<string | null>(data.nextCursor);
+	let stats = $state(data.stats);
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/audit/+page.svelte:21:21
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let nextCursor = $state<string | null>(data.nextCursor);
+	let stats = $state(data.stats);
+	let loading = $state(false);
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/audit/+page.svelte:23:24
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let loading = $state(false);
+	let extensionFacets = data.extensionFacets;
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/extensions/[id]/audit/+page.svelte:19:23
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+
+	let entries = $state(data.entries);
+	let nextCursor = $state<string | null>(data.nextCursor);
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/extensions/[id]/audit/+page.svelte:20:41
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let entries = $state(data.entries);
+	let nextCursor = $state<string | null>(data.nextCursor);
+	let stats = $state(data.stats);
+
+/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/routes/(app)/extensions/[id]/audit/+page.svelte:21:21
+Warn: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+https://svelte.dev/e/state_referenced_locally (svelte)
+	let nextCursor = $state<string | null>(data.nextCursor);
+	let stats = $state(data.stats);
+	let loading = $state(false);
+
+====================================
+svelte-check found 0 errors and 13 warnings in 5 files

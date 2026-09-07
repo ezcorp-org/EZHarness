@@ -1,0 +1,401 @@
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:11:21 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 7:11:22 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 7:11:26 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 7:11:27 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] [plugin builtin:vite-reporter] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[WebServer] [PLUGIN_TIMINGS] Your build spent 91% of 3.0s inside plugin hooks (2.7s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite:worker-import-meta-url transform (64%, 1.9s, 2 calls)
+[WebServer] Those rows are 64% of the build; the rest of the 91% is below.
+[WebServer] Not measurable — 20 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (3207 calls)
+[WebServer]   - vite-plugin-sveltekit-guard load (1058 calls)
+[WebServer]   - vite-plugin-sveltekit-virtual-modules load (1011 calls)
+[WebServer]   … and 17 more
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] ../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ../src/runtime/workflow-delegation-record.ts, ..., dynamic import will not move module into another chunk.
+[WebServer] 
+[WebServer] .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [UNRESOLVED_IMPORT] Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+[WebServer]    ╭─[ .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 ]
+[WebServer]    │
+[WebServer]  7 │ import { FFIType, dlopen, ptr, toArrayBuffer } from "bun:ffi";
+[WebServer]    │                                                     ────┬────  
+[WebServer]    │                                                         ╰────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [UNRESOLVED_IMPORT] Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js
+[WebServer]    ╭─[ ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js:1:21 ]
+[WebServer]    │
+[WebServer]  1 │ import { SQL } from "bun";
+[WebServer]    │                     ──┬──  
+[WebServer]    │                       ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const cp = require('child_process');
+[WebServer]    │                    ───────┬───────  
+[WebServer]    │                           ╰───────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const fs = require('fs');
+[WebServer]    │                    ──┬─  
+[WebServer]    │                      ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[WebServer]    ╭─[ ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 ]
+[WebServer]    │
+[WebServer]  5 │ const path = require('path')
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 ]
+[WebServer]    │
+[WebServer]  1 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] [PLUGIN_TIMINGS] Your build spent 100% of 8.9s inside plugin hooks (33.2s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite-plugin-sveltekit-compile closeBundle (100%, 24.5s, 1 call)
+[WebServer]   - vite-plugin-sveltekit-compile writeBundle (57%, 5.1s, 1 call)
+[WebServer]   - visualizer generateBundle (11%, 1.0s, 1 call)
+[WebServer] Those rows are 100% of the build; the rest of the 100% is below.
+[WebServer] Not measurable — 19 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (6849 calls)
+[WebServer]   - vite:worker renderChunk (743 calls)
+[WebServer]   - vite:asset renderChunk (743 calls)
+[WebServer]   … and 16 more
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+[WebServer] {"ts":"2026-09-07T11:11:54.784Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+[WebServer] {"ts":"2026-09-07T11:11:54.784Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+[WebServer] {"ts":"2026-09-07T11:11:55.930Z","level":"warn","msg":"Using the EMBEDDED PGlite database, but this repo's compose Postgres is running.\nYou are probably looking at the wrong database: PGlite at /tmp/ezcorp-e2e-YKiHrwl6/pglite is a\nseparate, usually EMPTY store, while the dev stack keeps its data in Postgres on\n127.0.0.1:5432. A blank app and a redirect to /setup are the symptom.\n\n  Use the stack's database:  bun run dev:stack\n  Or set it for this run:    DATABASE_URL=postgres://ezcorp:ezcorp@127.0.0.1:5432/ezcorp bun run dev\n\nDo NOT put DATABASE_URL in .env — Bun loads .env into every process, and the test\npool would then run migrate() and write against that database (see preload.ts).","subsystem":"db"}
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+Running 59 tests using 1 worker
+
+(node:698684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [chromium] › e2e/real-auth/admin-invite-reachable.spec.ts:19:3 › admin invite API reachability (F5) › bare path is admin-authenticated; :token path stays anonymous (352ms)
+[WebServer] {"ts":"2026-09-07T11:11:59.206Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:11:59.207Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓   2 [chromium] › e2e/real-auth/api-key-tool-policy.spec.ts:59:3 › per-API-key tool policy › a policied key is confined on reach, mode, autopilot and caller tools (201ms)
+  ✓   3 [chromium] › e2e/real-auth/api-key-tool-policy.spec.ts:236:3 › per-API-key tool policy › a lock the allowlist can route around is refused at MINT (39ms)
+  ✓   4 [chromium] › e2e/real-auth/api-key-tool-policy.spec.ts:311:3 › per-API-key tool policy › a lock with NO routeAllowlist is refused at MINT (11ms)
+  ✓   5 [chromium] › e2e/real-auth/approval-consent-boundary.spec.ts:38:3 › the workflow approval consent boundary is session-only › no API key can answer an approval; the human's cookie still can (28ms)
+  ✓   6 [chromium] › e2e/real-auth/approvals-inbox-scoping.spec.ts:49:3 › the approvals inbox and the answer route are scoped to the same people › a member neither sees nor can answer another user's parked approval; the owner can (174ms)
+  ✓   7 [chromium] › e2e/real-auth/auth-fixture.spec.ts:18:2 › Real-auth harness › /api/auth/me returns the bootstrapped admin (5ms)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+[WebServer] {"ts":"2026-09-07T11:12:00.018Z","level":"warn","msg":"turn_end with no text and no tool calls","subsystem":"executor.streamChat.subscribe","contentTypes":""}
+  ✓   8 [chromium] › e2e/real-auth/auth-fixture.spec.ts:26:2 › Real-auth harness › GET / lands an authenticated user in chat (no login redirect) (358ms)
+  ✓   9 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:112:3 › caller-executed tools — declaration API › declare → read back → clear, through the real HTTP surface (29ms)
+  ✓  10 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:133:3 › caller-executed tools — declaration API › declarations the runtime could not honour are refused at declare time (23ms)
+  ✓  11 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:162:3 › caller-executed tools — declaration API › another user's conversation is a 404, never a 403 (23ms)
+[WebServer] {"ts":"2026-09-07T11:12:00.369Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:00.370Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  12 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:177:3 › caller-executed tools — the round trip › the LLM calls a declared tool, the device executes it, the run resumes (100ms)
+[WebServer] {"ts":"2026-09-07T11:12:00.468Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:00.469Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  13 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:221:3 › caller-executed tools — the round trip › a client with NO stream recovers the call from the drain alone (147ms)
+[WebServer] {"ts":"2026-09-07T11:12:00.618Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:00.619Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  14 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:275:3 › caller-executed tools — the round trip › revoking the declarations tears down a call already in flight (149ms)
+[WebServer] {"ts":"2026-09-07T11:12:00.778Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:00.778Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  15 [chromium] › e2e/real-auth/caller-tool-flow.spec.ts:312:3 › caller-executed tools — the round trip › a tool the device cannot run fails the call, not the turn (74ms)
+[WebServer] {"ts":"2026-09-07T11:12:07.429Z","level":"error","msg":"server error","subsystem":"hooks.server","status":404,"error":"Not found: /api/workflows/delegations/<uuid>/run"}
+  ✓  16 [chromium] › e2e/real-auth/delegated-fire-boundary.spec.ts:64:3 › the delegated fire has no HTTP surface, and consent refuses what D7 would › no route accepts a job ref, and a service delegation for a project workflow is refused (144ms)
+  ✓  17 [chromium] › e2e/real-auth/delegation-consent-boundary.spec.ts:64:3 › the delegation consent surface is session-only › no API key can mint, list or revoke a delegation (39ms)
+  ✓  18 [chromium] › e2e/real-auth/delegation-consent-boundary.spec.ts:143:3 › the delegation consent surface is session-only › the human at a browser consents, sees it listed, and revokes it (89ms)
+  ✓  19 [chromium] › e2e/real-auth/delegation-consent-boundary.spec.ts:214:3 › the delegation consent surface is session-only › the human adjusts the spend bounds in place, and only those (126ms)
+  ✓  20 [chromium] › e2e/real-auth/extension-author-flow.spec.ts:6:1 › nested workspace → isolated build → exact human approval → activation @evidence (9.0s)
+  ✓  21 [chromium] › e2e/real-auth/extension-binary-assets.spec.ts:7:1 › binary upload, download, isolated build and immutable fork preserve bytes and executable mode @evidence (5.8s)
+  ✓  22 [chromium] › e2e/real-auth/extension-browser-cancel.spec.ts:5:1 › private browser cancellation reaches the actual HTTP worker and prevents later effects (9.2s)
+[WebServer] {"ts":"2026-09-07T11:12:37.463Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:37.464Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+[WebServer] {"ts":"2026-09-07T11:12:37.531Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:12:37.531Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  23 [chromium] › e2e/real-auth/extension-chat-build.spec.ts:5:1 › the real chat tool loop creates and builds source but cannot approve itself (4.2s)
+  ✓  24 [chromium] › e2e/real-auth/extension-control-flow.spec.ts:5:1 › external harness builds and invokes real code; failed updates retain the approved release (8.6s)
+[WebServer] {"ts":"2026-09-07T11:13:15.326Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:13:15.327Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  25 [chromium] › e2e/real-auth/extension-lifecycle-flow.spec.ts:404:1 › human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence (31.7s)
+  ✓  26 [chromium] › e2e/real-auth/extension-lifecycle-flow.spec.ts:663:1 › reload transport control › reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence (21.6s)
+  ✓  27 [chromium] › e2e/real-auth/extension-lifecycle-flow.spec.ts:780:1 › same-session stale tabs cannot replace a new active release or restore an uninstall (17.5s)
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+  ✓  28 [chromium] › e2e/real-auth/extension-project-authority.spec.ts:10:1 › real project binding, isolated Git read, host review and revoke @evidence (8.4s)
+  ✓  29 [chromium] › e2e/real-auth/extension-release-gate.spec.ts:34:1 › an approved release renders real results, repeats, rejects broken source, and upgrades @evidence (19.2s)
+  ✓  30 [chromium] › e2e/real-auth/extension-source-import.spec.ts:39:1 › member imports verified marketplace source, an administrator approves it, and the installed release works @evidence (43.5s)
+  ✓  31 [chromium] › e2e/real-auth/extension-source-import.spec.ts:224:1 › administrator imports a host-owned local source directory through the visible source form @evidence (5.6s)
+  ✓  32 [chromium] › e2e/real-auth/extension-source-import.spec.ts:253:1 › administrator imports a pinned public GitHub source through the visible source form (6.7s)
+  ✓  33 [chromium] › e2e/real-auth/ez-factory-job-run.spec.ts:81:3 › ez-factory — a job fired from the console produces a correlated run › create, run, and find the run again by its job (22.6s)
+[WebServer] {"ts":"2026-09-07T11:15:47.240Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:15:47.240Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+[WebServer] {"ts":"2026-09-07T11:15:47.280Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+[WebServer] {"ts":"2026-09-07T11:15:47.280Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  34 [chromium] › e2e/real-auth/harness-client-flow.spec.ts:22:3 › external harness — remote control end-to-end › mint key → seed → deterministic scripted run via the client (99ms)
+  ✓  35 [chromium] › e2e/real-auth/harness-client-flow.spec.ts:66:3 › external harness — remote control end-to-end › createConversation persists modeId at CREATE — no follow-up PUT (18ms)
+  ✓  36 [chromium] › e2e/real-auth/harness-client-flow.spec.ts:97:3 › external harness — remote control end-to-end › PUT /api/conversations/:id resolves modeId through the same visibility gate (22ms)
+  ✓  37 [chromium] › e2e/real-auth/health-detail-reachable.spec.ts:25:3 › admin health-detail reachability › ?detail=true needs an admin; the bare probe needs nobody (13ms)
+  ✓  38 [chromium] › e2e/real-auth/health-detail-reachable.spec.ts:64:3 › admin health-detail reachability › the other two public system probes are unchanged and anonymous (5ms)
+  ✓  39 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:38:3 › local provider registration — loopback carve-out › the UI's auto-filled Ollama URL is no longer refused as SSRF (11ms)
+  ✓  40 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:57:3 › local provider registration — loopback carve-out › the /test path accepts the same URL (2.4s)
+  ✓  41 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:70:5 › local provider registration — loopback carve-out › cloud metadata is STILL refused (carve-out did not widen) (5ms)
+  ✓  42 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:70:5 › local provider registration — loopback carve-out › RFC1918 10/8 is STILL refused (carve-out did not widen) (5ms)
+  ✓  43 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:70:5 › local provider registration — loopback carve-out › RFC1918 192.168/16 is STILL refused (carve-out did not widen) (5ms)
+  ✓  44 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:70:5 › local provider registration — loopback carve-out › IPv6 ULA is STILL refused (carve-out did not widen) (4ms)
+  ✓  45 [chromium] › e2e/real-auth/local-provider-loopback.spec.ts:78:3 › local provider registration — loopback carve-out › a hostname that resolves to loopback is still refused (rebinding) (5ms)
+  ✓  46 [chromium] › e2e/real-auth/project-mutation-authz-flow.spec.ts:56:3 › projects — mutating routes are membership-gated › a member-role key renames a project it belongs to, and is refused one it does not (161ms)
+  ✓  47 [chromium] › e2e/real-auth/role-carrying-key-flow.spec.ts:32:3 › role-carrying API keys — requireRole route access › admin-role key reaches a role-gated route; member key gets 403 (28ms)
+  ✓  48 [chromium] › e2e/real-auth/role-carrying-key-flow.spec.ts:115:3 › role-carrying API keys — requireRole route access › admin-ROLE key without the admin SCOPE is refused on admin writes (33ms)
+  ✓  49 [chromium] › e2e/real-auth/service-account-admin-boundary.spec.ts:34:3 › the service-account admin route is session-only › no API key can mint one; the admin's cookie can, and is warned about reach (59ms)
+  ✓  50 [chromium] › e2e/real-auth/task-panel-durability.spec.ts:75:2 › task panel — real persistence + concurrent writes › tasks planned through the real extension survive a fresh page load (1.5s)
+  ✓  51 [chromium] › e2e/real-auth/task-panel-durability.spec.ts:107:2 › task panel — real persistence + concurrent writes › concurrent task_add calls all survive — no lost updates (3.7s)
+  ✓  52 [chromium] › e2e/real-auth/task-panel-durability.spec.ts:138:2 › task panel — real persistence + concurrent writes › a live tool call updates an already-open panel, and the update is durable (2.3s)
+[WebServer] {"ts":"2026-09-07T11:16:04.957Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+  ✓  53 [chromium] › e2e/real-auth/tier-routing-flow.spec.ts:36:3 › WS3 tier routing — pinned-model passthrough end-to-end › a pinned model completes unchanged through the routing decision point (46ms)
+  ✓  54 [chromium] › e2e/real-auth/web-search-flow.spec.ts:111:3 › web search — real end-to-end › the explicitly approved web-search release is installed AND enabled (6ms)
+  ✓  55 [chromium] › e2e/real-auth/web-search-flow.spec.ts:124:3 › web search — real end-to-end › search-web returns real results through the SSRF guard via `localhost` (700ms)
+[WebServer] {"ts":"2026-09-07T11:16:13.067Z","level":"warn","msg":"primary url reader unavailable; falling back","subsystem":"search.providers","primary":"jina","fallback":"direct","error":"Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url."}
+[WebServer] {"ts":"2026-09-07T11:16:13.068Z","level":"warn","msg":"search.read failed","subsystem":"ext.<uuid>.capability","extensionId":"<uuid>","onBehalfOf":"<uuid>","conversationId":"<uuid>","errorCode":null,"errorMessage":"Read failed via jina: jina unavailable (Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url.); direct fallback failed: Egress blocked (private-ip): 127.0.0.1 → 127.0.0.1","provider":null,"model":null,"durationMs":163}
+[WebServer] {"ts":"2026-09-07T11:16:13.826Z","level":"warn","msg":"primary url reader unavailable; falling back","subsystem":"search.providers","primary":"jina","fallback":"direct","error":"Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url."}
+[WebServer] {"ts":"2026-09-07T11:16:13.828Z","level":"warn","msg":"search.read failed","subsystem":"ext.<uuid>.capability","extensionId":"<uuid>","onBehalfOf":"<uuid>","conversationId":"<uuid>","errorCode":null,"errorMessage":"Read failed via jina: jina unavailable (Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url.); direct fallback failed: Egress blocked (private-ip): localhost → ::1","provider":null,"model":null,"durationMs":65}
+[WebServer] {"ts":"2026-09-07T11:16:14.539Z","level":"warn","msg":"primary url reader unavailable; falling back","subsystem":"search.providers","primary":"jina","fallback":"direct","error":"Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url."}
+[WebServer] {"ts":"2026-09-07T11:16:14.540Z","level":"warn","msg":"search.read failed","subsystem":"ext.<uuid>.capability","extensionId":"<uuid>","onBehalfOf":"<uuid>","conversationId":"<uuid>","errorCode":null,"errorMessage":"Read failed via jina: jina unavailable (Jina rejected the keyless request (Jina HTTP 403). The keyless reader is gated on network reputation — set a JINA_API_KEY (free tier) in Settings → Search to restore read-url.); direct fallback failed: Egress blocked (private-ip): 169.254.169.254 → 169.254.169.254","provider":null,"model":null,"durationMs":57}
+  ✓  56 [chromium] › e2e/real-auth/web-search-flow.spec.ts:183:3 › web search — real end-to-end › read-url can never be turned into an SSRF against an internal host (2.4s)
+  ✓  57 [chromium] › e2e/real-auth/workflow-existence-oracle-flow.spec.ts:44:3 › workflows — a private row hides its existence from every verb › PUT/DELETE on someone else's private workflow are indistinguishable from a missing name (281ms)
+[WebServer] {"ts":"2026-09-07T11:16:25.419Z","level":"warn","msg":"workflows.run failed","subsystem":"ext.<uuid>.capability","extensionId":"<uuid>","onBehalfOf":"<uuid>","conversationId":"<uuid>","errorCode":"DELEGATION_NOT_FOUND","errorMessage":"no live delegation for this job","provider":null,"model":null,"durationMs":2}
+  ✓  58 [chromium] › e2e/real-auth/workflow-service-release-flow.spec.ts:6:1 › a human consents to a sealed service workflow; a real worker cannot fire after revocation @evidence (11.4s)
+(node:732895) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓  59 [chromium] › e2e/real-auth/extension-browser-scanner.spec.ts:11:1 › real sealed scanner uses approved tools and explicit host camera without session access @evidence (30.8s)
+
+  59 passed (5.7m)

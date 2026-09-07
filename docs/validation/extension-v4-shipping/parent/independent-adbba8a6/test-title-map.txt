@@ -1,0 +1,3 @@
+db4a13fe03d4d80301ff-76dac840c7403d313538	same-session stale tabs cannot replace a new active release or restore an uninstall
+db4a13fe03d4d80301ff-d8b769312c311ad8ef63	human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence
+db4a13fe03d4d80301ff-fcc61a4755bfeffee5e7	reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence

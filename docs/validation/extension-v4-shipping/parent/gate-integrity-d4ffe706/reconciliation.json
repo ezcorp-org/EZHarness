@@ -1,0 +1,19 @@
+{
+  "current_count": 84,
+  "prior_count": 84,
+  "current_categories": {
+    "threshold_removed": 1,
+    "deleted": 28,
+    "renamed": 24,
+    "gutted": 31
+  },
+  "prior_categories": {
+    "threshold_removed": 1,
+    "deleted": 28,
+    "renamed": 24,
+    "gutted": 31
+  },
+  "new_findings": [],
+  "removed_findings": [],
+  "exact_ledger_match": true
+}
