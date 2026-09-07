@@ -1,3 +1,5 @@
+export const MINIMUM_DURATION_CYCLES = 10;
+
 export type ResourceRunConfig =
   | { mode: "cycles"; maximumCycles: number }
   | { mode: "duration"; maximumCycles: number; requestedMinimumDurationMs: number };
@@ -21,7 +23,15 @@ export function resourceRunConfig(env: Record<string, string | undefined> = proc
     mode: "duration",
     requestedMinimumDurationMs: positiveInteger(duration, "EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS", 30 * 60, 24 * 60 * 60) * 1_000,
     // A hard cycle ceiling prevents a very fast target from looping forever.
-    maximumCycles: positiveInteger(env.EZ_RUNTIME_RESOURCE_MAX_CYCLES ?? "1440", "EZ_RUNTIME_RESOURCE_MAX_CYCLES", 3, 5_000),
+    maximumCycles: positiveInteger(env.EZ_RUNTIME_RESOURCE_MAX_CYCLES ?? "1440", "EZ_RUNTIME_RESOURCE_MAX_CYCLES", MINIMUM_DURATION_CYCLES, 5_000),
   };
 }
 
+
+/** A duration run must reach its wall-clock target AND leave four post-warm
+ * samples after the six-cycle cache warm-up. */
+export function resourceRunReachedTarget(config: ResourceRunConfig, actualDurationMs: number, completedCycles: number): boolean {
+  return config.mode === "duration"
+    && actualDurationMs >= config.requestedMinimumDurationMs
+    && completedCycles >= MINIMUM_DURATION_CYCLES;
+}

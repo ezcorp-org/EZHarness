@@ -9,7 +9,7 @@ import { readdir, readFile, readlink, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
-import { resourceRunConfig, type ResourceRunConfig } from "./lib/shipping-runtime-resource-config";
+import { resourceRunConfig, resourceRunReachedTarget } from "./lib/shipping-runtime-resource-config";
 
 type CleanupObservation = { baselineConnections: number; remainingConnections: number; polls: number; durationMs: number };
 type FdClasses = { socket: number; pipe: number; anon: number; path: number; other: number };
@@ -160,9 +160,7 @@ async function reconnectRuntimeEvents(origin: string, cookie: string): Promise<v
   }
 }
 
-export { resourceRunConfig, type ResourceRunConfig };
-
-export async function main(config = resourceRunConfig()): Promise<void> {
+const config = resourceRunConfig();
 const appContainer = required("EZ_PRODUCTION_CONTAINER");
 const runRoot = required("EZ_PRODUCTION_RUN_ROOT");
 const runnerPid = required("EZ_PRODUCTION_RUNNER_PID");
@@ -247,18 +245,14 @@ for (let cycle = 1; cycle <= count; cycle++) {
   }
   samples.push(after);
   const actualDurationMs = Date.now() - start;
-  const receipt = { check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, completedCycles: cycle, reconnectsPerCycle, totalReconnects: cycle * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, baseline, relationCacheWarmup, samples };
+  const receipt = { check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, cycles: count, completedCycles: cycle, reconnectsPerCycle, totalReconnects: cycle * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, durationMs: actualDurationMs, baseline, relationCacheWarmup, samples };
   await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "r4-resource-samples.json"), JSON.stringify(receipt) + "\n", { mode: 0o600 });
-  if (requestedMinimumDurationMs !== undefined && actualDurationMs >= requestedMinimumDurationMs) break;
+  if (resourceRunReachedTarget(config, actualDurationMs, cycle)) break;
 }
 
 const actualDurationMs = Date.now() - start;
 const completedCycles = samples.length - 1;
-if (requestedMinimumDurationMs !== undefined && actualDurationMs < requestedMinimumDurationMs) {
-  throw new Error(`R4 duration soak reached its ${count}-cycle ceiling after ${actualDurationMs}ms, before the requested ${requestedMinimumDurationMs}ms.`);
+if (config.mode === "duration" && !resourceRunReachedTarget(config, actualDurationMs, completedCycles)) {
+  throw new Error(`R4 duration soak reached its ${count}-cycle ceiling after ${actualDurationMs}ms and ${completedCycles} cycles; it requires ${requestedMinimumDurationMs}ms and at least 10 completed cycles.`);
 }
-console.log(JSON.stringify({ check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, completedCycles, reconnectsPerCycle, totalReconnects: completedCycles * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), samples: samples.map(resourceReport) }));
-
-}
-
-if (import.meta.main) await main();
+console.log(JSON.stringify({ check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, cycles: completedCycles, completedCycles, reconnectsPerCycle, totalReconnects: completedCycles * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, durationMs: actualDurationMs, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), samples: samples.map(resourceReport) }));
