@@ -88,6 +88,26 @@ describe("run-real-e2e", () => {
     expect(existsSync(dbDir)).toBe(false);
   });
 
+  test("removes its generated DB and sidecar if Playwright cannot launch", async () => {
+    const root = sandbox();
+    const dbDir = join(root, "ezcorp-e2e-launch-failure");
+    mkdirSync(dbDir);
+    writeFileSync(`${dbDir}.ezcorp.pid`, "stale-child");
+
+    await expect(
+      runRealE2e("real-auth", [], {
+        projectRoot: root,
+        createTempDir: () => dbDir,
+        spawn: () => {
+          throw new Error("missing Playwright executable");
+        },
+      }),
+    ).rejects.toThrow("missing Playwright executable");
+
+    expect(existsSync(dbDir)).toBe(false);
+    expect(existsSync(`${dbDir}.ezcorp.pid`)).toBe(false);
+  });
+
   test("preserves a caller-owned DB, its sidecar, and neighboring path", async () => {
     const root = sandbox();
     const dbDir = join(root, "caller-db");

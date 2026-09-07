@@ -73,34 +73,37 @@ export async function runRealE2e(mode: RealE2eMode, playwrightArgs: string[], op
   const dbDir = callerDbDir ?? (options.createTempDir ?? (() => mkdtempSync(join(tmpdir(), "ezcorp-e2e-"))))();
   const spawn = options.spawn ?? ((cmd, spawnOptions) => Bun.spawn(cmd, spawnOptions));
   const signals = options.signals ?? process;
-  const child = spawn(
-    [join(projectRoot, "web", "node_modules", ".bin", "playwright"), "test", "--config", CONFIG_FOR_MODE[mode], ...playwrightArgs],
-    {
-      cwd: join(projectRoot, "web"),
-      env: childEnvironment(sourceEnv, dbDir, ownsDbDir),
-      stdout: "inherit",
-      stderr: "inherit",
-    },
-  );
-
-  // Playwright handles SIGINT by running its task cleanup, including the
-  // webServer plugin. Translate SIGTERM to that signal, then await child exit
-  // before removing a generated directory. A second signal changes nothing:
-  // deleting while the child is live is worse than waiting for it.
-  let forwardedSignal = false;
-  const forwardInterrupt = () => {
-    if (forwardedSignal) return;
-    forwardedSignal = true;
-    child.kill("SIGINT");
-  };
-  signals.on("SIGINT", forwardInterrupt);
-  signals.on("SIGTERM", forwardInterrupt);
+  let forwardInterrupt: (() => void) | undefined;
 
   try {
+    const child = spawn(
+      [join(projectRoot, "web", "node_modules", ".bin", "playwright"), "test", "--config", CONFIG_FOR_MODE[mode], ...playwrightArgs],
+      {
+        cwd: join(projectRoot, "web"),
+        env: childEnvironment(sourceEnv, dbDir, ownsDbDir),
+        stdout: "inherit",
+        stderr: "inherit",
+      },
+    );
+
+    // Playwright handles SIGINT by running its task cleanup, including the
+    // webServer plugin. Translate SIGTERM to that signal, then await child exit
+    // before removing a generated directory. A second signal changes nothing:
+    // deleting while the child is live is worse than waiting for it.
+    let forwardedSignal = false;
+    forwardInterrupt = () => {
+      if (forwardedSignal) return;
+      forwardedSignal = true;
+      child.kill("SIGINT");
+    };
+    signals.on("SIGINT", forwardInterrupt);
+    signals.on("SIGTERM", forwardInterrupt);
     return await child.exited;
   } finally {
-    signals.off("SIGINT", forwardInterrupt);
-    signals.off("SIGTERM", forwardInterrupt);
+    if (forwardInterrupt) {
+      signals.off("SIGINT", forwardInterrupt);
+      signals.off("SIGTERM", forwardInterrupt);
+    }
     if (ownsDbDir) cleanupGeneratedDb(dbDir);
   }
 }

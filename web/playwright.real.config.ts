@@ -146,6 +146,12 @@ export default defineConfig({
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
+      // The real harness is PGlite-only. A caller can run this wrapper from a
+      // Postgres test shell, so clear its alternate driver selection here.
+      DATABASE_URL: "",
+      // Likewise, a mock-preview caller must not make this real server skip
+      // initialization and silently invalidate the setup/auth contracts.
+      PI_SKIP_INIT: "",
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is

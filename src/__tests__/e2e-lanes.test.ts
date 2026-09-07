@@ -141,6 +141,30 @@ describe("e2e lane manifest", () => {
     expect(lanes["fresh-setup"]).toEqual(["web/e2e/setup-first-run.spec.ts"]);
   });
 
+  test("real preview clears inherited alternate DB and mock-init modes", () => {
+    const probe = [
+      'import config from "./web/playwright.real.config.ts";',
+      "const server = Array.isArray(config.webServer) ? config.webServer[0] : config.webServer;",
+      "console.log(JSON.stringify(server.env));",
+    ].join(" ");
+    const proc = Bun.spawnSync([process.execPath, "-e", probe], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        PI_E2E_REAL_DB_PATH: "/tmp/ezcorp-e2e-config-contract",
+        DATABASE_URL: "postgres://test:test@127.0.0.1:1/unused_audit_probe",
+        PI_SKIP_INIT: "1",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const env = JSON.parse(proc.stdout.toString()) as Record<string, string>;
+    expect(env.DATABASE_URL).toBe("");
+    expect(env.PI_SKIP_INIT).toBe("");
+    expect(env.EZCORP_DB_PATH).toBe("/tmp/ezcorp-e2e-config-contract");
+  });
+
   test("evidence-soft members all carry @evidence; no @evidence spec is unwired", () => {
     const untagged = lanes["evidence-soft"]!.filter((f) => !evidenceTagged.has(f));
     expect(untagged, `evidence-soft entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
