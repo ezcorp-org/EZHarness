@@ -1,21 +1,102 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionManifestV2 as SdkManifest } from "../src/types";
-import type { ExtensionManifestV2 as HostManifest } from "../../../../src/extensions/types";
+import type {
+  AgentComponentDefinition as SdkAgent,
+  CapabilityDeclaration as SdkCapabilities,
+  DependencySpec as SdkDependency,
+  ExtensionManifestV2 as SdkManifest,
+  ExtensionPageDeclaration as SdkPage,
+  McpServerStdio as SdkMcpStdio,
+  McpTransport as SdkMcpTransport,
+  MessageToolbarItem as SdkToolbar,
+  PreprocessorDecl as SdkPreprocessor,
+  ScriptDefinition as SdkScripts,
+  SettingsField as SdkSettingsField,
+  SettingsSchema as SdkSettings,
+  SkillDefinition as SdkSkill,
+  ToolDefinition as SdkTool,
+} from "../src/types";
+import type {
+  AgentComponentDefinition as HostAgent,
+  CapabilityDeclaration as HostCapabilities,
+  DependencySpec as HostDependency,
+  ExtensionManifestV2 as HostManifest,
+  ExtensionPageDeclaration as HostPage,
+  McpServerStdio as HostMcpStdio,
+  McpTransport as HostMcpTransport,
+  MessageToolbarItem as HostToolbar,
+  PreprocessorDecl as HostPreprocessor,
+  ScriptDefinition as HostScripts,
+  SettingsField as HostSettingsField,
+  SettingsSchema as HostSettings,
+  SkillDefinition as HostSkill,
+  ToolDefinition as HostTool,
+} from "../../../../src/extensions/types";
 
+type Equal<Left, Right> =
+  (<T>() => T extends Left ? 1 : 2) extends
+  (<T>() => T extends Right ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
 
-// The host may add optional runtime metadata, but both manifest views must
-// accept the same author-written declarations.
-type _SdkAcceptsHostDeclarations = Assert<HostManifest extends SdkManifest ? true : false>;
-type _HostAcceptsSdkDeclarations = Assert<SdkManifest extends HostManifest ? true : false>;
+// These checks fail at compile time if the host stops re-exporting an author
+// declaration or narrows it differently than the SDK.
+type _Tool = Assert<Equal<SdkTool, HostTool>>;
+type _Skill = Assert<Equal<SdkSkill, HostSkill>>;
+type _Capabilities = Assert<Equal<SdkCapabilities, HostCapabilities>>;
+type _Preprocessor = Assert<Equal<SdkPreprocessor, HostPreprocessor>>;
+type _Agent = Assert<Equal<SdkAgent, HostAgent>>;
+type _Scripts = Assert<Equal<SdkScripts, HostScripts>>;
+type _Dependency = Assert<Equal<SdkDependency, HostDependency>>;
+type _SettingsField = Assert<Equal<SdkSettingsField, HostSettingsField>>;
+type _Settings = Assert<Equal<SdkSettings, HostSettings>>;
+type _Toolbar = Assert<Equal<SdkToolbar, HostToolbar>>;
+type _Page = Assert<Equal<SdkPage, HostPage>>;
+type _McpTransport = Assert<Equal<SdkMcpTransport, HostMcpTransport>>;
+type _AuthorManifestFitsHost = Assert<SdkManifest extends HostManifest ? true : false>;
+type _HostManifestFitsAuthor = Assert<HostManifest extends SdkManifest ? true : false>;
+type _AuthorMcpDoesNotExposeHostFd = Assert<Equal<Extract<keyof SdkMcpStdio, "seccompFd">, never>>;
+type _HostMcpRetainsFd = Assert<"seccompFd" extends keyof HostMcpStdio ? true : false>;
+type _TypoIsNotAnAuthorField = Assert<Equal<Extract<keyof SdkManifest, "permssions">, never>>;
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const HOST_TYPES = readFileSync(join(REPO_ROOT, "src/extensions/types.ts"), "utf8");
 
-test("host uses the SDK declarations and only adds host runtime metadata", () => {
-  expect(HOST_TYPES).toContain('from "@ezcorp/sdk"');
-  expect(HOST_TYPES).toContain("Host-only MCP launch metadata");
-  expect(HOST_TYPES).not.toContain("export interface ToolDefinition {");
+const reexportBlock = HOST_TYPES.match(/export type \{([\s\S]*?)\} from "@ezcorp\/sdk";/)?.[1];
+
+describe("SDK/host author declaration parity", () => {
+  test("host imports the author manifest from the SDK", () => {
+    expect(HOST_TYPES).toContain('ExtensionManifestV2 as AuthorExtensionManifestV2');
+  });
+
+  test("re-exports AgentComponentDefinition", () => expect(reexportBlock).toMatch(/\bAgentComponentDefinition\b/));
+  test("re-exports CapabilityDeclaration", () => expect(reexportBlock).toMatch(/\bCapabilityDeclaration\b/));
+  test("re-exports DependencySpec", () => expect(reexportBlock).toMatch(/\bDependencySpec\b/));
+  test("re-exports ExtensionPageDeclaration", () => expect(reexportBlock).toMatch(/\bExtensionPageDeclaration\b/));
+  test("re-exports McpTransport", () => expect(reexportBlock).toMatch(/\bMcpTransport\b/));
+  test("re-exports MessageToolbarItem", () => expect(reexportBlock).toMatch(/\bMessageToolbarItem\b/));
+  test("re-exports PreprocessorDecl", () => expect(reexportBlock).toMatch(/\bPreprocessorDecl\b/));
+  test("re-exports ScriptDefinition", () => expect(reexportBlock).toMatch(/\bScriptDefinition\b/));
+  test("re-exports SettingsField", () => expect(reexportBlock).toMatch(/\bSettingsField\b/));
+  test("re-exports SettingsFieldBoolean", () => expect(reexportBlock).toMatch(/\bSettingsFieldBoolean\b/));
+  test("re-exports SettingsFieldNumber", () => expect(reexportBlock).toMatch(/\bSettingsFieldNumber\b/));
+  test("re-exports SettingsFieldSecret", () => expect(reexportBlock).toMatch(/\bSettingsFieldSecret\b/));
+  test("re-exports SettingsFieldSelect", () => expect(reexportBlock).toMatch(/\bSettingsFieldSelect\b/));
+  test("re-exports SettingsFieldText", () => expect(reexportBlock).toMatch(/\bSettingsFieldText\b/));
+  test("re-exports SettingsSchema", () => expect(reexportBlock).toMatch(/\bSettingsSchema\b/));
+  test("re-exports SkillDefinition", () => expect(reexportBlock).toMatch(/\bSkillDefinition\b/));
+  test("re-exports ToolDefinition", () => expect(reexportBlock).toMatch(/\bToolDefinition\b/));
+
+  test("host-only MCP launch fields stay outside the SDK type", () => {
+    expect(HOST_TYPES).toContain("Host-only MCP launch metadata");
+    expect(HOST_TYPES).toContain("seccompFd?: number | null");
+    expect(HOST_TYPES).toContain("onChildSpawned?:");
+    expect(HOST_TYPES).toContain("_internal_vethSetup?:");
+  });
+
+  test("the host manifest composes author permissions with internal metadata", () => {
+    expect(HOST_TYPES).toContain('"mcpServers" | "permissions"');
+    expect(HOST_TYPES).toContain("mcpInvoke?: boolean");
+    expect(HOST_TYPES).toContain("drafts?: { kinds: string[] }");
+  });
 });

@@ -44,7 +44,7 @@ function skillManifest(name: string): string {
     version: "1.0.0",
     description: "revalidation fixture",
     author: { name: "t" },
-    skills: [{ name: "s", description: "d", content: "c" }],
+    skills: [{ name: "s", description: "d", prompt: "c" }],
     permissions: {},
   })} as const;\n`;
 }

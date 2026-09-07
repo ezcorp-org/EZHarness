@@ -1,12 +1,9 @@
 // ── @ezcorp/sdk public types ────────────────────────────────────
 // Public API surface for extension authors.
 //
-// Definitions below are duplicated from `src/extensions/types.ts` (host)
-// pending the plan-line-192 host-shim flip — a team-lead-authorized
-// change that will replace the host file with `export * from "@ezcorp/sdk"`.
-// Until that lands, any change to a shared type MUST be made in BOTH
-// places. Keep these two files byte-for-byte aligned for the overlapping
-// declarations.
+// The host imports these author-facing declarations from this module, then
+// adds only runtime-only metadata in `src/extensions/types.ts`. Extension
+// authors must use this module rather than host internals.
 
 // ── V2 Component Definitions ─────────────────────────────────────
 

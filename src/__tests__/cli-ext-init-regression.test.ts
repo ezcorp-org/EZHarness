@@ -83,12 +83,13 @@ describe("ext:init CLI — file content", () => {
     expect(pkg.dependencies["@ezcorp/sdk"]).toBeDefined();
   });
 
-  test("tool's index.ts emits a JSON-RPC stdin reader", async () => {
+  test("tool's index.ts uses the SDK JSON-RPC dispatcher", async () => {
     await initExtension({ extName: "weather", type: "tool", description: "x", cwd: tmp });
     const idx = readFileSync(join(tmp, "weather", "index.ts"), "utf8");
-    expect(idx).toContain("Bun.stdin.stream()");
+    expect(idx).toContain("createToolDispatcher");
+    expect(idx).toContain("getChannel");
     expect(idx).toContain("handleRequest");
-    expect(idx).toContain("tools/call");
+    expect(idx).toContain("channel.start()");
   });
 });
 

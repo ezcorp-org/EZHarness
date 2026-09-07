@@ -165,7 +165,7 @@ describe("stripFunctions via loadManifest", () => {
     }
   });
 
-  test("preserves non-function properties (strings, numbers, objects, arrays)", async () => {
+  test("preserves declared non-function properties", async () => {
     const dir = await makeTempDir();
     try {
       await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
@@ -175,13 +175,13 @@ describe("stripFunctions via loadManifest", () => {
         tools: [{
           name: "tool1", description: "d",
           inputSchema: { type: "object", properties: { x: { type: "number" } } },
-          extra: 42, tags: ["a", "b"],
+          cardLayout: "dock", suggestExamples: ["show tool one"],
         }],
       };\n`);
       const m = await loadManifest(dir);
       const tool = m.tools![0] as any;
-      expect(tool.extra).toBe(42);
-      expect(tool.tags).toEqual(["a", "b"]);
+      expect(tool.cardLayout).toBe("dock");
+      expect(tool.suggestExamples).toEqual(["show tool one"]);
       expect(tool.inputSchema.properties.x.type).toBe("number");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -247,18 +247,17 @@ describe("stripFunctions via loadManifest", () => {
     }
   });
 
-  test("does NOT strip functions from top-level config", async () => {
+  test("rejects an unknown top-level function", async () => {
     const dir = await makeTempDir();
     try {
-      // Top-level functions should pass through stripFunctions unchanged.
-      // We write a config with a top-level function and verify it survives.
+      // Only declared component handlers survive author evaluation. A
+      // top-level callback is neither executable nor part of the manifest.
       await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         onInstall: () => "installed",
       };\n`);
-      const m = await loadManifest(dir);
-      expect(typeof (m as any).onInstall).toBe("function");
+      await expect(loadManifest(dir)).rejects.toThrow("manifest.onInstall is not a recognized field");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -309,7 +308,7 @@ describe("loadManifest error paths", () => {
     }
   });
 
-  test("passes through extra unknown properties", async () => {
+  test("rejects extra unknown properties", async () => {
     const dir = await makeTempDir();
     try {
       await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
@@ -317,9 +316,7 @@ describe("loadManifest error paths", () => {
         author: { name: "T" }, permissions: {},
         customField: "hello", anotherExtra: 123,
       };\n`);
-      const m = await loadManifest(dir);
-      expect((m as any).customField).toBe("hello");
-      expect((m as any).anotherExtra).toBe(123);
+      await expect(loadManifest(dir)).rejects.toThrow("manifest.customField is not a recognized field");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

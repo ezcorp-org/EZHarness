@@ -102,11 +102,11 @@ test("manifest has multi-component structure", async () => {
   expect(manifest.agent.category).toBe("Writing");
 });
 
-test("manifest skill has content", async () => {
+test("manifest skill has a prompt", async () => {
   const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
   const skill = manifest.skills[0];
   expect(skill.name).toBe("markdown-style");
-  expect(skill.content).toContain("ATX-style");
+  expect(skill.prompt).toContain("ATX-style");
 });
 
 describe("dispatch: extract-headings", () => {

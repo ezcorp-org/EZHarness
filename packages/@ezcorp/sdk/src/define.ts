@@ -28,6 +28,6 @@ type NoExtraProperties<Shape, Actual extends Shape> = Actual & Record<
 
 export function defineExtension<const T extends ExtensionConfig>(
   config: NoExtraProperties<ExtensionConfig, T>,
-): T {
+): ExtensionConfig {
   return config;
 }

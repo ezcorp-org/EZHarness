@@ -55,7 +55,7 @@ describe("tool template", () => {
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(3);
     expect(manifest.version).toBe("0.1.0");
     expect(manifest.name).toBe("my-tool");
     expect(manifest.description).toBe("A cool tool");
@@ -68,7 +68,8 @@ describe("tool template", () => {
     const { toolEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
     const code = toolEntrypoint("my-tool", "A cool tool");
     expect(code.length).toBeGreaterThan(0);
-    expect(code).toContain("jsonrpc");
+    expect(code).toContain("createToolDispatcher");
+    expect(code).toContain("getChannel");
   });
 
   test("toolTest returns test skeleton", async () => {
@@ -158,7 +159,8 @@ describe("multi template", () => {
     const { multiEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
     const code = multiEntrypoint("my-multi", "A cool multi");
     expect(code.length).toBeGreaterThan(0);
-    expect(code).toContain("jsonrpc");
+    expect(code).toContain("createToolDispatcher");
+    expect(code).toContain("getChannel");
   });
 
   test("multiTest returns test skeleton", async () => {

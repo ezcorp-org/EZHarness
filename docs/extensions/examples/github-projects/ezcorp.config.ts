@@ -11,8 +11,8 @@
 //
 // The Hub dashboard shows the viewing user's proposals (Active / History) and
 // per-board connection health with Approve / Dismiss / Pause / Resume /
-// Reconnect actions. Like ping-loop, it's `bootSpawn` + event-driven so the
-// daemon's `github-projects:proposal-update` pushes refresh the page live.
+// Reconnect actions. The bundled registry keeps this event-driven extension
+// resident so daemon proposal updates can refresh the page live.
 
 import { defineExtension } from "../../../../src/extensions/sdk/define";
 
