@@ -1,0 +1,47 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [],
+  "failedApiResponses": [],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "Load request cancelled"
+    }
+  ],
+  "expectedRuntimeEventTeardownMarks": 14,
+  "browserEngine": "webkit"
+}

@@ -1,0 +1,10 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [],
+  "failedApiResponses": [],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [],
+  "expectedRuntimeEventTeardownMarks": 6,
+  "browserEngine": "chromium"
+}

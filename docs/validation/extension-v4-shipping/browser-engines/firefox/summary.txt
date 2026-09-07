@@ -1,0 +1,7 @@
+engine=firefox
+exit=0
+result=3 passed
+source=132720fc61203c92b532050d92b2d592ac25173d
+screenshots=12
+strict_diagnostic_attachments=5
+expected_marked_cancellations=Firefox NS_BINDING_ABORTED only for marked EventSource requests
