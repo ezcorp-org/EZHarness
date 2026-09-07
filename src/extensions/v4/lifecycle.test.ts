@@ -312,6 +312,7 @@ describe("durable extension lifecycle", () => {
     const accepted = setup.lifecycle.runBuild(actor, installation.id, operation.id);
     await startedBuild;
     const liveHolder = (await setup.lifecycle.inspect(actor, installation.id)).operations[operation.id]?.lease?.holder;
+    if (!liveHolder) throw new Error("The accepted build must hold a cancellation lease.");
     await setup.lifecycle.cancel(actor, installation.id, operation.id);
     unblock();
     expect((await accepted).state).toBe("cancelled");
