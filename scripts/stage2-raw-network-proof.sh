@@ -29,7 +29,7 @@ if [[ ! "$seconds" =~ ^[0-9]+$ ]] || (( seconds < 1 || seconds > 86400 )); then
 fi
 container_timeout=25
 if [[ "$mode" == --soak ]]; then container_timeout=$((seconds + 30)); fi
-podman_args=(run --rm --timeout="$container_timeout" --network=private --user 0 --cap-add=NET_ADMIN --security-opt unmask=/proc/sys)
+podman_args=(run --rm --log-driver=none --timeout="$container_timeout" --network=private --user 0 --cap-add=NET_ADMIN --security-opt unmask=/proc/sys)
 if [[ -n "${EZCORP_STAGE2_RUN_ID:-}" ]]; then
   podman_args+=(--label "ezcorp.stage2-proof=$EZCORP_STAGE2_RUN_ID")
 fi
