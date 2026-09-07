@@ -151,7 +151,7 @@ test.describe("caller-executed tools — declaration API", () => {
       await admin.dispose();
     }
   });
-  test.afterAll(async () => member.dispose());
+  test.afterAll(async () => member?.dispose());
 
   test("declare → read back → clear, through the real HTTP surface", async () => {
     const { ez, conversationId } = await companion(member);
@@ -217,7 +217,7 @@ test.describe("caller-executed tools — the round trip", () => {
   test.beforeAll(async ({ playwright }) => {
     member = await provisionMember(playwright, "round-trip");
   });
-  test.afterAll(async () => member.dispose());
+  test.afterAll(async () => member?.dispose());
 
   test("the LLM calls a declared tool, the device executes it, the run resumes", async () => {
     const { ez, conversationId } = await companion(member);
