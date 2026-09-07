@@ -4,7 +4,7 @@ import { resolveBundledExtensions } from "../../src/extensions/bundled";
 import { type BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
 function state(status: "queued" | "verified" | "failed") {
-  return { operations: { build: { id: "build", kind: "build", state: status, diagnostics: [] } } };
+  return { operations: { build: { id: "build", kind: "build", state: status, diagnostics: [], events: [], updatedAt: "2026-09-07T00:00:00.000Z" } } };
 }
 
 test("waits for observed bundled work to become terminal and retains its receipt", async () => {
@@ -39,6 +39,11 @@ test("rejects ambiguous installation mapping and failed bundled builds", async (
   expect(() => requireBundledBootstrapVerified({ bootstrapInstallations: 2, initialPending: 1, maximumPending: 1, terminalOperationStates: { verified: 2 }, terminalOperations: [{ name: "duplicate", installationId: "one", operations: [{ id: "one", kind: "build", state: "verified", diagnostics: [] }, { id: "two", kind: "build", state: "verified", diagnostics: [] }] }, { name: "missing", installationId: "two", operations: [] }] }, "missing installation")).toThrow("did not verify");
 });
 
+test("reports no snapshot when the bounded bootstrap observer has no poll", async () => {
+  const client = { async listExtensions() { throw new Error("must not poll"); }, async extensionControl() { throw new Error("must not inspect"); } } as unknown as HarnessClient;
+  await expect(waitForBundledBootstrap(client, { deadlineMs: -1 })).rejects.toMatchObject({ name: "BundledBootstrapTimeoutError", snapshot: null } satisfies Partial<BundledBootstrapTimeoutError>);
+});
+
 test("reports the final pending operations in a bounded bootstrap timeout", async () => {
   let now = 0;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
@@ -48,6 +53,7 @@ test("reports the final pending operations in a bounded bootstrap timeout", asyn
     await expect(waitForBundledBootstrap(client, { deadlineMs: 1 })).rejects.toMatchObject({
       name: "BundledBootstrapTimeoutError",
       snapshot: {
+        capturedAt: expect.any(String),
         bootstrapInstallations: resolveBundledExtensions().length,
         initialPending: resolveBundledExtensions().length,
         maximumPending: resolveBundledExtensions().length,

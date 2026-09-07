@@ -8,11 +8,12 @@ export type BundledBootstrapState = {
   initialPending: number;
   maximumPending: number;
   terminalOperationStates: Record<string, number>;
-  terminalOperations: Array<{ name: string; installationId: string; operations: Array<Pick<LifecycleOperation, "id" | "kind" | "state" | "diagnostics">> }>;
+  capturedAt: string;
+  terminalOperations: Array<{ name: string; installationId: string; operations: Array<Pick<LifecycleOperation, "id" | "kind" | "state" | "diagnostics" | "updatedAt"> & { lease: Pick<NonNullable<LifecycleOperation["lease"]>, "fence" | "until"> | null; lastEvent: Pick<LifecycleOperation["events"][number], "state" | "at"> | null }> }>;
 };
 
 export class BundledBootstrapTimeoutError extends Error {
-  constructor(public readonly snapshot: BundledBootstrapState | undefined) {
+  constructor(public readonly snapshot: BundledBootstrapState | null) {
     super(`Candidate bootstrap did not reach a terminal runner state before the deadline: ${JSON.stringify(snapshot)}`);
     this.name = "BundledBootstrapTimeoutError";
   }
@@ -22,6 +23,7 @@ function summarizeBootstrap(states: Array<{ name: string; installationId: string
   const terminalOperationStates: Record<string, number> = {};
   for (const { state } of states) for (const operation of Object.values(state.operations)) terminalOperationStates[operation.state] = (terminalOperationStates[operation.state] ?? 0) + 1;
   return {
+    capturedAt: new Date().toISOString(),
     bootstrapInstallations: states.length,
     initialPending,
     maximumPending,
@@ -29,7 +31,15 @@ function summarizeBootstrap(states: Array<{ name: string; installationId: string
     terminalOperations: states.map(({ name, installationId, state }) => ({
       name,
       installationId,
-      operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })),
+      operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics, updatedAt, lease, events }) => ({
+        id,
+        kind,
+        state: operationState,
+        diagnostics,
+        updatedAt,
+        lease: lease ? { fence: lease.fence, until: lease.until } : null,
+        lastEvent: events.at(-1) ? { state: events.at(-1)!.state, at: events.at(-1)!.at } : null,
+      })),
     })),
   };
 }
@@ -41,7 +51,7 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: { 
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
-  let latest: BundledBootstrapState | undefined;
+  let latest: BundledBootstrapState | null = null;
   while (Date.now() < deadline) {
     const extensions = await client.listExtensions();
     const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
