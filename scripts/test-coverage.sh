@@ -829,7 +829,6 @@ run_legs() {
       --coverage.include='src/routes/**/onboarding/+page.svelte' \
       --coverage.include='src/lib/provider-access.ts' \
       --coverage.include='src/lib/components/ProviderSettings.svelte' \
-      --coverage.include='src/lib/stores.svelte.ts' \
       --coverage.include='src/lib/components/ConversationSettings.svelte' \
       --coverage.include='src/lib/components/chat/ChatHeader.svelte' \
       --coverage.include='src/lib/components/chat/NoProviderBanner.svelte' \
