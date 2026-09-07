@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { validateWire, type RunnerInspection } from "@ezcorp/extension-contract";
 import type { PGlite } from "@electric-sql/pglite";
 import { HarnessClient } from "@ezcorp/harness-client";
 import { APP_DATABASE } from "../../src/db/datadir-upgrade";
@@ -29,6 +30,24 @@ export async function readSessionCookie(file: string): Promise<string> {
   });
   assert(cookies.length, "The launcher must provide a human session cookie");
   return cookies.join("; ");
+}
+
+/** Inspect the launcher's real authenticated runner transport. */
+export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
+  const token = (await readFile(required("EZ_EXTENSION_RUNNER_TOKEN_FILE"), "utf8")).trim();
+  assert(token, "The launcher must provide a runner credential");
+  const response = await fetch("http://localhost/v4/inspect", {
+    unix: required("EZ_EXTENSION_RUNNER_SOCKET"),
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ id: operationId }),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const value: unknown = await response.json();
+  if (!response.ok) throw new Error(`Runner inspection returned HTTP ${response.status}`);
+  const inspection = validateWire("inspection", value);
+  if (inspection.id !== operationId) throw new Error("Runner inspection returned an unexpected operation");
+  return inspection;
 }
 
 /** Read only the launcher's owned database after its app has stopped. */

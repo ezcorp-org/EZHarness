@@ -69,9 +69,9 @@ printf '%s' "$code"
       "bash",
       "scripts/verify-production-image-lifecycle.sh",
       "--",
-      "bash",
-      "-c",
-      'printf "%s\\n" "$EZ_PRODUCTION_RUN_ROOT" > "$PROBE_OUTPUT"',
+      "bun",
+      "-e",
+      'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,id:inspection.id,state:inspection.state})+"\\n");',
     ], {
       cwd: root,
       env: {
@@ -104,7 +104,7 @@ printf '%s' "$code"
     ]);
     expect(timedOut).toBe(false);
     expect(exit, `${stdout}\n${stderr}`).toBe(0);
-    expect(await readFile(commandEnvironment, "utf8")).toBe(`${state}\n`);
+    expect(await readFile(commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: state, id: "launcher-readiness", state: "unknown" })}\n`);
     const generatedCompose = await readFile(compose, "utf8");
     const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(runnerTransport, "utf8")).trim().split("\n");
     expect(mountedRunnerToken).toBeDefined();
