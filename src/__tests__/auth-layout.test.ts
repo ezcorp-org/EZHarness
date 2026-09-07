@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, ADMIN_USER, expectRedirect } from "./helpers/mock-request";
+import { mockServerAlias, createMockEvent, ADMIN_USER, captureRedirect } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE any handler imports) ──────────────────
 
@@ -74,7 +74,7 @@ beforeEach(async () => {
 describe("Login page load", () => {
   test("redirects to /setup when getUserCount returns 0", async () => {
     const event = createMockEvent({ url: "http://localhost/login" });
-    await expectRedirect(() => loginLoad(event), 302, "/setup");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/setup" });
   });
 
   test("redirects to / when user has valid session cookie AND live session row", async () => {
@@ -92,7 +92,7 @@ describe("Login page load", () => {
       cookies: { ezcorp_session: token },
     });
 
-    await expectRedirect(() => loginLoad(event), 302, "/");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("returns default returnTo when no session and users exist", async () => {
@@ -122,7 +122,7 @@ describe("Setup page load", () => {
     await createUser({ email: "existing@test.com", passwordHash: "hash", name: "Existing" });
 
     const event = createMockEvent({ url: "http://localhost/setup" });
-    await expectRedirect(() => setupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => setupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("returns empty object when no users exist", async () => {
@@ -159,7 +159,7 @@ describe("Signup page load", () => {
       cookies: { ezcorp_session: token },
     });
 
-    await expectRedirect(() => signupLoad(event), 302, "/");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("redirects to /login when token is invalid", async () => {
@@ -168,7 +168,7 @@ describe("Signup page load", () => {
       params: { token: "nonexistent-token" },
     });
 
-    await expectRedirect(() => signupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("returns invite data and token when token is valid", async () => {

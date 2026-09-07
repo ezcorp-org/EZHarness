@@ -821,7 +821,6 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
       --coverage.include='src/lib/server/workflow-access.ts' \
-      --coverage.include='src/lib/provider-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
       --coverage.include='src/lib/components/WorkflowBuilder.svelte' \

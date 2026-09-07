@@ -35,7 +35,7 @@ test.describe("@evidence provider access", () => {
 		});
 		await page.goto("/settings/models");
 
-		await expect(page.getByLabel("API key for Anthropic")).toBeVisible();
+		await expect(page.getByLabel("API key for Anthropic (Claude)", { exact: true })).toBeVisible();
 		await expect(page.getByRole("button", { name: "Show API key for Anthropic" })).toBeVisible();
 		await captureEvidence(page, testInfo, "admin-provider-controls", { fullPage: true });
 	});

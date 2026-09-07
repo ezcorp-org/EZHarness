@@ -531,6 +531,5 @@
   "web/src/lib/components/DelegationConsentDialog.svelte": 100,
   "web/src/routes/api/service-accounts/[id]/daily-cap/+server.ts": 100,
   "web/src/routes/api/conversations/[id]/caller-tools/+server.ts": 100,
-  "web/src/routes/api/conversations/[id]/caller-tools/schema.ts": 100,
-  "web/src/lib/provider-access.ts": 100
+  "web/src/routes/api/conversations/[id]/caller-tools/schema.ts": 100
 }

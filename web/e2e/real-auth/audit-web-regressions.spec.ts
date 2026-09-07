@@ -73,7 +73,7 @@ test.describe("@evidence audit web regressions", () => {
 			await expect(providerStep).not.toHaveClass(/line-through/);
 
 			const anthropicCard = page.getByTestId("provider-card-anthropic");
-			await anthropicCard.getByLabel("API key for Anthropic").fill(`audit-placeholder-${Date.now()}`);
+			await anthropicCard.getByLabel("API key for Anthropic (Claude)", { exact: true }).fill(`audit-placeholder-${Date.now()}`);
 			const saved = page.waitForResponse(
 				(response) => response.url().endsWith("/api/providers") && response.request().method() === "POST",
 			);

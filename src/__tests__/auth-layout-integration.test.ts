@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:tes
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, ADMIN_USER, expectRedirect } from "./helpers/mock-request";
+import { mockServerAlias, createMockEvent, ADMIN_USER, captureRedirect } from "./helpers/mock-request";
 
 mockDbConnection();
 mockServerAlias();
@@ -77,13 +77,13 @@ async function persistSessionFor(token: string, userId: string): Promise<void> {
 describe("Login / Setup redirect chain", () => {
   test("login redirects to /setup when no users exist", async () => {
     const event = createMockEvent({ url: "http://localhost/login" });
-    await expectRedirect(() => loginLoad(event), 302, "/setup");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/setup" });
   });
 
   test("setup redirects to /login when users exist", async () => {
     await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
     const event = createMockEvent({ url: "http://localhost/setup" });
-    await expectRedirect(() => setupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => setupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("setup returns empty object when no users exist (no redirect)", async () => {
@@ -102,7 +102,7 @@ describe("Login / Setup redirect chain", () => {
   test("no circular redirect: login->setup only when 0 users, setup->login only when >0 users", async () => {
     // With 0 users: login -> setup, setup stays
     const loginEvent = createMockEvent({ url: "http://localhost/login" });
-    await expectRedirect(() => loginLoad(loginEvent as any), 302, "/setup");
+    expect(await captureRedirect(() => loginLoad(loginEvent))).toEqual({ status: 302, location: "/setup" });
 
     const setupEvent = createMockEvent({ url: "http://localhost/setup" });
     const setupResult = await setupLoad(setupEvent as any);
@@ -112,7 +112,7 @@ describe("Login / Setup redirect chain", () => {
     await createUser({ email: "user@test.local", passwordHash: "h", name: "User" });
 
     const setupEvent2 = createMockEvent({ url: "http://localhost/setup" });
-    await expectRedirect(() => setupLoad(setupEvent2 as any), 302, "/login");
+    expect(await captureRedirect(() => setupLoad(setupEvent2))).toEqual({ status: 302, location: "/login" });
 
     const loginEvent2 = createMockEvent({ url: "http://localhost/login" });
     const loginResult = await loginLoad(loginEvent2 as any);
@@ -136,7 +136,7 @@ describe("Session-based redirects for authenticated users", () => {
       url: "http://localhost/login",
       cookies: { ezcorp_session: token },
     });
-    await expectRedirect(() => loginLoad(event), 302, "/");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("login does NOT redirect with an invalid session token", async () => {
@@ -169,7 +169,7 @@ describe("Session-based redirects for authenticated users", () => {
       params: { token: invite.token },
       cookies: { ezcorp_session: token },
     });
-    await expectRedirect(() => signupLoad(event), 302, "/");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("signup does NOT redirect with an invalid session token", async () => {
@@ -340,7 +340,7 @@ describe("Signup token validation", () => {
       url: "http://localhost/signup/nonexistent-token-value",
       params: { token: "nonexistent-token-value" },
     });
-    await expectRedirect(() => signupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("used/consumed token redirects to /login", async () => {
@@ -351,7 +351,7 @@ describe("Signup token validation", () => {
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
     });
-    await expectRedirect(() => signupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("expired token redirects to /login", async () => {
@@ -366,7 +366,7 @@ describe("Signup token validation", () => {
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
     });
-    await expectRedirect(() => signupLoad(event), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("invite without email returns null email in invite data", async () => {

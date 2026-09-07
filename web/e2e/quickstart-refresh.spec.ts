@@ -28,8 +28,9 @@ test.describe("@evidence quickstart refresh", () => {
 		await page.goto("/settings/models");
 		const checklist = page.getByText("Set up a provider", { exact: true });
 		await expect(checklist).not.toHaveClass(/line-through/);
-		await page.getByLabel("API key for Anthropic").fill("test-key");
-		await page.getByRole("button", { name: "Save Key" }).click();
+		const providerCard = page.getByTestId("provider-card-anthropic");
+		await providerCard.getByLabel("API key for Anthropic (Claude)", { exact: true }).fill("test-key");
+		await providerCard.getByRole("button", { name: "Save Key" }).click();
 
 		await expect(checklist).toHaveClass(/line-through/);
 		await captureEvidence(page, testInfo, "quickstart-provider-refreshed", { fullPage: true });

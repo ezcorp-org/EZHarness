@@ -1,16 +1,15 @@
-import { expect, mock } from "bun:test";
+import { mock } from "bun:test";
 import type { AuthUser } from "../../auth/types";
 
 /** SvelteKit loads may return synchronously, asynchronously, or redirect. */
-export async function expectRedirect(load: () => unknown, status: number, location: string): Promise<void> {
+export async function captureRedirect(load: () => unknown): Promise<{ status: unknown; location: unknown }> {
   try {
     await load();
     throw new Error("Expected redirect to be thrown");
   } catch (error) {
     if (typeof error !== "object" || error === null
       || !("status" in error) || !("location" in error)) throw error;
-    expect(error.status).toBe(status);
-    expect(error.location).toBe(location);
+    return { status: error.status, location: error.location };
   }
 }
 

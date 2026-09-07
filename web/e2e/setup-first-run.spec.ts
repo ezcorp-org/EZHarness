@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 // This config starts a production preview against a new PGlite directory and
 // deliberately has no global setup. It exercises the shipped Svelte route,
