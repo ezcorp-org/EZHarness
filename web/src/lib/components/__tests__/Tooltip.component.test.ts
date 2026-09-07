@@ -108,7 +108,7 @@ describe("Tooltip", () => {
 		try {
 			const { getByText, getByRole } = renderTooltip({ position });
 			const wrapper = getByText("trigger").parentElement!;
-			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
 				return this === wrapper ? triggerRect : rect(0, 0, 30, 10);
 			});
 
@@ -129,7 +129,7 @@ describe("Tooltip", () => {
 			const { getByText, getByRole } = renderTooltip();
 			const wrapper = getByText("trigger").parentElement!;
 			let triggerRect = rect(100, 100);
-			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
 				return this === wrapper ? triggerRect : rect(0, 0, 30, 10);
 			});
 
