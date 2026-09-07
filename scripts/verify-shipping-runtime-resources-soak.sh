@@ -15,7 +15,7 @@ integer_between() {
   }
 }
 integer_between "$minimum_seconds" EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS 1800 86400
-integer_between "$maximum_cycles" EZ_RUNTIME_RESOURCE_MAX_CYCLES 3 5000
+integer_between "$maximum_cycles" EZ_RUNTIME_RESOURCE_MAX_CYCLES 10 5000
 integer_between "$grace_seconds" EZ_RUNTIME_RESOURCE_SOAK_GRACE_SECONDS 60 3600
 
 export EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS="$minimum_seconds"
