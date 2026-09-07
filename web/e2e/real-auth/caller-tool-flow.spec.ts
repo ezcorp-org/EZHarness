@@ -15,6 +15,7 @@
  */
 import { test, expect } from "../fixtures/hydration.js";
 import type { APIRequestContext } from "@playwright/test";
+import { STORAGE_STATE_PATH } from "../real-auth-setup";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
@@ -83,15 +84,25 @@ function drainOneCallerTool(ez: HarnessClient, conversationId: string) {
   );
 }
 
-/** Mint a key and conversation under a distinct invited member principal. */
-async function companion(request: APIRequestContext, playwright: typeof import("playwright-core"), baseURL: string) {
-  const email = `e2e-caller-tools-${crypto.randomUUID()}@example.com`;
-  const invited = await request.post("/api/auth/invite", { data: { email, role: "member" } });
-  expect(invited.status(), await invited.text()).toBe(201);
-  const { invite } = (await invited.json()) as { invite: { token: string } };
+const REAL_AUTH_BASE_URL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 
-  const member = await playwright.request.newContext({ baseURL });
+function createAdminSession(playwright: typeof import("playwright-core")): Promise<APIRequestContext> {
+  return playwright.request.newContext({
+    baseURL: REAL_AUTH_BASE_URL,
+    storageState: STORAGE_STATE_PATH,
+  });
+}
+
+/** Create one invited member session for a describe block. */
+async function provisionMember(playwright: typeof import("playwright-core"), label: string): Promise<APIRequestContext> {
+  const admin = await createAdminSession(playwright);
+  const member = await playwright.request.newContext({ baseURL: REAL_AUTH_BASE_URL });
   try {
+    const email = `e2e-caller-tools-${label}-${crypto.randomUUID()}@example.com`;
+    const invited = await admin.post("/api/auth/invite", { data: { email, role: "member" } });
+    expect(invited.status(), await invited.text()).toBe(201);
+    const { invite } = (await invited.json()) as { invite: { token: string } };
+
     const accepted = await member.post(`/api/auth/invite/${invite.token}`, {
       data: { name: "Caller Tools Member", email, password: "E2e-Caller-Tools-Pw-9x!" },
     });
@@ -100,30 +111,50 @@ async function companion(request: APIRequestContext, playwright: typeof import("
     const me = await member.get("/api/auth/me");
     expect(me.status(), await me.text()).toBe(200);
     expect(((await me.json()) as { user: { role: string } }).user.role).toBe("member");
-
-    const keyRes = await member.post("/api/settings/developer/api-keys", {
-      data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
-    });
-    expect(keyRes.status(), await keyRes.text()).toBe(201);
-    const { key } = (await keyRes.json()) as { key: string };
-
-    const seedRes = await member.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
-    expect(seedRes.status(), await seedRes.text()).toBe(201);
-    const { conversationId } = (await seedRes.json()) as { conversationId: string };
-
-    return { ez: new HarnessClient({ baseUrl: baseURL, apiKey: key }), conversationId };
-  } finally {
+    return member;
+  } catch (error) {
     await member.dispose();
+    throw error;
+  } finally {
+    await admin.dispose();
   }
 }
 
+/** Mint a separate key and conversation for each test under its shared member session. */
+async function companion(member: APIRequestContext) {
+  const keyRes = await member.post("/api/settings/developer/api-keys", {
+    data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
+  });
+  expect(keyRes.status(), await keyRes.text()).toBe(201);
+  const { key } = (await keyRes.json()) as { key: string };
+
+  const seedRes = await member.post("/api/__test/seed", { data: { title: "e2e-caller-tools" } });
+  expect(seedRes.status(), await seedRes.text()).toBe(201);
+  const { conversationId } = (await seedRes.json()) as { conversationId: string };
+
+  return { ez: new HarnessClient({ baseUrl: REAL_AUTH_BASE_URL, apiKey: key }), conversationId };
+}
+
 test.describe("caller-executed tools — declaration API", () => {
-  test("declare → read back → clear, through the real HTTP surface", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+  let member: APIRequestContext;
+  let adminConversationId: string;
+
+  // The successful declaration writes total three, below the per-user five/sec limit.
+  test.beforeAll(async ({ playwright }) => {
+    member = await provisionMember(playwright, "declarations");
+    const admin = await createAdminSession(playwright);
+    try {
+      const seeded = await admin.post("/api/__test/seed", { data: { title: "e2e-caller-tools-admin" } });
+      expect(seeded.status(), await seeded.text()).toBe(201);
+      adminConversationId = ((await seeded.json()) as { conversationId: string }).conversationId;
+    } finally {
+      await admin.dispose();
+    }
+  });
+  test.afterAll(async () => member.dispose());
+
+  test("declare → read back → clear, through the real HTTP surface", async () => {
+    const { ez, conversationId } = await companion(member);
 
     const declared = await ez.declareCallerTools(conversationId, [OPEN_APP]);
     expect(declared.tools).toEqual([OPEN_APP]);
@@ -141,12 +172,8 @@ test.describe("caller-executed tools — declaration API", () => {
     expect(await ez.clearCallerTools(conversationId)).toEqual({ ok: true, cleared: 0 });
   });
 
-  test("declarations the runtime could not honour are refused at declare time", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+  test("declarations the runtime could not honour are refused at declare time", async () => {
+    const { ez, conversationId } = await companion(member);
 
     // `_caller__invoke_agent` strips to a spawn primitive's name, so it would
     // answer namespace-stripping deny rules meant for the real one.
@@ -172,9 +199,11 @@ test.describe("caller-executed tools — declaration API", () => {
     expect(await ez.getCallerTools(conversationId)).toEqual([]);
   });
 
-  test("another user's conversation is a 404, never a 403", async ({ request, playwright, baseURL }) => {
-    const { ez } = await companion(request, playwright, baseURL!);
-    // A 403 would confirm the id names a real conversation; 404 does not.
+  test("another user's conversation is a 404, never a 403", async () => {
+    const { ez } = await companion(member);
+    // The seeded admin conversation proves this 404 is an ownership boundary;
+    // the missing-id control preserves the non-enumeration contract too.
+    await expect(ez.getCallerTools(adminConversationId)).rejects.toMatchObject({ status: 404 });
     await expect(ez.getCallerTools("00000000-0000-4000-8000-000000000000")).rejects.toMatchObject({
       status: 404,
     });
@@ -182,12 +211,16 @@ test.describe("caller-executed tools — declaration API", () => {
 });
 
 test.describe("caller-executed tools — the round trip", () => {
-  test("the LLM calls a declared tool, the device executes it, the run resumes", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+  let member: APIRequestContext;
+
+  // The round-trip cases make five successful caller-tool writes, at the per-user ceiling.
+  test.beforeAll(async ({ playwright }) => {
+    member = await provisionMember(playwright, "round-trip");
+  });
+  test.afterAll(async () => member.dispose());
+
+  test("the LLM calls a declared tool, the device executes it, the run resumes", async () => {
+    const { ez, conversationId } = await companion(member);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     // The connected device. `serveCallerTools` drains anything already
@@ -228,11 +261,7 @@ test.describe("caller-executed tools — the round trip", () => {
     }
   });
 
-  test("a client with NO stream recovers the call from the drain alone", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
+  test("a client with NO stream recovers the call from the drain alone", async () => {
     // The disconnected client, reproduced exactly: this test never opens an
     // SSE stream, so it cannot have seen `caller:tool-call`. Everything it
     // learns comes from `GET …/active-run` — which is what that field is FOR,
@@ -243,7 +272,7 @@ test.describe("caller-executed tools — the round trip", () => {
     // Before the drain reported caller tools, a client in this position read
     // `undefined` on every connect and the call was unrecoverable — it stood
     // until its 120 s gate expired and the turn failed.
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+    const { ez, conversationId } = await companion(member);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     const run = ez.runScripted(
@@ -284,16 +313,12 @@ test.describe("caller-executed tools — the round trip", () => {
     expect(result.run.status).toBe("success");
   });
 
-  test("revoking the declarations tears down a call already in flight", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
+  test("revoking the declarations tears down a call already in flight", async () => {
     // Revoking is the client saying it has stopped serving, so a call already
     // on the wire has nobody left to answer it. Before this it stood for the
     // rest of its 120 s gate: the run sat idle, the user watched a spinner,
     // and the model was eventually told only that something had timed out.
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+    const { ez, conversationId } = await companion(member);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     const run = ez.runScripted(
@@ -323,12 +348,8 @@ test.describe("caller-executed tools — the round trip", () => {
     expect(result.outcome).toBe("complete");
   });
 
-  test("a tool the device cannot run fails the call, not the turn", async ({
-    request,
-    playwright,
-    baseURL,
-  }) => {
-    const { ez, conversationId } = await companion(request, playwright, baseURL!);
+  test("a tool the device cannot run fails the call, not the turn", async () => {
+    const { ez, conversationId } = await companion(member);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     // The device serves NO handler for the declared tool. It must answer the
