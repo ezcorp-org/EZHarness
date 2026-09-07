@@ -121,6 +121,40 @@ describe("insertMemory — atomic row + junction + audit", () => {
 });
 
 describe("mergeMemoriesAtomically — replacement and source removal", () => {
+  test("a project reassignment during model work cancels the merge and preserves both sources", async () => {
+    const sources = await Promise.all(["one", "two"].map(content => insertMemory({
+      content: `scope-race-${content}`,
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+    })));
+    const first = sources[0]!;
+    const second = sources[1]!;
+    const sourceSnapshots = Object.fromEntries(sources.map(source => [source.id, {
+      content: source.content, updatedAt: source.updatedAt,
+    }]));
+
+    // The model saw P1, but the user moved one source before its answer arrived.
+    await setMemoryProjects(second.id, [projectP2]);
+    const merged = await mergeMemoriesAtomically([first.id, second.id], {
+      ownerUserId: OWNER_A,
+      projectIds: [projectP1],
+      injectionEligible: true,
+      sourceSnapshots,
+    }, {
+      content: "stale merged answer",
+      category: "technical",
+      userId: OWNER_A,
+      projectIds: [projectP1],
+    });
+
+    expect(merged).toBeNull();
+    expect((await getMemoryById(first.id))?.content).toBe(first.content);
+    expect((await getMemoryById(second.id))?.content).toBe(second.content);
+    expect(await getMemoryProjectIds(second.id)).toEqual([projectP2]);
+    expect(await getDb().select().from(memories)).toHaveLength(2);
+  });
+
   test("a failing replacement preserves both active sources", async () => {
     const first = await insertMemory({
       content: "merge-source-one",
