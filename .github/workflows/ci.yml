@@ -655,26 +655,22 @@ jobs:
           if ! grep -qx '__ALL__' "$SPECS_FILE"; then
             echo "credited=1" >> "$GITHUB_OUTPUT"
           fi
-          cd web && bun install --frozen-lockfile
-          bunx --bun svelte-kit sync
-          bunx playwright install chromium
-          if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
-            bunx playwright install-deps chromium
-          fi
-          if grep -qx '__ALL__' "$SPECS_FILE"; then
-            # Full-suite fallback stays fail-soft: the diff wasn't credited
-            # for any specific spec, so unrelated flakes must not red the PR.
-            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence || true
-          else
-            SPECS=()
-            # `|| [ -n "$line" ]` keeps a final line with no trailing newline (mapfile-equivalent robustness; select-specs always emits a trailing \n today, this guards a future producer change).
-            while IFS= read -r line || [ -n "$line" ]; do [ -n "$line" ] && SPECS+=("$line"); done < "$SPECS_FILE"
-            # DIFF-SCOPED list: these specs are what the Visual-evidence gate
-            # credited the PR for — their result must gate. `credited=1` was
-            # already written above (pre-install) so an infra death or a
-            # hung/killed capture (step timeout) also reds via the missing
-            # `credited_ok`.
-            EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium --grep @evidence "${SPECS[@]}"
+          (
+            cd web
+            bun install --frozen-lockfile
+            bunx --bun svelte-kit sync
+            bunx playwright install chromium
+            if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
+              bunx playwright install-deps chromium
+            fi
+          )
+          # The helper partitions selected files before running them. The mock
+          # config ignores real-auth/**, so credited real-auth evidence must
+          # use its dedicated config and distinct blob report.
+          bash scripts/visual-evidence/capture.sh "$SPECS_FILE"
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            # DIFF-SCOPED results remain the hard-red path. __ALL__ is still
+            # fail-soft because no particular spec was credited for the diff.
             echo "credited_ok=1" >> "$GITHUB_OUTPUT"
           fi
       # When capture was skipped (non-visual diff), the manifest is a `skipped`
