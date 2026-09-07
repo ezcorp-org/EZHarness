@@ -173,6 +173,13 @@ export interface TaskSnapshot {
 	activeTaskId?: string;
 }
 
+export interface QuickstartSteps {
+	provider: boolean;
+	chat: boolean;
+	extension: boolean;
+	agent: boolean;
+}
+
 class AppStore {
 	agents = $state<Agent[]>([]);
 	runs = $state<Run[]>([]);
@@ -185,6 +192,9 @@ class AppStore {
 	agentConfigs = $state<AgentConfig[]>([]);
 	workflows = $state<Workflow[]>([]);
 	workflowRuns = $state<WorkflowRun[]>([]);
+	// Shared server-owned completion state for the persistent checklist and
+	// the chat provider guard. Mutations refresh this resource in place.
+	quickstartSteps = $state<QuickstartSteps | null>(null);
 
 	// Theme and layout state
 	theme = $state<"dark" | "light" | "system">(
@@ -330,6 +340,24 @@ export function refreshAgentConfigs() {
 	fetchAgentConfigs()
 		.then((data) => (store.agentConfigs = data))
 		.catch(() => {});
+}
+
+/** Reload completion state after a provider, conversation, or extension mutation. */
+export async function refreshQuickstart(): Promise<void> {
+	try {
+		const response = await fetch("/api/quickstart");
+		if (!response.ok) return;
+		const data = (await response.json()) as { steps?: Partial<QuickstartSteps> };
+		if (!data.steps) return;
+		store.quickstartSteps = {
+			provider: data.steps.provider === true,
+			chat: data.steps.chat === true,
+			extension: data.steps.extension === true,
+			agent: data.steps.agent === true,
+		};
+	} catch {
+		// Existing state remains useful if a refresh races a transient failure.
+	}
 }
 
 /** Reload the workflow list into the store.
@@ -875,6 +903,7 @@ export function initStores() {
 	refreshSettings();
 	refreshAgentConfigs();
 	refreshWorkflows();
+	void refreshQuickstart();
 
 	const client = createWSClient();
 	_wsManualRetry = client.manualRetry;
@@ -1487,6 +1516,7 @@ export function initStores() {
 				// `shouldDeliverEvent` already scoped this to the
 				// installing user's session; the page just needs to know
 				// "refresh now".
+				void refreshQuickstart();
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new CustomEvent("extensions:installed", {
 						detail: event.data,
@@ -1510,6 +1540,7 @@ export function initStores() {
 					projectId?: string | null;
 				};
 				if (!conversationId) break;
+				void refreshQuickstart();
 				unreadStore.markUnread(conversationId, projectId ?? null);
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new CustomEvent("conversation:created", {

@@ -18,18 +18,15 @@
 	let dismissed = $state(typeof localStorage !== "undefined" ? loadDismissed() : false);
 	let collapsed = $state(false);
 
-	// Server-side completion state (fetched on mount)
-	let apiSteps = $state<{ provider: boolean; chat: boolean; extension: boolean; agent: boolean } | null>(null);
-
 	// Provider creds aren't in `store.settings` (deny-listed), so that
 	// signal must come from `/api/quickstart`; agents do live in the
 	// store, so we can fall back to a live derived signal there.
 	let hasAgentsFromStore = $derived(store.agentConfigs.length > 0);
 
-	let hasProvider = $derived(apiSteps?.provider ?? false);
-	let hasConversations = $derived(apiSteps?.chat ?? false);
-	let hasExtensions = $derived(apiSteps?.extension ?? false);
-	let hasAgents = $derived((apiSteps?.agent ?? false) || hasAgentsFromStore);
+	let hasProvider = $derived(store.quickstartSteps?.provider ?? false);
+	let hasConversations = $derived(store.quickstartSteps?.chat ?? false);
+	let hasExtensions = $derived(store.quickstartSteps?.extension ?? false);
+	let hasAgents = $derived((store.quickstartSteps?.agent ?? false) || hasAgentsFromStore);
 
 	interface Step {
 		id: string;
@@ -47,19 +44,6 @@
 
 	let progress = $derived(steps.filter((s) => s.done).length);
 	let allDone = $derived(progress === steps.length);
-
-	// Fetch completion from server on mount
-	$effect(() => {
-		fetch("/api/quickstart")
-			.then((r) => {
-				if (r.ok) return r.json();
-				return null;
-			})
-			.then((data) => {
-				if (data?.steps) apiSteps = data.steps;
-			})
-			.catch(() => {});
-	});
 
 	// Auto-dismiss when all steps complete
 	$effect(() => {

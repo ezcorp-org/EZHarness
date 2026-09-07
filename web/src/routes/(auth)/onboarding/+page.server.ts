@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ locals }) => {
   }
 
   return {
-    user: { id: locals.user.id, name: locals.user.name, email: locals.user.email },
+    user: { id: locals.user.id, name: locals.user.name, email: locals.user.email, role: locals.user.role },
     hasProvider: await hasAnyProvider(),
   };
 };

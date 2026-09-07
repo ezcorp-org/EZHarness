@@ -3,6 +3,7 @@
 	import ProviderSettings from "$lib/components/ProviderSettings.svelte";
 	import { upsertSetting } from "$lib/api.js";
 	import type { ProviderStatus } from "$lib/api.js";
+	import { providerAccess } from "$lib/provider-access.js";
 
 	let { data }: { data: PageData } = $props();
 
@@ -15,6 +16,7 @@
 	// contract for unselected interactions.
 	let tierTouched = $state(false);
 	let finishing = $state(false);
+	let access = $derived(providerAccess(data.user.role));
 
 	const providerConnected = $derived(
 		data.hasProvider
@@ -27,7 +29,7 @@
 	}
 
 	async function next() {
-		if (step === 2 && tierTouched) {
+		if (step === 2 && tierTouched && access.canConfigure) {
 			try {
 				await upsertSetting("provider:defaultTier", defaultTier);
 			} catch {
@@ -84,9 +86,15 @@
 		<div class="rounded-lg bg-[var(--color-surface-secondary)] border border-[var(--color-border)] p-6">
 			{#if step === 1}
 				<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Connect a provider</h2>
-				<p class="text-sm text-[var(--color-text-secondary)] mb-4">
-					Pick any LLM provider and paste an API key (or sign in with OAuth). You only need one to get started.
-				</p>
+				{#if access.canConfigure}
+					<p class="text-sm text-[var(--color-text-secondary)] mb-4">
+						Pick any LLM provider and paste an API key (or sign in with OAuth). You only need one to get started.
+					</p>
+				{:else}
+					<p class="text-sm text-[var(--color-text-secondary)] mb-4" data-testid="member-provider-guidance">
+						An administrator manages providers for this workspace. You can continue while they finish setup.
+					</p>
+				{/if}
 
 				{#if data.hasProvider}
 					<div class="rounded-md border border-green-700 bg-green-900/20 p-4 mb-4 text-sm" data-testid="provider-already-connected">
@@ -95,7 +103,9 @@
 					</div>
 				{/if}
 
-				<ProviderSettings bind:statuses={providerStatuses} />
+				{#if access.canConfigure}
+					<ProviderSettings bind:statuses={providerStatuses} />
+				{/if}
 
 				<div class="mt-6 flex items-center justify-between">
 					<button
@@ -107,18 +117,19 @@
 					<button
 						type="button"
 						onclick={next}
-						disabled={!providerConnected}
+						disabled={access.canConfigure && !providerConnected}
 						data-testid="onboarding-step1-continue"
 						class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
 					>Continue</button>
 				</div>
 			{:else if step === 2}
 				<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Pick a default tier</h2>
-				<p class="text-sm text-[var(--color-text-secondary)] mb-4">
-					Pick the trade-off that fits most of your work. You can override per-conversation later.
-				</p>
+				{#if access.canConfigure}
+					<p class="text-sm text-[var(--color-text-secondary)] mb-4">
+						Pick the trade-off that fits most of your work. You can override per-conversation later.
+					</p>
 
-				<div class="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Default model tier">
+					<div class="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Default model tier">
 					{#each [
 						{ id: "quality" as const, title: "Quality", desc: "Best answers; slower and pricier." },
 						{ id: "balanced" as const, title: "Balanced", desc: "Sensible default." },
@@ -142,7 +153,12 @@
 							<span class="block text-xs text-[var(--color-text-secondary)] mt-1">{opt.desc}</span>
 						</label>
 					{/each}
-				</div>
+					</div>
+				{:else}
+					<p class="text-sm text-[var(--color-text-secondary)] mb-4" data-testid="member-tier-guidance">
+						An administrator selects the workspace default tier. You can change your chat choices when providers are ready.
+					</p>
+				{/if}
 
 				<div class="mt-6 flex items-center justify-between">
 					<button

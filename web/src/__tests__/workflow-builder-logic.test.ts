@@ -11,6 +11,7 @@ import {
   pruneDependsOn,
   remapDependsOn,
   stepToPayload,
+	unsupportedFormFields,
   workflowToDrafts,
   type StepDraft,
   type StoredStep,
@@ -433,6 +434,85 @@ describe("workflowToDrafts / stepToPayload round-trip", () => {
     ]).map(stepToPayload);
     const twice = workflowToDrafts(once).map(stepToPayload);
     expect(twice).toEqual(once);
+  });
+});
+
+describe("unsupportedFormFields", () => {
+  test("allows every field the form round-trips", () => {
+    expect(unsupportedFormFields({
+      name: "wf",
+      description: "",
+      defaultModel: { model: "m" },
+      steps: [{
+        name: "agent",
+        agent: "writer",
+        input: { topic: "$input.topic" },
+        dependsOn: [],
+        retries: 1,
+        model: { model: "m" },
+        loop: { maxIterations: 2, onExhausted: "fail" },
+      }, {
+        name: "gate",
+        kind: "gate",
+        condition: { exists: "$steps.agent.output" },
+      }, {
+        name: "tool",
+        kind: "tool",
+        tool: "notes__save",
+      }, {
+        name: "transform",
+        kind: "transform",
+        output: { value: "$input.value" },
+      }],
+    })).toEqual([]);
+  });
+
+  test("flags every persisted field that the form would drop", () => {
+    expect(unsupportedFormFields({
+      name: "wf",
+      description: "",
+      inputSchema: { topic: { type: "string" } },
+      outputTemplate: "$output.answer",
+      steps: [{
+        name: "approve",
+        kind: "approval",
+        prompt: "Approve?",
+        choices: ["yes", "no"],
+        when: { exists: "$input.review" },
+        skipDependents: false,
+      }, {
+        name: "nested",
+        kind: "workflow",
+        workflow: "child",
+      }],
+    })).toEqual([
+      "inputSchema",
+      "outputTemplate",
+      "approve.kind",
+      "approve.prompt",
+      "approve.choices",
+      "approve.when",
+      "approve.skipDependents",
+      "nested.kind",
+      "nested.workflow",
+    ]);
+  });
+
+  test("flags nested details that the form would normalize", () => {
+    expect(unsupportedFormFields({
+      name: "wf",
+      description: "",
+      steps: [{
+        name: "agent",
+        agent: "writer",
+        input: { count: 2 },
+        loop: { maxIterations: 2, onExhausted: "continue", auditTag: "keep" },
+      }, {
+        name: "transform",
+        kind: "transform",
+        output: { enabled: true },
+      }],
+    })).toEqual(["agent.input", "agent.loop", "transform.output"]);
   });
 });
 

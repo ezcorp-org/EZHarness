@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { store, initStores, noteSidebarUserOverride, setActiveProjectId } from "$lib/stores.svelte.js";
+	import { store, initStores, noteSidebarUserOverride, refreshQuickstart, setActiveProjectId } from "$lib/stores.svelte.js";
 	import { onMount } from "svelte";
 	import { afterNavigate } from "$app/navigation";
 	import { goto } from "$app/navigation";
@@ -119,6 +119,7 @@
 						import("$lib/api.js").then(({ createConversation }) => {
 							createConversation({ projectId: store.activeProjectId })
 								.then((conv) => {
+									void refreshQuickstart();
 									goto(`/project/${store.activeProjectId}/chat/${conv.id}`);
 								})
 								.catch(() => {});
@@ -591,4 +592,3 @@
 
 <!-- Global team chat panel (triggered from anywhere via openTeamPanel) -->
 <TeamChatPanel />
-

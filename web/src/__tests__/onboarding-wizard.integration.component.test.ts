@@ -34,7 +34,7 @@ vi.mock("$lib/api.js", () => ({
 import OnboardingPage from "../routes/(auth)/onboarding/+page.svelte";
 import { upsertSetting } from "$lib/api.js";
 
-const baseUser = { id: "u-1", name: "Ada", email: "ada@test.com" };
+const baseUser = { id: "u-1", name: "Ada", email: "ada@test.com", role: "admin" as const };
 
 describe("Onboarding wizard (+page.svelte)", () => {
 	let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -60,6 +60,15 @@ describe("Onboarding wizard (+page.svelte)", () => {
 			writable: true,
 			configurable: true,
 		});
+	});
+
+	test("member sees completable guidance instead of provider and tier writes", () => {
+		const { getByTestId, queryByTestId } = render(OnboardingPage, {
+			data: { user: { ...baseUser, role: "member" as const }, hasProvider: false },
+		});
+
+		expect(getByTestId("member-provider-guidance")).toBeInTheDocument();
+		expect(queryByTestId("provider-settings-stub")).toBeNull();
 	});
 
 	test("renders Step 1 first with the welcome name and stepper at 1", () => {

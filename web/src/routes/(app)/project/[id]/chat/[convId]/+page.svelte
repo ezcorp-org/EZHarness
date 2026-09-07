@@ -21,7 +21,7 @@
 		type Conversation,
 		type Mode,
 	} from "$lib/api.js";
-	import { store, openTeamPanel, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
+	import { store, openTeamPanel, refreshQuickstart, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
 	import { persistLastModel } from "$lib/last-model.js";
 	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
 	import { attachTaskHydration } from "$lib/chat/page-handlers/task-hydrate.svelte.js";
@@ -166,6 +166,7 @@
 	async function handleCreate() {
 		try {
 			const conv = await createConversation({ projectId });
+			void refreshQuickstart();
 			goto(`/project/${projectId}/chat/${conv.id}`);
 		} catch (err) {
 			console.error("Failed to create conversation:", err);
@@ -182,14 +183,10 @@
 
 	async function handleSaveSystemPrompt(systemPrompt: string) {
 		if (!convId) return;
-		try {
-			currentConversation = await updateConversation(convId, {
-				systemPrompt,
-			});
-			settingsOpen = false;
-		} catch (err) {
-			console.error("Failed to save system prompt:", err);
-		}
+		currentConversation = await updateConversation(convId, {
+			systemPrompt,
+		});
+		settingsOpen = false;
 	}
 </script>
 

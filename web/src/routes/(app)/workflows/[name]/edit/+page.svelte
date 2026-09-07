@@ -234,6 +234,7 @@
 					initial={definitionFields(workflow as unknown as Record<string, unknown>)}
 					agents={store.agents}
 					onsubmit={save}
+					onopenyaml={() => (tab = "yaml")}
 					submitting={saving}
 					submitLabel="Save changes"
 				/>

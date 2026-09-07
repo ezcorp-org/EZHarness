@@ -21,8 +21,9 @@ import { render, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 
 import NoProviderBanner from "$lib/components/chat/NoProviderBanner.svelte";
+import { store } from "$lib/stores.svelte.js";
 
-function mockFetch(response: { provider: boolean } | "error" | "pending"): {
+function mockFetch(response: { provider: boolean; role?: "admin" | "member" } | "error" | "pending"): {
 	resolvePending?: () => void;
 } {
 	if (response === "pending") {
@@ -40,13 +41,18 @@ function mockFetch(response: { provider: boolean } | "error" | "pending"): {
 	}
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(
-			async () =>
-				new Response(JSON.stringify({ steps: { provider: response.provider } }), {
+		vi.fn(async (input: RequestInfo | URL) => {
+			if (String(input).includes("/api/auth/me")) {
+				return new Response(JSON.stringify({ user: { role: response.role ?? "admin" } }), {
 					status: 200,
 					headers: { "content-type": "application/json" },
-				}),
-		),
+				});
+			}
+			return new Response(JSON.stringify({ steps: { provider: response.provider } }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}),
 	);
 	return {};
 }
@@ -54,6 +60,7 @@ function mockFetch(response: { provider: boolean } | "error" | "pending"): {
 describe("NoProviderBanner", () => {
 	beforeEach(() => {
 		vi.unstubAllGlobals();
+		store.quickstartSteps = null;
 	});
 	afterEach(() => {
 		vi.unstubAllGlobals();
@@ -76,11 +83,8 @@ describe("NoProviderBanner", () => {
 
 	test("absent when /api/quickstart returns an error (fail closed)", async () => {
 		mockFetch("error");
-		const { queryByTestId, findByTestId } = render(NoProviderBanner);
-		// On error we still treat it as "no provider" so the user is told
-		// to set one up — the server will reject sends if they try anyway.
-		await findByTestId("no-provider-banner");
-		expect(queryByTestId("no-provider-banner")).toBeInTheDocument();
+		const { queryByTestId } = render(NoProviderBanner);
+		await waitFor(() => expect(queryByTestId("no-provider-banner")).toBeNull());
 	});
 
 	test("does not render before the fetch resolves (no flash)", async () => {
@@ -107,5 +111,13 @@ describe("NoProviderBanner", () => {
 		const { findByTestId } = render(NoProviderBanner);
 		const cta = await findByTestId("no-provider-banner-cta");
 		expect(cta.getAttribute("href")).toBe("/settings/models#providers");
+	});
+
+	test("member gets guidance without a settings CTA", async () => {
+		mockFetch({ provider: false, role: "member" });
+		const { findByTestId, queryByTestId } = render(NoProviderBanner);
+		const banner = await findByTestId("no-provider-banner");
+		expect(banner).toHaveTextContent("An administrator needs to connect a provider");
+		expect(queryByTestId("no-provider-banner-cta")).toBeNull();
 	});
 });

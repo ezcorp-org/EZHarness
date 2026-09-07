@@ -10,6 +10,7 @@
 		pruneDependsOn,
 		remapDependsOn,
 		workflowToDrafts,
+		unsupportedFormFields,
 		type StepDraft,
 		type StoredStep,
 	} from "$lib/workflow-builder-logic.js";
@@ -27,6 +28,7 @@
 		oncancel,
 		submitting = false,
 		submitLabel = "Save Workflow",
+		onopenyaml,
 	}: {
 		initial?: Record<string, unknown>;
 		agents: Agent[];
@@ -36,6 +38,8 @@
 		oncancel?: () => void;
 		submitting?: boolean;
 		submitLabel?: string;
+		/** The edit route owns the YAML tab; only it can switch to it. */
+		onopenyaml?: () => void;
 	} = $props();
 
 	let name = $state(untrack(() => (initial.name as string) ?? ""));
@@ -52,6 +56,7 @@
 		untrack(() => workflowToDrafts(initial.steps as StoredStep[] | undefined)),
 	);
 	let defaultModelText = $state(untrack(() => defaultModelToText(initial.defaultModel)));
+	let unsupportedFields = $derived(unsupportedFormFields(initial));
 
 	// Fetched once for the whole form rather than per step: a 6-step workflow
 	// would otherwise issue 6 identical requests.
@@ -104,6 +109,25 @@
 	}
 </script>
 
+{#if unsupportedFields.length > 0}
+	<div
+		class="rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-4 text-sm text-[var(--color-text-secondary)]"
+		role="alert"
+		data-testid="workflow-yaml-fallback"
+	>
+		<p class="font-semibold text-[var(--color-text-primary)]">Edit this workflow in YAML</p>
+		<p class="mt-1">The form cannot preserve: {unsupportedFields.join(", ")}.</p>
+		{#if onopenyaml}
+			<button
+				type="button"
+				onclick={onopenyaml}
+				class="mt-3 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+				data-testid="workflow-open-yaml"
+			>Open YAML editor</button
+			>
+		{/if}
+	</div>
+{:else}
 <form onsubmit={handleSubmit} class="space-y-4">
 	<div>
 		<label for="wf-name" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Workflow Name</label>
@@ -165,3 +189,4 @@
 		{/if}
 	</div>
 </form>
+{/if}
