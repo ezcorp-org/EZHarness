@@ -155,6 +155,9 @@ export default defineConfig({
     // globalSetup's idempotent contract. Always start a fresh server.
     reuseExistingServer: false,
     timeout: 180_000,
+    // Let the fixture wrapper run its owned database cleanup before
+    // Playwright ends the preview process.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
