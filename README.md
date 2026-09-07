@@ -207,7 +207,7 @@ The full command needs Playwright Chromium. Install it once per machine, and
 again after a Playwright browser update:
 
 ```bash
-cd web && bunx playwright install chromium
+(cd web && bunx playwright install chromium)
 ```
 
 The full command uses the exact lane definitions that CI consumes. Do not run

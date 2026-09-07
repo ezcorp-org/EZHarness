@@ -12,7 +12,7 @@ Browser lanes also need Playwright Chromium. Install it once per machine, and
 again after a Playwright browser update:
 
 ```sh
-cd web && bunx playwright install chromium
+(cd web && bunx playwright install chromium)
 ```
 
 For local development, use the root `bun run dev:stack` command. It starts the
