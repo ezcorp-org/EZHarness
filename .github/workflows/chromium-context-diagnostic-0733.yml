@@ -1,0 +1,81 @@
+name: chromium-context-diagnostic-0733
+
+on:
+  push:
+    branches: [diagnostic/chromium-context-0733/**]
+permissions:
+  contents: read
+concurrency:
+  group: chromium-context-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+jobs:
+  browser-comparison:
+    name: Chromium comparison (${{ matrix.playwright }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        playwright: ["1.62.1", "1.63.0"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Select the candidate lock
+        if: matrix.playwright == '1.63.0'
+        run: |
+          cp .github/diagnostics/playwright-163/package.json.txt web/package.json
+          cp .github/diagnostics/playwright-163/bun.lock.txt web/bun.lock
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Record browser and host identity
+        env:
+          EXPECTED_PLAYWRIGHT: ${{ matrix.playwright }}
+        run: |
+          mkdir -p .cache/chromium-context-diagnostic
+          cd web
+          bun -e 'const p=require("@playwright/test/package.json"); if(p.version!==process.env.EXPECTED_PLAYWRIGHT) throw Error(`unexpected version ${p.version}`); console.log(`playwright=${p.version}`)' > ../.cache/chromium-context-diagnostic/identity.txt
+          browser_path="$(bun -e 'import { chromium } from "@playwright/test"; console.log(chromium.executablePath())')"
+          cd ..
+          {
+            printf 'source=%s\n' "$GITHUB_SHA"
+            printf 'bun='; bun --version
+            printf 'node='; node --version
+            printf 'cpu_count='; nproc
+            awk '/MemTotal/ { printf "memory_bytes=%.0f\n", $2 * 1024 }' /proc/meminfo
+            "$browser_path" --version
+            sha256sum "$browser_path" web/package.json web/bun.lock
+            readelf -n "$browser_path" | awk '/Build ID/ { print "build_id=" $3; found=1 } END { exit !found }'
+          } >> .cache/chromium-context-diagnostic/identity.txt
+      - name: Check context teardown, fresh setup, and authenticated flows
+        env:
+          DEBUG: pw:browser
+        run: |
+          set -euo pipefail
+          run_check() {
+            local name="$1"
+            shift
+            set +e
+            "$@" 2>&1 | tee ".cache/chromium-context-diagnostic/$name.log"
+            local exits=("${PIPESTATUS[@]}")
+            set -e
+            printf 'browser_exit=%s\ntee_exit=%s\n' "${exits[0]}" "${exits[1]}" > ".cache/chromium-context-diagnostic/$name.exit"
+            if (( exits[0] != 0 )); then return "${exits[0]}"; fi
+            return "${exits[1]}"
+          }
+          run_check contexts bun scripts/run-real-e2e.ts fresh-setup --config=playwright.chromium-context-diagnostic.config.ts
+          mapfile -t args < <(bun scripts/e2e-lane-args.ts fresh-setup)
+          (( ${#args[@]} > 0 ))
+          run_check setup bun scripts/run-real-e2e.ts fresh-setup "${args[@]}"
+          run_check authenticated bun scripts/run-real-e2e.ts real-auth
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: chromium-comparison-${{ matrix.playwright }}
+          path: .cache/chromium-context-diagnostic/
+          retention-days: 3
+          if-no-files-found: error
