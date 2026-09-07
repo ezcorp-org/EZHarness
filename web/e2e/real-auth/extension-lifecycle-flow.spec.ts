@@ -630,7 +630,9 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     }, { timeout: 30_000, intervals: [250] }).toBe(releaseThree.id);
 
     await secondApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(stalePage.getByRole("alert")).toContainText(/stale|no longer matches/i);
+    const staleDenial = stalePage.getByRole("alert");
+    await expect(staleDenial).toContainText(/stale|no longer matches/i);
+    await staleDenial.scrollIntoViewIfNeeded();
     await captureEvidence(stalePage, testInfo, "extension-stale-tab-denial", { fullPage: true });
     const unchanged = await client.extensionControl<{ installation: { activeReleaseId: string } }>("extensions_inspect", { installationId });
     expect(unchanged.installation.activeReleaseId).toBe(releaseThree.id);
@@ -669,6 +671,8 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     });
     const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
     expect(tools.status()).toBe(404);
+    await stalePage.getByText("Previously active", { exact: true }).scrollIntoViewIfNeeded();
+    await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall-release", { fullPage: false });
     await captureEvidence(stalePage, testInfo, "extension-stale-tab-uninstall", { fullPage: true });
   } finally {
     await attachBrowserDiagnostics(testInfo, "extension-stale-tab-primary-client-diagnostics", pageDiagnostics);
