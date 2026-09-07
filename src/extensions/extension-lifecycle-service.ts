@@ -126,6 +126,7 @@ interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionC
 export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover" | "reconcile">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let recoveryCapacityAvailable = false;
 
 async function initialize(): Promise<LifecycleServices> {
   const runner = createLazyExtensionRunner();
@@ -158,7 +159,7 @@ async function initialize(): Promise<LifecycleServices> {
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
-    onBuildSettled: operation => lifecycleRecovery.request({ followUp: operation.state !== "queued" }),
+    onBuildSettled: deferredByRunner => { recoveryCapacityAvailable ||= !deferredByRunner; lifecycleRecovery.request({ followUp: !deferredByRunner }); },
   });
   return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
 }
@@ -292,7 +293,7 @@ function recoveryRank(state: InstallationState | undefined, now: number): number
   return 2;
 }
 
-export async function recoverInstallations(services: RecoveryServices, installations: readonly InstallationRecord[]): Promise<number | undefined> {
+export async function recoverInstallations(services: RecoveryServices, installations: readonly InstallationRecord[], capacityAvailable = false): Promise<number | undefined> {
   const ordered = [...installations].sort((left, right) => left.id.localeCompare(right.id));
   const reconciled = await reconcileInstallations(services, ordered);
   const snapshots = await Promise.all(ordered.filter(installation => reconciled.has(installation.id)).map(async installation => ({ installation, state: await services.repository.read(installation.id) })));
@@ -300,7 +301,7 @@ export async function recoverInstallations(services: RecoveryServices, installat
   let earliest: number | undefined;
   for (const { installation } of snapshots) {
     try {
-      await services.lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id);
+      await services.lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id, { capacityAvailable });
     } catch (error) {
       log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
       continue;
@@ -327,11 +328,13 @@ export async function reconcileInstallations(services: RecoveryServices, install
 }
 
 async function recoverAllInstallations(): Promise<number | undefined> {
+  const capacityAvailable = recoveryCapacityAvailable;
+  recoveryCapacityAvailable = false;
   const services = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
   const rows = releaseRows<{ payload: string }>(result);
-  return recoverInstallations(services, rows.map(row => JSON.parse(row.payload) as InstallationRecord));
+  return recoverInstallations(services, rows.map(row => JSON.parse(row.payload) as InstallationRecord), capacityAvailable);
 }
 
 export async function reconcileExtensionLifecycle(): Promise<void> {

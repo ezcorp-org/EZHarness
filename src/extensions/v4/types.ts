@@ -49,7 +49,7 @@ export interface LifecycleDependencies {
   prepareActivation?(installation: InstallationRecord, previous: LifecycleRelease | null, release: LifecycleRelease, operation: LifecycleOperation): Promise<void>;
   abortActivation?(installationId: string, operation: LifecycleOperation): Promise<void>;
   publish(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void>;
-  onBuildSettled?(operation: LifecycleOperation): void;
+  onBuildSettled?(deferredByRunner: boolean): void;
   now?: () => number;
   leaseMs?: number;
 }

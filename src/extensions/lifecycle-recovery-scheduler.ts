@@ -41,6 +41,11 @@ export function createLifecycleRecoveryScheduler(recover: () => Promise<number |
         requested = false;
         const nextDeadline = await recover();
         if (nextDeadline !== undefined) request({ deadline: nextDeadline });
+        else if (timer) {
+          clock.clearTimeout(timer);
+          timer = undefined;
+          timerAt = Number.POSITIVE_INFINITY;
+        }
       } while (requested);
     }).catch(error => {
       report(error);
@@ -52,5 +57,5 @@ export function createLifecycleRecoveryScheduler(recover: () => Promise<number |
     void running.catch(() => {});
   };
 
-  return { request, async drain() { await running; } };
+  return { request, async drain() { while (running) await running; } };
 }

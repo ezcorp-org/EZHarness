@@ -4,6 +4,12 @@ import { RunnerError } from "@ezcorp/extension-runner";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
 
+// The runner has no cross-process capacity event. Retain retryable backpressure
+// as a durable lease; its fence gives a bounded 1s→30s retry cadence for CLI work.
+export function runnerBusyRetryMs(fence: number): number {
+  return Math.min(1_000 * 2 ** Math.min(Math.max(fence - 1, 0), 5), 30_000);
+}
+
 export class ExtensionLifecycle {
   private readonly now: () => number;
   private readonly leaseMs: number;
@@ -154,12 +160,13 @@ export class ExtensionLifecycle {
     });
   }
 
-  private async claim(actor: LifecycleActor, installationId: string, operationId: string, kind: LifecycleOperation["kind"]): Promise<{ operation: LifecycleOperation; holder: string; fence: number } | null> {
+  private async claim(actor: LifecycleActor, installationId: string, operationId: string, kind: LifecycleOperation["kind"], capacityAvailable = false): Promise<{ operation: LifecycleOperation; holder: string; fence: number } | null> {
     return this.transaction(actor, installationId, (state) => {
       const operation = this.operation(state, operationId);
       if (operation.kind !== kind) throw new LifecycleError("operation_kind", "Operation kind does not match.");
       if (["verified", "active", "failed", "cancelled", "reconciling"].includes(operation.state)) return null;
-      if (operation.lease && operation.lease.until > this.now()) return null;
+      const retryableBusy = kind === "build" && operation.state === "queued" && operation.diagnostics.some(diagnostic => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
+      if (operation.lease && operation.lease.until > this.now() && !(capacityAvailable && retryableBusy)) return null;
       if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
       if (kind === "activate" && Object.values(state.operations).some((other) => other.id !== operation.id && other.kind === "activate" && other.state === "activating" && other.lease && other.lease.until > this.now())) throw new LifecycleError("activation_busy", "Another activation holds the installation lease.");
       const holder = randomUUID();
@@ -193,7 +200,7 @@ export class ExtensionLifecycle {
       const runner = this.safeRunnerFailure(error);
       if (operation.kind === "build" && runner?.code === "runner_busy" && runner.retryable) {
         operation.diagnostics = [{ ...runner, stage: "runner" }];
-        operation.lease.until = this.now();
+        operation.lease.until = this.now() + runnerBusyRetryMs(operation.lease.fence);
         this.transition(operation, "queued");
         return;
       }
@@ -203,11 +210,12 @@ export class ExtensionLifecycle {
     });
   }
 
-  async runBuild(actor: LifecycleActor, installationId: string, operationId: string): Promise<LifecycleOperation> {
+  async runBuild(actor: LifecycleActor, installationId: string, operationId: string, options: { capacityAvailable?: boolean } = {}): Promise<LifecycleOperation> {
     await this.dependencies.authorize(actor, "build");
-    const claimed = await this.claim(actor, installationId, operationId, "build");
+    const claimed = await this.claim(actor, installationId, operationId, "build", options.capacityAvailable);
     if (!claimed) return this.operation(await this.inspect(actor, installationId), operationId);
     const { operation, holder, fence } = claimed;
+    let deferredByRunner = false;
     try {
       if (operation.inputDigest !== digestObject(this.buildInput(operation.workspaceId!, operation.workspaceRevision!, operation.entrypoint!))) throw new LifecycleError("build_policy_changed", "The frozen build policy changed. Queue a new build.");
       const files = await getFiles(this.dependencies.blobs, operation.sourceDigest!);
@@ -235,10 +243,12 @@ export class ExtensionLifecycle {
         current.diagnostics = result.diagnostics;
         this.transition(current, "verified");
       });
-    } catch (error) { await this.failure(actor, installationId, operationId, holder, fence, error); }
-    const settled = this.operation(await this.inspect(actor, installationId), operationId);
-    this.dependencies.onBuildSettled?.(settled);
-    return settled;
+    } catch (error) {
+      const runner = this.safeRunnerFailure(error);
+      deferredByRunner = runner?.code === "runner_busy" && runner.retryable === true;
+      await this.failure(actor, installationId, operationId, holder, fence, error);
+    } finally { this.dependencies.onBuildSettled?.(deferredByRunner); }
+    return this.operation(await this.inspect(actor, installationId), operationId);
   }
 
   async requestApproval(actor: LifecycleActor, input: { installationId: string; releaseId: string; grants: string[]; expectedActiveReleaseId: string | null }): Promise<LifecycleApproval> {
@@ -347,13 +357,14 @@ export class ExtensionLifecycle {
   }
 
   async cancel(actor: LifecycleActor, installationId: string, operationId: string): Promise<LifecycleOperation> {
-    const operation = await this.transaction(actor, installationId, (state) => {
+    const { operation, runnerOperationId } = await this.transaction(actor, installationId, (state) => {
       const current = this.operation(state, operationId);
       if (["active", "verified", "reconciling"].includes(current.state)) throw new LifecycleError("operation_committed", "A committed operation cannot be cancelled.");
+      const runnerOperationId = current.kind === "build" && ["building", "verifying"].includes(current.state) ? current.lease?.holder : undefined;
       this.transition(current, "cancelled");
-      return current;
+      return { operation: current, runnerOperationId };
     });
-    if (operation.kind === "build" && operation.lease) await this.dependencies.runner.cancel(operation.lease.holder);
+    if (runnerOperationId) await this.dependencies.runner.cancel(runnerOperationId);
     return operation;
   }
 
@@ -388,13 +399,14 @@ export class ExtensionLifecycle {
   async uninstall(actor: LifecycleActor, installationId: string): Promise<InstallationRecord> { return this.stop(actor, installationId, true); }
   async rollback(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string }): Promise<LifecycleOperation> { return this.activate(actor, { ...input, rollback: true }); }
 
-  async recover(actor: LifecycleActor, installationId: string): Promise<void> {
+  async recover(actor: LifecycleActor, installationId: string, options: { capacityAvailable?: boolean } = {}): Promise<void> {
     await this.reconcile(actor, installationId);
     const state = await this.inspect(actor, installationId);
     if (state.installation.uninstalled) return;
     for (const operation of Object.values(state.operations)) {
-      if (operation.lease && operation.lease.until > this.now()) continue;
-      if (operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)) await this.runBuild(actor, installationId, operation.id);
+      const retryableBusy = operation.kind === "build" && operation.state === "queued" && operation.diagnostics.some(diagnostic => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
+      if (operation.lease && operation.lease.until > this.now() && !(options.capacityAvailable && retryableBusy)) continue;
+      if (operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)) await this.runBuild(actor, installationId, operation.id, options);
       if (operation.kind === "activate" && ["awaiting_approval", "activating"].includes(operation.state)) await this.activate(actor, { installationId, approvalId: operation.approvalId!, idempotencyKey: operation.idempotencyKey, rollback: operation.rollback });
     }
   }

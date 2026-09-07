@@ -45,6 +45,6 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: { 
 }
 
 export function requireBundledBootstrapVerified(state: BundledBootstrapState, point: string): void {
-  const builds = state.terminalOperations.flatMap(({ operations }) => operations.filter(operation => operation.kind === "build"));
-  if (builds.length < state.bootstrapInstallations || builds.some(operation => operation.state !== "verified")) throw new Error(`Bundled bootstrap did not verify ${point}: ${JSON.stringify(state.terminalOperations)}`);
+  const builds = state.terminalOperations.map(({ operations }) => operations.filter(operation => operation.kind === "build"));
+  if (builds.length !== state.bootstrapInstallations || builds.some(operations => operations.length === 0 || operations.some(operation => operation.state !== "verified"))) throw new Error(`Bundled bootstrap did not verify ${point}: ${JSON.stringify(state.terminalOperations)}`);
 }

@@ -122,6 +122,9 @@ passfail_files() {
     # The scoped web bun:test files — ONE definition shared with C (see
     # web_host_files). P consumes it so C\P stays empty by construction.
     web_host_files
+    # Shipping bootstrap state is production-suite control logic. Keep its
+    # mock-client receipt checks in both canonical pools.
+    printf '%s\n' scripts/lib/shipping-bootstrap-state.test.ts
     # Remote-control route-contract governance meta-test — a HARD pass/fail gate
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
@@ -296,6 +299,7 @@ coverage_host_files() {
     # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
     # a C-only web entry is a DE-GATED file, not a coverage-only one).
     web_host_files
+    printf '%s\n' scripts/lib/shipping-bootstrap-state.test.ts
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)

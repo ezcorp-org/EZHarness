@@ -163,7 +163,9 @@ const recovered = await waitForVerified(client, installationId, build.id, 24, st
 runnerEvidence.afterRecovery = await ownedRunnerState(runRoot, paused.runnerOperationId);
 await writeRunnerEvidence();
 requireRunnerState(runnerEvidence.afterRecovery, ["succeeded", "failed", "cancelled"], "after lifecycle recovery");
-requireBundledBootstrapVerified(await waitForBundledBootstrap(client, { requireObservedPending: false }), "after the R1 app restart");
+const bundledBootstrap = await waitForBundledBootstrap(client, { requireObservedPending: false });
+requireBundledBootstrapVerified(bundledBootstrap, "after the R1 app restart");
+await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r1.json"), JSON.stringify(bundledBootstrap) + "\n", { mode: 0o600 });
 const candidate = recovered.releases[recovered.operations[build.id]!.releaseId!]!;
 const candidates = Object.values(recovered.releases).filter((release) => release.workspaceId === workspaceId && release.workspaceRevision === revision);
 if (candidates.length !== 1 || candidate.id !== candidates[0]?.id) throw new Error(`Recovery produced ${candidates.length} v2 candidates, expected one.`);
