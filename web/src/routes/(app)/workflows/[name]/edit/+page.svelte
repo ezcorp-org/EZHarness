@@ -41,7 +41,7 @@
 	let loading = $state(true);
 	let loadError = $state("");
 
-	let tab = $state<"form" | "yaml">("form");
+	let tab = $state<"form" | "yaml">(page.url.searchParams.get("tab") === "yaml" ? "yaml" : "form");
 	let yamlText = $state("");
 	let saving = $state(false);
 	let saveError = $state("");
