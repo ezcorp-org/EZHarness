@@ -1140,6 +1140,16 @@ for ((i = 0; i < HOST_COUNT; i++)); do
   # not slip past the P-gate).
   FILE_FAIL=$(summary_count "$OUTPUT" fail)
   if [ "$CODE" != "0" ] || [ "${FILE_FAIL:-0}" != "0" ]; then
+    # Print the pooled failure before either recovery path can hide it. A clean
+    # instrumented or plain retry may tolerate the flake, but its first error
+    # is the only evidence needed to diagnose the original CI failure.
+    echo ""
+    echo "--- pooled coverage failure: ${FILES[$i]} (exit $CODE) ---"
+    if [ -n "$OUTPUT" ]; then
+      printf '%s\n' "$OUTPUT"
+    else
+      echo "(no pooled output captured)"
+    fi
     FAILED_FILES+=("${FILES[$i]}")
     HOST_FAILED_FILES+=("${FILES[$i]}")
   fi

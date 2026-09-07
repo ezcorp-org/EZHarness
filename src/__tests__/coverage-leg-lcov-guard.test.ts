@@ -28,7 +28,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -376,6 +376,77 @@ describe("gate_host_failures: the shared host-pool pass/fail rule", () => {
     // Tolerated means tolerated: no re-run is even attempted for it.
     expect(r.stdout).not.toContain("Retry sweep");
     expect(r.stdout).toContain("STILL_FAILED=[]");
+  });
+
+  test("the real wrapper prints the pooled failure before a clean retry", () => {
+    withTmp((tmp) => {
+      const bin = join(tmp, "bin");
+      const state = join(tmp, "state");
+      const files = join(tmp, "files.txt");
+      const parentCovOut = join(tmp, "parent-cov-out");
+      mkdirSync(bin, { recursive: true });
+      mkdirSync(state, { recursive: true });
+      mkdirSync(parentCovOut, { recursive: true });
+      writeFileSync(join(parentCovOut, "parent-sentinel"), "untouched");
+      writeFileSync(files, "src/__tests__/coverage-leg-lcov-guard.test.ts\n");
+      writeFileSync(
+        join(bin, "bun"),
+        `#!/usr/bin/env bash
+set -eu
+if [[ "\${1:-}" == "--version" ]]; then printf '1.3.14\n'; exit 0; fi
+if [[ " $* " == *" test "* ]]; then printf '%s\n' "$*" >> "$FAKE_BUN_STATE/test-calls"; fi
+if [[ " $* " == *" --coverage "* ]]; then
+  if [[ ! -e "$FAKE_BUN_STATE/first" ]]; then
+    : > "$FAKE_BUN_STATE/first"
+    printf 'FIRST_PASS_FAILURE_SENTINEL\n' >&2
+    exit 1
+  fi
+  for arg in "$@"; do case "$arg" in --coverage-dir=*) covdir=\${arg#--coverage-dir=};; esac; done
+  mkdir -p "$covdir"
+  printf 'TN:\nSF:/repo/src/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n' > "$covdir/lcov.info"
+  exit 0
+fi
+exit 0
+`,
+        { mode: 0o755 },
+      );
+      const hostileParent = {
+        CI: "true",
+        COVERAGE_LEGS_ONLY: "1",
+        COV_OUT: parentCovOut,
+        HOST_FILES_OVERRIDE: join(tmp, "wrong-files.txt"),
+        SHARD_INDEX: "9",
+        SHARD_TOTAL: "12",
+      };
+      const proc = Bun.spawnSync(["timeout", "-k", "2", "10", "bash", "scripts/test-coverage.sh"], {
+        cwd: REPO_ROOT,
+        // CI controls must not escape into this bounded dev-only child.
+        env: {
+          ...process.env,
+          ...hostileParent,
+          CI: "",
+          COVERAGE_LEGS_ONLY: "",
+          COV_OUT: "",
+          HOST_FILES_OVERRIDE: files,
+          SHARD_INDEX: "0",
+          SHARD_TOTAL: "1",
+          PARALLEL: "1",
+          PATH: `${bin}:${process.env.PATH}`,
+          FAKE_BUN_STATE: state,
+        },
+      });
+      const output = proc.stdout.toString();
+      expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+      expect(output).toContain("FIRST_PASS_FAILURE_SENTINEL");
+      expect(output.indexOf("FIRST_PASS_FAILURE_SENTINEL")).toBeLessThan(
+        output.indexOf("Coverage recovery:"),
+      );
+      expect(output).toContain("passed the isolated plain re-run");
+      const calls = readFileSync(join(state, "test-calls"), "utf8");
+      expect(calls.match(/\.\/src\/__tests__\/coverage-leg-lcov-guard\.test\.ts/g)?.length).toBe(3);
+      expect(readdirSync(parentCovOut)).toEqual(["parent-sentinel"]);
+      expect(readFileSync(join(parentCovOut, "parent-sentinel"), "utf8")).toBe("untouched");
+    });
   });
 
   test("a P member that passes the isolated plain re-run is a tolerated flake", () => {

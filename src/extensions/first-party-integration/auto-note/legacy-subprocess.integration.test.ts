@@ -15,13 +15,65 @@ beforeEach(setupTestDb);
 afterAll(closeTestDb);
 const TMP_DIR = join("/tmp", `auto-note-subprocess-${Date.now()}`);
 afterAll(() => rmSync(TMP_DIR, { recursive: true, force: true }));
+const WAIT_TIMEOUT_MS = 4_000;
+type Notification = { method: string; params: Record<string, unknown> };
+type NotificationWaiter = (notification: Notification) => void;
+
+function waitForNotification(
+  notifications: Notification[],
+  waiters: Map<string, Set<NotificationWaiter>>,
+  method: string,
+  signal: AbortSignal,
+): Promise<Notification> {
+  const observed = notifications.find((notification) => notification.method === method);
+  if (observed) return Promise.resolve(observed);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for ${method}`))), WAIT_TIMEOUT_MS);
+    const waiter: NotificationWaiter = (notification) => finish(() => resolve(notification));
+    const onAbort = () => finish(() => reject(new Error(`Stopped waiting for ${method}`)));
+    const finish = (settle: () => void) => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      const listeners = waiters.get(method);
+      listeners?.delete(waiter);
+      if (listeners?.size === 0) waiters.delete(method);
+      settle();
+    };
+    const listeners = waiters.get(method) ?? new Set<NotificationWaiter>();
+    listeners.add(waiter);
+    waiters.set(method, listeners);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
 async function spawnExtension(opts: { cwd: string; env?: Record<string, string> } = { cwd: TMP_DIR }) {
   const fixture = await domainEventSourceFixture([]);
   const locks = new Map<string, InvocationLocks>();
   const entrypoint = join(fixtureImportMeta.dir, "extension.ts");
   const proc = spawn(process.execPath, [entrypoint], { cwd: opts.cwd, stdio: "pipe", env: { PATH: process.env.PATH, ...opts.env } });
+  let closeObserved = false;
+  const childClosed = new Promise<void>((resolve, reject) => {
+    proc.once("close", () => { closeObserved = true; resolve(); });
+    proc.once("error", reject);
+  });
+  void childClosed.catch(() => undefined);
+  const waitForChildClose = () => new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for owned auto-note subprocess streams to close")), WAIT_TIMEOUT_MS);
+    childClosed.then(
+      () => { clearTimeout(timeout); resolve(); },
+      (error) => { clearTimeout(timeout); reject(error); },
+    );
+  });
   const fsHandler = makeFsRpcHandler(opts.cwd);
-  const notifications: Array<{ method: string; params: any }> = [];
+  const notifications: Notification[] = [];
+  const notificationWaiters = new Map<string, Set<NotificationWaiter>>();
+  const stopOwnedChild = async () => {
+    if (proc.exitCode === null && proc.signalCode === null && !proc.kill("SIGKILL")) {
+      throw new Error("Failed to stop owned auto-note subprocess");
+    }
+    await waitForChildClose();
+  };
   const execution = new FramedExecution("auto-note-test", proc, async (method, envelope) => {
     const input = (envelope as { input: Record<string, unknown> }).input;
     const invocationId = (envelope as { context: { invocationId: string } }).context.invocationId;
@@ -29,7 +81,13 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
     if (!owner) throw new Error("Fixture refuses inactive invocation");
     if (method === "ezcorp/lock.acquire" || method === "ezcorp/lock.release") return owner.request(method, input);
     return owner.effect(method, async () => {
-      if (method === "ezcorp/state") { notifications.push({ method, params: input }); return null; }
+      if (method === "ezcorp/state") {
+        const notification = { method, params: input };
+        notifications.push(notification);
+        for (const resolve of notificationWaiters.get(method) ?? []) resolve(notification);
+        notificationWaiters.delete(method);
+        return null;
+      }
       const params = { ...input };
       for (const key of ["path", "src", "dest"]) {
         const path = params[key];
@@ -42,7 +100,7 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
       if (!response || response.error) throw new Error(response?.error?.message ?? `Unsupported fixture RPC: ${method}`);
       return response.result;
     });
-  }, async () => { proc.kill("SIGKILL"); }, 4 * 1024 * 1024, 5000);
+  }, stopOwnedChild, 4 * 1024 * 1024, 5000);
   try { await execution.request("extension/discover", {}); } catch (error) { await execution.close(); throw error; }
   let sequence = 0;
   return {
@@ -58,8 +116,13 @@ async function spawnExtension(opts: { cwd: string; env?: Record<string, string> 
       } catch (error) { return { error: { message: error instanceof Error ? error.message : String(error) } } as any; }
       finally { await owner.close(); locks.delete(context.invocationId); }
     },
-    readNotifications: () => [...notifications],
-    close: () => execution.close(),
+    hasNotification: (method: string) => notifications.some((notification) => notification.method === method),
+    waitForNotification: (method: string, signal: AbortSignal) => waitForNotification(notifications, notificationWaiters, method, signal),
+    close: async () => {
+      await execution.close();
+      await waitForChildClose();
+      return { closeObserved, stdoutClosed: proc.stdout?.destroyed ?? true, stderrClosed: proc.stderr?.destroyed ?? true };
+    },
   };
 }
 
@@ -69,6 +132,14 @@ describe("E2E: real subprocess + JSON-RPC", () => {
   beforeEach(() => {
     rmSync(E2E_DIR, { recursive: true, force: true });
     mkdirSync(join(E2E_DIR, ".git"), { recursive: true }); // so findProjectRoot anchors here
+  });
+
+  test("close waits for the owned subprocess and its streams to close", async () => {
+    const ext = await spawnExtension({ cwd: E2E_DIR });
+    const close = await ext.close();
+    expect(close.closeObserved).toBe(true);
+    expect(close.stdoutClosed).toBe(true);
+    expect(close.stderrClosed).toBe(true);
   });
 
   test("subprocess starts and responds to vault-tree", async () => {
@@ -157,23 +228,24 @@ describe("E2E: real subprocess + JSON-RPC", () => {
       });
       expect(res.isError).toBeFalsy();
 
-      // No notifications should be emitted during a normal tool call
-      const notifs = ext.readNotifications();
-      expect(notifs.find((n) => n.method === "ezcorp/state")).toBeUndefined();
+      expect(ext.hasNotification("ezcorp/state")).toBe(false);
     } finally { await ext.close(); }
   });
 
   test("lifecycle hook triggers ezcorp/state notification (expected emission point)", async () => {
     const ext = await spawnExtension({ cwd: E2E_DIR });
     try {
-      await ext.send({ method: "lifecycle/run:start", params: {} });
-      // Give the async notification write a moment to flush
-      await new Promise((r) => setTimeout(r, 100));
-
-      const notifs = ext.readNotifications();
-      const stateNotif = notifs.find((n) => n.method === "ezcorp/state");
-      expect(stateNotif).toBeDefined();
-      expect(stateNotif!.params.title).toBe("Auto Note");
+      const abort = new AbortController();
+      try {
+        const stateNotification = ext.waitForNotification("ezcorp/state", abort.signal);
+        const [, stateNotif] = await Promise.all([
+          ext.send({ method: "lifecycle/run:start", params: {} }),
+          stateNotification,
+        ]);
+        expect(stateNotif.params.title).toBe("Auto Note");
+      } finally {
+        abort.abort();
+      }
     } finally { await ext.close(); }
   });
 
