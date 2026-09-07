@@ -75,15 +75,16 @@ if [[ "${MODE}" == "all" ]]; then
 fi
 
 BLOB_DIR="${REPO_ROOT}/web/blob-report"
-mkdir -p "${BLOB_DIR}"
-# Replacing only our own named reports keeps both tiers from this invocation
-# while leaving no stale same-tier report for the flat manifest reader.
-rm -f "${BLOB_DIR}/mock-evidence.zip" "${BLOB_DIR}/real-auth-evidence.zip"
+# This directory is generated capture output. Clear it before either tier so
+# build-manifest.ts cannot parse a stale ordinary Playwright report alongside
+# this invocation's evidence. Each tier below uses a private temporary dir.
+rm -rf "${BLOB_DIR}" || exit $?
+mkdir -p "${BLOB_DIR}" || exit $?
 
 run_capture() {
   local config=$1
   local report_name=$2
-  local real_auth=$3
+  local real_mode=$3
   shift 3
   local tier_dir="${BLOB_DIR}/.${report_name}.tmp"
   local status
@@ -95,10 +96,10 @@ run_capture() {
     cd "${REPO_ROOT}/web"
     local -a capture_env=(
       "EZCORP_E2E_EVIDENCE=1"
+      "PI_E2E_REAL=${real_mode}"
       "PLAYWRIGHT_BLOB_OUTPUT_DIR=${tier_dir}"
       "PLAYWRIGHT_BLOB_OUTPUT_NAME=${report_name}"
     )
-    [[ -z "${real_auth}" ]] || capture_env+=("PI_E2E_REAL=1")
     env "${capture_env[@]}" bunx playwright test --config "${config}" --project=chromium --grep @evidence "$@"
   )
   status=$?
@@ -121,7 +122,7 @@ run_capture() {
 # diagnostic reports, then return the first actual Playwright exit status.
 EXIT_STATUS=0
 if [[ "${MODE}" == "all" || ${#MOCK_SPECS[@]} -gt 0 ]]; then
-  if run_capture "playwright.config.ts" "mock-evidence.zip" "" "${MOCK_SPECS[@]}"; then
+  if run_capture "playwright.config.ts" "mock-evidence.zip" "0" "${MOCK_SPECS[@]}"; then
     :
   else
     status=$?

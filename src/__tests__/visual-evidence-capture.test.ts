@@ -47,14 +47,26 @@ if [ "\${FAIL_REPORT:-}" = "$PLAYWRIGHT_BLOB_OUTPUT_NAME" ]; then exit "\${FAIL_
   return { root, script, binDir };
 }
 
-function runCapture(specs: string, env: Record<string, string> = {}) {
+function runCapture(specs: string, env: Record<string, string> = {}, seedStaleReport = false) {
   const { root, script, binDir } = makeSandbox();
   const specsFile = join(root, "selected.txt");
   const log = join(root, "playwright.log");
   writeFileSync(specsFile, specs);
+  if (seedStaleReport) {
+    const staleReport = join(root, "web/blob-report/report-from-ordinary-playwright.zip");
+    mkdirSync(join(root, "web/blob-report"), { recursive: true });
+    writeFileSync(staleReport, "stale");
+  }
   const proc = Bun.spawnSync(["bash", script, specsFile], {
     cwd: root,
-    env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, VISUAL_CAPTURE_LOG: log, ...env },
+    env: {
+      ...process.env,
+      // The mock invocation must clear this inherited real-auth flag.
+      PI_E2E_REAL: "1",
+      PATH: `${binDir}:${process.env.PATH}`,
+      VISUAL_CAPTURE_LOG: log,
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -74,14 +86,15 @@ describe("visual-evidence capture", () => {
   });
 
   test("routes mixed selected specs to both configs and retains both flat reports", () => {
-    const result = runCapture("e2e/mock\\.spec\\.ts\ne2e/real-auth/real\\.spec\\.ts\n");
+    const result = runCapture("e2e/mock\\.spec\\.ts\ne2e/real-auth/real\\.spec\\.ts\n", {}, true);
 
     expect(result.code).toBe(0);
     expect(result.lines).toHaveLength(2);
-    expect(result.lines[0]).toContain("mock-evidence.zip||playwright test --config playwright.config.ts --project=chromium --grep @evidence e2e/mock\\.spec\\.ts");
+    expect(result.lines[0]).toContain("mock-evidence.zip|0|playwright test --config playwright.config.ts --project=chromium --grep @evidence e2e/mock\\.spec\\.ts");
     expect(result.lines[1]).toContain("real-auth-evidence.zip|1|playwright test --config playwright.real.config.ts --project=chromium --grep @evidence e2e/real-auth/real\\.spec\\.ts");
     expect(existsSync(join(result.root, "web/blob-report/mock-evidence.zip"))).toBe(true);
     expect(existsSync(join(result.root, "web/blob-report/real-auth-evidence.zip"))).toBe(true);
+    expect(existsSync(join(result.root, "web/blob-report/report-from-ordinary-playwright.zip"))).toBe(false);
   });
 
   test.each([
