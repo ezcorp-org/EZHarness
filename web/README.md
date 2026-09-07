@@ -15,9 +15,9 @@ again after a Playwright browser update:
 (cd web && bunx playwright install chromium)
 ```
 
-For local development, use the root `bun run dev:stack` command. It starts the
-supported service stack and avoids a host-side embedded database that looks like
-an empty installation. For a production-shape web build:
+For local development, start the compose PostgreSQL service, then use the root
+`bun run dev:stack` command. It starts the web server with that database and
+avoids a separate embedded database that looks like an empty installation. For a production-shape web build:
 
 ```sh
 cd web

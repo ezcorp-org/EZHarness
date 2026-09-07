@@ -179,9 +179,10 @@ For external Postgres, TLS reverse-proxy config, auto-updates, and backup/restor
 ## Building Extensions
 
 EZCorp supports tools, skills, agents, and MCP servers as extensions.
+From a checkout of this repository:
 
 ```bash
-ezcorp ext init my-tool --type tool
+bun src/cli.ts ext init my-tool --type tool
 ```
 
 See [docs/extensions/](docs/extensions/) for the full extension development guide.
@@ -196,18 +197,18 @@ bun install --frozen-lockfile
 bun install --cwd web --frozen-lockfile
 ```
 
+The full check needs Playwright Chromium. Install it once per machine, and
+again after a Playwright browser update:
+
+```bash
+(cd web && bunx playwright install chromium)
+```
+
 Run the supported local CI path before opening a pull request:
 
 ```bash
 bash scripts/ci-local.sh --fast  # fast checks before each push
 bash scripts/ci-local.sh         # full checks, including CI's browser lanes
-```
-
-The full command needs Playwright Chromium. Install it once per machine, and
-again after a Playwright browser update:
-
-```bash
-(cd web && bunx playwright install chromium)
 ```
 
 The full command uses the exact lane definitions that CI consumes. Do not run

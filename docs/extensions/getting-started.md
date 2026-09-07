@@ -385,7 +385,7 @@ Published my-first-tool v0.1.0
 Your extension is now available in the marketplace. Other users can install it with:
 
 ```bash
-ezcorp ext install github:your-username/my-first-tool
+bun "$EZCORP_HOST/src/cli.ts" ext install github:your-username/my-first-tool
 ```
 
 ## Troubleshooting
@@ -406,7 +406,7 @@ permissions: {
 ```
 
 **"Publish failed"**
-Verify your token is valid (regenerate at Settings > Developer if needed). Ensure tests pass with `ezcorp ext test`. Check that the version in `ezcorp.config.ts` hasn't already been published -- bump the version number.
+Verify your token is valid (regenerate at Settings > Developer if needed). Run `bun test` and `bun "$EZCORP_HOST/src/cli.ts" ext verify "$PWD"` from the extension directory. Check that the version in `ezcorp.config.ts` hasn't already been published -- bump the version number.
 
 ## Installing from a git repo without a release
 
