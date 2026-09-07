@@ -11,6 +11,29 @@ export type BundledBootstrapState = {
   terminalOperations: Array<{ name: string; installationId: string; operations: Array<Pick<LifecycleOperation, "id" | "kind" | "state" | "diagnostics">> }>;
 };
 
+export class BundledBootstrapTimeoutError extends Error {
+  constructor(public readonly snapshot: BundledBootstrapState | undefined) {
+    super(`Candidate bootstrap did not reach a terminal runner state before the deadline: ${JSON.stringify(snapshot)}`);
+    this.name = "BundledBootstrapTimeoutError";
+  }
+}
+
+function summarizeBootstrap(states: Array<{ name: string; installationId: string; state: InstallationState }>, initialPending: number, maximumPending: number): BundledBootstrapState {
+  const terminalOperationStates: Record<string, number> = {};
+  for (const { state } of states) for (const operation of Object.values(state.operations)) terminalOperationStates[operation.state] = (terminalOperationStates[operation.state] ?? 0) + 1;
+  return {
+    bootstrapInstallations: states.length,
+    initialPending,
+    maximumPending,
+    terminalOperationStates,
+    terminalOperations: states.map(({ name, installationId, state }) => ({
+      name,
+      installationId,
+      operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })),
+    })),
+  };
+}
+
 export async function waitForBundledBootstrap(client: HarnessClient, options: { requireObservedPending?: boolean; deadlineMs?: number } = {}): Promise<BundledBootstrapState> {
   const deadline = Date.now() + (options.deadlineMs ?? 360_000);
   const requireObservedPending = options.requireObservedPending ?? true;
@@ -18,6 +41,7 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: { 
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
+  let latest: BundledBootstrapState | undefined;
   while (Date.now() < deadline) {
     const extensions = await client.listExtensions();
     const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
@@ -28,20 +52,17 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: { 
     const installationStates = states.map(({ state }) => state);
     const pending = installationStates.reduce((count, state) => count + Object.values(state.operations).filter(operation => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
+    if (pending > 0 && initialPending === 0) initialPending = pending;
+    latest = summarizeBootstrap(states, initialPending, maximumPending);
     if (pending > 0) {
-      if (initialPending === 0) initialPending = pending;
       idleChecks = 0;
     } else if (!requireObservedPending || initialPending > 0) {
       idleChecks += 1;
-      if (idleChecks === 2) {
-        const terminalOperationStates: Record<string, number> = {};
-        for (const state of installationStates) for (const operation of Object.values(state.operations)) terminalOperationStates[operation.state] = (terminalOperationStates[operation.state] ?? 0) + 1;
-        return { bootstrapInstallations: lifecycleIds.length, initialPending, maximumPending, terminalOperationStates, terminalOperations: states.map(({ name, installationId, state }) => ({ name, installationId, operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })) })) };
-      }
+      if (idleChecks === 2) return latest;
     }
     await Bun.sleep(1_000);
   }
-  throw new Error("Candidate bootstrap did not reach a terminal runner state before the deadline");
+  throw new BundledBootstrapTimeoutError(latest);
 }
 
 export function requireBundledBootstrapVerified(state: BundledBootstrapState, point: string): void {

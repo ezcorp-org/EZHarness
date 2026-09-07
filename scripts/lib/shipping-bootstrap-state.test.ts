@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import type { HarnessClient } from "@ezcorp/harness-client";
 import { resolveBundledExtensions } from "../../src/extensions/bundled";
-import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
+import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
 function state(status: "queued" | "verified" | "failed") {
   return { operations: { build: { id: "build", kind: "build", state: status, diagnostics: [] } } };
@@ -39,7 +39,23 @@ test("rejects ambiguous installation mapping and failed bundled builds", async (
   expect(() => requireBundledBootstrapVerified({ bootstrapInstallations: 2, initialPending: 1, maximumPending: 1, terminalOperationStates: { verified: 2 }, terminalOperations: [{ name: "duplicate", installationId: "one", operations: [{ id: "one", kind: "build", state: "verified", diagnostics: [] }, { id: "two", kind: "build", state: "verified", diagnostics: [] }] }, { name: "missing", installationId: "two", operations: [] }] }, "missing installation")).toThrow("did not verify");
 });
 
-test("reports a bounded bootstrap timeout", async () => {
+test("reports the final pending operations in a bounded bootstrap timeout", async () => {
+  let now = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now += 1; });
   const client = { async listExtensions() { return []; }, async extensionControl() { return state("queued"); } } as unknown as HarnessClient;
-  await expect(waitForBundledBootstrap(client, { deadlineMs: -1 })).rejects.toThrow("terminal runner state");
+  try {
+    await expect(waitForBundledBootstrap(client, { deadlineMs: 1 })).rejects.toMatchObject({
+      name: "BundledBootstrapTimeoutError",
+      snapshot: {
+        bootstrapInstallations: resolveBundledExtensions().length,
+        initialPending: resolveBundledExtensions().length,
+        maximumPending: resolveBundledExtensions().length,
+        terminalOperationStates: { queued: resolveBundledExtensions().length },
+      },
+    } satisfies Partial<BundledBootstrapTimeoutError>);
+  } finally {
+    sleep.mockRestore();
+    clock.mockRestore();
+  }
 });

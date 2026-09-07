@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { productionLifecycleClient, readStoppedProductionDatabase, command, required } from "./lib/production-lifecycle-client";
 import { releaseAllShippingEffects, releaseShippingEffect, shippingEffectState, startShippingEffectCallback, waitForShippingState } from "./lib/shipping-effect-client";
-import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
+import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
 
 const CALLBACK_PORT = 7071;
 function hash(value: string): string {
@@ -117,7 +117,13 @@ async function main(): Promise<void> {
     await proveBeforePositive();
     await proveKilledDelivery("before");
     await proveKilledDelivery("after");
-    const bundledBootstrap = await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false });
+    let bundledBootstrap: Awaited<ReturnType<typeof waitForBundledBootstrap>>;
+    try {
+      bundledBootstrap = await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false });
+    } catch (error) {
+      if (error instanceof BundledBootstrapTimeoutError) await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2-timeout.json"), JSON.stringify(error.snapshot) + "\n", { mode: 0o600 });
+      throw error;
+    }
     await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2.json"), JSON.stringify(bundledBootstrap) + "\n", { mode: 0o600 });
     requireBundledBootstrapVerified(bundledBootstrap, "after delivery app restarts");
     const freshKey = `fresh-${crypto.randomUUID()}`;
