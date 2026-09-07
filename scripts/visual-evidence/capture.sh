@@ -93,14 +93,19 @@ run_capture() {
   mkdir -p "${tier_dir}" || return $?
 
   (
-    cd "${REPO_ROOT}/web"
     local -a capture_env=(
       "EZCORP_E2E_EVIDENCE=1"
       "PI_E2E_REAL=${real_mode}"
       "PLAYWRIGHT_BLOB_OUTPUT_DIR=${tier_dir}"
       "PLAYWRIGHT_BLOB_OUTPUT_NAME=${report_name}"
     )
-    env "${capture_env[@]}" bunx playwright test --config "${config}" --project=chromium --grep @evidence "$@"
+    if [[ "${real_mode}" == "1" ]]; then
+      cd "${REPO_ROOT}"
+      env "${capture_env[@]}" bun scripts/run-real-e2e.ts real-auth --project=chromium --grep @evidence "$@"
+    else
+      cd "${REPO_ROOT}/web"
+      env "${capture_env[@]}" bunx playwright test --config "${config}" --project=chromium --grep @evidence "$@"
+    fi
   )
   status=$?
 

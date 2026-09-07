@@ -224,8 +224,8 @@ jobs:
         run: |
           mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
           [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty fresh-setup lane args"; exit 1; }
-          cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.fresh-setup.config.ts "${ARGS[@]}"
-      - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
+          bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"
+      - run: bun scripts/run-real-e2e.ts real-auth
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

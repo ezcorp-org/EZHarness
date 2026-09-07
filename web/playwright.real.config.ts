@@ -1,8 +1,8 @@
 /**
  * Real-auth + real-DB Playwright config.
  *
- * Triggered explicitly: `PI_E2E_REAL=1 bunx playwright test --config
- * playwright.real.config.ts`. The default `playwright.config.ts` stays
+ * Triggered by `bun scripts/run-real-e2e.ts real-auth` from the repository
+ * root. The default `playwright.config.ts` stays
  * untouched — every existing fetch-mocked spec keeps running under the
  * `PI_SKIP_INIT=1` preview server.
  *
@@ -21,8 +21,6 @@
  *     `fetch` and breaks real-auth specs) doesn't sneak in.
  */
 import { defineConfig } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,30 +42,14 @@ const previewPort = new URL(baseURL).port || "4173";
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
-// Fresh PGlite dir per run. Reused across the webServer + every
-// spec — the same directory must survive for the whole `playwright
-// test` invocation. Best-effort cleanup happens at process exit
-// (see globalTeardown).
-const callerDbDir = process.env.PI_E2E_REAL_DB_PATH;
-// Playwright can evaluate this config again in a child process. Carry the
-// exact generated path across that boundary so a generated directory does not
-// become indistinguishable from a caller-supplied override on the second load.
-const inheritedGeneratedDbDir = process.env.PI_E2E_REAL_GENERATED_DB_PATH;
-const reusesGeneratedDbDir =
-  callerDbDir !== undefined && callerDbDir === inheritedGeneratedDbDir;
-const DB_DIR = callerDbDir ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
-const ownsDbDir = callerDbDir === undefined || reusesGeneratedDbDir;
-
-// Test workers need the same identity to clean only records they created.
-// Metadata below preserves ownership because this assignment happens after we
-// capture whether a caller supplied the path.
-process.env.PI_E2E_REAL_DB_PATH = DB_DIR;
-if (ownsDbDir) {
-  process.env.PI_E2E_REAL_DB_GENERATED = "1";
-  process.env.PI_E2E_REAL_GENERATED_DB_PATH = DB_DIR;
-} else {
-  delete process.env.PI_E2E_REAL_DB_GENERATED;
-  delete process.env.PI_E2E_REAL_GENERATED_DB_PATH;
+// The outer runner owns generated DB lifecycle. Requiring its explicit path
+// prevents globalTeardown from deleting a PGlite directory while Playwright's
+// webServer plugin still has the preview process alive.
+const DB_DIR = process.env.PI_E2E_REAL_DB_PATH;
+if (!DB_DIR) {
+  throw new Error(
+    "PI_E2E_REAL_DB_PATH is required. Run `bun scripts/run-real-e2e.ts <real-auth|fresh-setup>` from the repository root.",
+  );
 }
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
@@ -79,10 +61,6 @@ if (ownsDbDir) {
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 
 export default defineConfig({
-  // Playwright passes config metadata to global teardown even though it loads
-  // teardown separately from this config module. It is the ownership handoff
-  // for the exact temporary DB passed to the webServer child below.
-  metadata: { e2eDbDir: DB_DIR, e2eDbOwned: ownsDbDir },
   testDir: "./e2e/real-auth",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,

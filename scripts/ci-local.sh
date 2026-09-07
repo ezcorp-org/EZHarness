@@ -104,8 +104,8 @@ if [ "$FAST" = "0" ]; then
   run_step "E2E (real auth sandbox spawn probe)" bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
   run_step "E2E (fresh setup, real PGlite)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
     [ "${#ARGS[@]}" -gt 0 ] || exit 1
-    cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.fresh-setup.config.ts "${ARGS[@]}"'
-  run_step "E2E (real auth, real PGlite)" bash -c 'cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts'
+    bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"'
+  run_step "E2E (real auth, real PGlite)" bun scripts/run-real-e2e.ts real-auth
 else
   RESULTS+=("SKIP  Coverage + per-file thresholds / new-file / patch coverage / gated E2E  (--fast)")
 fi

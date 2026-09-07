@@ -236,6 +236,8 @@ describe("e2e lane manifest", () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-gate");
     expect(ci).toContain("bun scripts/e2e-lane-args.ts fresh-setup");
+    expect(ci).toContain('bun scripts/run-real-e2e.ts fresh-setup "$' + '{ARGS[@]}"');
+    expect(ci).toContain("bun scripts/run-real-e2e.ts real-auth");
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });

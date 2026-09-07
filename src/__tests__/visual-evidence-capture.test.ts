@@ -44,6 +44,19 @@ if [ "\${FAIL_REPORT:-}" = "$PLAYWRIGHT_BLOB_OUTPUT_NAME" ]; then exit "\${FAIL_
 `,
   );
   chmodSync(bunx, 0o755);
+
+  const bun = join(binDir, "bun");
+  writeFileSync(
+    bun,
+    `#!/usr/bin/env bash
+set -eu
+printf '%s|%s|%s|%s\\n' "$PWD" "$PLAYWRIGHT_BLOB_OUTPUT_NAME" "\${PI_E2E_REAL:-}" "$*" >> "$VISUAL_CAPTURE_LOG"
+mkdir -p "$PLAYWRIGHT_BLOB_OUTPUT_DIR"
+printf report > "$PLAYWRIGHT_BLOB_OUTPUT_DIR/$PLAYWRIGHT_BLOB_OUTPUT_NAME"
+if [ "\${FAIL_REPORT:-}" = "$PLAYWRIGHT_BLOB_OUTPUT_NAME" ]; then exit "\${FAIL_CODE:-23}"; fi
+`,
+  );
+  chmodSync(bun, 0o755);
   return { root, script, binDir };
 }
 
@@ -91,22 +104,22 @@ describe("visual-evidence capture", () => {
     expect(result.code).toBe(0);
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0]).toContain("mock-evidence.zip|0|playwright test --config playwright.config.ts --project=chromium --grep @evidence e2e/mock\\.spec\\.ts");
-    expect(result.lines[1]).toContain("real-auth-evidence.zip|1|playwright test --config playwright.real.config.ts --project=chromium --grep @evidence e2e/real-auth/real\\.spec\\.ts");
+    expect(result.lines[1]).toContain("real-auth-evidence.zip|1|scripts/run-real-e2e.ts real-auth --project=chromium --grep @evidence e2e/real-auth/real\\.spec\\.ts");
     expect(existsSync(join(result.root, "web/blob-report/mock-evidence.zip"))).toBe(true);
     expect(existsSync(join(result.root, "web/blob-report/real-auth-evidence.zip"))).toBe(true);
     expect(existsSync(join(result.root, "web/blob-report/report-from-ordinary-playwright.zip"))).toBe(false);
   });
 
   test.each([
-    ["mock", "e2e/mock\\.spec\\.ts\n", "playwright.config.ts", "mock-evidence.zip"],
-    ["real-auth", "e2e/real-auth/real\\.spec\\.ts\n", "playwright.real.config.ts", "real-auth-evidence.zip"],
-  ])("runs only the selected %s tier", (_tier, specs, config, report) => {
+    ["mock", "e2e/mock\\.spec\\.ts\n", "--config playwright.config.ts", "mock-evidence.zip"],
+    ["real-auth", "e2e/real-auth/real\\.spec\\.ts\n", "scripts/run-real-e2e.ts real-auth", "real-auth-evidence.zip"],
+  ])("runs only the selected %s tier", (_tier, specs, command, report) => {
     const result = runCapture(specs);
 
     expect(result.code).toBe(0);
     expect(result.lines).toHaveLength(1);
     expect(result.lines[0]).toContain(`|${report}|`);
-    expect(result.lines[0]).toContain(`--config ${config}`);
+    expect(result.lines[0]).toContain(command);
     const otherReport = report === "mock-evidence.zip" ? "real-auth-evidence.zip" : "mock-evidence.zip";
     expect(existsSync(join(result.root, "web/blob-report", otherReport))).toBe(false);
   });
