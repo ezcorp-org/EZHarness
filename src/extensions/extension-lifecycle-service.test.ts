@@ -189,6 +189,37 @@ test("a failed installation recovery does not strand another queued build", asyn
   expect(recovered).toEqual([ready.id]);
 });
 
+test("global recovery drains expired builds before queued and non-build operations", async () => {
+  const queued = { ...installation, id: "a-queued" };
+  const expired = { ...installation, id: "b-expired" };
+  const activation = { ...installation, id: "c-activation" };
+  const state = (installation: InstallationRecord, operation: Record<string, unknown>): InstallationState => ({ installation, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: { operation: operation as never } });
+  const states = new Map([
+    [queued.id, state(queued, { id: "operation", kind: "build", state: "queued", idempotencyKey: "queued", inputDigest: "queued", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() })],
+    [expired.id, state(expired, { id: "operation", kind: "build", state: "building", idempotencyKey: "expired", inputDigest: "expired", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: "expired", fence: 1, until: Date.now() - 1 } })],
+    [activation.id, state(activation, { id: "operation", kind: "activate", state: "awaiting_approval", idempotencyKey: "activation", inputDigest: "activation", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() })],
+  ]);
+  const order: string[] = [];
+  const services: RecoveryServices = { repository: { async read(id) { return states.get(id) ?? null; } }, migrations: { async recover() {} }, lifecycle: { async reconcile() {}, async recover(_actor, id) { order.push(id); } } };
+  await recoverInstallations(services, [activation, queued, expired]);
+  expect(order).toEqual([expired.id, queued.id, activation.id]);
+});
+
+test("a lifecycle recovery failure leaves other reconciled installations recoverable", async () => {
+  const blocked = { ...installation, id: "a-recover-fails" };
+  const ready = { ...installation, id: "b-recoverable" };
+  const state = (installation: InstallationRecord): InstallationState => ({ installation, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: {} });
+  const states = new Map([[blocked.id, state(blocked)], [ready.id, state(ready)]]);
+  const recovered: string[] = [];
+  const services: RecoveryServices = {
+    repository: { async read(id) { return states.get(id) ?? null; } },
+    migrations: { async recover() {} },
+    lifecycle: { async reconcile() {}, async recover(_actor, id) { if (id === blocked.id) throw new Error("recovery failed"); recovered.push(id); } },
+  };
+  await recoverInstallations(services, [blocked, ready]);
+  expect(recovered).toEqual([ready.id]);
+});
+
 test("recovery wake-up selects the earliest live recoverable lease only", () => {
   const operation = (id: string, state: "building" | "verified" | "activating", until: number) => ({ id, kind: state === "activating" ? "activate" as const : "build" as const, state, idempotencyKey: id, inputDigest: id, diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: id, fence: 1, until } });
   const state = {

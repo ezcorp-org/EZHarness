@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { users } from "../db/schema";
-import { getExtensionDeliveryQueue, getExtensionLifecycle, getExtensionReleaseArtifacts, recoverExtensionLifecycle } from "./extension-lifecycle-service";
+import { getExtensionDeliveryQueue, getExtensionLifecycle, getExtensionReleaseArtifacts, reconcileExtensionLifecycle, recoverExtensionLifecycle } from "./extension-lifecycle-service";
 import { FileBlobStore, putFiles } from "./v4/blobs";
 import { ReleaseProcess } from "./release-process";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
@@ -21,6 +21,7 @@ test("production lifecycle edits and empty delivery polling work offline while b
   process.env.EZCORP_EXTENSION_BLOB_ROOT = directory;
   await setupTestDb();
   try {
+    await reconcileExtensionLifecycle();
     const [user] = await getTestDb().insert(users).values({ email: `${crypto.randomUUID()}@example.test`, name: "Owner", passwordHash: "unused" }).returning();
     const actor = { principalId: user!.id, scope: "global", kind: "agent" as const };
     const lifecycle = await getExtensionLifecycle();
