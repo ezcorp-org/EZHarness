@@ -19,11 +19,11 @@ async function wrapperWith(log: string | undefined, options: { directoryInsteadO
     if (log !== undefined) await writeFile(fixture, log);
     await writeFile(join(bin, "bash"), [
       "#!/bin/sh",
-      'if [ "${1:-}" = scripts/verify-shipping-runtime.sh ]; then',
-      '  if [ "${EMBEDDING_LOG_FIXTURE_DIRECTORY:-}" = 1 ]; then mkdir "$EZ_PRODUCTION_RECEIPT_DIR/compose.log"; fi',
-      '  if [ "${EMBEDDING_LOG_RECEIPT_DIRECTORY:-}" = 1 ]; then mkdir "$EZ_PRODUCTION_RECEIPT_DIR/embedding-log-guard.exit"; fi',
-      '  if [ -n "${EMBEDDING_LOG_FIXTURE:-}" ]; then cp "$EMBEDDING_LOG_FIXTURE" "$EZ_PRODUCTION_RECEIPT_DIR/compose.log"; fi',
-      '  exit "${EMBEDDING_LOG_RUNTIME_EXIT:-0}"',
+      'if [ "$1" = scripts/verify-shipping-runtime.sh ]; then',
+      '  if [ "$EMBEDDING_LOG_FIXTURE_DIRECTORY" = 1 ]; then mkdir "$EZ_PRODUCTION_RECEIPT_DIR/compose.log"; fi',
+      '  if [ "$EMBEDDING_LOG_RECEIPT_DIRECTORY" = 1 ]; then mkdir "$EZ_PRODUCTION_RECEIPT_DIR/embedding-log-guard.exit"; fi',
+      '  if [ -n "$EMBEDDING_LOG_FIXTURE" ]; then cp "$EMBEDDING_LOG_FIXTURE" "$EZ_PRODUCTION_RECEIPT_DIR/compose.log"; fi',
+      '  exit "$EMBEDDING_LOG_RUNTIME_EXIT"',
       "fi",
       'exec "$EMBEDDING_LOG_GUARD_REAL_BASH" "$@"',
       "",
