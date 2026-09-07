@@ -1,0 +1,12 @@
+{
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "raw_file_identities_verified": 8,
+  "committed_and_frozen_source_inputs_verified": 3,
+  "executed_frozen_outer_controller_verified": true,
+  "passed_checks": 8,
+  "command_exit": 0,
+  "owned_cleanup_exit": 0,
+  "actual_before_after_boundaries_byte_equal": true,
+  "phase_tables_are_pre_soak_terminal_snapshots": true,
+  "soak_verdict_claimed": false
+}

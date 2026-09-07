@@ -1,0 +1,15 @@
+{
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "checksums_verified_before_additions": 53,
+  "source_inputs_byte_equal_to_commit": 39,
+  "controllers_byte_equal_to_executed_frozen_inputs": 2,
+  "launcher_quartets_verified": 11,
+  "passed_canonical_leaves": 7,
+  "failed_resource_command": 1,
+  "every_log_and_cleanup_exit": 0,
+  "independent_and_soak": "not-run",
+  "raw_compose_logs_independently_reviewed": 11,
+  "candidate_compose_logs_with_no_error_or_fatal": 9,
+  "bootstrap_installations_verified_per_R1_and_R2": 28,
+  "proc_identity_observation_byte_equal": true
+}

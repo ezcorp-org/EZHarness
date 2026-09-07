@@ -1,0 +1,6 @@
+c9715aa74f4f	buildx_buildkit_default	docker.io/moby/buildkit:buildx-stable-1	Up 26 hours	
+a2755dedeb83	ezharness-postgres-1	docker.io/pgvector/pgvector:pg16	Up 26 hours (healthy)	0.0.0.0:5432->5432/tcp
+1cbc29e69fb6	ezharness-searxng-1	docker.io/searxng/searxng:latest	Up 23 minutes	127.0.0.1:8889->8080/tcp
+b1658fb07a1c	ezharness-app-1	docker.io/library/ezharness-app:latest	Up 23 minutes	3000/tcp
+02884994732c	nostalgic_lovelace	mcr.microsoft.com/playwright:v1.62.1-noble	Up 17 hours	
+1e358d66d628	unruffled_golick	localhost/ezcorp-extension-v4:shipping-adbba8a6	Up 10 hours	3000/tcp

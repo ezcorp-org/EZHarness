@@ -1,0 +1,68 @@
+{
+  "header_old_class_red": {
+    "red_exit": "1",
+    "green_exit": "0",
+    "red_log": {
+      "private_path": ".cache/badge-contrast-480f7c71-20260907T163710Z/red.log",
+      "sha256": "3504373279d664ca9d7ed92d250c7cfea0fda005002b0ebb5b798688da5cad48",
+      "bytes": 28341,
+      "private_only": true
+    },
+    "green_log": {
+      "private_path": ".cache/badge-contrast-480f7c71-20260907T163710Z/green.log",
+      "sha256": "fe3c4221c2bf447a937af967bc3f47827f80168a2c1aafa48a8ad58360365d9c",
+      "bytes": 29605,
+      "private_only": true
+    },
+    "patch": {
+      "private_path": ".cache/badge-contrast-480f7c71-20260907T163710Z/patch-before.diff",
+      "sha256": "4812ccf437a8fd405e6067c30f797efe22de89741c361f63a11e7dd71106cb50",
+      "bytes": 6369,
+      "private_only": true
+    }
+  },
+  "banner_whole_old_page_red": {
+    "red_exit": "1",
+    "green_exit": "1",
+    "red_log": {
+      "private_path": ".cache/banner-contrast-480f7c71-20260907T164433Z/red.log",
+      "sha256": "23a390de6a773647070381621d94325fc8f85f98bd20cd179ce82714b23f1a8d",
+      "bytes": 32472,
+      "private_only": true
+    },
+    "green_log": {
+      "private_path": ".cache/banner-contrast-480f7c71-20260907T164433Z/green.log",
+      "sha256": "1d2cff1343e2d708f94aed1d1f470936c53b6f7d2117c437af71e017acb6f794",
+      "bytes": 34794,
+      "private_only": true
+    },
+    "patch": {
+      "private_path": ".cache/banner-contrast-480f7c71-20260907T164433Z/patch-before.diff",
+      "sha256": "0be4c0183ee14bde1d0ed20b97029cb272df949d7d5c045a07dfba1572423132",
+      "bytes": 8478,
+      "private_only": true
+    }
+  },
+  "final_green": {
+    "green_exit": "0",
+    "diff_check_exit": "0",
+    "green_log": {
+      "private_path": ".cache/banner-contrast-path-repair-480f7c71-20260907T165128Z/green.log",
+      "sha256": "834fafb5b0fb017a630c9b7d6791c0f01bd2cd52769a7c82aba25accbde9a962",
+      "bytes": 30441,
+      "private_only": true
+    },
+    "raw_blob": {
+      "private_path": ".cache/banner-contrast-path-repair-480f7c71-20260907T165128Z/blob-report.zip",
+      "sha256": "1246beec435d04d9a5baee8f7362de7a5d77f67c66c775380b58a88a3132a227",
+      "bytes": 505849,
+      "private_only": true
+    },
+    "patch": {
+      "private_path": ".cache/banner-contrast-path-repair-480f7c71-20260907T165128Z/patch.diff",
+      "sha256": "b981df655569994192a9fd4b26c0e7dbce88564ddbc2dc1084c8dfd109800112",
+      "bytes": 8475,
+      "private_only": true
+    }
+  }
+}

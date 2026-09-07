@@ -1,0 +1,33 @@
+{
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "initial_checksum_entries_verified": 53,
+  "frozen_and_committed_inputs_byte_equal": 39,
+  "frozen_controller_byte_equal": true,
+  "all_eight_leaf_exits": 0,
+  "all_11_launcher_quartets": 0,
+  "embedding_runtime_and_log_guard_exits": 0,
+  "file_organizer_ordered_outcomes": 13,
+  "file_organizer_retry_count_observable": false,
+  "candidate_app_logs_without_error_or_fatal": 9,
+  "full_resource_samples_checked": 11,
+  "resource_descriptor_rows_checked": 3672,
+  "independent_and_soak_in_this_receipt": false,
+  "bootstrap_records_byte_value_verified": {
+    "runtime_r1": {
+      "bootstrapInstallations": 28,
+      "initialPending": 0,
+      "maximumPending": 0,
+      "terminalOperationStates": {
+        "verified": 28
+      }
+    },
+    "delivery_r2": {
+      "bootstrapInstallations": 28,
+      "initialPending": 28,
+      "maximumPending": 28,
+      "terminalOperationStates": {
+        "verified": 28
+      }
+    }
+  }
+}

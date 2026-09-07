@@ -1,0 +1,26 @@
+Comparison basis
+================
+Prior checkpoint gate base: 537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+Final checkpoint gate base: bd7364388d0106364864e18a3d321b13ba978c36
+Final checked source: da6bc4db6326696347d76a2225677954b31d3a2b
+
+The two removed old records are github-stats/index.test.ts and
+multi-agent-orchestrator/index.test.ts. They are absent from the final result
+because the gate now compares with bd736438 rather than 537f074e. This record
+does not approve their earlier test changes.
+
+The define-extension-unit record remains, with 49/7/42-of-75 changed to
+48/7/41-of-74. `git diff --numstat bd736438..da6bc4db` reports 31 additions
+and 259 deletions for that file. The exact scanner record changed; manual
+review must decide whether the test change is valid.
+
+The scaffold-deterministic-gate record is new with 33/11/22-of-32. `git diff
+--numstat bd736438..da6bc4db` reports 38 additions and 213 deletions for that
+file. It is a final-source test adjustment relative to the new main base and
+requires the same manual policy review.
+
+For context only, `git diff --numstat 537f074e..bd736438` reports:
+  github-stats/index.test.ts: 91 additions, 93 deletions
+  multi-agent-orchestrator/index.test.ts: 4 additions, 27 deletions
+  define-extension-unit.test.ts: 10 additions, 13 deletions
+  scaffold-deterministic-gate.test.ts: 76 additions, 0 deletions

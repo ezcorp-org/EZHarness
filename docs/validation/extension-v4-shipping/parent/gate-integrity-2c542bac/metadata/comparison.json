@@ -1,0 +1,47 @@
+{
+  "base_commit_sha": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "exit": 1,
+  "final_categories": {
+    "other": 0,
+    "test_deleted": 28,
+    "test_gutted": 30,
+    "test_renamed": 24,
+    "threshold_key_removed": 1
+  },
+  "gate_source_sha256": "6a4bf39bbb275e531cf496cf3570be3189573cf3bbfbd05f75b6647a86f48371",
+  "ordered_comparison": {
+    "prior_79108f9d": {
+      "added": [],
+      "identical": true,
+      "removed": []
+    },
+    "prior_da6bc4db": {
+      "added": [],
+      "identical": true,
+      "removed": []
+    }
+  },
+  "ordered_findings_file_sha256": "51ffc980a10fa5f74f5156244e32a359b0d2dc05d131ae70c62dbd50189f3636",
+  "ordered_findings_hash_serialization": "UTF-8 ordered findings joined with LF, no trailing LF",
+  "raw_identities": {
+    "final_2c542bac": {
+      "bytes": 17794,
+      "count": 83,
+      "ordered_findings_sha256": "738cdf80a916ff886da724533fc6743f583ce96e0d54be86517a3a2ba7b39c6b",
+      "sha256": "04651b31d15cc8284046102c13784e4ec507ad05d67b82a358fb423fe4a2f204"
+    },
+    "prior_79108f9d": {
+      "bytes": 17794,
+      "count": 83,
+      "ordered_findings_sha256": "738cdf80a916ff886da724533fc6743f583ce96e0d54be86517a3a2ba7b39c6b",
+      "sha256": "04651b31d15cc8284046102c13784e4ec507ad05d67b82a358fb423fe4a2f204"
+    },
+    "prior_da6bc4db": {
+      "bytes": 17794,
+      "count": 83,
+      "ordered_findings_sha256": "738cdf80a916ff886da724533fc6743f583ce96e0d54be86517a3a2ba7b39c6b",
+      "sha256": "04651b31d15cc8284046102c13784e4ec507ad05d67b82a358fb423fe4a2f204"
+    }
+  },
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62"
+}

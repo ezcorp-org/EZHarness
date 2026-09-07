@@ -1,0 +1,14 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/memory-embeddings-token-cap.test.ts:
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > an uncapped tokenizer truncates the same input at the model default, not CHUNK_TOKENS [1.59ms]
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > generateEmbedding tokenizes a long input to exactly CHUNK_TOKENS ids [0.63ms]
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > the cap sticks for every later call on the reused singleton [0.47ms]
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > short input is unaffected by the cap [0.11ms]
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > the getter reads the cap back through the config object getExtractor() wrote to [0.14ms]
+(pass) IDX-06 effective input cap (real PreTrainedTokenizer) > writing the bare model_max_length property throws — why the write goes through .config [0.09ms]
+
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [465.00ms]

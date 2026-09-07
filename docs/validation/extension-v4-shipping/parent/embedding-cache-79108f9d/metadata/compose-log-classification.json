@@ -1,0 +1,40 @@
+{
+  "first": {
+    "level_counts": {
+      "info": 18,
+      "warn": 1
+    },
+    "plain_error_signatures": {
+      "Unable to add response to browser cache: Error: EACCES: permission denied, mkdir '<transformers-package>/.cache'.": 1
+    },
+    "raw": {
+      "bytes": 4088,
+      "sha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab"
+    },
+    "record_counts": {
+      "json": 19,
+      "nonstructured": 8
+    },
+    "warning_error_signatures": {
+      "{\"level\":\"warn\",\"subsystem\":\"embed-worker\"}": 1
+    }
+  },
+  "interpretation": "Both private compose logs contain one plain-text EACCES write failure to the package-relative .cache directory. The emitted hub warning says \"browser cache\" for any cache backend, so it does not identify the backend or resource URL. The model-vector verifier still passed, but the app logs are not clean. Raw logs remain private.",
+  "second": {
+    "level_counts": {
+      "info": 46
+    },
+    "plain_error_signatures": {
+      "Unable to add response to browser cache: Error: EACCES: permission denied, mkdir '<transformers-package>/.cache'.": 1
+    },
+    "raw": {
+      "bytes": 13929,
+      "sha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe"
+    },
+    "record_counts": {
+      "json": 46,
+      "nonstructured": 8
+    },
+    "warning_error_signatures": {}
+  }
+}

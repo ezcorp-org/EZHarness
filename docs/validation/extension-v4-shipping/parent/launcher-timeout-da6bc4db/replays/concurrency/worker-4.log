@@ -1,0 +1,9 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/production-image-lifecycle-launch.integration.test.ts:
+(pass) long persistent state keeps the authenticated runner transport below the Unix-path limit [2299.80ms]
+
+ 1 pass
+ 0 fail
+ 13 expect() calls
+Ran 1 test across 1 file. [7.25s]

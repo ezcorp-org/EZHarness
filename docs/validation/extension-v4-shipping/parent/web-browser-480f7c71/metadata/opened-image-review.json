@@ -1,0 +1,53 @@
+{
+  "opened_with_view_image": [
+    {
+      "name": "member-provider-guidance-mobile",
+      "sha256": "cc55251826898afc1f7ef203a4854d34d73d580e70b0a3f9a385b891d78a079d"
+    },
+    {
+      "name": "admin-provider-controls",
+      "sha256": "8d2b2439eed03819f5e15f040bbdfe3c1540d7a209863e5a3e000722c8d96743"
+    },
+    {
+      "name": "extension-detail-via-post-install-deep-link",
+      "sha256": "2f9083cb418e3ffd36049f2a6d6b6d36297c768e676a173c6800d498a5678ca5"
+    },
+    {
+      "name": "install-granted-capabilities-review-v4",
+      "sha256": "a944ddf24eb7b27b15f428f183abd847d555b530830556668657998752196ac9"
+    },
+    {
+      "name": "chat-title-save-error",
+      "sha256": "58dc9015e704e50e010c54b7aa911951ec99f02369b8e56c0f45945e3642ff6d"
+    },
+    {
+      "name": "real-auth-memory-owner-ui-edited-and-excluded-light",
+      "sha256": "99555e67182fdf9ca2c90903935e03bcdbcba7d9975e5b8c5f02b9642b94ed3b"
+    },
+    {
+      "name": "real-auth-memory-owner-ui-edited-and-excluded-dark",
+      "sha256": "7caf1d9716a2ceaf090123765a4ee0772ae723ea2a4245274d04d735e4c7c8c6"
+    },
+    {
+      "name": "real-auth-extension-lifecycle-tool-selection-mobile-narrow",
+      "sha256": "a24bef3d01b13f288e791b4331d2e5e1d20bd62c2c8140672d9ce0cf4b58c260"
+    },
+    {
+      "name": "real-auth-extension-source-import-visible-output",
+      "sha256": "7fb97c108ddf41545bf066add0d764fabfcb0b9dacea7dec4b9b2a39e24ca56a"
+    },
+    {
+      "name": "real-auth-extension-source-import-permission-update",
+      "sha256": "59954f888b302fac540ee3b796269df75cb8d9edfd22620a2120e4a8fd52cb1c"
+    },
+    {
+      "name": "real-auth-extension-stale-tab-uninstall-release",
+      "sha256": "75a3775f301519ab6f740a362ddaa8f0f255e3f592e29651730fc816fae8a5fb"
+    },
+    {
+      "name": "real-auth-extension-scanner-protected-mobile",
+      "sha256": "07dcece1307736da796559d52979f1cf6377a2d8329482d5d16f179a9612f5b0"
+    }
+  ],
+  "finding": "Verified badge is pale and hard to read in light-mode deep-link image; isolated targeted fix pending. No other visible clipped or unreadable control found in these selected images."
+}

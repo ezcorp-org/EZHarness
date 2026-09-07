@@ -1,0 +1,25 @@
+{
+  "src/memory/embeddings.ts": [
+    "cache-default-final-checks-20260907T180159Z: embeddings=0"
+  ],
+  "src/__tests__/memory-embeddings-state.test.ts": [
+    "cache-default-type-followup-20260907T1804Z: state test/typecheck/lint=0"
+  ],
+  "scripts/verify-shipping-embeddings.sh": [
+    "cache-default-final-checks-20260907T180159Z: log-guard=0"
+  ],
+  "scripts/lib/shipping-embedding-log-guard.ts": [
+    "cache-default-final-checks-20260907T180159Z: helper LCOV 33/33 lines, 8/8 functions",
+    "embedding-log-guard-parent-controls-20260907T1803Z: retained-log/parser controls"
+  ],
+  "scripts/verify-shipping-embedding-log.ts": [
+    "cache-default-final-checks-20260907T180159Z: log-guard=0",
+    "embedding-log-guard-parent-controls-20260907T1803Z: retained-log/parser controls"
+  ],
+  "scripts/verify-shipping-embedding-log.test.ts": [
+    "embedding-log-fixture-lint-20260907T1805Z: final source hash matches, 5 pass/22 expectations, lint=0"
+  ],
+  "scripts/lib/test-file-sets.sh": [
+    "cache-default-final-checks-20260907T180159Z: source guard=0; current hash matches recorded guard input"
+  ]
+}

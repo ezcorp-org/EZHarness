@@ -1,0 +1,45 @@
+{
+  "reviewer_sha256": "38d995036a911ab9d45ed260a161d8c15fdcfd1a01f7b4c67e07ce25c7e5f65c",
+  "results": [
+    {
+      "case": "full-valid",
+      "exit": 0,
+      "expected_exit": 0
+    },
+    {
+      "case": "incomplete-console-without-explicit-option",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "bad-unprinted-final-memory",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "bad-unprinted-descriptor",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "changed-console-prefix",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "reject-30min-as-24h",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "reject-short-as-30min",
+      "exit": 1,
+      "expected_exit": 1
+    },
+    {
+      "case": "short-valid",
+      "exit": 0,
+      "expected_exit": 0
+    }
+  ]
+}

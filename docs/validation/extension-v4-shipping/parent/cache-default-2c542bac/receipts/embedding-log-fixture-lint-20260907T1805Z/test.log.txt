@@ -1,0 +1,13 @@
+bun test v1.3.14 (0d9b296a)
+
+scripts/verify-shipping-embedding-log.test.ts:
+(pass) recognizes structured error/fatal levels and narrow native failures without treating expected warnings as failures [0.57ms]
+(pass) embedding wrapper turns an otherwise-successful cache failure log red and accepts expected warmup warnings [35.32ms]
+(pass) embedding wrapper fails closed when lifecycle cleanup retains no readable nonempty compose log [37.78ms]
+(pass) embedding wrapper keeps a lifecycle failure as the terminal status even when the log guard also fails [16.32ms]
+(pass) embedding wrapper fails if it cannot write the guard receipt [18.13ms]
+
+ 5 pass
+ 0 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [621.00ms]

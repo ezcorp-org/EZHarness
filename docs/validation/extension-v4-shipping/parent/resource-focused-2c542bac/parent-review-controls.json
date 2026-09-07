@@ -1,0 +1,24 @@
+{
+  "short-valid": {
+    "argv": [
+      "python3",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/review-resource-receipt.py",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/resource-focused-2c542bac-20260907T183851Z/runtime",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/resource-review-controls-20260907T190400Z/short-valid.json"
+    ],
+    "actual_exit": 0,
+    "expected_exit": 0
+  },
+  "reject-short-as-30-min": {
+    "argv": [
+      "python3",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/review-resource-receipt.py",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/resource-focused-2c542bac-20260907T183851Z/runtime",
+      "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/resource-review-controls-20260907T190400Z/reject-short-as-30-min.json",
+      "--minimum-ms",
+      "1800000"
+    ],
+    "actual_exit": 1,
+    "expected_exit": 1
+  }
+}

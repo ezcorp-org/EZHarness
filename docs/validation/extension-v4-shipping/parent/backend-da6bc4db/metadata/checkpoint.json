@@ -1,0 +1,9 @@
+{
+  "source_commit": "da6bc4db6326696347d76a2225677954b31d3a2b",
+  "source_tree": "be66104272e97354db0f54d8aa5e614ddff5d0ba",
+  "overall_controller_exit": 1,
+  "overall_pass": false,
+  "failure": "residual test leg exited 1 with one timeout",
+  "raw_lcov_published": false,
+  "raw_coverage_logs_published": false
+}

@@ -100,3 +100,17 @@
 
 - Measure actual archive expansion before choosing a scan bound. Coverage bundles can contain many large repeated members and hardlinks despite small compressed sizes. Validate hardlinks within the same archive and reject a byte-limit breach before copying.
 - A streaming archive reader must consume the producer before requiring its successful exit. Returning after one member can close the pipe early and cause SIGPIPE; collect the result, drain the stream, then check the process exit.
+
+- When merging a large main change, compare resolved exports and test-lane membership against both parents. Removing conflict markers does not prove that v4 permissions, browser engines or blocking checks survived. Apply the incoming delta from the common base instead of replacing a branch-owned registry with main’s older whole file.
+
+- When merging browser configuration, preserve shutdown signals as well as test selection. A passing browser run can still lose fixture cleanup when the runner replaces graceful termination with SIGKILL. Verify temporary roots after each direct engine run.
+
+- A successful app-log collection command does not prove clean app logs. Parse the collected file and make its health result a separate blocking receipt; inspect plain dependency warnings as well as structured error levels.
+- Do not infer a cache backend from a generic dependency warning. Check runtime flags, trace the actual request, and compare default options with per-call options before changing global configuration.
+- Validate embedded languages with their actual parser. `bash -n` does not catch an invalid AWK program. Test valid, missing, duplicate, malformed and nonzero records before launching a long controller.
+
+- For host-side /proc descriptor checks, match both app and verifier user/group credentials. Follow CI’s dynamic id -g contract; a hard-coded group can fail ptrace access even when the user IDs match. Keep cache-ownership proof and descriptor-observer identities explicit.
+
+- Treat a complete persisted resource series and its console projection as separate artifacts. Check every sample from the complete file, compare any observed prefix exactly, and retain an unexplained output limit without inventing a cause. Test that a bad unprinted sample still fails review.
+
+- Check archive signatures as well as filenames when scanning evidence. Keep classification reads bounded, reject unsupported compression, and prove the actual scanner detects a synthetic token in the expanded member. Treat exact raw log whitespace separately from authored source.

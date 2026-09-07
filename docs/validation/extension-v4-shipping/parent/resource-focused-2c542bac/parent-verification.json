@@ -1,0 +1,18 @@
+{
+  "raw_copies_byte_equal": 11,
+  "committed_source_inputs_byte_equal": 7,
+  "cycles": 10,
+  "reconnects": 100,
+  "actual_duration_ms": 65213,
+  "samples_verified": 11,
+  "runner_fds_each": 24,
+  "owned_workers_each": 0,
+  "remaining_sse_connections_each_cycle": 0,
+  "warm_memory_bytes": 882481562,
+  "maximum_post_warm_memory_bytes": 896847053,
+  "post_warm_growth_bytes": 14365491,
+  "memory_bound_bytes": 67108864,
+  "all_four_launcher_exits": 0,
+  "duration_mode": "cycles, not 30-minute soak",
+  "all_terminal_summary_samples_match_full_descriptor_samples": true
+}

@@ -1,0 +1,51 @@
+{
+  "tests": [
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 2498
+    },
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 2030
+    },
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 1325
+    }
+  ],
+  "images": [
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/parent-png/member-onboarding-handoff.png",
+      "name": "member-onboarding-handoff",
+      "sha256": "c4cbaf6b35d515eb9bdc431e1a41faad0fd18f3293187e8a538c5540d2eddbd4",
+      "bytes": 45564
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/parent-png/member-chat-provider-handoff.png",
+      "name": "member-chat-provider-handoff",
+      "sha256": "63627ea416cdd25584623aeda6ef97ba8f09830dd1df549e6ba1af0fbe4d169d",
+      "bytes": 63698
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/parent-png/memory-owner-ui-edited-and-excluded.png",
+      "name": "memory-owner-ui-edited-and-excluded",
+      "sha256": "cc0ba77be8ae2bd1aafd6a40d1ca3213e14c9198352c573f201a0f922a9c6ace",
+      "bytes": 75105
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/parent-png/memory-owner-ui-deleted.png",
+      "name": "memory-owner-ui-deleted",
+      "sha256": "f38d4552ccafd17f36ca54dd9dcd6d2d35c786b2ff251b0ce2da97047c41c6f9",
+      "bytes": 66462
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/parent-png/quickstart-provider-refreshed.png",
+      "name": "quickstart-provider-refreshed",
+      "sha256": "1d26d9384d5002a28d1ebb53e618187189c2c676cb69ebac94baffb57311bc03",
+      "bytes": 111499
+    }
+  ]
+}

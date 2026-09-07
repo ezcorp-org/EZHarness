@@ -1,0 +1,25 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/production-image-lifecycle-launch.integration.test.ts:
+(pass) long persistent state keeps the authenticated runner transport below the Unix-path limit [1234.89ms]
+307 |     const reportedVerifierGroup = Number(await readFile(reportedGroupFile, "utf8"));
+308 |     const verifierIdentity = await processIdentity(observedVerifierPid);
+309 |     const verifierDescendantIdentity = await processIdentity(verifierDescendantPid);
+310 |     const runnerIdentity = await processIdentity(runnerPid);
+311 |     expect(verifierIdentity).toBeDefined();
+312 |     expect(reportedVerifierGroup).toBe(verifierIdentity!.processGroup);
+                                        ^
+error: expect(received).toBe(expected)
+
+Expected: 2184143
+Received: NaN
+
+      at <anonymous> (<isolated-worktree>/src/__tests__/production-image-lifecycle-launch.integration.test.ts:312:35)
+(fail) launcher cancellation reaps its verifier and runner before streams drain [1288.77ms]
+(pass) launcher cancellation before verifier group readiness reaps its owned starter [1206.45ms]
+(pass) launcher preserves verifier and tee failure exits [2207.71ms]
+
+ 3 pass
+ 1 fail
+ 33 expect() calls
+Ran 4 tests across 1 file. [6.44s]

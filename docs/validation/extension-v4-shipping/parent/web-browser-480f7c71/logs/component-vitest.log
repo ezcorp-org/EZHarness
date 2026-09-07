@@ -1,0 +1,117 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:25:18). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/dev/work/EZCorp/extension-v4-independent-audit/web
+
+[36m12:16:35 PM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally[39m
+[36m12:16:35 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:9 This reference only captures the initial value of `initialMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally[39m
+[36m12:16:35 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:28 This reference only captures the initial value of `onInvalidate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally[39m
+[36m12:16:35 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:42 This reference only captures the initial value of `onLoadMessages`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally[39m
+[36m12:16:35 PM [vite-plugin-svelte] src/lib/components/ChatThreadBehaviorHarness.svelte:59:58 This reference only captures the initial value of `onHydrate`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally[39m
+{"ts":"2026-09-07T16:16:41.184Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+[36m12:16:42 PM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:448:1 noninteractive element cannot have nonnegative tabIndex value
+https://svelte.dev/e/a11y_no_noninteractive_tabindex[39m
+Not implemented: navigation to another Document
+{"ts":"2026-09-07T16:16:44.887Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+{"ts":"2026-09-07T16:16:47.423Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized — call ensureInitialized() first"}
+{"ts":"2026-09-07T16:16:47.427Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized — call ensureInitialized() first"}
+Not implemented: navigation to another Document
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+{"ts":"2026-09-07T16:16:52.369Z","level":"error","msg":"provider model fetch failed","subsystem":"api.refresh-models","provider":"anthropic","error":"models.dev returned 503"}
+{"ts":"2026-09-07T16:16:52.711Z","level":"warn","msg":"route-once model pin failed (conversation stays unpinned)","subsystem":"api.messages","conversationId":"c1","error":"db gone"}
+{"ts":"2026-09-07T16:16:52.723Z","level":"warn","msg":"fork attachment inheritance failed (continuing without image)","subsystem":"api.messages","conversationId":"c1","sourceMessageId":"a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa","error":"disk gone"}
+{"ts":"2026-09-07T16:16:53.902Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-07T16:16:53.902Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-09-07T16:16:53.902Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-09-07T16:16:53.902Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-09-07T16:16:53.902Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.909Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.909Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-09-07T16:16:53.909Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.911Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.915Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":4}
+{"ts":"2026-09-07T16:16:53.915Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-09-07T16:16:53.917Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-09-07T16:16:53.918Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-07T16:16:53.918Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-09-07T16:16:53.918Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-09-07T16:16:53.918Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.918Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-09-07T16:16:53.918Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-09-07T16:16:53.919Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-09-07T16:16:53.920Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":1}
+{"ts":"2026-09-07T16:16:53.920Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-07T16:16:53.921Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":1}
+{"ts":"2026-09-07T16:17:18.922Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang","ms":25001}
+{"ts":"2026-09-07T16:17:18.922Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-09-07T16:16:53.927Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.927Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-07T16:16:53.927Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-07T16:16:53.927Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-07T16:17:18.921Z","level":"error","msg":"forced-exit — shutdown teardown exceeded hard timeout","subsystem":"shutdown","timeoutMs":25000,"pending":1}
+{"ts":"2026-09-07T16:16:53.948Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-09-07T16:16:53.948Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-07T16:16:53.948Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+{"ts":"2026-09-07T16:16:54.773Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+{"ts":"2026-09-07T16:16:54.992Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"explode","error":"Error: boom"}
+{"ts":"2026-09-07T16:16:54.995Z","level":"error","msg":"streamChat error","subsystem":"api.messages","error":"stream boom"}
+{"ts":"2026-09-07T16:16:56.455Z","level":"warn","msg":"goal-host rehydrate failed (continuing)","subsystem":"api.messages","error":"read explosion"}
+{"ts":"2026-09-07T16:16:56.764Z","level":"error","msg":"retry streamChat error","subsystem":"api.retry","error":"boom"}
+{"ts":"2026-09-07T16:16:57.285Z","level":"error","msg":"memory disappeared between read and write","subsystem":"api.memories","memoryId":"mem-1"}
+{"ts":"2026-09-07T16:16:58.873Z","level":"warn","msg":"page-state invalidation wiring failed — will retry on the next render","subsystem":"hub.render-pull","error":"Server not initialized"}
+{"ts":"2026-09-07T16:17:00.456Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-09-07T16:17:00.460Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1456,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-09-07T16:17:00.460Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-09-07T16:17:00.460Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-09-07T16:17:00.461Z","level":"info","msg":"callback server started","subsystem":"api.auth.oauth","port":1455,"appCallbackUrl":"http://localhost/auth/callback"}
+{"ts":"2026-09-07T16:17:00.460Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"https://evil.example.com","fallbackOrigin":"http://localhost"}
+{"ts":"2026-09-07T16:17:00.461Z","level":"warn","msg":"rejected untrusted app_origin; falling back to request origin","subsystem":"api.auth.oauth","rawAppOrigin":"not-a-url","fallbackOrigin":"http://localhost"}
+{"ts":"2026-09-07T16:17:03.806Z","level":"error","msg":"EZ action handler threw","subsystem":"api.messages","name":"distill","error":"Error: kaboom"}
+{"ts":"2026-09-07T16:17:07.039Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","error":"Error: DB down"}
+{"ts":"2026-09-07T16:17:07.040Z","level":"error","msg":"deleteAllMessagesForConversation failed","subsystem":"api.ez.conversation.messages","userId":"u1","conversationId":"ez-conv-u1","error":"Error: delete failed"}
+{"ts":"2026-09-07T16:17:08.180Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":5000}
+{"ts":"2026-09-07T16:17:08.181Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-09-07T16:17:08.184Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"drain-test","teardownCount":1}
+{"ts":"2026-09-07T16:17:08.184Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-09-07T16:17:08.185Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-09-07T16:17:08.185Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"drain-test"}
+{"ts":"2026-09-07T16:17:08.185Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"wedged-test","teardownCount":1}
+{"ts":"2026-09-07T16:17:08.185Z","level":"info","msg":"draining in-flight requests before teardown","subsystem":"shutdown","inFlight":1,"timeoutMs":10000}
+{"ts":"2026-09-07T16:17:18.181Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+{"ts":"2026-09-07T16:17:18.185Z","level":"warn","msg":"in-flight drain timed out — proceeding with teardown","subsystem":"shutdown","stillInFlight":1}
+{"ts":"2026-09-07T16:17:18.185Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-09-07T16:17:18.185Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"wedged-test"}
+{"ts":"2026-09-07T16:17:09.388Z","level":"warn","msg":"wire-authz: acting user not found — denying MCP wiring (fail-closed)","subsystem":"auth.extension-wire-authz","userId":"ghost"}
+{"ts":"2026-09-07T16:17:09.804Z","level":"warn","msg":"getOrCreateEzConversation failed","subsystem":"api.ez.conversation","userId":"u1","error":"Error: DB down"}
+
+ Test Files  549 passed (549)
+      Tests  7145 passed (7145)
+   Start at  12:16:32
+   Duration  37.99s (transform 118.87s, setup 333.39s, import 271.18s, tests 116.92s, environment 349.14s)
+

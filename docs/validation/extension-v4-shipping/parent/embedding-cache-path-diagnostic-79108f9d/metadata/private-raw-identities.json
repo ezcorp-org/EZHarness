@@ -1,0 +1,18 @@
+{
+  "diagnostic.json": {
+    "bytes": 1324,
+    "sha256": "be457098c4d372b2ae34d33b8a9a2613067990e611a5da1e0533dd5574f6747c"
+  },
+  "diagnostic.stderr.log": {
+    "bytes": 185,
+    "sha256": "58babea75bb1b06dfdbfb06fb561f1357760d0d8bcc4027d5f53faf87d56a937"
+  },
+  "exit.txt": {
+    "bytes": 43,
+    "sha256": "c89dfeaf97d0eb0df6f143959d2d4a2498220ce1562fc18483cfa437f833b321"
+  },
+  "image-identity.txt": {
+    "bytes": 134,
+    "sha256": "81a2f7251d9f7218dfaa94c378e1e70023ce45bff8e11e093aa150d30ec15581"
+  }
+}

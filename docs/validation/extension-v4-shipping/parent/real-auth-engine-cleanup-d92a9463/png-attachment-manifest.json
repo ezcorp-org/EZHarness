@@ -1,0 +1,245 @@
+{
+  "attachmentCount": 24,
+  "attachments": [
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-sidebar-720",
+      "pngPath": "png/firefox-01-extension-lifecycle-sidebar-720.png",
+      "pngSha256": "f9492a6ab06e990c5d72ca397c687322e62817e6fb49babdbe293641773c2814",
+      "pngBytes": 75644
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-review-desktop",
+      "pngPath": "png/firefox-02-extension-lifecycle-review-desktop.png",
+      "pngSha256": "c200f065c27cfcf8026c8ba1a5290c4c10a16eef66b2887477b018bc556ed61a",
+      "pngBytes": 115319
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-live-output",
+      "pngPath": "png/firefox-03-extension-lifecycle-live-output.png",
+      "pngSha256": "35092fbbed725e0bac2f63276dd86979cbc3ff566877399417d4fe890f3becb3",
+      "pngBytes": 116440
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-revoked-mention-list",
+      "pngPath": "png/firefox-04-extension-lifecycle-revoked-mention-list.png",
+      "pngSha256": "9bfd3d38e154f00c87bc89a7cfae9fabcff905edde352ecbc74a7430cba2159f",
+      "pngBytes": 125574
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-tool-selection-mobile",
+      "pngPath": "png/firefox-05-extension-lifecycle-tool-selection-mobile.png",
+      "pngSha256": "e472ce01611e658e37d66d2579fc13c117a71818f71965bbd7cfcfc3e34b4c0b",
+      "pngBytes": 71619
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-tool-selection-mobile-narrow",
+      "pngPath": "png/firefox-06-extension-lifecycle-tool-selection-mobile-narrow.png",
+      "pngSha256": "19818c8a049d9818233563e013931789efc1489710a1595b1b6840b74292c693",
+      "pngBytes": 69189
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-df68ffe9fa5baf1a8d66",
+      "label": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "pngPath": "png/firefox-07-extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "pngSha256": "ea8b3d660be46b2bbac5c233b1981c9f916e69fd1afae679ac15021cbc6b5ea0",
+      "pngBytes": 147181
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-aaefd1f2a169c7dae1b9",
+      "label": "extension-browser-build-diagnostics",
+      "pngPath": "png/firefox-08-extension-browser-build-diagnostics.png",
+      "pngSha256": "7d8442a34edfdba0ef63247f7d8ab05fb5c536dcb98541ddc533d6d817a976a3",
+      "pngBytes": 99033
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-aaefd1f2a169c7dae1b9",
+      "label": "extension-browser-repaired-output",
+      "pngPath": "png/firefox-09-extension-browser-repaired-output.png",
+      "pngSha256": "11d6293c3f71285312dfd056cbe2bd14b9188df7e2f2a6e30735ae607bb0d2f9",
+      "pngBytes": 93570
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-d6c626ca87c1066919c2",
+      "label": "extension-stale-tab-denial",
+      "pngPath": "png/firefox-10-extension-stale-tab-denial.png",
+      "pngSha256": "69f4ad343dbb98ffd0ef51d9e48110c0e8455c922bdb97482aec391c82c0150f",
+      "pngBytes": 97552
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-d6c626ca87c1066919c2",
+      "label": "extension-stale-tab-uninstall",
+      "pngPath": "png/firefox-11-extension-stale-tab-uninstall.png",
+      "pngSha256": "ef0a5b18a0ff2d1f4b8ff1422a2652f70c6ec301595f533966f9339c7bde9fe8",
+      "pngBytes": 96966
+    },
+    {
+      "engine": "firefox",
+      "rawArchive": "PRIVATE/firefox.blob.zip",
+      "rawArchiveSha256": "a9a48444241ec4e20bc5ecda990e2f2783b0b5d9fd8da3df0a7c95378d7a05a0",
+      "testId": "db4a13fe03d4d80301ff-d6c626ca87c1066919c2",
+      "label": "extension-stale-tab-uninstall-release",
+      "pngPath": "png/firefox-12-extension-stale-tab-uninstall-release.png",
+      "pngSha256": "e77b4ebf6fedeb4513727d4ee016d23bf85f233143ab68ddcad36aba5da5f686",
+      "pngBytes": 135309
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-sidebar-720",
+      "pngPath": "png/webkit-01-extension-lifecycle-sidebar-720.png",
+      "pngSha256": "786c579f2a0a24830f2fc4cbbea9e6b9da329f62cd1dfa1d69ae13570a524f7c",
+      "pngBytes": 73184
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-review-desktop",
+      "pngPath": "png/webkit-02-extension-lifecycle-review-desktop.png",
+      "pngSha256": "83811cc30f9f9bbd45a0806eb1bbc466b41d6d2cde43b99b6a649728b3746f50",
+      "pngBytes": 110035
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-live-output",
+      "pngPath": "png/webkit-03-extension-lifecycle-live-output.png",
+      "pngSha256": "ad90286145dae1715be8a2f91b80c8a990a09a1bab2dba7e50746ddd63ad15d7",
+      "pngBytes": 115445
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-revoked-mention-list",
+      "pngPath": "png/webkit-04-extension-lifecycle-revoked-mention-list.png",
+      "pngSha256": "7277834d38a8ddfef6e80c8bd7d9727efde665af230c411133d1a8b492c608b6",
+      "pngBytes": 129328
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-tool-selection-mobile",
+      "pngPath": "png/webkit-05-extension-lifecycle-tool-selection-mobile.png",
+      "pngSha256": "4777ca51c5997ac66d10f66c457e2028d1a49ce97d304b601f9e4d8a17578696",
+      "pngBytes": 71669
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-tool-selection-mobile-narrow",
+      "pngPath": "png/webkit-06-extension-lifecycle-tool-selection-mobile-narrow.png",
+      "pngSha256": "3f2c5a1f42edf0262bb587cfa7748cea357cce3dd532945cc141b60192c9a5ee",
+      "pngBytes": 69485
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-74ab874958621d2001d1",
+      "label": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "pngPath": "png/webkit-07-extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "pngSha256": "d831127cf6c01835869ec61d3e25c207221aa6daa8c4bee674adc576b5bcb580",
+      "pngBytes": 142225
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-35b4c8750ae9554a3081",
+      "label": "extension-browser-build-diagnostics",
+      "pngPath": "png/webkit-08-extension-browser-build-diagnostics.png",
+      "pngSha256": "b0cebd457eaf52a972febb9dca1bf04652e3034b9b67ff737feac45b1002863e",
+      "pngBytes": 96014
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-35b4c8750ae9554a3081",
+      "label": "extension-browser-repaired-output",
+      "pngPath": "png/webkit-09-extension-browser-repaired-output.png",
+      "pngSha256": "4d6532066e28e0e8c830bc62b7f5dc5de6d593613b4832ff53911d678d9f7060",
+      "pngBytes": 90700
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "label": "extension-stale-tab-denial",
+      "pngPath": "png/webkit-10-extension-stale-tab-denial.png",
+      "pngSha256": "2152350695dd9ffcdffc2bfaf2e59c2f135464a870be19b64971cd95176ace72",
+      "pngBytes": 94403
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "label": "extension-stale-tab-uninstall",
+      "pngPath": "png/webkit-11-extension-stale-tab-uninstall.png",
+      "pngSha256": "a84774821c8619bb8a0b2cef41d1dab51889448f48d2610a1a34ab14b5c049c9",
+      "pngBytes": 93401
+    },
+    {
+      "engine": "webkit",
+      "rawArchive": "PRIVATE/webkit.blob.zip",
+      "rawArchiveSha256": "c37f421042e0a6c04a260fbc0336e7f864e75a03c6d32ef098ccc5b4a2041950",
+      "testId": "db4a13fe03d4d80301ff-36e74d5a3877c52f8972",
+      "label": "extension-stale-tab-uninstall-release",
+      "pngPath": "png/webkit-12-extension-stale-tab-uninstall-release.png",
+      "pngSha256": "25004d01bc4651a0814c6157f3419550274b8d938e0b945ebf7c1eb57bc5b7cd",
+      "pngBytes": 134284
+    }
+  ]
+}

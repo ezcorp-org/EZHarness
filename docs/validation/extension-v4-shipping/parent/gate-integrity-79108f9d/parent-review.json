@@ -1,0 +1,10 @@
+{
+  "source_commit_sha": "79108f9deb128ffa9780a08530f0121273ddc5ef",
+  "base_commit_sha": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "exit": 1,
+  "old_findings": 83,
+  "new_findings": 83,
+  "unchanged_ordered_findings": true,
+  "old_only": [],
+  "new_only": []
+}

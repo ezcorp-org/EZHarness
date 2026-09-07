@@ -1,0 +1,12 @@
+$ bash scripts/test.sh
+--- FAIL: src/__tests__/production-image-lifecycle-launch.integration.test.ts ---
+(fail) long persistent state keeps the authenticated runner transport below the Unix-path limit [20983.31ms]
+
+
+================================
+  178 pass | 1 fail | 15 files
+================================
+
+Failed files:
+  - src/__tests__/production-image-lifecycle-launch.integration.test.ts
+error: script "test" exited with code 1

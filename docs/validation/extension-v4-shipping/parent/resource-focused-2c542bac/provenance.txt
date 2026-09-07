@@ -1,0 +1,6 @@
+head=2c542bace8f13c58eefa2db715fe54aab4111a62
+image=ezcorp:embedding-cache-final-2c542bace8f1
+app_uid=1001
+app_gid=100
+runner_uid=1001
+cycles=10

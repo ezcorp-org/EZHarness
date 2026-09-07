@@ -1,0 +1,24 @@
+{
+  "checked_utc": "2026-09-07T19:47:51.680464+00:00",
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "committed_and_frozen_inputs_verified": 23,
+  "raw_copies_verified": {
+    "outer-exit.txt": "exit.txt",
+    "stage-command-exits.tsv": "phases/command-exits.tsv",
+    "stage-cleanup-exits.tsv": "phases/exits.tsv",
+    "input.sha256": "input.sha256",
+    "input.sha256.verify.txt": "input.sha256.verify",
+    "provenance.txt": "provenance.txt",
+    "canonical-eight-input.sha256": "canonical-eight/input.sha256",
+    "canonical-eight-input.sha256.verify.txt": "canonical-eight/input.sha256.verify",
+    "controllers/outer-v2-controller.sh.txt": "frozen-inputs/controller.sh",
+    "controllers/inner-v2-controller.sh.txt": "canonical-eight/frozen-inputs/controller.sh",
+    "canonical-eight-no-new-residue.diff.txt": "boundary.canonical-eight.diff",
+    "independent-no-new-residue.diff.txt": "boundary.independent.diff",
+    "soak-no-new-residue.diff.txt": "boundary.soak.diff"
+  },
+  "owned_boundary_comparisons": 3,
+  "all_equal": true,
+  "stage_commands_zero": 3,
+  "full_resource_review": "../resource-soak-2c542bac/ (separately curated)"
+}

@@ -1,0 +1,12 @@
+{
+  "proof": "runtime-resources",
+  "phase": "before first cycle",
+  "failure_kind": "proc-fd-readlink-permission-denied",
+  "errno": "EACCES",
+  "path_template": "/proc/<owned-app-pid>/fd/0",
+  "command_exit": 1,
+  "app_log_exit": 0,
+  "owned_cleanup_exit": 0,
+  "verifier_cleanup_exit": 0,
+  "cycle_samples_accepted": 0
+}

@@ -1,0 +1,2 @@
+.cache/terra-shipping/parent/controller-launcher-quartet-controls-20260907T172933Z/run-controls.sh: line 19: syntax error near unexpected token `esac'
+.cache/terra-shipping/parent/controller-launcher-quartet-controls-20260907T172933Z/run-controls.sh: line 19: `    *) main_rc=1 ;;\n  esac'

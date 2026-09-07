@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# Final merged-candidate follow-up: canonical eight leaves, then independent
+# rootless-container and 30-minute R4 duration proof. This wrapper reuses the
+# reviewed eight-leaf controller instead of copying its image/source guards.
+set -euo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+reviewed_eight="$repo/.cache/terra-shipping/parent/final-merged-production-eight-v2.sh"
+source_sha=${1:?full final source SHA required}
+image=${2:?candidate image tag required}
+expected_docker_id=${3:?exact Docker image ID required}
+expected_podman_id=${4:?exact native Podman image ID required}
+expected_revision=${5:?exact image revision SHA required}
+receipt=${6:?new absolute receipt directory required}
+
+for value in "$source_sha" "$expected_revision"; do
+  [[ "$value" =~ ^[0-9a-f]{40}$ ]] || { echo "Expected a full source SHA" >&2; exit 64; }
+done
+canonical_image_id() {
+  local value="$1"
+  [[ "$value" =~ ^(sha256:)?[0-9a-f]{64}$ ]] || return 1
+  printf 'sha256:%s\n' "${value#sha256:}"
+}
+expected_docker_id=$(canonical_image_id "$expected_docker_id") || { echo "Expected a full sha256 Docker image ID" >&2; exit 64; }
+expected_podman_id=$(canonical_image_id "$expected_podman_id") || { echo "Expected a full sha256 native Podman image ID" >&2; exit 64; }
+[[ "$source_sha" == "$expected_revision" ]] || { echo "Final checkout and image source must match" >&2; exit 64; }
+[[ "$receipt" == /* && ! -e "$receipt" ]] || { echo "Receipt must be a new absolute directory" >&2; exit 64; }
+[[ -f "$reviewed_eight" ]] || { echo "Missing reviewed canonical-eight controller" >&2; exit 65; }
+
+if [[ "${EZ_FINAL_VALIDATION_LOCK_HELD:-}" != 1 ]]; then
+  exec flock --close "$repo/.cache/validation-heavy.lock" env EZ_FINAL_VALIDATION_LOCK_HELD=1 bash "$0" "$@"
+fi
+
+cd "$repo"
+observer_uid=$(id -u)
+app_gid=$(id -g)
+[[ "$observer_uid" == 1001 && "$app_gid" =~ ^[0-9]+$ ]] || { echo "Expected verifier UID 1001 and numeric primary GID" >&2; exit 65; }
+# Match the verifier group for strict /proc descriptor inspection, as CI does.
+umask 077
+mkdir -p "$receipt/frozen-inputs/source" "$receipt/phases"
+receipt=$(realpath "$receipt")
+started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+main_rc=65
+finish() {
+  local rc="$?" status_rc=0 write_rc=0
+  if [[ "$main_rc" -eq 65 || ( "$main_rc" -eq 0 && "$rc" -ne 0 ) ]]; then main_rc="$rc"; fi
+  git status --porcelain --untracked-files=all > "$receipt/status.terminal.txt" 2>/dev/null || status_rc=$?
+  [[ "$status_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$status_rc"; }
+  printf 'main_exit=%s\nfinished_utc=%s\n' "$main_rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$receipt/exit.txt" || write_rc=$?
+  [[ "$write_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$write_rc"; }
+  trap - EXIT
+  exit "$main_rc"
+}
+trap finish EXIT
+
+unset DOCKER_HOST DOCKER_CONTEXT CONTAINER_HOST CONTAINER_CONNECTION CONTAINER_CONNECTIONS_CONF PODMAN_HOST
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+wrapper_bin="$receipt/frozen-inputs/wrapperbin"
+mkdir -p "$wrapper_bin"
+cat > "$wrapper_bin/podman" <<'WRAPPER'
+#!/bin/sh
+exec /tmp/ez-audit-ci-conmon/podman --remote=false "$@"
+WRAPPER
+chmod 700 "$wrapper_bin/podman"
+cp /tmp/ez-audit-ci-conmon/podman "$receipt/frozen-inputs/pinned-podman.sh"
+cp /tmp/ez-audit-ci-conmon/conmon-2.2.1 "$receipt/frozen-inputs/conmon-2.2.1"
+export EZ_FINAL_PODMAN_WRAPPER_BIN="$wrapper_bin"
+export PATH="$wrapper_bin:$PATH"
+[[ "$(docker context show)" == default ]] || { echo "Docker default context is required" >&2; exit 65; }
+docker buildx inspect default | awk '/Driver:/ { found = ($2 == "docker") } END { exit !found }'
+
+assert_product_clean() {
+  local output
+  output=$(git status --porcelain --untracked-files=all -- . \
+    ':(exclude)docs/extension-v4-shipping-validation-report.md' \
+    ':(exclude)gates/shipping-root.md' \
+    ':(exclude)tasks/todo.md' \
+    ':(exclude)tasks/lessons.md' \
+    ':(exclude)docs/validation/extension-v4-shipping/parent/**') || return 1
+  [[ -z "$output" ]] || { printf '%s\n' "$output" >&2; return 1; }
+}
+assert_checkout_and_image() {
+  local docker_raw podman_raw docker_id podman_id docker_revision podman_revision
+  assert_product_clean || return 1
+  [[ "$(git rev-parse HEAD)" == "$source_sha" ]] || { echo "Checkout differs from final source" >&2; return 1; }
+  docker_raw=$(docker image inspect "$image" --format '{{.Id}}') || return 1
+  podman_raw=$(podman image inspect "$image" --format '{{.Id}}') || return 1
+  docker_id=$(canonical_image_id "$docker_raw") || return 1
+  podman_id=$(canonical_image_id "$podman_raw") || return 1
+  docker_revision=$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') || return 1
+  podman_revision=$(podman image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}') || return 1
+  [[ "$docker_id" == "$expected_docker_id" && "$podman_id" == "$expected_podman_id" && "$docker_id" == "$podman_id" ]] || { echo "Candidate image IDs changed" >&2; return 1; }
+  [[ "$docker_revision" == "$expected_revision" && "$podman_revision" == "$expected_revision" ]] || { echo "Candidate OCI revision changed" >&2; return 1; }
+  printf 'docker_id_raw=%s\ndocker_id=%s\npodman_id_raw=%s\npodman_id=%s\ndocker_revision=%s\npodman_revision=%s\n' \
+    "$docker_raw" "$docker_id" "$podman_raw" "$podman_id" "$docker_revision" "$podman_revision"
+}
+
+snapshot_owned_boundary() {
+  local output="$1" docker_snapshot podman_snapshot roots_snapshot runner_snapshot
+  mkdir -p "$(dirname "$output")" || return 1
+  docker_snapshot=$(mktemp "$receipt/phases/docker-boundary-XXXXXXXX") || return 1
+  podman_snapshot=$(mktemp "$receipt/phases/podman-boundary-XXXXXXXX") || { rm -f "$docker_snapshot"; return 1; }
+  roots_snapshot=$(mktemp "$receipt/phases/roots-boundary-XXXXXXXX") || { rm -f "$docker_snapshot" "$podman_snapshot"; return 1; }
+  runner_snapshot=$(mktemp "$receipt/phases/runners-boundary-XXXXXXXX") || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot"; return 1; }
+  docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' | sort > "$docker_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  podman ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' | sort > "$podman_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  find /tmp -mindepth 1 -maxdepth 1 \( -name 'ez-production-lifecycle-*' -o -name 'ez-container-runner-*' \) -printf '%f\n' | sort > "$roots_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  pgrep -af 'start-extension-runner-e2e\.sh|extension-runner' > "$runner_snapshot" || [[ "$?" -eq 1 ]] || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  {
+    printf '[docker-containers]\n'; cat "$docker_snapshot"
+    printf '[podman-containers]\n'; cat "$podman_snapshot"
+    printf '[temporary-roots]\n'; cat "$roots_snapshot"
+    printf '[runner-processes]\n'; cat "$runner_snapshot"
+  } > "$output" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot" || return 1
+}
+assert_no_owned_residue() {
+  local before="$1" after="$2" result="$3" diff_rc
+  [[ -f "$before" && -f "$after" ]] || return 1
+  if diff -u "$before" "$after" > "$result"; then
+    diff_rc=0
+  else
+    diff_rc=$?
+  fi
+  [[ "$diff_rc" -eq 0 || "$diff_rc" -eq 1 ]] || return "$diff_rc"
+  if grep -qE '^[+][^+]' "$result"; then
+    echo "New container, temporary root, or runner process remained after the phase" >&2
+    return 1
+  fi
+}
+record_phase() {
+  local name="$1" command_rc="$2" cleanup_rc="$3" app_log_rc="$4" verifier_cleanup_rc="$5"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$command_rc" "$app_log_rc" "$cleanup_rc" "$verifier_cleanup_rc" >> "$receipt/phases/exits.tsv"
+}
+require_launcher_quartet() {
+  local log="$1"
+  [[ -f "$log" ]] || { echo "Missing launcher receipt: $log" >&2; return 1; }
+  awk '
+    BEGIN { split("command_exit app_log_exit owned_cleanup_exit verifier_cleanup_exit", fields, " ") }
+    {
+      for (field_index in fields) {
+        field = fields[field_index]
+        prefix = field "="
+        if (index($0, prefix) == 1) {
+          counts[field]++
+          values[field] = substr($0, length(prefix) + 1)
+        }
+      }
+    }
+    END {
+      for (field_index in fields) {
+        field = fields[field_index]
+        if (counts[field] != 1 || values[field] !~ /^[0-9]+$/) exit 1
+      }
+      printf "%s\t%s\t%s\t%s\n", values[fields[1]], values[fields[2]], values[fields[3]], values[fields[4]]
+    }
+  ' "$log" || { echo "Incomplete launcher exit quartet: $log" >&2; return 1; }
+}
+
+assert_product_clean
+[[ "$(git rev-parse HEAD)" == "$source_sha" ]] || { echo "Checkout differs from final source" >&2; exit 65; }
+git show -s --format='commit=%H%ntree=%T%nparent=%P%ncommit_time=%cI%nsubject=%s' "$source_sha" > "$receipt/frozen-inputs/checkout-commit.txt"
+cp "$0" "$receipt/frozen-inputs/controller.sh"
+for input in \
+  "$reviewed_eight" \
+  scripts/verify-extension-container.sh scripts/verify-extension-container.ts \
+  scripts/verify-shipping-runtime-resources-soak.sh scripts/verify-shipping-runtime.sh \
+  scripts/verify-shipping-runtime-resources.ts scripts/verify-production-image-lifecycle.sh \
+  scripts/verify-shipping-embeddings.sh scripts/verify-shipping-embeddings.ts \
+  scripts/verify-shipping-embedding-log.ts scripts/lib/shipping-embedding-log-guard.ts \
+  scripts/start-extension-runner-e2e.sh scripts/lib/production-lifecycle-client.ts \
+  scripts/lib/shipping-runtime-helpers.ts scripts/lib/shipping-runtime-resource-config.ts \
+  scripts/lib/shipping-runtime-cycle-conversation.ts scripts/lib/shipping-runtime-resource-accounting.ts \
+  Dockerfile .dockerignore package.json bun.lock web/package.json web/bun.lock manifest.lock.json; do
+  relative="${input#"$repo/"}"
+  target="$receipt/frozen-inputs/source/$relative"
+  mkdir -p "$(dirname "$target")"
+  cp "$input" "$target"
+done
+sha256sum "$0" "$reviewed_eight" "$wrapper_bin/podman" \
+  /tmp/ez-audit-ci-conmon/podman /tmp/ez-audit-ci-conmon/conmon-2.2.1 \
+  scripts/verify-extension-container.sh scripts/verify-extension-container.ts \
+  scripts/verify-shipping-runtime-resources-soak.sh scripts/verify-shipping-runtime.sh \
+  scripts/verify-shipping-runtime-resources.ts scripts/verify-production-image-lifecycle.sh \
+  scripts/verify-shipping-embeddings.sh scripts/verify-shipping-embeddings.ts \
+  scripts/verify-shipping-embedding-log.ts scripts/lib/shipping-embedding-log-guard.ts \
+  scripts/start-extension-runner-e2e.sh scripts/lib/production-lifecycle-client.ts \
+  scripts/lib/shipping-runtime-helpers.ts scripts/lib/shipping-runtime-resource-config.ts \
+  scripts/lib/shipping-runtime-cycle-conversation.ts scripts/lib/shipping-runtime-resource-accounting.ts \
+  Dockerfile .dockerignore package.json bun.lock web/package.json web/bun.lock manifest.lock.json > "$receipt/input.sha256"
+printf 'phase\tcommand_exit\tapp_log_exit\towned_cleanup_exit\tverifier_cleanup_exit\n' > "$receipt/phases/exits.tsv"
+printf 'phase\tcommand_exit\n' > "$receipt/phases/command-exits.tsv"
+printf 'source=%s\nimage=%s\nexpected_docker_id=%s\nexpected_podman_id=%s\nexpected_revision=%s\nstarted_utc=%s\nindependent_boundary=rootless-native-podman-userns-keep-id-uid1000\nsoak_boundary=production-http-app-uid1001-verifier-primary-gid\nobserver_uid=%s\napp_uid=1001\napp_gid=%s\nrunner_uid=1001\nsoak_minimum_seconds=1800\nsoak_maximum_cycles=1440\nsoak_grace_seconds=600\nsoak_memory_bound=64MiB\n' \
+  "$source_sha" "$image" "$expected_docker_id" "$expected_podman_id" "$expected_revision" "$started" "$observer_uid" "$app_gid" > "$receipt/provenance.txt"
+assert_checkout_and_image > "$receipt/image-identity.before.txt"
+snapshot_owned_boundary "$receipt/boundary.before.txt"
+main_rc=0
+unset EZ_RUNTIME_RESOURCE_CYCLES EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS EZ_RUNTIME_RESOURCE_MAX_CYCLES EZ_RUNTIME_RESOURCE_SOAK_GRACE_SECONDS
+
+set +e
+EZ_RUNTIME_RESOURCE_CYCLES=10 EZ_FINAL_EIGHT_LOCK_HELD=1 bash "$reviewed_eight" "$source_sha" "$image" "$expected_docker_id" "$expected_podman_id" "$expected_revision" "$receipt/canonical-eight" > "$receipt/canonical-eight.outer.log" 2>&1
+canonical_rc=$?
+printf 'canonical-eight\t%s\n' "$canonical_rc" >> "$receipt/phases/command-exits.tsv"
+set -e
+snapshot_owned_boundary "$receipt/boundary.after-canonical-eight.txt"
+canonical_cleanup_rc=0
+assert_no_owned_residue "$receipt/boundary.before.txt" "$receipt/boundary.after-canonical-eight.txt" "$receipt/boundary.canonical-eight.diff" || canonical_cleanup_rc=$?
+record_phase canonical-eight "$canonical_rc" "$canonical_cleanup_rc" n/a n/a
+[[ "$canonical_rc" -eq 0 && "$canonical_cleanup_rc" -eq 0 ]] || main_rc=1
+
+if [[ "$main_rc" -eq 0 ]]; then
+  assert_checkout_and_image > "$receipt/image-identity.before-independent.txt"
+  snapshot_owned_boundary "$receipt/boundary.before-independent.txt"
+  mkdir -p "$receipt/independent"
+  set +e
+  bash scripts/verify-extension-container.sh "$image" > "$receipt/independent/command.log" 2>&1
+  independent_rc=$?
+  printf 'independent-container\t%s\n' "$independent_rc" >> "$receipt/phases/command-exits.tsv"
+  set -e
+  snapshot_owned_boundary "$receipt/boundary.after-independent.txt"
+  independent_cleanup_rc=0
+  assert_no_owned_residue "$receipt/boundary.before-independent.txt" "$receipt/boundary.after-independent.txt" "$receipt/boundary.independent.diff" || independent_cleanup_rc=$?
+  record_phase independent-container "$independent_rc" "$independent_cleanup_rc" n/a n/a
+  [[ "$independent_rc" -eq 0 && "$independent_cleanup_rc" -eq 0 ]] || main_rc=1
+
+  # The duration proof still runs if the independent boundary fails: both are
+  # required, and its result is useful evidence for the separate production HTTP path.
+  assert_checkout_and_image > "$receipt/image-identity.before-soak.txt"
+  snapshot_owned_boundary "$receipt/boundary.before-soak.txt"
+  mkdir -p "$receipt/soak/runtime"
+  unset EZ_RUNTIME_RESOURCE_CYCLES EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS EZ_RUNTIME_RESOURCE_MAX_CYCLES EZ_RUNTIME_RESOURCE_SOAK_GRACE_SECONDS
+  set +e
+  EZ_PRODUCTION_IMAGE="$image" EZ_PRODUCTION_RECEIPT_DIR="$receipt/soak/runtime" \
+  EZ_PRODUCTION_APP_UID=1001 EZ_PRODUCTION_APP_GID="$app_gid" EZ_PRODUCTION_RUNNER_APP_UID=1001 \
+  EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS=1800 EZ_RUNTIME_RESOURCE_MAX_CYCLES=1440 EZ_RUNTIME_RESOURCE_SOAK_GRACE_SECONDS=600 \
+  bash scripts/verify-shipping-runtime-resources-soak.sh > "$receipt/soak/outer.log" 2>&1
+  soak_rc=$?
+  printf 'runtime-resources-soak\t%s\n' "$soak_rc" >> "$receipt/phases/command-exits.tsv"
+  set -e
+  snapshot_owned_boundary "$receipt/boundary.after-soak.txt"
+  soak_cleanup_rc=0
+  assert_no_owned_residue "$receipt/boundary.before-soak.txt" "$receipt/boundary.after-soak.txt" "$receipt/boundary.soak.diff" || soak_cleanup_rc=$?
+  soak_quartet_rc=0
+  soak_quartet=$(require_launcher_quartet "$receipt/soak/runtime/command.log") || soak_quartet_rc=$?
+  if [[ "$soak_quartet_rc" -eq 0 ]]; then
+    read -r soak_command_exit soak_app_log_exit soak_owned_cleanup_exit soak_verifier_cleanup_exit <<< "$soak_quartet"
+    printf 'command_exit=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\nverifier_cleanup_exit=%s\n' \
+      "$soak_command_exit" "$soak_app_log_exit" "$soak_owned_cleanup_exit" "$soak_verifier_cleanup_exit" > "$receipt/soak/launcher-exits.txt"
+    [[ "$soak_command_exit" -eq 0 && "$soak_app_log_exit" -eq 0 && "$soak_owned_cleanup_exit" -eq 0 && "$soak_verifier_cleanup_exit" -eq 0 ]] || soak_quartet_rc=1
+  else
+    soak_app_log_exit=missing
+    soak_verifier_cleanup_exit=missing
+    printf 'launcher_quartet=missing\n' > "$receipt/soak/launcher-exits.txt"
+  fi
+  record_phase runtime-resources-soak "$soak_rc" "$soak_cleanup_rc" "${soak_app_log_exit:-missing}" "${soak_verifier_cleanup_exit:-missing}"
+  [[ "$soak_rc" -eq 0 && "$soak_cleanup_rc" -eq 0 && "$soak_quartet_rc" -eq 0 ]] || main_rc=1
+  [[ -f "$receipt/soak/runtime/r4-resource-samples.json" ]] || { echo "Missing R4 elapsed sample series" >&2; main_rc=1; }
+else
+  printf 'independent-container\tnot-run\tn/a\tn/a\tn/a\n' >> "$receipt/phases/exits.tsv"
+  printf 'runtime-resources-soak\tnot-run\tn/a\tn/a\tn/a\n' >> "$receipt/phases/exits.tsv"
+fi
+
+if ! sha256sum -c "$receipt/input.sha256" > "$receipt/input.sha256.verify" 2>&1; then main_rc=1; fi
+if ! assert_product_clean; then main_rc=1; fi
+[[ "$(git rev-parse HEAD)" == "$source_sha" ]] || main_rc=1
+git status --porcelain --untracked-files=all > "$receipt/status.after.txt"
+# Retain both reviewed Docker and native Podman image tags by design.
+exit "$main_rc"

@@ -1,0 +1,5 @@
+commit=2c542bace8f13c58eefa2db715fe54aab4111a62
+tree=f66603d69561df42bfdb237cb024aef8a351ee47
+parent=49e0a0befde5683c88ce888c43cd61a8f6177ae7
+commit_time=2026-09-07T14:05:46-04:00
+subject=test(memory): keep shell fixture variables explicit

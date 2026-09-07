@@ -1,0 +1,13 @@
+{
+  "originalControllerSource": "480f7c71 direct-engine cleanup rows",
+  "retainedOwnedFixtureRoots": 2,
+  "rootMarker": "PGlite directory",
+  "liveUsersAtObservation": 0,
+  "directRemoval": "rejected before execution by shell safety layer",
+  "rejectionReason": "rm -f style commands are not permitted. Use a safer approach.",
+  "alternative": "private allowlisted ownership-checked remover for only the two recorded roots",
+  "alternativeSourceSha256": "29018c2c95dcb549ab6593e5986fefd3a2effaea4e12b945a808bf8314ae3756",
+  "alternativeExit": 0,
+  "postRemovalAbsentCount": 2,
+  "rootNames": "private"
+}

@@ -1,0 +1,15 @@
+{
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "base_commit_sha": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "exit": 1,
+  "old_count": 83,
+  "new_count": 83,
+  "unchanged_ordered_findings": true,
+  "added": [],
+  "removed": [],
+  "raw_files_byte_equal": 3,
+  "gate_source_byte_equal_to_commit": true,
+  "raw_logs_byte_equal_to_both_prior_scopes": true,
+  "ordered_finding_count_verified": 83,
+  "published_ordered_findings_file_sha256": "51ffc980a10fa5f74f5156244e32a359b0d2dc05d131ae70c62dbd50189f3636"
+}

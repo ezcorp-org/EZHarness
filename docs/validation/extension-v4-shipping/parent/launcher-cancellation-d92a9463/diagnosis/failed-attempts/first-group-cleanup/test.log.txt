@@ -1,0 +1,57 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/production-image-lifecycle-launch.integration.test.ts:
+(pass) long persistent state keeps the authenticated runner transport below the Unix-path limit [1232.99ms]
+333 |       stdoutDrained,
+334 |       verifierAlive: await hasIdentity(observedVerifierPid, verifierIdentity!),
+335 |       verifierDescendantAlive: await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!),
+336 |     };
+337 |     const diagnostics = await launcherDiagnostics(fixture.receipt);
+338 |     expect(result, `${diagnostics}\n${dockerLog}`).toEqual({
+                                                         ^
+error: runner.log:
+
+command.log:
+setup_http=201
+login_http=not-needed
+key_http=201
+command_exit=1
+compose_started=1
+app_log_exit=0
+owned_cleanup_exit=0
+verifier_cleanup_exit=0
+
+container inspect lifecycle-launch-test-app
+network inspect lifecycle-launch-test_default
+image inspect lifecycle-launch-test --format image_id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}
+compose -p lifecycle-launch-test -f <temporary-run-root>/compose.yml up -d
+compose -p lifecycle-launch-test -f <temporary-run-root>/compose.yml logs --no-color
+compose -p lifecycle-launch-test -f <temporary-run-root>/compose.yml down --volumes --remove-orphans
+
+
+  {
+    "composeDown": true,
+    "launcherExit": 130,
+    "runnerAlive": false,
+-   "stderrDrained": true,
+-   "stdoutDrained": true,
+-   "verifierAlive": false,
+-   "verifierDescendantAlive": false,
++   "stderrDrained": false,
++   "stdoutDrained": false,
++   "verifierAlive": true,
++   "verifierDescendantAlive": true,
+  }
+
+- Expected  - 4
++ Received  + 4
+
+      at <anonymous> (<isolated-worktree>/src/__tests__/production-image-lifecycle-launch.integration.test.ts:338:52)
+(fail) launcher cancellation reaps its verifier and runner before streams drain [11494.21ms]
+(pass) launcher cancellation before verifier group readiness reaps its owned starter [1204.86ms]
+(pass) launcher preserves verifier and tee failure exits [2213.50ms]
+
+ 3 pass
+ 1 fail
+ 38 expect() calls
+Ran 4 tests across 1 file. [16.62s]

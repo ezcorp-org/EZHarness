@@ -1,0 +1,19 @@
+{
+  "first": {
+    "dimensions": 384,
+    "durationMs": 7371,
+    "norm": 0.9999999760164612,
+    "polls": 30,
+    "proof": "production-memory-embedding",
+    "status": "passed"
+  },
+  "scope": "The verifier proves stored vector dimensions, finite normalized norm, and ready health. It does not prove offline inference.",
+  "second": {
+    "dimensions": 384,
+    "durationMs": 284,
+    "norm": 0.9999999777457041,
+    "polls": 2,
+    "proof": "production-memory-embedding",
+    "status": "passed"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "source": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "private_files_verified": 8,
+  "safe_raw_files_byte_equal": 3,
+  "committed_inputs_byte_equal": 3,
+  "ordered_chromium_outcomes": 13,
+  "terminal_summary": "13 passed (3.5m)",
+  "launcher_exit_fields": {
+    "setup_http": "201",
+    "key_http": "201",
+    "runtime_events_idle_exit": "0",
+    "playwright_exit": "0",
+    "command_exit": "0",
+    "compose_started": "1",
+    "app_log_exit": "0",
+    "owned_cleanup_exit": "0",
+    "verifier_cleanup_exit": "0"
+  },
+  "screenshot_files_in_immutable_receipt": 0,
+  "retry_count_observable": false
+}

@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# Complete merged-source web/browser validation. WebKit is a separately owned,
+# pinned remote browser dependency. This controller verifies and records it but
+# never starts, stops, or removes it.
+set -euo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+lock="$repo/.cache/validation-heavy.lock"
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close "$lock" "$0" --locked "$@"
+fi
+shift
+expected_source=${1:?expected committed source SHA required}
+receipt=${2:?new absolute receipt directory required}
+[[ "$expected_source" =~ ^[0-9a-f]{40}$ ]] || exit 64
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 64
+
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+unset PI_E2E_REAL_DB_PATH EZCORP_DB_PATH EZCORP_JWT_SECRET EZCORP_SECRETS_DIR
+unset PW_TEST_CONNECT_WS_ENDPOINT PW_TEST_CONNECT_EXPOSE_NETWORK PW_TEST_CONNECT_HEADERS PI_E2E_REAL_BROWSER_PROJECTS
+cd "$repo"
+
+mkdir -p "$receipt/private-auth" "$receipt/frozen-inputs"
+receipt=$(realpath "$receipt")
+failed=0
+fixture_parent=''
+finish() {
+  local rc=$?
+  trap - EXIT INT TERM
+  if [[ -n "$fixture_parent" ]]; then
+    find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/fixture-roots.final.txt" 2>/dev/null || true
+    find "$fixture_parent" -mindepth 1 -maxdepth 1 -name '*.ezcorp.pid' -print | sort > "$receipt/fixture-sidecars.final.txt" 2>/dev/null || true
+  fi
+  printf '%s\n' "$rc" > "$receipt/controller.exit"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+  exit "$rc"
+}
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+
+assert_source_inputs() {
+  [[ "$(git rev-parse HEAD)" == "$expected_source" ]] || return 1
+  git diff --quiet HEAD -- .github Dockerfile .dockerignore package.json bun.lock manifest.lock.json src packages scripts web docs/extensions docs/development-lifecycle.md || return 1
+  git diff --cached --quiet HEAD -- .github Dockerfile .dockerignore package.json bun.lock manifest.lock.json src packages scripts web docs/extensions docs/development-lifecycle.md || return 1
+  local unexpected
+  unexpected=$(git ls-files --others --exclude-standard -- .github Dockerfile .dockerignore package.json bun.lock manifest.lock.json src packages scripts web docs/extensions docs/development-lifecycle.md)
+  [[ -z "$unexpected" ]]
+}
+assert_source_inputs || exit 66
+
+cp "${BASH_SOURCE[0]}" "$receipt/frozen-inputs/controller.sh.txt"
+sha256sum "$receipt/frozen-inputs/controller.sh.txt" > "$receipt/frozen-inputs/controller.sha256"
+git ls-tree -r "$expected_source" > "$receipt/source-tree.txt"
+git status --short > "$receipt/status.before.txt"
+printf 'source=%s\n' "$expected_source" > "$receipt/provenance.txt"
+printf 'bun=' >> "$receipt/provenance.txt"; bun --version >> "$receipt/provenance.txt"
+printf 'node=' >> "$receipt/provenance.txt"; node --version >> "$receipt/provenance.txt"
+printf 'conmon=%s\ncache=%s\n' "$CONMON" "$BUN_RUNTIME_TRANSPILER_CACHE_PATH" >> "$receipt/provenance.txt"
+: > "$receipt/results.tsv"
+fixture_parent=$(realpath "${TMPDIR:-/tmp}")
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/fixture-roots.before.txt"
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -name '*.ezcorp.pid' -print | sort > "$receipt/fixture-sidecars.before.txt"
+test ! -e web/e2e/.real-auth.json || exit 67
+
+last_rc=0
+run() {
+  local label=$1 start rc
+  shift
+  start=$(date +%s)
+  if "$@" > "$receipt/$label.log" 2>&1; then rc=0; else rc=$?; fi
+  last_rc=$rc
+  printf '%s\t%s\t%s\t%s\n' "$label" "$rc" "$(( $(date +%s) - start ))" "$(wc -l < "$receipt/$label.log")" >> "$receipt/results.tsv"
+  [[ "$rc" -eq 0 ]] || failed=1
+  return 0
+}
+
+snapshot_named_blob() {
+  local label=$1 blob=$2 destination
+  destination="$receipt/private-auth/$label"
+  mkdir -p "$destination" || return 1
+  [[ -f "$blob" ]] || return 1
+  cp "$blob" "$destination/$(basename "$blob")" || return 1
+  sha256sum "$destination/$(basename "$blob")" > "$destination/SHA256SUMS" || return 1
+}
+
+snapshot_capture_blobs() {
+  local destination="$receipt/private-auth/visual-capture" blob
+  mkdir -p "$destination" || return 1
+  while IFS= read -r -d '' blob; do
+    cp "$blob" "$destination/$(basename "$blob")" || return 1
+  done < <(find web/blob-report -maxdepth 1 -type f -name '*.zip' -print0 2>/dev/null)
+  find "$destination" -maxdepth 1 -type f -name '*.zip' -print0 | sort -z | xargs -0r sha256sum > "$destination/SHA256SUMS" || return 1
+  test -s "$destination/SHA256SUMS" || return 1
+}
+
+snapshot_visual_manifest() {
+  local destination="$receipt/private-auth/visual-capture"
+  mkdir -p "$destination" || return 1
+  cp web/blob-report/manifest.json "$destination/manifest.json" || return 1
+  sha256sum "$destination/manifest.json" >> "$destination/SHA256SUMS" || return 1
+}
+
+check_owned_cleanup() {
+  local label=$1
+  find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/fixture-roots.$label.txt" || return 1
+  find "$fixture_parent" -mindepth 1 -maxdepth 1 -name '*.ezcorp.pid' -print | sort > "$receipt/fixture-sidecars.$label.txt" || return 1
+  comm -13 "$receipt/fixture-roots.before.txt" "$receipt/fixture-roots.$label.txt" > "$receipt/fixture-roots.new.$label.txt" || return 1
+  comm -13 "$receipt/fixture-sidecars.before.txt" "$receipt/fixture-sidecars.$label.txt" > "$receipt/fixture-sidecars.new.$label.txt" || return 1
+  test ! -s "$receipt/fixture-roots.new.$label.txt" && test ! -s "$receipt/fixture-sidecars.new.$label.txt" && test ! -e web/e2e/.real-auth.json
+}
+
+preflight_webkit() {
+  local image='mcr.microsoft.com/playwright:v1.62.1-noble' ids id
+  podman --remote=false ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' > "$receipt/webkit-remote-container.before.txt" || return 1
+  ids=$(podman --remote=false ps --filter "ancestor=$image" --format '{{.ID}}') || return 1
+  [[ $(wc -w <<< "$ids") -eq 1 ]] || return 1
+  id=$ids
+  podman --remote=false inspect --format 'id={{.Id}} name={{.Name}} image={{.ImageName}} imageId={{.Image}} created={{.Created}} command={{json .Config.Cmd}}' "$id" > "$receipt/webkit-remote-container.identity.txt" || return 1
+  podman --remote=false image inspect --format 'id={{.Id}} repo={{.RepoTags}} created={{.Created}} os={{.Os}} arch={{.Architecture}}' "$image" > "$receipt/webkit-remote-image.identity.txt" || return 1
+  podman --remote=false top "$id" pid,args > "$receipt/webkit-remote-container.processes.txt" || return 1
+  curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3333/ > "$receipt/webkit-remote-browser-health.txt" || return 1
+  grep -qx 'Running' "$receipt/webkit-remote-browser-health.txt"
+}
+
+# Fail the prerequisite before any long lane. The current service is borrowed;
+# a missing service requires a separately reviewed owned-server controller.
+run webkit-prerequisite preflight_webkit
+[[ "$last_rc" -eq 0 ]] || exit "$last_rc"
+
+run runner-probe bash scripts/setup-extension-runner-ci.sh --probe
+run svelte-check bash -c 'cd web && bunx svelte-check --tsgo'
+run component-vitest bash -c 'cd web && bunx --bun vitest run'
+run web-bun bash scripts/test-web.sh
+run mock-gate bash -c '
+  mapfile -t args < <(bun scripts/e2e-lane-args.ts mock-gate)
+  ((${#args[@]})) || exit 64
+  cd web
+  CI=1 EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/mock-gate.blob.zip" bunx playwright test --project=chromium --output="$1/mock-gate-results" "${args[@]}"
+' _ "$receipt"
+run mock-gate-blob snapshot_named_blob mock-gate "$receipt/mock-gate.blob.zip"
+run fresh-setup env CI=1 EZCORP_E2E_EVIDENCE=1 PI_E2E_REAL_BROWSER_PROJECTS=chromium PLAYWRIGHT_BLOB_OUTPUT_FILE="$receipt/fresh-setup.blob.zip" bun scripts/run-real-e2e.ts fresh-setup
+run fresh-setup-blob snapshot_named_blob fresh-setup "$receipt/fresh-setup.blob.zip"
+run fresh-setup-cleanup check_owned_cleanup fresh-setup
+run real-auth-full env CI=1 EZCORP_E2E_EVIDENCE=1 PI_E2E_REAL_BROWSER_PROJECTS=chromium PLAYWRIGHT_BLOB_OUTPUT_FILE="$receipt/real-auth.blob.zip" bun scripts/run-real-e2e.ts real-auth
+run real-auth-blob snapshot_named_blob real-auth-full "$receipt/real-auth.blob.zip"
+run real-auth-cleanup check_owned_cleanup real-auth
+run visual-gate env BASE_REF=origin/main bun scripts/check-visual-evidence.ts
+run visual-selection bash -c 'BASE_REF=origin/main bun scripts/visual-evidence/select-specs.ts > "$1" && test -s "$1"' _ "$receipt/visual-selection.txt"
+run visual-capture bash -c 'CI=1 BASE_REF=origin/main bash scripts/visual-evidence/capture.sh "$1"' _ "$receipt/visual-selection.txt"
+run visual-capture-blobs snapshot_capture_blobs
+run visual-manifest env BASE_REF=origin/main EVIDENCE_SKIPPED=0 PR_NUMBER=246 HEAD_SHA="$expected_source" EVIDENCE_BLOB_DIR="$repo/web/blob-report" EVIDENCE_MANIFEST="$repo/web/blob-report/manifest.json" bun scripts/visual-evidence/build-manifest.ts
+run visual-manifest-copy snapshot_visual_manifest
+run visual-cleanup check_owned_cleanup visual
+
+run firefox-lifecycle bash -c '
+  cd web
+  CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=firefox EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/firefox-lifecycle.blob.zip" bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts --project=firefox --output="$1/firefox-lifecycle-results"
+' _ "$receipt"
+run firefox-lifecycle-blob snapshot_named_blob firefox-lifecycle "$receipt/firefox-lifecycle.blob.zip"
+run firefox-cleanup check_owned_cleanup firefox
+run webkit-lifecycle bash -c '
+  cd web
+  CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=webkit EZCORP_E2E_EVIDENCE=1 PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3333/ PW_TEST_CONNECT_EXPOSE_NETWORK="<loopback>" PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/webkit-lifecycle.blob.zip" bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts --project=webkit --output="$1/webkit-lifecycle-results"
+' _ "$receipt"
+run webkit-lifecycle-blob snapshot_named_blob webkit-lifecycle "$receipt/webkit-lifecycle.blob.zip"
+run webkit-cleanup check_owned_cleanup webkit
+podman --remote=false ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' > "$receipt/webkit-remote-container.after.txt" 2>&1
+
+run source-inputs-final assert_source_inputs
+git status --short > "$receipt/status.after.txt"
+exit "$failed"

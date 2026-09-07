@@ -1,0 +1,8 @@
+{
+  "indexed_files_checked": 31,
+  "raw_success_files_matched": 8,
+  "committed_source_copies_matched": 2,
+  "source_commit_sha": "79108f9deb128ffa9780a08530f0121273ddc5ef",
+  "original_timeout_cause": "not established",
+  "controlled_cancellation_defect": "verified repaired"
+}

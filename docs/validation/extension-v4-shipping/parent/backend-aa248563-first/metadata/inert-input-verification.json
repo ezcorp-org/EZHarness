@@ -1,0 +1,49 @@
+{
+  "private_receipt": ".cache/terra-shipping/parent/merged-backend-aa248563",
+  "all_retained_inputs_byte_match": true,
+  "retained_input_count": 7,
+  "retained_inputs": [
+    {
+      "private_receipt_path": "controller.sh.txt",
+      "saved_path": "controllers/outer-controller.sh.txt",
+      "sha256": "3d81252454159b55be3527925090ec8c331261d7c92713b8794e3b4f198de4b1",
+      "bytes": 2539
+    },
+    {
+      "private_receipt_path": "inputs/.cache/terra-shipping/backend/run-full-backend.sh.txt",
+      "saved_path": "controllers/backend-controller.sh.txt",
+      "sha256": "7fed3d6fb0fa9901924a3cd007b88b254062cb2c21c08c029891abf5888863bf",
+      "bytes": 2855
+    },
+    {
+      "private_receipt_path": "inputs/scripts/coverage-thresholds.json.txt",
+      "saved_path": "inputs/scripts/coverage-thresholds.json.txt",
+      "sha256": "bb69cba3f689f093f92df96a85accb8229aa3962e139e33286416917f2451efc",
+      "bytes": 35600
+    },
+    {
+      "private_receipt_path": "inputs/scripts/test-coverage.sh.txt",
+      "saved_path": "inputs/scripts/test-coverage.sh.txt",
+      "sha256": "dd2999a6f4d6f6e9e990adab07039a9147353b35f72d312693859ba87510ef4e",
+      "bytes": 79033
+    },
+    {
+      "private_receipt_path": "inputs/scripts/test.sh.txt",
+      "saved_path": "inputs/scripts/test.sh.txt",
+      "sha256": "048189c755f7a88bd0e84740fe834cdbbc867cbfcc1702d3fc08be7068416d8c",
+      "bytes": 10068
+    },
+    {
+      "private_receipt_path": "inputs/scripts/typecheck.sh.txt",
+      "saved_path": "inputs/scripts/typecheck.sh.txt",
+      "sha256": "eb31ecea7ca9505773017329cd10ad0997eefb5812162b1a736057d796001664",
+      "bytes": 1769
+    },
+    {
+      "private_receipt_path": "inputs/scripts/verify-shipping-embeddings.ts.txt",
+      "saved_path": "inputs/scripts/verify-shipping-embeddings.ts.txt",
+      "sha256": "ae5bbd48d61a4d9814ee7a18aa002b5d7e4741084917fa26b76a147500378ad9",
+      "bytes": 2084
+    }
+  ]
+}

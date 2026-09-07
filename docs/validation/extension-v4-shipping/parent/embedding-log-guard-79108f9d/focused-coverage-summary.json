@@ -1,0 +1,11 @@
+{
+  "command": "bun test ./scripts/verify-shipping-embedding-log.test.ts --coverage --coverage-reporter=lcov --coverage-dir=<private-dir>",
+  "terminalObservation": "5 pass, 0 fail, 22 expectations; console transcript was not retained",
+  "lcovPrivatePath": "/tmp/embedding-log-guard-coverage-usP3Bh/lcov.info",
+  "helperMetrics": {
+    "FNF": 8,
+    "FNH": 8,
+    "LF": 33,
+    "LH": 33
+  }
+}

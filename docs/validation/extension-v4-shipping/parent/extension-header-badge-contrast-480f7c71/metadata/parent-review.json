@@ -1,0 +1,13 @@
+{
+  "source_base": "480f7c71bc9e23839a6b526ccbfe453ea426ce17",
+  "tested_patch_matches_integrated_diff": true,
+  "inputs": {
+    "web/e2e/extension-deep-links.spec.ts": "913546acc47b2b54cf8978fa73200198e07dc8aff835a1cf5f1ceabf86ea04a4",
+    "web/src/routes/(app)/extensions/[id]/+page.svelte": "78a688a430f2085aabddd9e63e2e3590a25beb3a0da6933203ad2165bcf48528"
+  },
+  "actual_passed": 16,
+  "raw_blob_sha256": "1246beec435d04d9a5baee8f7362de7a5d77f67c66c775380b58a88a3132a227",
+  "png_attachments_verified": 10,
+  "opened_desktop_theme_images": 4,
+  "visual_finding": "Header badges and the security-violation notice are readable in both themes."
+}

@@ -1,0 +1,12 @@
+The two inert input copies are the exact final repair bytes tested in the isolated
+worktree. Their base commit was 480f7c71bc9e23839a6b526ccbfe453ea426ce17.
+They are not represented as the audit checkout's current d92a9463 source bytes:
+this receipt is a pre-integration evidence checkpoint for parent review.
+
+The source-hash files copied under results/ bind both successful runs to:
+- scripts/verify-production-image-lifecycle.sh: 8f0bf829d3bca4e9812df4ab081a6d1a8c7e7e920d07b3b35ad088eaa01198db
+- src/__tests__/production-image-lifecycle-launch.integration.test.ts: 7329da1e04b8f6b30fa1cfdd9f152adabb1e810f981fb91372db29b976028847
+
+Parent integration review: both inert input copies are byte-equal to the files
+committed as 79108f9deb128ffa9780a08530f0121273ddc5ef. Combined static checks
+pass on that exact integrated change. The isolated run base remains 480f7c71.

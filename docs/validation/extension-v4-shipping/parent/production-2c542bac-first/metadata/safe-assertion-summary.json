@@ -1,0 +1,33 @@
+{
+  "runtime_r1": {
+    "bootstrap_installations": 28,
+    "initial_pending": 28,
+    "maximum_pending": 28,
+    "terminal_operation_states": {
+      "verified": 28
+    }
+  },
+  "delivery_r2": {
+    "bootstrap_installations": 28,
+    "initial_pending": 28,
+    "maximum_pending": 28,
+    "terminal_operation_states": {
+      "verified": 28
+    }
+  },
+  "historical_upgrade": {
+    "upgrade_state_recorded": true,
+    "verification_catalog": "verified",
+    "verification_smoke": "passed",
+    "storage_sentinel_round_trip": true
+  },
+  "legacy_adoption": {
+    "adoption_state_recorded": true,
+    "legacy_source": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+    "candidate_source": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+    "runner_bootstrap_installations": 28,
+    "runner_terminal_operation_states": {
+      "verified": 28
+    }
+  }
+}

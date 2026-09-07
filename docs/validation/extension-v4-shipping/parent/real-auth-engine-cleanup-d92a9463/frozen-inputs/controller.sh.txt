@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Direct-engine real-auth cleanup proof. The config must own its default
+# PGlite root and receive SIGTERM so its fixture wrapper can clean it.
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+lock="$repo/.cache/validation-heavy.lock"
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close "$lock" "$0" --locked "$@"
+fi
+shift
+expected=${1:?expected committed source SHA required}
+receipt=${2:?new absolute receipt required}
+[[ "$expected" =~ ^[0-9a-f]{40}$ ]] || exit 64
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 64
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+unset PI_E2E_REAL_DB_PATH PI_E2E_REAL_DB_GENERATED PI_E2E_REAL_GENERATED_DB_PATH
+unset EZCORP_DB_PATH EZCORP_JWT_SECRET EZCORP_SECRETS_DIR
+unset PW_TEST_CONNECT_WS_ENDPOINT PW_TEST_CONNECT_EXPOSE_NETWORK PW_TEST_CONNECT_HEADERS PI_E2E_REAL_BROWSER_PROJECTS
+cd "$repo"
+assert_source() {
+  [[ "$(git rev-parse HEAD)" == "$expected" ]] || return 1
+  git diff --quiet HEAD -- .github Dockerfile package.json bun.lock src packages scripts web docs/extensions || return 1
+  git diff --cached --quiet HEAD -- .github Dockerfile package.json bun.lock src packages scripts web docs/extensions || return 1
+  [[ -z "$(git ls-files --others --exclude-standard -- .github Dockerfile package.json bun.lock src packages scripts web docs/extensions)" ]]
+}
+assert_source || exit 65
+mkdir -p "$receipt/frozen-inputs"
+receipt=$(realpath "$receipt")
+failed=0
+fixture_parent=$(realpath "${TMPDIR:-/tmp}")
+finish() {
+  local rc=$?
+  trap - EXIT INT TERM
+  printf '%s\n' "$rc" > "$receipt/controller.exit"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+  exit "$rc"
+}
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+printf 'source=%s\ntmpdir=%s\n' "$expected" "$fixture_parent" > "$receipt/provenance.txt"
+printf 'bun=' >> "$receipt/provenance.txt"; bun --version >> "$receipt/provenance.txt"
+printf 'node=' >> "$receipt/provenance.txt"; node --version >> "$receipt/provenance.txt"
+cp "${BASH_SOURCE[0]}" "$receipt/frozen-inputs/controller.sh.txt"
+for input in web/playwright.real.config.ts web/e2e/real-auth/extension-lifecycle-flow.spec.ts web/e2e/run-real-auth-fixture.sh web/e2e/real-auth-setup.ts web/e2e/real-auth-teardown.ts scripts/start-real-extension-preview.sh scripts/run-real-e2e.ts; do
+  cp "$input" "$receipt/frozen-inputs/${input//\//__}.txt"
+done
+sha256sum "$receipt/frozen-inputs"/* > "$receipt/frozen-inputs/SHA256SUMS"
+: > "$receipt/results.tsv"
+roots() { find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort; }
+sidecars() { find "$fixture_parent" -mindepth 1 -maxdepth 1 -name '*.ezcorp.pid' -print | sort; }
+roots > "$receipt/roots.before.txt"
+sidecars > "$receipt/sidecars.before.txt"
+test ! -e web/e2e/.real-auth.json || exit 66
+preflight_webkit() {
+  local image=mcr.microsoft.com/playwright:v1.62.1-noble id
+  podman --remote=false ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' > "$receipt/webkit.before.txt" || return 1
+  id=$(podman --remote=false ps --filter "ancestor=$image" --format '{{.ID}}') || return 1
+  [[ $(wc -w <<< "$id") -eq 1 ]] || return 1
+  podman --remote=false inspect --format 'id={{.Id}} name={{.Name}} image={{.ImageName}} imageId={{.Image}} created={{.Created}} command={{json .Config.Cmd}}' "$id" > "$receipt/webkit.identity.txt" || return 1
+  podman --remote=false top "$id" pid,args > "$receipt/webkit.processes.txt" || return 1
+  curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3333/ > "$receipt/webkit.health.txt" || return 1
+  grep -qx 'Running' "$receipt/webkit.health.txt" || return 1
+  return 0
+}
+run() {
+  local label=$1 started rc
+  shift
+  started=$(date +%s)
+  if "$@" > "$receipt/$label.log" 2>&1; then rc=0; else rc=$?; fi
+  printf '%s\t%s\t%s\n' "$label" "$rc" "$(( $(date +%s) - started ))" >> "$receipt/results.tsv"
+  [[ "$rc" -eq 0 ]] || failed=1
+  return 0
+}
+verify_cleanup() {
+  local label=$1
+  roots > "$receipt/roots.$label.txt" || return 1
+  sidecars > "$receipt/sidecars.$label.txt" || return 1
+  comm -13 "$receipt/roots.before.txt" "$receipt/roots.$label.txt" > "$receipt/roots.new.$label.txt" || return 1
+  comm -13 "$receipt/sidecars.before.txt" "$receipt/sidecars.$label.txt" > "$receipt/sidecars.new.$label.txt" || return 1
+  if [[ -s "$receipt/roots.new.$label.txt" || -s "$receipt/sidecars.new.$label.txt" || -e web/e2e/.real-auth.json ]]; then
+    return 1
+  fi
+  return 0
+}
+run webkit-prerequisite preflight_webkit
+[[ "$failed" -eq 0 ]] || exit 67
+run firefox bash -c 'cd web && CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=firefox EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/firefox.blob.zip" bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts --project=firefox --output="$1/firefox-results"' _ "$receipt"
+run firefox-cleanup verify_cleanup firefox
+run webkit bash -c 'cd web && CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=webkit EZCORP_E2E_EVIDENCE=1 PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3333/ PW_TEST_CONNECT_EXPOSE_NETWORK="<loopback>" PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/webkit.blob.zip" bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts --project=webkit --output="$1/webkit-results"' _ "$receipt"
+run webkit-cleanup verify_cleanup webkit
+run source-inputs-final assert_source
+exit "$failed"

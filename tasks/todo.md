@@ -282,3 +282,106 @@ Plan review: hosted Firefox and WebKit stop in global setup because it launches 
 
 
 Parent review at `0aa3567e`: the exact integrated controller exits 0. TCP and IPv6 positive/fault controls pass independently, all four type-check sections pass, all 59 authenticated cases and 10 authenticated visual cases pass with zero retries or reporter errors. Default fixture-root and saved-auth cleanup pass after each browser run and at controller exit. Parent verifies all eleven frozen inputs against committed source and opens eight selected visual images. No visibly clipped or unreadable control appears in those images. Safe evidence and final publication checks follow; earlier pending entries describe their recorded historical checkpoints.
+
+
+## Hosted embedding cache permissions — 2026-09-07
+
+- [x] Retain the final 8a47c37e CI result: every browser/static/backend check passes; production passes seven of eight leaves and fails the real persisted-embedding assertion.
+- [x] Identify the actual app error: EACCES creating the Transformers cache under packaged node_modules while running as UID 1001.
+- [x] Reproduce with the hosted runtime identity against the equivalent production image; independently confirm EACCES, the unchanged three-minute assertion, command exit 1 and successful owned cleanup.
+- [x] Repair the writable cache location and add meaningful regressions.
+- [ ] Independently check source, focused tests, built-server persisted vectors, app logs and owned cleanup; run affected complete checks.
+- [ ] Build and validate the repaired candidate, scan final evidence, push normally and check the resulting hosted jobs.
+
+Plan review: the three-minute assertion is valid. Dockerfile owns application files as the bun image user, but supported runtime execution can use the host UID for runner-socket access. A package-relative model cache therefore depends on installation-directory ownership. Terra owns the embedding repair and reproduction in isolation, with a separate read-only review of the pinned library options and existing cache-path contracts. Parent verifies the other seven hosted leaves and checks the final fix. No timeout relaxation or broad image permission change is planned.
+
+Parent review: the shared path helper removes a duplicated database default. Review adds relative-path, absent-HOME and external-Postgres boundaries, plus an explicit 100% coverage threshold for the new helper. The built-server proof must run as UID/GID 1001:1001 and retain cache bytes across a second server start. Controller review found and rejected a mode-sensitive comparison and a non-gating file-writability check before execution.
+
+
+## Merge latest main — 2026-09-07
+
+- [x] Fetch origin/main and the feature branch; main advanced from 537f074e to bd736438 (#248).
+- [x] Start the merge and preserve existing cache commits, private evidence and uncommitted report/task updates.
+- [x] Resolve all 39 conflicts by preserving v4 contracts and compatible main fixes; independently review automatic merges.
+- [x] Regenerate the manifest lock, run focused checks and typechecks, then complete the merge normally.
+- [ ] Freeze merged source and repeat complete backend, browser and production-image validation; finish the UID 1001 cache proof.
+- [ ] Scan reviewed evidence, push normally and verify hosted results at the merged head.
+
+Plan review: main's new commit changes 143 files across legacy extension types, memory queries, SDK scaffolds, browser fixtures and product UI. The pre-merge image build and complete backend run have not started. Four Terra owners resolve disjoint files in the shared merge checkout; the parent owns the merge index, lockfile, remaining conflicts and final validation. Existing passing receipts remain tied to their old source identities.
+
+Premerge review at index `048cfb25`: 36 focused files report 654 passes and one setup-cleanup failure. SDK build, lint/boundaries and regenerated source lock pass. All four typecheck sections expose a shared host-manifest type that lost version 4. The parent rejects this checkpoint, requests explicit host-v4 parity coverage, and requires setup cleanup to run even when terminal persistence fails. No merge commit or production build is claimed yet.
+
+Merge review: commit `aa248563` has parents `86017768` and latest main `bd736438`. Its tree exactly matches the passing second premerge index `aa18ac61`: 657 tests in 36 isolated files, all four typecheck sections, SDK build, lint/boundaries and source lock pass. Normal commit hooks pass with no source changes. Parent compares all existing lane memberships (none lost) and all 27 top-level host grant fields (none lost), then adds explicit compiled host-v4 parity assertions. Complete merged-source checks and the new production image remain pending.
+
+Full merged backend review: `aa248563` reports 26,028 passes and one failure across 1,563 shards. The isolated rerun also fails: the memory list omits a row owned through its conversation. Coverage thresholds, the 179-test residual set, new-file coverage and patch coverage pass, but the complete controller exits 1. Terra will restore the shared ownership predicate in the generic memory queries and verify direct-owner precedence, derived ownership, orphan denial and the admin view before the full rerun. This is a failed checkpoint, not a complete backend pass.
+
+The parent passes the initial query repair and all four typecheck sections. A separate Terra review finds that single-memory GET, PUT, PATCH and DELETE still reject a valid conversation-derived owner. The same owner must be able to use a listed memory. The next repair will apply the shared query predicate to item authorization and prove actual persisted changes and denied effects through real routes and PGlite before source freeze.
+
+Follow-up `da6bc4db` restores one ownership rule for list, search and item access. The parent verifies 45 backend cases (8 real PGlite integration cases and 37 H3 cases), 17 PATCH route cases and all four typecheck sections. Denied item requests preserve exact stored rows. Three authenticated browser cases pass with actual memory edit, exclusion, deletion and member denial; a first locator failure is retained. Parent screenshot review also finds and fixes pale memory badges in light mode, then opens the corrected light and dark images. A type-only `baseURL` annotation follows that focused browser run. The final ten-file static check passes types, lint/boundaries, manifest lock and whitespace; normal commit hooks pass. Complete backend validation now runs on the frozen committed source.
+
+Backend review at `da6bc4db`: parent verifies all 19 frozen inputs, 1,412 retained LCOV records, 26,034 coverage passes with no failures, 1,260 thresholds, 134 new-file checks and 394 patch-file checks. The separate residual run has 178 passes and one 20-second launcher timeout. Isolated, full residual and six concurrent replays all pass. The cause is not established. Commit `480f7c71` adds launcher failure logs without changing the timeout or launch behavior; the focused test (13 assertions), all 179 residual cases, all four typecheck sections and file lint pass. Full web/browser validation now follows on frozen `480f7c71`.
+
+## Final browser review and launcher cancellation — 2026-09-07
+
+- [x] Verify the full merged web/browser checkpoint and inspect its actual attachments and cleanup.
+- [x] Correct the observed light-theme extension header badge contrast; verify all three badge states in both themes through the existing browser fixture.
+- [x] Reproduce cancellation after an observed live verifier boundary; if it leaves owned children, repair launcher cleanup and prove actual process exit.
+- [ ] Integrate reviewed changes, run affected browser/residual/static checks, then build the final image and complete production validation.
+
+Plan review: the complete web run stays frozen at `480f7c71`. The parent opened the actual deep-link screenshot and found pale Verified text. Separate source review found that launcher cancellation does not explicitly stop its verifier process. Two Terra agents prepare bounded changes in isolated worktrees; cancellation is not identified as the cause of the earlier 20-second timeout. No deadline or coverage assertion is relaxed.
+
+Browser cleanup review at `480f7c71`: all 62 authenticated Chromium cases, 251 blocking mock cases, three fresh-setup cases and the visual selections pass without retries. Firefox passes all three lifecycle cases but leaves one new fixture-owned database root. Parent source comparison finds that the merge dropped the prior explicit `gracefulShutdown` setting, so Playwright kills the direct fixture wrapper before its EXIT cleanup. The full controller remains failed. Restore graceful termination and repeat the direct Firefox/WebKit paths, retaining the original failure and checking exact owned-path absence.
+
+Parent engine review at `d92a9463`: both direct lifecycle suites pass three cases with zero retries and zero reporter errors. All six controller rows and final source guard exit 0. Parent verifies seven committed inputs, both raw blobs and all 24 PNG attachment bytes, and opens four mobile/uninstall images. Each engine leaves no new default root, sidecar or saved auth file. The two known failed-run roots were separately recorded and removed after no-live-user checks.
+
+Parent final source review: launcher cancellation now stops its owned verifier group before runner and compose cleanup. The live cancellation and pre-ready cancellation controls pass, including a TERM-ignoring descendant, drained streams, and preserved verifier/tee failure exits. All 182 residual cases pass. The original 20-second timeout remains unexplained. Parent matches both final source hashes before integration. The extension header and warning repair passes 16 desktop/mobile cases; all four desktop theme images were opened. Combined static validation and a fresh production image follow.
+
+Final source freeze: `79108f9d` contains both reviewed UI files and both launcher files unchanged from their green receipts. The parent combined controller passes all eight rows, including all four typecheck sections. Normal commit hooks pass. Main remains `bd736438`, and the final ordered gate-integrity findings remain exactly 83. The new image build and UID 1001 cache proof now start against this committed source.
+
+
+## Final image app-log failure — 2026-09-07
+
+- [x] Build 79108f9d once and verify matching Docker/Podman image ID 4da2058f, UID 1001 stored vectors, read-only cache reuse and owned cleanup.
+- [x] Independently inspect actual app logs and reject the checkpoint's remaining package-cache EACCES warning.
+- [x] Attribute the unoptioned metadata request, repair its durable cache path, and verify the real library behavior.
+- [x] Add a permanent embedding app-log guard that fails on the retained error and preserves runtime failures.
+- [ ] Integrate reviewed repairs, validate affected code, rebuild, then finish production, resource and hosted checks.
+
+Plan review: the 79108f9d cache controller exits 0 and both stored-vector assertions pass (7,371 ms cold; 284 ms on the read-only cache). Each actual compose log still has one cache EACCES warning. The `app_log_exit` field proves log collection, not clean logs. Transformers' warning says “browser cache” for all cache backends; this image has browser caching disabled. The likely source is the library's preflight metadata request, which omits the per-call cache option. Two Terra agents independently check the library path and repair it; a third owns a permanent log guard. Historical image transfer passes independently and all images are retained. No full production run has started on the rejected image.
+
+Final repair review: `49e0a0be` integrates the metadata-cache and log-guard repair; `2c542bac` removes unnecessary shell fixture fallbacks without changing product behavior. Parent resolves the new test timer type and preserves primary/cleanup errors. Final state tests pass 14/35 expectations, embedding tests 14/806, token-cap tests 6/12, and log-guard tests 5/22. Helper coverage is exactly 33/33 lines and 8/8 functions. All four types, lint, boundaries, manifest and shell checks pass. Normal hooks pass. Parent verifies all seven committed source copies and rejects both real retained EACCES logs with the new guard. The new v4 image/cache controller adds a separate app_health_exit, and now builds the frozen 2c542bac source.
+
+Rebuilt image review: cache controller v4 passes on `2c542bac`, Docker/native Podman ID `c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95`. Parent verifies all 19 frozen inputs, both stored 384-value vectors, four unchanged cache files, eight read-only ownership rows and exact zero exit fields. Both actual app logs have zero error/fatal/EACCES matches; the first retains one expected model-init warning. All created state is absent. The canonical production wrapper starts at 18:14:50 UTC in the receipt whose historical name ends 1750Z; its actual provenance timestamp is authoritative.
+
+Parent in-progress production review: File Organizer passes all 13 ordered Chromium cases and all four launcher exit fields. Parent verifies eight raw file identities, three safe raw copies and three committed inputs. The immutable receipt has no screenshot or reporter archive, so no retry count or PNG result is claimed. Embeddings and R1 app-death recovery also exit 0; the same interrupted build reaches verified after its six-minute lease. Other production leaves and the independent/30-minute checks continue.
+
+## Local resource-observer identity — 2026-09-07
+
+- [x] Preserve the first final production result: seven leaves pass; resource inspection fails before cycle zero; every owned cleanup passes; independent and soak are not run.
+- [x] Prove the local reader/app group mismatch against the same live owned container; keep strict descriptor checks.
+- [x] Create separate private controller versions using the verifier primary group, as CI does; keep source and image unchanged.
+- [x] Pass the focused 10-cycle resource path, then repeat the full canonical/independent/30-minute chain.
+- [ ] Complete reviewed evidence, exact-index expanded scan, normal push and final-head hosted checks.
+
+Plan review: parent actual readlink receives EACCES at UID1001/GID100 and reads the same descriptor at UID1001/GID1001. The old private controller hard-coded app GID1001. CI and the standard runtime wrapper select id -g. New private v2 controllers use local GID100 and record it. No product change, permissive descriptor catch, or deadline increase is needed. The separate two-start cache proof remains scoped to UID/GID1001:1001.
+
+Focused resource repair review: all 10 cycles and 100 reconnects pass in 65,213 ms, with all four launcher fields 0. Parent verifies eleven exact raw copies, seven committed source inputs, all eleven full sample-to-summary mappings, worker and SSE cleanup, and memory growth 14,365,491 bytes below the unchanged 64 MiB bound. The complete v2 wrapper starts at 18:40:24 UTC in final-production-v2-2c542bac-20260907T184024Z; it records observer/app UID 1001 and primary GID 100. Source remains 2c542bac and image c0941c22.
+
+Canonical v2 parent review: all eight leaves pass by 19:03:05 UTC. Parent verifies all eleven launcher quartets, exact-once embedding runtime/log-guard zero fields, 39 frozen committed inputs, 13 ordered File Organizer outcomes, nine current-image app logs without error/fatal records, and 3,672 relation descriptor rows across all eleven short resource samples. The short canonical result is 10 cycles/100 reconnects in 65,599 ms with 10,066,329 bytes of maximum post-warm growth. Independent image verification then passes all eight checks and its no-new-residue comparison. The full 1800-second duration stage is active on the same source/image.
+
+
+Final local production review at `2c542bac`: the v2 outer chain completes at 19:33:39 UTC with all three command exits zero and all three owned-boundary comparisons equal. The complete 30-minute resource file contains 273 samples from 272 cycles and 2,720 reconnects. Parent checks all 100,350 relation descriptor rows, fixed runner FD count 24, zero retained workers/connections and maximum post-warm growth 52,848,230 bytes below 67,108,864. The full-file elapsed time is 1,803,347 ms. The console header says 1,803,391 ms but its line stops at 65,536 JSON bytes plus LF. Parent retains that incomplete copy, compares its exact prefix, and relies on the independently validated complete sample file. Eight reviewer controls pass; corruptions beyond the printed prefix are rejected. Replays do not establish a truncation cause. All 299 app-log lines are reviewed; one expected initialization warning remains, with no error/fatal record.
+
+## Final publication and hosted verification — 2026-09-07
+
+- [x] Verify the completed canonical, independent and 30-minute chain against the exact frozen source and image.
+- [x] Recheck remote refs; main is still bd736438 and the remote feature is still 8a47c37e.
+- [x] Finish evidence membership, checksum, local-link and mode review.
+- [ ] Scan the exact staged snapshot and all expanded archives with the pinned scanner; record every exit.
+- [ ] Commit the scanned index and push normally, with all hooks enabled.
+- [ ] Verify every hosted technical job against the new pushed head and retain safe results.
+
+Plan review: local product checks are complete. The next change publishes reviewed records and the existing source commits. The remote branch will receive a normal fast-forward push. The 83 migration-policy findings remain a maintainer decision; no policy exception or shipping approval is applied.
+
+
+Publication preflight review: all 28 new evidence folders have complete local checksum membership. The parent preserves two absolute historical hash receipts as inert text and normalizes inert file modes without changing their bytes. The private scanner is repaired to recognize neutral archive names from bounded headers. All 16 existing and six new classification controls pass; an actual pinned scan detects its synthetic positive only in the expanded member and accepts the clean control. The complete staged snapshot then passes with zero findings, scanner/controller/cleanup exits 0 and 7,445,289,360 expanded bytes across 15,943 payload members. The source and authored records have no whitespace errors; exact retained tool logs preserve 613 whitespace findings across 28 receipt files. Final receipt publication is followed by an exact updated-index scan, a normal commit and a normal push. Hosted results remain open.

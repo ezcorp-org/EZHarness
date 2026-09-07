@@ -1,0 +1,94 @@
+{
+  "cache-first-ownership-modes.tsv": {
+    "bytes": 334,
+    "sha256": "877f9f97a7f00b7e3ed98510582da62d4db1bc832ae14ccd9889e33f892f2d8d"
+  },
+  "cache-first-sha256.tsv": {
+    "bytes": 433,
+    "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+  },
+  "cache-first-uid1001-writable.txt": {
+    "bytes": 41,
+    "sha256": "bd1b4d4ed1e87a99e87b2b47a85f7078f7663b14ab3867a1fd952fd12b5adf6a"
+  },
+  "cache-read-only-ownership-modes.tsv": {
+    "bytes": 334,
+    "sha256": "b6e786c307f76aa4ee2244211d78fc71f028c6a91b0346e261999be82535fe00"
+  },
+  "cache-second-sha256.tsv": {
+    "bytes": 433,
+    "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+  },
+  "docker-build.log": {
+    "bytes": 208409,
+    "sha256": "fe212cd2846511707bc5322c01f0a5f9c754d99d31abd6bc8b1a44917c8da106"
+  },
+  "first/controller.log": {
+    "bytes": 533,
+    "sha256": "0a280d4fce8884520be2297f08b2c54c41e84d70c77b7edc8646dc5a7a757e21"
+  },
+  "first/embedding-log-guard.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "first/launcher-exits.txt": {
+    "bytes": 75,
+    "sha256": "532ad97161453af57c35615a3345e039cc7da7650aa1cecb2e42a4e4bb26d1e5"
+  },
+  "first/result.txt": {
+    "bytes": 142,
+    "sha256": "4fd7e4cd0cad0e1fb21154516df07ce61bbc6689034ad131ef0027720e2fa972"
+  },
+  "first/runtime/command.log": {
+    "bytes": 143,
+    "sha256": "cbc6e895da89b0484cb7d47419a801d82be1dc3b4f5487b6f1d8d867730b8327"
+  },
+  "first/runtime/compose.log": {
+    "bytes": 3900,
+    "sha256": "1d09af4984ccf289d5e9bde1546c815614589190b4581b11ddd86f70cd502420"
+  },
+  "first/runtime/runner.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "first/runtime/verification.log": {
+    "bytes": 130,
+    "sha256": "56eee1ebef51355df4cce1a628b7b002abdac4c755b129b56164c2cd88197d95"
+  },
+  "podman-load.log": {
+    "bytes": 3461,
+    "sha256": "a438c5eb123e0eb263898c4d6bb66032e4f5dc81ed6fa5142b5dac91516c57cc"
+  },
+  "second/controller.log": {
+    "bytes": 536,
+    "sha256": "e05269e25f6a45e576e9f9a5d597a1d7ada2d9021b0265e5142aba73db40d522"
+  },
+  "second/embedding-log-guard.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "second/launcher-exits.txt": {
+    "bytes": 75,
+    "sha256": "532ad97161453af57c35615a3345e039cc7da7650aa1cecb2e42a4e4bb26d1e5"
+  },
+  "second/result.txt": {
+    "bytes": 143,
+    "sha256": "3d9e3ed39a44b698b5a3e479000aee8ef611e31f248c091c2307bc13351e5f76"
+  },
+  "second/runtime/command.log": {
+    "bytes": 136,
+    "sha256": "4e6fec5415cdd64ee2aa73578acb750c1bc9cadc477f2acc5af92336eb47d60f"
+  },
+  "second/runtime/compose.log": {
+    "bytes": 13740,
+    "sha256": "7cbbe45eded9232110a0e345748b7c13ade212187e0550c8b3eb5145df09f5e9"
+  },
+  "second/runtime/runner.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "second/runtime/verification.log": {
+    "bytes": 127,
+    "sha256": "267773d06cc314d2f6946351b445ad5cb785aa5e04c8551be1e71ca17c8e2edb"
+  }
+}

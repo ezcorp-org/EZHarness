@@ -1,0 +1,54 @@
+{
+  "tests": [
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 2588
+    },
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 2119
+    },
+    {
+      "status": "passed",
+      "error_count": 0,
+      "duration": 1343
+    }
+  ],
+  "images": [
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/member-onboarding-handoff.png",
+      "sha256": "c4cbaf6b35d515eb9bdc431e1a41faad0fd18f3293187e8a538c5540d2eddbd4",
+      "bytes": 45564
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/member-chat-provider-handoff.png",
+      "sha256": "ab89f56062ec56c27fc67a4c3a6d11ae78b655a415f18ceedd7653f1789399b1",
+      "bytes": 63730
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/memory-owner-ui-edited-and-excluded-light.png",
+      "sha256": "9571e180ffa866ac09388620a83e3e2693acd5bb7bb1ed0021d270076e941938",
+      "bytes": 74896
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/memory-owner-ui-edited-and-excluded-dark.png",
+      "sha256": "c69b359c4737e3e3a9cd67ecbb1865f5503325bd011638afc9622e5ce719156d",
+      "bytes": 75102
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/memory-owner-ui-deleted.png",
+      "sha256": "6dfe04681bcb4608cc5e1f2a925a8811e5d335c928e6282cb0c2dcd738fdf2ec",
+      "bytes": 66459
+    },
+    {
+      "path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/parent-png/quickstart-provider-refreshed.png",
+      "sha256": "1d26d9384d5002a28d1ebb53e618187189c2c676cb69ebac94baffb57311bc03",
+      "bytes": 111499
+    }
+  ],
+  "blob_sha256": "a78be737b475acb5c717d66efa510c273065cc17f3e9431de6414f9df4e99c96",
+  "source_delta_after_run": "Only baseURL annotation widened from string to string | undefined; final static check pending.",
+  "cleanup_limit": "This focused controller records no before/after root inventory; complete final browser controller will check cleanup."
+}

@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import gzip, hashlib, json, shutil, stat, subprocess, sys, tarfile, zipfile, zlib
+from collections import deque
+from pathlib import Path, PurePosixPath
+from archive_expansion_config import CLASSIFICATION_BYTES, MAX_BYTES, MAX_MEMBERS, STREAM_CHUNK_BYTES, TAR_HEADER_BYTES
+
+def fail(message): raise ValueError(message)
+def safe_parts(name):
+ name=name.replace('\\','/')
+ path=PurePosixPath(name)
+ if path.is_absolute() or not path.parts or any(x in ('','.','..') or ':' in x for x in path.parts): fail(f'unsafe archive member path: {name!r}')
+ return path.parts
+def suffix_kind(name):
+ name=name.lower()
+ if name.endswith(('.tar.gz','.tgz')): return 'tar.gz'
+ if name.endswith('.tar'): return 'tar'
+ if name.endswith('.zip'): return 'zip'
+ if name.endswith('.gz'): return 'gz'
+ if name.endswith('.zst'): return 'zst'
+ return None
+
+def tar_header_valid(header):
+ if len(header)<TAR_HEADER_BYTES: return False
+ stored=header[148:156].rstrip(b'\0 ').strip()
+ if not stored: return False
+ try: expected=int(stored,8)
+ except ValueError: return False
+ actual=sum(header[:148])+sum(b' ' * 8)+sum(header[156:TAR_HEADER_BYTES])
+ return actual==expected
+
+def gzip_first_block(path):
+ with path.open('rb') as source: compressed=source.read(CLASSIFICATION_BYTES)
+ try: return zlib.decompressobj(16+zlib.MAX_WBITS).decompress(compressed,TAR_HEADER_BYTES)
+ except zlib.error: return b''
+
+def compressed_member_name(name, extension, fallback, compound_suffixes=()):
+ lowered=name.lower()
+ if lowered.endswith(extension) and not any(lowered.endswith(suffix) for suffix in compound_suffixes) and len(name)>len(extension): return name[:-len(extension)]
+ return fallback
+
+def archive_kind(path, name):
+ """Classify archive bytes from bounded headers before any extraction."""
+ with path.open('rb') as source: header=source.read(TAR_HEADER_BYTES)
+ if header.startswith((b'PK\x03\x04',b'PK\x05\x06',b'PK\x07\x08')): return 'zip'
+ if header.startswith(b'\x1f\x8b'):
+  return 'tar.gz' if tar_header_valid(gzip_first_block(path)) else 'gz'
+ if header.startswith(b'\x28\xb5\x2f\xfd'): return 'zst'
+ if header.startswith(b'BZh'): fail(f'unsupported bzip2 archive: {path.name!r}')
+ if header.startswith(b'\xfd7zXZ\x00'): fail(f'unsupported xz archive: {path.name!r}')
+ if header.startswith(b'7z\xbc\xaf\x27\x1c'): fail(f'unsupported 7z archive: {path.name!r}')
+ if header.startswith((b'Rar!\x1a\x07\x00',b'Rar!\x1a\x07\x01\x00')): fail(f'unsupported rar archive: {path.name!r}')
+ if tar_header_valid(header): return 'tar'
+ return suffix_kind(name)
+def read_payload(reader,totals):
+ payload=reader.read(MAX_BYTES-totals['bytes']+1)
+ if len(payload)>MAX_BYTES-totals['bytes']: fail('archive expansion limit exceeded')
+ return payload
+def check_header(name,totals):
+ totals['headers']+=1
+ if totals['headers']>MAX_MEMBERS: fail('archive header limit exceeded')
+ safe_parts(name)
+def target_for(root,serial,entry,parts):
+ target=root/f'archive-{serial:06d}'/f'member-{entry:06d}'/Path(*parts)
+ target.parent.mkdir(parents=True,exist_ok=True)
+ if root.resolve() not in target.resolve().parents: fail('archive extraction escaped scan root')
+ return target
+def register(queue,records,root,source,chain,member,serial,target,payload_sha256,payload_bytes,totals,hardlink_target=None):
+ totals['members']+=1; totals['bytes']+=payload_bytes; totals['entries']+=1
+ if totals['members']>MAX_MEMBERS or totals['bytes']>MAX_BYTES: fail('archive expansion limit exceeded')
+ record={'source':source,'archiveChain':chain,'member':'/'.join(safe_parts(member)),'expandedPath':str(target.relative_to(root)),'payloadSha256':payload_sha256,'payloadBytes':payload_bytes}
+ if hardlink_target is not None: record['hardlinkTarget']=hardlink_target
+ records.append(record)
+ detected=archive_kind(target,record['member'])
+ if detected: queue.append((target,source,chain+[record['member']],detected))
+def add(queue,records,root,source,chain,member,serial,payload,totals):
+ parts=safe_parts(member); target=target_for(root,serial,totals['entries']+1,parts)
+ target.write_bytes(payload)
+ digest=hashlib.sha256(payload).hexdigest()
+ register(queue,records,root,source,chain,member,serial,target,digest,len(payload),totals)
+ return target,digest,len(payload)
+def add_hardlink(queue,records,root,source,chain,member,link_target,serial,link_source,link_sha256,link_bytes,totals):
+ if link_bytes>MAX_BYTES-totals['bytes'] or totals['members']>=MAX_MEMBERS: fail('archive expansion limit exceeded')
+ parts=safe_parts(member); target=target_for(root,serial,totals['entries']+1,parts)
+ shutil.copyfile(link_source,target)
+ register(queue,records,root,source,chain,member,serial,target,link_sha256,link_bytes,totals,link_target)
+ return target,link_sha256,link_bytes
+def stream_add(queue,records,root,source,chain,member,serial,reader,totals):
+ parts=safe_parts(member); target=target_for(root,serial,totals['entries']+1,parts)
+ digest=hashlib.sha256(); payload_bytes=0
+ with target.open('xb') as output:
+  while True:
+   chunk=reader.read(STREAM_CHUNK_BYTES)
+   if not chunk: break
+   payload_bytes+=len(chunk)
+   if payload_bytes>MAX_BYTES-totals['bytes']: fail('archive expansion limit exceeded')
+   digest.update(chunk); output.write(chunk)
+ payload_sha256=digest.hexdigest()
+ register(queue,records,root,source,chain,member,serial,target,payload_sha256,payload_bytes,totals)
+ return target,payload_sha256,payload_bytes
+def expand(path,source,chain,archive_kind,root,queue,records,serial,totals):
+ parent_member=chain[-1] if chain else ''
+ if archive_kind=='gz':
+  with gzip.open(path,'rb') as reader: add(queue,records,root,source,chain,compressed_member_name(parent_member or path.name,'.gz','gzip-payload.bin',('.tar.gz','.tgz')),serial,read_payload(reader,totals),totals)
+  return
+ if archive_kind=='zst':
+  with subprocess.Popen(['zstd','--decompress','--stdout','--quiet','--',str(path)],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL) as process:
+   try: stream_add(queue,records,root,source,chain,compressed_member_name(parent_member or path.name,'.zst','zstd-payload.bin',('.tar.zst',)),serial,process.stdout,totals)
+   except BaseException:
+    process.kill(); process.wait(); raise
+   if process.wait()!=0: fail(f'corrupt zstd archive: {path.name!r}')
+  return
+ if archive_kind in ('tar','tar.gz'):
+  materialized={}
+  with tarfile.open(path,'r|gz' if archive_kind=='tar.gz' else 'r|') as archive:
+   for info in archive:
+    check_header(info.name,totals)
+    if info.isdir(): continue
+    member='/'.join(safe_parts(info.name))
+    if info.issym(): fail(f'symlink tar member: {info.name!r}')
+    if info.islnk():
+     link_target='/'.join(safe_parts(info.linkname))
+     linked=materialized.get(link_target)
+     if linked is None: fail(f'missing or forward tar hardlink target: {info.name!r} -> {info.linkname!r}')
+     add_hardlink(queue,records,root,source,chain,member,link_target,serial,*linked,totals)
+     continue
+    if not info.isreg(): fail(f'non-regular tar member: {info.name!r}')
+    reader=archive.extractfile(info)
+    if reader is None: fail(f'unreadable tar member: {member!r}')
+    target,payload_sha256,payload_bytes=add(queue,records,root,source,chain,member,serial,read_payload(reader,totals),totals)
+    materialized[member]=(target,payload_sha256,payload_bytes)
+  return
+ if archive_kind=='zip':
+  with zipfile.ZipFile(path) as archive:
+   if len(archive.infolist())>MAX_MEMBERS-totals['headers']: fail('archive header limit exceeded')
+   for info in archive.infolist():
+    check_header(info.filename,totals)
+    if info.is_dir(): continue
+    if stat.S_ISLNK(info.external_attr>>16): fail(f'symlink zip member: {info.filename!r}')
+    with archive.open(info) as reader: add(queue,records,root,source,chain,'/'.join(safe_parts(info.filename)),serial,read_payload(reader,totals),totals)
+  return
+ fail(f'unsupported archive: {path}')
+def main():
+ staged_root,receipt=map(Path,sys.argv[1:3]); validation=staged_root/'docs'/'validation'; output=staged_root/'expanded-validation-review'; output.mkdir(parents=True,exist_ok=True)
+ queue=deque()
+ for evidence in sorted(x for x in validation.glob('extension-v4*') if x.is_dir()):
+  for source in evidence.rglob('*'):
+   if source.is_file():
+    detected=archive_kind(source,source.name)
+    if detected: queue.append((source,str(source.relative_to(staged_root)),[],detected))
+ records=[]; totals={'members':0,'bytes':0,'entries':0,'headers':0}; serial=0
+ while queue:
+  path,source,chain,detected=queue.popleft(); serial+=1; expand(path,source,chain,detected,output,queue,records,serial,totals)
+ (receipt/'expanded-inputs.json').write_text(json.dumps({'archives':records,'memberCount':totals['members'],'headerCount':totals['headers'],'bytes':totals['bytes']},indent=2)+'\n')
+if __name__=='__main__': main()

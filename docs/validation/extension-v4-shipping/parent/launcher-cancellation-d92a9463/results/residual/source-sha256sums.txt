@@ -1,0 +1,2 @@
+8f0bf829d3bca4e9812df4ab081a6d1a8c7e7e920d07b3b35ad088eaa01198db  scripts/verify-production-image-lifecycle.sh
+7329da1e04b8f6b30fa1cfdd9f152adabb1e810f981fb91372db29b976028847  src/__tests__/production-image-lifecycle-launch.integration.test.ts

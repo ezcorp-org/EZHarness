@@ -1,0 +1,26 @@
+{
+  "reviewed_utc": "2026-09-07T19:50:47.446462+00:00",
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "committed_frozen_inputs_verified": 10,
+  "exact_raw_mapping": {
+    "samples/r4-resource-samples.json": "soak/runtime/r4-resource-samples.json",
+    "logs/observed-console-prefix.log.txt": "soak/runtime/verification.log",
+    "logs/soak-outer.log.txt": "soak/outer.log",
+    "logs/soak-runtime-command.log.txt": "soak/runtime/command.log",
+    "logs/soak-runtime-provenance.txt": "soak/runtime/provenance.txt",
+    "soak-launcher-exits.txt": "soak/launcher-exits.txt",
+    "input.sha256": "input.sha256",
+    "input.sha256.verify": "input.sha256.verify",
+    "phases-exits.tsv": "phases/exits.tsv",
+    "phases-command-exits.tsv": "phases/command-exits.tsv",
+    "provenance.txt": "provenance.txt",
+    "exit.txt": "exit.txt",
+    "review/parent-full-resource-review.json": "parent-full-resource-review.json",
+    "review/parent-soak-app-log-review.json": "parent-soak-app-log-review.json",
+    "inputs/final-wrapper-controller.sh.txt": "frozen-inputs/controller.sh",
+    "inputs/canonical-eight-driver.sh.txt": "canonical-eight/frozen-inputs/controller.sh"
+  },
+  "control_files_compared": 18,
+  "full_sample_review": "parent-full-resource-review.json",
+  "console_scope": "Observed exact prefix only; no tail claim and no established truncation cause."
+}

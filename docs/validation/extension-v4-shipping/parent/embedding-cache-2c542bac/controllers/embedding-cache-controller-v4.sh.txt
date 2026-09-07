@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# Build once and verify the committed production image under UID/GID 1001 twice.
+# The controller owns the shared validation lock; do not wrap it in another flock.
+set -euo pipefail
+
+repo_root="/home/dev/work/EZCorp/extension-v4-independent-audit"
+lock_path="$repo_root/.cache/validation-heavy.lock"
+
+if [[ "${1:-}" != "--locked" ]]; then
+  expected_commit="${1:?exact committed merge SHA required}"
+  receipt="${2:?new absolute receipt directory required}"
+  [[ "$receipt" == /* && ! -e "$receipt" ]] || {
+    echo "receipt must be a new absolute path" >&2
+    exit 2
+  }
+  exec flock --close "$lock_path" bash "$0" --locked "$expected_commit" "$receipt"
+fi
+
+expected_commit="${2:?exact committed merge SHA required}"
+receipt="${3:?new absolute receipt directory required}"
+[[ "$receipt" == /* && ! -e "$receipt" ]] || {
+  echo "receipt must be a new absolute path" >&2
+  exit 2
+}
+
+unset DOCKER_HOST DOCKER_CONTEXT CONTAINER_HOST PODMAN_HOST CONTAINER_CONNECTIONS_CONF
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+export PATH="/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH"
+export CONMON="/tmp/ez-audit-ci-conmon"
+
+state=""
+cache=""
+started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+main_rc=1
+cleanup_rc=0
+
+is_allowed_dirty_path() {
+  case "$1" in
+    docs/extension-v4-shipping-validation-report.md|tasks/todo.md|tasks/lessons.md|gates/shipping-root.md|docs/validation/extension-v4-shipping/parent/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+assert_source_tree() {
+  [[ "$(git -C "$repo_root" rev-parse HEAD)" == "$expected_commit" ]]
+  local status path
+  while IFS= read -r status; do
+    path="${status:3}"
+    # Rename/copy records make a source and destination visible in porcelain;
+    # reject them unless the line itself is a named allowed path.
+    is_allowed_dirty_path "$path" || {
+      printf 'unexpected tracked or untracked source input: %s\n' "$status" >&2
+      return 1
+    }
+  done < <(git -C "$repo_root" status --porcelain=v1 --untracked-files=all)
+}
+
+assert_engine_routes() {
+  [[ "$(docker context show)" == "default" ]]
+  docker context inspect default > "$receipt/docker-context-default.json"
+  [[ "$(docker context inspect default --format '{{(index .Endpoints "docker").Host}}')" == "unix:///var/run/docker.sock" ]]
+  docker buildx inspect default > "$receipt/docker-buildx-default.txt"
+  grep -Eq '^[[:space:]]*Driver:[[:space:]]*docker[[:space:]]*$' "$receipt/docker-buildx-default.txt"
+  docker info --format 'root={{.DockerRootDir}} server={{.ServerVersion}}' > "$receipt/docker-info.txt"
+  podman --remote=false info --format 'root={{.Store.GraphRoot}} version={{.Version.Version}} remote={{.Host.RemoteSocket.Exists}}' > "$receipt/podman-info.txt"
+}
+
+freeze_inputs() {
+  local input
+  mkdir -p "$receipt/inputs"
+  cp "$0" "$receipt/controller.sh.txt"
+  printf '%s\n' "$expected_commit" > "$receipt/source-commit.txt"
+  git -C "$repo_root" rev-parse "$expected_commit^{tree}" > "$receipt/source-tree.txt"
+  git -C "$repo_root" status --porcelain=v1 --untracked-files=all > "$receipt/source-status.txt"
+  for input in \
+    Dockerfile .dockerignore package.json bun.lock manifest.lock.json \
+    web/package.json web/bun.lock \
+    src/db/data-path.ts src/db/connection.ts src/memory/embeddings.ts \
+    src/__tests__/db-data-path.test.ts src/__tests__/memory-embeddings-state.test.ts \
+    scripts/verify-production-image-lifecycle.sh scripts/verify-shipping-embeddings.ts \
+    scripts/verify-shipping-embedding-log.ts scripts/lib/shipping-embedding-log-guard.ts \
+    scripts/start-extension-runner-e2e.sh scripts/lib/production-lifecycle-client.ts \
+    docs/extensions/examples/README.md; do
+    mkdir -p "$receipt/inputs/$(dirname "$input")"
+    cp "$repo_root/$input" "$receipt/inputs/$input.txt"
+    (cd "$repo_root" && sha256sum "$input") >> "$receipt/input-hashes.sha256"
+  done
+  # The complete committed tree plus the clean-input guard protects every
+  # Docker build-context file, including all extension examples.
+  git -C "$repo_root" ls-tree -r "$expected_commit" > "$receipt/source-tree-list.txt"
+}
+
+assert_frozen_drivers() {
+  (cd "$repo_root" && sha256sum --check "$receipt/input-hashes.sha256")
+}
+
+record_retained_images() {
+  {
+    printf 'docker\n'
+    docker image inspect "$image" --format 'id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}} user={{.Config.User}}'
+    printf 'podman\n'
+    podman --remote=false image inspect "$image" --format 'id={{.Id}} revision={{index .Labels "org.opencontainers.image.revision"}} user={{.Config.User}}'
+  } > "$receipt/retained-images.txt"
+}
+
+finish() {
+  local trapped_rc="$1" final_rc
+  set +e
+  if [[ -n "$cache" && -d "$cache" ]]; then
+    chmod -R u+rwX "$cache" || cleanup_rc=1
+  fi
+  if [[ -n "$state" && -e "$state" ]]; then
+    rm -rf "$state" || cleanup_rc=1
+  fi
+  if [[ -n "${image:-}" ]]; then record_retained_images || cleanup_rc=1; fi
+  final_rc="$trapped_rc"
+  if [[ "$final_rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then final_rc="$cleanup_rc"; fi
+  if ! printf 'started_at=%s\nfinished_at=%s\nmain_exit=%s\ncleanup_exit=%s\nfinal_exit=%s\n' \
+    "$started_at" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$trapped_rc" "$cleanup_rc" "$final_rc" > "$receipt/exit.txt"; then
+    final_rc=1
+  fi
+  trap - EXIT
+  exit "$final_rc"
+}
+
+mkdir "$receipt"
+trap 'rc=$?; finish "$rc"' EXIT
+
+assert_source_tree
+assert_engine_routes
+freeze_inputs
+printf 'started_at=%s\ncontroller_sha256=%s\n' "$started_at" "$(sha256sum "$0" | awk '{print $1}')" > "$receipt/provenance.txt"
+
+short_commit="${expected_commit:0:12}"
+image="ezcorp:embedding-cache-final-${short_commit}"
+created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+assert_frozen_drivers
+(
+  cd "$repo_root"
+  BUILDX_BUILDER=default docker build --load \
+    --build-arg VERSION="embedding-cache-final-${short_commit}" \
+    --build-arg REVISION="$expected_commit" \
+    --build-arg CREATED="$created_at" \
+    -t "$image" .
+) > "$receipt/docker-build.log" 2>&1
+
+docker_id="$(docker image inspect "$image" --format '{{.Id}}')"
+docker_revision="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+[[ "$docker_revision" == "$expected_commit" ]]
+docker save "$image" | podman --remote=false load > "$receipt/podman-load.log" 2>&1
+podman_id="$(podman --remote=false image inspect "$image" --format '{{.Id}}')"
+podman_revision="$(podman --remote=false image inspect "$image" --format '{{index .Labels "org.opencontainers.image.revision"}}')"
+[[ "$podman_revision" == "$expected_commit" ]]
+[[ "${docker_id#sha256:}" == "${podman_id#sha256:}" ]]
+printf 'image=%s\ndocker_image_id=%s\npodman_image_id=%s\nimage_revision=%s\n' \
+  "$image" "$docker_id" "$podman_id" "$docker_revision" >> "$receipt/provenance.txt"
+
+state="$receipt/runtime-state"
+mkdir "$state"
+
+assert_runtime_absent() {
+  local project="$1" container="$2"
+  if docker container inspect "$container" >/dev/null 2>&1; then return 1; fi
+  if docker network inspect "${project}_default" >/dev/null 2>&1; then return 1; fi
+  return 0
+}
+
+snapshot_owned_boundary() {
+  local output="$1" docker_snapshot podman_snapshot roots_snapshot runner_snapshot
+  docker_snapshot=$(mktemp "$receipt/boundary-docker-XXXXXXXX") || return 1
+  podman_snapshot=$(mktemp "$receipt/boundary-podman-XXXXXXXX") || { rm -f "$docker_snapshot"; return 1; }
+  roots_snapshot=$(mktemp "$receipt/boundary-roots-XXXXXXXX") || { rm -f "$docker_snapshot" "$podman_snapshot"; return 1; }
+  runner_snapshot=$(mktemp "$receipt/boundary-runners-XXXXXXXX") || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot"; return 1; }
+  docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' | sort > "$docker_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  podman --remote=false ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' | sort > "$podman_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  find /tmp -mindepth 1 -maxdepth 1 \( -name 'ez-production-lifecycle-*' -o -name 'ez-container-runner-*' \) -printf '%f\n' | sort > "$roots_snapshot" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  pgrep -af 'start-extension-runner-e2e\.sh|extension-runner' > "$runner_snapshot" || [[ "$?" -eq 1 ]] || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  {
+    printf '[docker-containers]\n'; cat "$docker_snapshot"
+    printf '[podman-containers]\n'; cat "$podman_snapshot"
+    printf '[temporary-roots]\n'; cat "$roots_snapshot"
+    printf '[runner-processes]\n'; cat "$runner_snapshot"
+  } > "$output" || { rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot"; return 1; }
+  rm -f "$docker_snapshot" "$podman_snapshot" "$roots_snapshot" "$runner_snapshot" || return 1
+}
+
+assert_no_owned_residue() {
+  local before="$1" after="$2" diff_file="$3" diff_rc
+  [[ -f "$before" && -f "$after" ]] || return 1
+  if diff -u "$before" "$after" > "$diff_file"; then diff_rc=0; else diff_rc=$?; fi
+  [[ "$diff_rc" -eq 0 || "$diff_rc" -eq 1 ]] || return "$diff_rc"
+  ! grep -qE '^[+][^+]' "$diff_file"
+}
+
+require_launcher_quartet() {
+  local log="$1"
+  [[ -f "$log" ]] || { echo "Missing launcher receipt: $log" >&2; return 1; }
+  awk '
+    BEGIN { split("command_exit app_log_exit owned_cleanup_exit verifier_cleanup_exit", fields, " ") }
+    {
+      for (field_index in fields) {
+        field = fields[field_index]
+        prefix = field "="
+        if (index($0, prefix) == 1) { counts[field]++; values[field] = substr($0, length(prefix) + 1) }
+      }
+    }
+    END {
+      for (field_index in fields) { field = fields[field_index]; if (counts[field] != 1 || values[field] !~ /^[0-9]+$/) exit 1 }
+      printf "%s\t%s\t%s\t%s\n", values[fields[1]], values[fields[2]], values[fields[3]], values[fields[4]]
+    }
+  ' "$log" || { echo "Incomplete launcher exit quartet: $log" >&2; return 1; }
+}
+
+run_verifier() {
+  local phase="$1" port="$2" project="$3" container="$4" rc phase_started boundary_rc quartet_rc quartet
+  phase_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir "$receipt/$phase"
+  assert_source_tree
+  assert_frozen_drivers
+  snapshot_owned_boundary "$receipt/$phase/boundary.before.txt"
+  set +e
+  (
+    cd "$repo_root"
+    env \
+      EZ_PRODUCTION_IMAGE="$image" \
+      EZ_PRODUCTION_APP_UID=1001 EZ_PRODUCTION_APP_GID=1001 EZ_PRODUCTION_RUNNER_APP_UID=1001 \
+      EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_COMPOSE_PROJECT="$project" EZ_PRODUCTION_APP_CONTAINER="$container" \
+      EZ_PRODUCTION_STATE_DIR="$state" EZ_PRODUCTION_RECEIPT_DIR="$receipt/$phase/runtime" \
+      bash scripts/verify-production-image-lifecycle.sh -- bun scripts/verify-shipping-embeddings.ts
+  ) > "$receipt/$phase/controller.log" 2>&1
+  rc=$?
+  app_health_exit=0
+  (
+    cd "$repo_root"
+    bun scripts/verify-shipping-embedding-log.ts "$receipt/$phase/runtime/compose.log"
+  ) > "$receipt/$phase/embedding-log-guard.log" 2>&1
+  app_health_exit=$?
+  set -e
+  snapshot_owned_boundary "$receipt/$phase/boundary.after.txt"
+  boundary_rc=0
+  assert_no_owned_residue "$receipt/$phase/boundary.before.txt" "$receipt/$phase/boundary.after.txt" "$receipt/$phase/boundary.diff" || boundary_rc=$?
+  quartet_rc=0
+  quartet=$(require_launcher_quartet "$receipt/$phase/runtime/command.log") || quartet_rc=$?
+  if [[ "$quartet_rc" -eq 0 ]]; then
+    read -r command_exit app_log_exit owned_cleanup_exit verifier_cleanup_exit <<< "$quartet"
+    printf 'command_exit=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\nverifier_cleanup_exit=%s\n' \
+      "$command_exit" "$app_log_exit" "$owned_cleanup_exit" "$verifier_cleanup_exit" > "$receipt/$phase/launcher-exits.txt"
+    [[ "$command_exit" -eq 0 && "$app_log_exit" -eq 0 && "$owned_cleanup_exit" -eq 0 && "$verifier_cleanup_exit" -eq 0 ]] || quartet_rc=1
+  else
+    printf 'launcher_quartet=missing\n' > "$receipt/$phase/launcher-exits.txt"
+  fi
+  printf 'phase=%s\nstarted_at=%s\nfinished_at=%s\nexit=%s\napp_health_exit=%s\nboundary_exit=%s\nlauncher_quartet_exit=%s\n' \
+    "$phase" "$phase_started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$rc" "$app_health_exit" "$boundary_rc" "$quartet_rc" > "$receipt/$phase/result.txt"
+  [[ "$rc" -eq 0 && "$app_health_exit" -eq 0 && "$boundary_rc" -eq 0 && "$quartet_rc" -eq 0 ]] || return 1
+  assert_runtime_absent "$project" "$container"
+}
+
+run_verifier first 4299 "ezcorp-embedding-final-${short_commit}-first" "ezcorp-embedding-final-${short_commit}-first-app"
+cache="$state/app-data/embedding-model-cache"
+test -d "$cache"
+find "$cache" -printf '%P\t%U:%G\t%m\n' | sort > "$receipt/cache-first-ownership-modes.tsv"
+awk -F '\t' '$2 != "1001:1001" { exit 1 }' "$receipt/cache-first-ownership-modes.tsv"
+(cd "$cache" && find . -type f -size +0 -print0 | sort -z | xargs -0 -r sha256sum) > "$receipt/cache-first-sha256.tsv"
+test -s "$receipt/cache-first-sha256.tsv"
+
+docker run --rm --user 1001:1001 -v "$state/app-data:/app/data" --entrypoint bun "$image" -e '
+  import { access, constants, stat } from "node:fs/promises";
+  import { join } from "node:path";
+  const cache = "/app/data/embedding-model-cache";
+  let packageWritable = true;
+  try { await access("/app/web/node_modules/@huggingface/transformers", constants.W_OK); } catch { packageWritable = false; }
+  if (packageWritable) throw new Error("installation package directory is writable by UID 1001");
+  const entries = ["", ...new Bun.Glob("**/*").scanSync({ cwd: cache, onlyFiles: true })];
+  if (entries.length === 1) throw new Error("embedding cache has no files");
+  for (const relative of entries) {
+    const path = relative ? join(cache, relative) : cache;
+    const metadata = await stat(path);
+    if (metadata.uid !== 1001 || metadata.gid !== 1001) throw new Error(`unexpected cache owner: ${relative || "."}`);
+    await access(path, constants.W_OK);
+  }
+  console.log(JSON.stringify({ cacheFiles: entries.length - 1, packageWritable }));
+' > "$receipt/cache-first-uid1001-writable.txt"
+
+chmod -R a-w "$cache"
+find "$cache" -printf '%P\t%U:%G\t%m\n' | sort > "$receipt/cache-read-only-ownership-modes.tsv"
+run_verifier second 4300 "ezcorp-embedding-final-${short_commit}-second" "ezcorp-embedding-final-${short_commit}-second-app"
+(cd "$cache" && find . -type f -size +0 -print0 | sort -z | xargs -0 -r sha256sum) > "$receipt/cache-second-sha256.tsv"
+cmp -s "$receipt/cache-first-sha256.tsv" "$receipt/cache-second-sha256.tsv"
+printf 'second_start_with_read_only_cache=passed\n' >> "$receipt/provenance.txt"
+
+assert_source_tree
+assert_frozen_drivers
+main_rc=0

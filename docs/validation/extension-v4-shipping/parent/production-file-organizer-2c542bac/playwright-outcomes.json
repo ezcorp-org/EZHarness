@@ -1,0 +1,62 @@
+{
+  "reporter": "Playwright text output retained privately",
+  "exit": 0,
+  "summary": "13 passed (3.5m)",
+  "numberedOutcomeCount": 13,
+  "outcomes": [
+    {
+      "ordinal": 1,
+      "title": "e2e/file-organizer-real.spec.ts:286:5 \u203a file-organizer real-backend \u203a add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted"
+    },
+    {
+      "ordinal": 2,
+      "title": "e2e/file-organizer-real.spec.ts:315:5 \u203a file-organizer real-backend \u203a add-folder: a RELATIVE path is refused by the REAL validator with the exact message"
+    },
+    {
+      "ordinal": 3,
+      "title": "e2e/file-organizer-real.spec.ts:323:5 \u203a file-organizer real-backend \u203a add-folder: an UNREACHABLE absolute path is refused with the container-visibility message"
+    },
+    {
+      "ordinal": 4,
+      "title": "e2e/file-organizer-real.spec.ts:336:5 \u203a file-organizer real-backend \u203a add-folder: a DESCENDANT of an already-watched folder is refused as already-covered"
+    },
+    {
+      "ordinal": 5,
+      "title": "e2e/file-organizer-real.spec.ts:352:5 \u203a file-organizer real-backend \u203a add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error"
+    },
+    {
+      "ordinal": 6,
+      "title": "e2e/file-organizer-real.spec.ts:368:5 \u203a file-organizer real-backend \u203a config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config"
+    },
+    {
+      "ordinal": 7,
+      "title": "e2e/file-organizer-real.spec.ts:425:5 \u203a file-organizer real-backend \u203a proposal lifecycle: daemon proposes and accepts a REAL move on disk"
+    },
+    {
+      "ordinal": 8,
+      "title": "e2e/file-organizer-real.spec.ts:506:5 \u203a file-organizer real-backend \u203a picker: Browse \u2192 real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)"
+    },
+    {
+      "ordinal": 9,
+      "title": "e2e/file-organizer-real.spec.ts:516:5 \u203a file-organizer real-backend \u203a UI: a refused add surfaces a real error toast in the browser"
+    },
+    {
+      "ordinal": 10,
+      "title": "e2e/file-organizer-real.spec.ts:556:5 \u203a file-organizer real-backend \u203a add-folder: the added folder APPEARS in the Hub render (data dirs aligned)"
+    },
+    {
+      "ordinal": 11,
+      "title": "e2e/file-organizer-real.spec.ts:572:5 \u203a file-organizer real-backend \u203a config mutation REFLECTS in the Folders Hub render (data dirs aligned)"
+    },
+    {
+      "ordinal": 12,
+      "title": "e2e/file-organizer-real.spec.ts:597:5 \u203a file-organizer real-backend \u203a Review Hub render loads against the live backend (data dirs aligned)"
+    },
+    {
+      "ordinal": 13,
+      "title": "e2e/file-organizer-real.spec.ts:602:5 \u203a file-organizer real-backend \u203a lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import"
+    }
+  ],
+  "privateLogSha256": "bd9f787bc69620fd31714ed0265479a5cc0db0972b5d8a4856a08b9a7945271a",
+  "privateLogBytes": 3562
+}

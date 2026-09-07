@@ -1,0 +1,16 @@
+controller	case	parser_exit	policy_exit	parser_output
+embedding-cache-final-merged-controller-draft-v3.sh	valid-zero	0	0	0	0	0	0
+embedding-cache-final-merged-controller-draft-v3.sh	verifier-nonzero	0	1	0	0	0	1
+embedding-cache-final-merged-controller-draft-v3.sh	missing	1	1	<none>
+embedding-cache-final-merged-controller-draft-v3.sh	duplicate	1	1	<none>
+embedding-cache-final-merged-controller-draft-v3.sh	malformed	1	1	<none>
+final-merged-production-eight.sh	valid-zero	0	0	0	0	0	0
+final-merged-production-eight.sh	verifier-nonzero	0	1	0	0	0	1
+final-merged-production-eight.sh	missing	1	1	<none>
+final-merged-production-eight.sh	duplicate	1	1	<none>
+final-merged-production-eight.sh	malformed	1	1	<none>
+final-merged-production-validation.sh	valid-zero	0	0	0	0	0	0
+final-merged-production-validation.sh	verifier-nonzero	0	1	0	0	0	1
+final-merged-production-validation.sh	missing	1	1	<none>
+final-merged-production-validation.sh	duplicate	1	1	<none>
+final-merged-production-validation.sh	malformed	1	1	<none>

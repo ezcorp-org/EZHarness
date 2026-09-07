@@ -1,0 +1,7 @@
+{
+  "number": 248,
+  "title": "fix: address code quality and usability audit findings",
+  "url": "https://github.com/ezcorp-org/EZHarness/pull/248",
+  "head": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "private_payload_sha256": "5857d192ae8f8b7b672d129438fa0fa082765e499c889d982bb63dde46fd2368"
+}

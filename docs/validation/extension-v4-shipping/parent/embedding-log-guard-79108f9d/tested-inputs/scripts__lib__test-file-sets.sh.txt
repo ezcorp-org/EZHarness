@@ -1,0 +1,833 @@
+#!/usr/bin/env bash
+# Shared test-file-set definitions — sourced by scripts/test.sh (pass/fail),
+# scripts/test-coverage.sh (coverage), and the CI shard runner so the two sets
+# can never drift apart. Each function prints one repo-relative path per line,
+# sorted + de-duplicated. Run from the repo root.
+#
+# Also home to the shared pool-runner helpers so the pool mechanics can't
+# drift between the per-file isolation runners: default_parallel is used by
+# all four (test.sh, test-web.sh, test-coverage.sh, security-coverage.sh);
+# summary_count by the three that parse bun summaries; collect_pool_results
+# by test.sh + test-web.sh (test-coverage.sh has its own P-gate collection);
+# and gate_host_failures by BOTH of test-coverage.sh's host-pool modes — it
+# is the one definition of whether a host-pool failure reds the run, and it
+# is a question about P-membership, so it belongs beside passfail_files.
+#
+# Two sets are defined:
+#   P (passfail_files)      — the per-file mock.module-isolated backend pool
+#                             that CI gates pass/fail on. A FULL `src` SWEEP
+#                             (wave 3): every src/**/*.test.ts is pass/fail-
+#                             gated somewhere — shards for P∩C, the residual
+#                             job for P\C. ALSO a full `extensions` sweep
+#                             (the first-party BUNDLED extensions registered
+#                             in src/extensions/bundled.ts): that tree shipped
+#                             in the product but sat in NO pool, so its test
+#                             files ran in no CI job at all. AND (wave 4) a
+#                             full `docs/extensions/examples` sweep — the
+#                             reference extensions, which were coverage-
+#                             MEASURED but pass/fail-gated NOWHERE, so a red
+#                             assertion in that tree exited 0.
+#   C (coverage_host_files) — the per-file --coverage pool. The same `src`
+#                             sweep minus NAMED exclusions (documented at the
+#                             find): the github-projects/extensions
+#                             *integration* variants (they load several real
+#                             modules whose DA line-set floats the denominator
+#                             and false-drops unit-measured files — Bun's
+#                             per-line attribution drift) and the cov-extras
+#                             suggest-leg files (dedicated coverage home). Both
+#                             sets ADD the scoped web bun:test files via the
+#                             shared web_host_files below.
+#
+# The set difference is small and intentional:
+#   P \ C = the excluded *integration* variants + the suggest-leg files +
+#           route-contract.test.ts (the remote-control governance meta-test).
+#           These are gated for pass/fail — via the CI `residual-tests` job
+#           (RESIDUAL_ONLY=1 → residual_passfail_files → test.sh, real exit
+#           code) — but not coverage-measured in the host pool (the suggest
+#           leg measures its own files; the rest are excluded from C on
+#           purpose). (P∩C files hard-gate INSIDE the coverage shards via
+#           test-coverage.sh's P-membership gate + isolated retry sweep; P\C
+#           files are the ones the shards never run, so the residual job is
+#           their only pass/fail home.) The examples sweep added NOTHING here:
+#           it is a subset of C, so the residual set is unchanged at 14 files.
+#   C \ P = EMPTY, and empty BY CONSTRUCTION (wave 5) — every web file in C
+#           comes from the shared web_host_files, which P consumes too, so the
+#           two cannot drift by an edit to one list. It used to be "the scoped
+#           web bun:test files, whose pass/fail home is `web-bun-tests` /
+#           vitest", and that was FALSE: web_bunleg_files subtracts P ∪ C, so
+#           a file's C-membership is exactly what REMOVES it from the
+#           `web-bun-tests` job. Those 27 files therefore ran in the cov
+#           shards and gated in nothing — gate_host_failures printed them as
+#           "TOLERATED" and the build exited 0 on a red assertion. Measured,
+#           not assumed: all 27 pass 3/3 under isolated `bun test ./<f>
+#           --timeout 30000`, so per the header rules the whole scoped set
+#           belongs in P. Among them were the fail-closed /api/__test/** gate
+#           suites (test-surface, test-surface-bypass) and snippet-sanitize.
+#           A genuinely env-dependent future web suite must be excluded HERE
+#           by name, with its reason — never by adding it to C only.
+#
+# Also defined: the cov-extras LEG sets (suggest / sdk / harness-client /
+# ai-kit) — the exact file lists scripts/test-coverage.sh's run_legs executes.
+# They live here so the runner and the orphan-drift meta-test
+# (src/__tests__/ci-test-set-drift.test.ts) consume ONE definition each and
+# can never drift apart.
+
+# P — the pass/fail set.
+# The same shipping fixture checks run in both P and C.
+shipping_fixture_files() {
+  printf '%s\n' \
+    scripts/lib/shipping-bootstrap-state.test.ts \
+    scripts/verify-shipping-embedding-log.test.ts \
+    scripts/verify-shipping-runtime-resources-config.test.ts \
+    scripts/verify-shipping-runtime-resource-accounting.test.ts \
+    scripts/lib/shipping-runtime-cycle-conversation.test.ts
+}
+
+passfail_files() {
+  {
+    # `set +e` is essential: the callers run under `set -e`, and a find against
+    # a not-yet-created dir (e.g. a feature branch's integration tree) exits
+    # non-zero. Without this, the FIRST failing find aborts the whole group
+    # subshell SILENTLY (the pipe still exits 0 via sort), truncating every
+    # later find + the printf list — a silent test-set loss. The group is the
+    # left side of a pipe, so this set +e is scoped to the subshell only.
+    set +e
+    # FULL src sweep — no exclusions. Wave 3 replaced the old dir allowlist
+    # (src/__tests__ + github-projects + secrets-*): 36 deterministic files
+    # (extension handlers/provenance/db-isolation, db queries, ez-actions)
+    # ran in NO CI job, and two had silently rotted failing assertions. All
+    # 36 were verified deterministic (plain per-file run, no Docker/env), so
+    # per the header rules the whole tree belongs in P. A genuinely
+    # env-dependent future suite must be excluded HERE by name, with its
+    # reason — never by silently shrinking back to a dir allowlist.
+    find src -name "*.test.ts"
+    find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
+    # in NO pool: its three test files (memory-extractor index + manifest-load,
+    # lessons-distiller index) ran in no CI job at all. Deterministic under
+    # per-file isolation (no Docker/env), so per the header rules the whole
+    # tree belongs in P. node_modules is pruned defensively — these dirs carry
+    # their own package.json, so a future dependency install must not sweep
+    # vendored *.test.ts into the pool.
+    find extensions -name "*.test.ts" ! -path "*/node_modules/*"
+    # Reference EXAMPLE extensions (docs/extensions/examples/**). This tree was
+    # in C but NOT in P: its 182 test files were coverage-MEASURED yet
+    # pass/fail-gated NOWHERE, so a red assertion there exited 0 and the build
+    # stayed green (proven empirically: 3 real failures, exit code 0). The
+    # header's old C\P rationale — "the example e2e cases fail-by-timeout
+    # without Docker, so they are NEVER pass/fail-gated" — was measured and
+    # found FALSE: no example test file references Docker at all, and the full
+    # 1280-file coverage host pool (which includes every one of these 182
+    # files, run under --coverage with bun's 5s default timeout) reports
+    # `0 fail`. Per the header rules the whole tree therefore belongs in P.
+    # node_modules is pruned defensively for the same reason as `extensions`
+    # above — several examples carry their own package.json.
+    #
+    # P∩C membership is what gates them: the cov shards' P-membership check
+    # (scripts/test-coverage.sh host-shard mode) now hard-gates these files
+    # with its isolated plain retry sweep, and `bun run test` runs them too.
+    # A genuinely env-dependent future example suite must be excluded HERE by
+    # name, with its reason — never by dropping the sweep.
+    find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
+    # The scoped web bun:test files — ONE definition shared with C (see
+    # web_host_files). P consumes it so C\P stays empty by construction.
+    web_host_files
+    # Shipping bootstrap state is production-suite control logic. Keep its
+    # mock-client receipt checks in both canonical pools.
+    shipping_fixture_files
+    # Remote-control route-contract governance meta-test — a HARD pass/fail gate
+    # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
+    # deliberately kept OUT of the coverage set C below: the set difference P\C
+    # lands it in the CI `residual-tests` job, whose `test.sh` run propagates a
+    # real exit code with NO --coverage instrumentation and NO retry-sweep
+    # flake tolerance (a C∩P file would also hard-gate inside the coverage
+    # shards now, but instrumented + one-retry-tolerant — plain residual
+    # gating is strictly stronger for this meta-test). It covers only the
+    # already-pinned harness-client route table + the unpinned api-registry, so
+    # excluding it from C loses no threshold-gated coverage. test.sh's
+    # RESIDUAL_ONLY mode asserts this file's presence in P\C, so membership
+    # drift (rename / C absorbing it) fails loudly instead of de-gating.
+    printf '%s\n' web/src/__tests__/route-contract.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# The SCOPED web bun:test files that run in the backend per-file pool — ONE
+# definition consumed by BOTH P (passfail_files) and C (coverage_host_files).
+#
+# WHY IT IS SHARED (wave 5): these paths used to be two hand-maintained lists,
+# and the drift between them was a silent gating hole. C listed 34 files; P
+# re-listed only 7 of them, so 27 web suites RAN in the cov shards while
+# gating nowhere at all. The trap is that C-membership is what removes a file
+# from the `web-bun-tests` job (web_bunleg_files subtracts P ∪ C), so "its
+# pass/fail home is web-bun-tests" was exactly backwards — adding a file to C
+# alone DE-GATED it. gate_host_failures then printed it under "TOLERATED" and
+# the build exited 0 on a red assertion, including for the fail-closed
+# /api/__test/** gate suites. Sharing one list makes C\P empty by
+# construction: a file cannot be coverage-measured without also gating.
+#
+# SCOPED on purpose — this is deliberately NOT a `find web/src` sweep, for two
+# independent reasons: vitest owns the *.component/*.server/*.unit suffixes
+# (and a few explicitly-listed basenames — see web_bunleg_files), several of
+# which bun cannot even load (rune modules); and widening to whole directories
+# transitively imports dozens of unrelated modules whose zero-hit DA records
+# inflate the denominator on files already pinned at 100%. The rest of the
+# tree is swept by web_bunleg_files, which is itself a sweep-minus, so new web
+# files still cannot orphan.
+#
+# A genuinely env-dependent web suite must be excluded from P HERE by name,
+# with its reason — never by listing it in coverage_host_files only. There are
+# no such exclusions today: all 34 were verified deterministic under isolated
+# `bun test ./<f> --timeout 30000`, 3 runs each.
+web_host_files() {
+  {
+    # See passfail_files: scoped `set +e` so a missing dir doesn't silently
+    # truncate the list under the callers' `set -e`.
+    set +e
+    # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
+    find web/src/routes/api/import -name "*.test.ts"
+    # github-projects web route tests.
+    find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
+    # extension web entry-route tests.
+    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # extension-RBAC grants API route tests (coverage for the two rbac
+    # +server.ts files pinned at 100 in coverage-thresholds.json).
+    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # Scoped web bun:test files. Per-file notes on why each is MEASURED (the
+    # C-side rationale) — all of them also GATE, per the header above.
+    #   permission-mode-indicator: the github-projects route tests import
+    #     $lib/permission-mode (constants only), landing it in the merged lcov
+    #     at 25% — this suite exercises the functions so the union clears
+    #     web/src/lib/**.
+    #   chat-scroll + chat-stick-to-bottom.integration: the only producers for
+    #     $lib/chat-stick-to-bottom.ts, which had NO lcov record from any leg —
+    #     so a change to it read as "no test loads it" against the patch gate no
+    #     matter how thoroughly the two suites (58 tests) exercised it. The same
+    #     "tested but unmeasured" trap this file documents for hooks.server.ts,
+    #     found via issue #140. Safe for the denominator warning above: both
+    #     files import ONLY `bun:test` and $lib/chat-stick-to-bottom.js (they
+    #     read the .svelte sources as TEXT via Bun.file rather than importing
+    #     them), so they pull no unrelated module into the merged lcov.
+    #   graph/{layout,panel-logic,canvas-view} + diff-review/{review-model,
+    #     viewed-files,render-diff} + help-content: 100%-gated pure TS whose
+    #     overlapping fixtures mean coverage alone is NOT a pass/fail proxy —
+    #     one red assertion still leaves every line executed. These were the
+    #     only seven the old P list carried, precisely for that reason; the
+    #     shared list now extends the same guarantee to all 34.
+    #   help-content also imports `helpContent` directly (not a source scan),
+    #     so it lands the string table in lcov — without which the patch-
+    #     coverage gate fails "NO lcov data" the moment anyone edits a
+    #     tooltip's wording.
+    # NOTE: route-contract.test.ts is intentionally NOT here — it is a P-only
+    # hard gate (see passfail_files); it covers only the already-pinned
+    # harness-client route table + the unpinned api-registry, so measuring it
+    # would add no threshold-gated coverage.
+    printf '%s\n' \
+      web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/__tests__/message-toolbar-extension-actions.test.ts \
+      web/src/__tests__/iframe-card-logic.test.ts \
+      web/src/__tests__/dock-popout-url.test.ts \
+      web/src/__tests__/extensions-data-route.test.ts \
+      web/src/__tests__/ask-user-answer-route.test.ts \
+      web/src/__tests__/file-organizer-hub-authority.integration.test.ts \
+      web/src/__tests__/hub-isolated-action.integration.test.ts \
+      web/src/__tests__/canvas-bridge.test.ts \
+      web/src/__tests__/browser-invocation.test.ts \
+      web/src/__tests__/extension-browser-authority.test.ts \
+      web/src/__tests__/extension-browser-preview.test.ts \
+      web/src/__tests__/extension-browser-page.test.ts \
+      web/src/__tests__/workflow-builder-logic.test.ts \
+      web/src/__tests__/workflow-editor-logic.test.ts \
+      web/src/__tests__/workflow-provenance.test.ts \
+      web/src/__tests__/extension-tool-options.test.ts \
+      web/src/lib/__tests__/rbac-grants-view.test.ts \
+      web/src/__tests__/permission-mode-indicator.test.ts \
+      web/src/__tests__/search-mode.test.ts \
+      web/src/__tests__/shared-ui-components.test.ts \
+      web/src/lib/search/__tests__/palette-results.test.ts \
+      web/src/lib/__tests__/diff-view-mode.test.ts \
+      web/src/lib/__tests__/tool-scope-logic.test.ts \
+      web/src/lib/__tests__/loaded-tools-logic.test.ts \
+      web/src/lib/__tests__/briefing-cron.test.ts \
+      web/src/lib/graph/layout.test.ts \
+      web/src/lib/graph/panel-logic.test.ts \
+      web/src/lib/graph/canvas-view.test.ts \
+      web/src/lib/diff-review/review-model.test.ts \
+      web/src/lib/diff-review/viewed-files.test.ts \
+      web/src/lib/diff-review/render-diff.test.ts \
+      web/src/__tests__/help-content.test.ts \
+      web/src/lib/__tests__/timeline-normalize.test.ts \
+      web/src/lib/__tests__/format-duration.test.ts \
+      web/src/lib/chat/__tests__/task-snapshot-store.test.ts \
+      web/src/lib/chat/page-handlers/__tests__/task-hydrate.test.ts \
+      web/src/__tests__/test-surface.test.ts \
+      web/src/__tests__/test-surface-bypass.test.ts \
+      web/src/__tests__/mock-llm-store.test.ts \
+      web/src/__tests__/mock-llm-route.test.ts \
+      web/src/__tests__/runs-wait-route.test.ts \
+      web/src/__tests__/seed-reset-route.test.ts \
+      web/src/__tests__/extensions-events-route.test.ts \
+      web/src/__tests__/chat-scroll.test.ts \
+      web/src/__tests__/chat-stick-to-bottom.integration.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# C — the coverage host set (per-file --coverage). See header for the
+# include/exclude rationale.
+coverage_host_files() {
+  {
+    # See passfail_files: scoped `set +e` so a missing dir doesn't silently
+    # truncate the list under the callers' `set -e`.
+    set +e
+    # src sweep with NAMED exclusions (wave 3 — was a dir allowlist that
+    # orphaned 36 files from every CI job):
+    #   - *integration* variants in the github-projects + extensions test
+    #     dirs: they load several real modules whose DA line-set floats the
+    #     denominator (Bun per-line attribution drift). src/__tests__'s own
+    #     *integration* files are NOT excluded — they were always part of
+    #     this pool and their coverage is load-bearing. Excluded files stay
+    #     pass/fail-gated via P (the residual job).
+    #   - the suggest-leg files (comm -23 below): their coverage home is the
+    #     dedicated cov-extras suggest leg (suggest_leg_files — small
+    #     isolated shard dodging the same attribution drift); sweeping them
+    #     here too would double-measure. Pass/fail-gated via P (residual).
+    #   - production-image-lifecycle-launch: a real runner subprocess and
+    #     shell launcher integration. Child-process coverage is not collected
+    #     by this pool; keep its assertions in the residual pass/fail job.
+    find src -name "*.test.ts" \
+      ! \( -path "src/extensions/__tests__/*" -name "*integration*" \) \
+      ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
+      ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
+    find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
+    # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
+    # hard-gates these inside the coverage shards.
+    find extensions -name "*.test.ts" ! -path "*/node_modules/*"
+    # Reference examples — the SAME sweep (and the same defensive node_modules
+    # prune) as P above, so this tree is now BOTH pass/fail-gated and
+    # coverage-measured and P\C for it is empty BY CONSTRUCTION. The prune is
+    # a verified no-op today (0 matches under docs/extensions/examples/**/
+    # node_modules); it exists so a future `bun install` inside an example
+    # can't sweep vendored *.test.ts into either pool.
+    find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
+    # The scoped web bun:test files — the SAME shared definition P consumes,
+    # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
+    # a C-only web entry is a DE-GATED file, not a coverage-only one).
+    web_host_files
+    shipping_fixture_files
+    # The suggest-leg files are subtracted below — ONE definition
+    # (suggest_leg_files) serves both this exclusion and the runner.
+  } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)
+}
+
+# ── cov-extras leg sets ─────────────────────────────────────────────────────
+# The file lists scripts/test-coverage.sh's run_legs executes (each leg is ONE
+# bun/vitest process — mock.module-free suites where bundling preserves
+# module-load instrumentation parity). Defined here so the runner and the
+# orphan-drift meta-test share a single source of truth.
+
+# Composer-suggest backend leg — dedicated bun-coverage shard feeding the
+# `src/suggest/**` + suggestion-feedback threshold keys. Deliberately NOT in
+# the host pool (coverage_host_files subtracts this set): the small isolated
+# shard dodges Bun's large-suite attribution drift.
+suggest_leg_files() {
+  {
+    set +e
+    find src/suggest/__tests__ -name "*.test.ts"
+    printf '%s\n' \
+      src/db/queries/__tests__/suggestion-feedback.test.ts \
+      src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# SDK leg: top-level test/ + co-located entities/__tests__/ (the canonical
+# coverage for entities/{validate,tools,storage,slug}.ts).
+sdk_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser -name "*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
+# harness-client leg — pass/fail GATES in cov-extras (remote-control contract).
+harness_client_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/harness-client -name "*.test.ts" ! -path "*/node_modules/*"
+  } 2>/dev/null | sort -u
+}
+
+# ai-kit leg (wave 3): previously these 22 files ran ONLY at release time —
+# a rotted SKILL.md drift-guard assertion proved it. unit/ + integration/ are
+# deterministic (verified plain, no Docker); the e2e/ files self-skip without
+# EZCORP_E2E_BASE_URL (opt-in guard), so they no-op in CI rather than flake.
+aikit_leg_files() {
+  {
+    set +e
+    find packages/@ezcorp/ai-kit/test -name "*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
+# Residual pass/fail files: in P but NOT in C (the *integration* variants that
+# coverage excludes). These must still run for pass/fail somewhere — the CI
+# `residual-tests` job runs exactly this set (empty is fine: prints nothing).
+residual_passfail_files() {
+  comm -23 <(passfail_files) <(coverage_host_files)
+}
+
+# W — the orphaned web bun-leg set. Plain `web/src/**/*.test.ts` files that are
+# NOT matched by vitest's globs (*.component/*.server/*.unit.test.ts, plus the
+# one explicitly-listed relative-time.test.ts) AND are not already run for
+# pass/fail or coverage by the backend pool (the import/gh-projects/extensions/
+# rbac route tests + the scoped web bun:test files in coverage_host_files).
+# These ~225 files ran in NO CI job before `web-bun-tests` — silent test-rot.
+# The CI `web-bun-tests` job runs exactly this set (per-file isolated, with
+# real exit-code capture) via scripts/test-web.sh.
+web_bunleg_files() {
+  {
+    set +e
+    # All plain web bun-leg *.test.ts — vitest owns the three suffixes below,
+    # so exclude them here (they run in the `Web tests (vitest)` job).
+    find web/src -name "*.test.ts" \
+      ! -name "*.component.test.ts" \
+      ! -name "*.server.test.ts" \
+      ! -name "*.unit.test.ts"
+  } 2>/dev/null | sort -u | comm -23 - <(
+    # Files already run elsewhere: vitest's explicitly-listed
+    # relative-time.test.ts + every bun-leg file the coverage/passfail sets
+    # already gate. Non-web entries in those sets simply never match a
+    # web/src path, so they're harmless here.
+    {
+      set +e
+      printf '%s\n' web/src/__tests__/relative-time.test.ts
+      # Also vitest-owned despite the plain `.test.ts` name — see the matching
+      # explicit entry in web/vitest.config.ts (kept at this basename so the
+      # Gate-integrity test-rename check stays satisfied).
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/send-message.test.ts
+      # This broad loader suite runs under Node Vitest so its real module
+      # execution contributes to the web/src/lib coverage producer.
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/load-messages.test.ts
+      # Same arrangement, same reason: vitest is the only coverage producer for
+      # web/src/lib/**, and this suite is what covers context-usage-logic.ts.
+      printf '%s\n' web/src/__tests__/context-usage-logic.test.ts
+      # Same arrangement again (issue #142) — these three cover format-map.ts
+      # and the inline-tool-store.svelte.ts rune module, which bun cannot even
+      # load. Explicit entries in web/vitest.config.ts; basenames kept so the
+      # Gate-integrity test-rename check stays satisfied.
+      printf '%s\n' web/src/__tests__/format-map.test.ts
+      printf '%s\n' web/src/__tests__/inline-tool-store.test.ts
+      printf '%s\n' web/src/__tests__/inline-tool-store-upsert.test.ts
+      passfail_files
+      coverage_host_files
+    } 2>/dev/null | sort -u
+  )
+}
+
+# SEC — the orphaned web security bun:test suites (web/src/__tests__/security/*).
+# Their source files use per-`beforeEach` `mock.module` (bun-only), so they run
+# under bun, not vitest. Run for pass/fail by `web-bun-tests` (they're a subset
+# of web_bunleg_files) and, separately, under `bun --coverage` by
+# scripts/security-coverage.sh to feed the 9 un-excluded security source files
+# into the coverage gate.
+security_test_files() {
+  {
+    set +e
+    find web/src/__tests__/security -name "*.test.ts"
+    printf '%s\n' web/src/lib/server/security/__tests__/payload.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# CRIT — a CURATED set of high-value, deterministic correctness suites gated on
+# PASS/FAIL by the CI `backend-critical` job (via scripts/test.sh's CRITICAL_ONLY
+# mode). Unlike the coverage shards (which TOLERATE test pass/fail because several
+# backend suites are env-flaky under --coverage), this set runs PLAIN (no
+# --coverage) and REDS CI on any assertion failure — a real backend correctness
+# gate for the security-critical seams. Membership is deliberately narrow:
+# security/authz/migration/concurrency invariants that are deterministic under
+# per-file isolation. See the ci-test-gating change for the determinism check.
+critical_backend_files() {
+  {
+    set +e
+    # RBAC: permission engine + audit/override/fail-closed variants, the
+    # extension-rbac resolver, and the ctx.rbac.check reverse-RPC entry point.
+    find src/__tests__ -name "permission-engine*.test.ts"
+    find src/__tests__ -name "extension-rbac-resolver*.test.ts"
+    find src/extensions/__tests__ -name "tool-executor.rbac*.test.ts"
+    # Migrations: idempotency + the db-scoped migration suites (safe-migration
+    # invariant — re-running migrate() must be a no-op).
+    find src/__tests__ -name "migrate-idempotency*.test.ts"
+    find src/__tests__ -name "db-*migrat*.test.ts"
+    # github-projects concurrency: the partial-unique single-active-per-card
+    # queries + the poll-loop daemon (dedupe / re-trigger correctness).
+    find src/integrations/github-projects/__tests__ -name "queries*.test.ts"
+    find src/integrations/github-projects/__tests__ -name "daemon*.test.ts"
+    # Auth + provider-secret encryption + extension-secrets store.
+    find src/__tests__ -name "auth-*.test.ts"
+    find src/__tests__ -name "provider-encryption*.test.ts"
+    find src/extensions/__tests__ -name "secrets-*.test.ts"
+    # Server-side mention expansion (slash-command / feature / lesson / agent).
+    find src/__tests__ -name "mention-wiring*.test.ts"
+  } 2>/dev/null | sort -u
+}
+
+# Select a 1-of-N slice of stdin (sorted file list) for CI sharding.
+# Usage: some_files | shard_slice "$SHARD_INDEX" "$SHARD_TOTAL"
+# Wave 3: greedy LPT over the measured per-file durations in
+# scripts/shard-timings.json (see scripts/shard-plan.ts — deterministic:
+# sorted input, weight-desc/path-asc ordering, lowest-index tie-break;
+# unknown files weigh the median). The old stride slice overloaded shards
+# 1+3 by ~35-40s. Fallback layers, both deterministic and never empty:
+#   - missing/unparseable/empty manifest → stride INSIDE shard-plan.ts;
+#   - bun itself crashing → bash stride below (the input is buffered so it
+#     can be replayed).
+shard_slice() {
+  local index="$1" total="$2"
+  local input out
+  input=$(cat)
+  if out=$(printf '%s\n' "$input" | bun scripts/shard-plan.ts "$index" "$total"); then
+    # Guard the empty slice: `printf '%s\n' ""` would emit one EMPTY line,
+    # which mapfile callers would read as a phantom file.
+    [ -n "$out" ] && printf '%s\n' "$out"
+  else
+    echo "shard_slice: bun planner failed — stride fallback" >&2
+    printf '%s\n' "$input" | awk -v idx="$index" -v tot="$total" 'NR % tot == idx'
+  fi
+  return 0
+}
+
+# ── shared pool-runner helpers ──────────────────────────────────────────────
+
+# Default pool width: 6, capped at the machine's core count. Six concurrent
+# bun+PGlite processes on a 2-core CI runner starve each other into hook/test
+# timeouts (mass '(unnamed) [10s]' failures). Callers use
+# PARALLEL=${PARALLEL:-$(default_parallel)} so an explicit PARALLEL overrides.
+#
+# DO NOT "optimise" this by widening the pool on CI. Measured, don't guess
+# (GitHub run 30387307634): the 8 production shard slices were run at
+# PARALLEL=4 / 6 / 8 simultaneously on ubuntu-latest (AMD EPYC 7763, nproc=4,
+# 16 GB). Slowest-shard wall — the number that sets the leg's wall clock —
+# was 224s at 4, 238s at 6, 239s at 8; paired per shard, PARALLEL=6 was
+# NEVER faster than 4 (8/8 shards >= 0, six clearly worse). Four per-file bun
+# processes already saturate a 4-vCPU runner, so oversubscribing only buys
+# context-switching. The cap below is load-bearing on CI, not just a guard
+# for small machines. Shard COUNT is the lever that works — see ci.yml's
+# cov-shard matrix.
+default_parallel() {
+  local cores
+  cores=$(nproc 2>/dev/null || echo 6)
+  echo $(( cores < 6 ? cores : 6 ))
+}
+
+# ── coverage-leg lcov registry ──────────────────────────────────────────────
+# ONE definition of every coverage LEG that is expected to emit an lcov and of
+# the $TMPDIR sub-directory it writes into. scripts/test-coverage.sh's leg
+# producers take their --coverage-dir from LEG_COV_DIR, and check_leg_lcov
+# walks the SAME registry — so a leg can neither run unguarded nor be guarded
+# without running. src/__tests__/coverage-leg-lcov-guard.test.ts asserts the
+# producers never hardcode a covdir around the registry.
+#
+# WHY THIS EXISTS: the merge globs "$TMPDIR"/cov_*/lcov.info, so a leg that
+# died before writing one is simply ABSENT from the union — no error, no
+# mention. Shard mode has always guarded the analogous case (its N_LCOV check
+# in test-coverage.sh); the two leg-running modes did not. That never allowed
+# a false GREEN — the gating legs' exit codes and the coverage gate itself
+# still red the run — but it destroyed DIAGNOSABILITY: one dead leg dropped
+# 173 files out of the merged lcov, 146 of which had no other producer, and
+# the gate printed 126 "listed in thresholds but no lcov data" violations for
+# files the change never touched, burying the one real failure.
+declare -A LEG_COV_DIR=()
+LEG_NAMES=()
+
+# Register a leg: its NAME (what the guard prints) and the $TMPDIR
+# sub-directory it writes lcov.info into. Called by the leg producer itself,
+# so a leg that doesn't run in the current mode is never expected to have
+# produced anything (the web-security leg is full-local-mode only).
+#
+# MUST run in the PARENT shell, before the leg is backgrounded. Inside a
+# `( … ) &` subshell these arrays are a COPY: the registration would be lost,
+# the parent would never expect that leg, and the silent skip this whole
+# registry exists to stop would be back — for the one leg someone just added.
+# That is a one-line mistake a later "tidy-up" could make invisibly, so it is
+# ENFORCED, not just documented: $BASHPID differs from $$ only in a subshell.
+register_leg() {
+  if [ "$BASHPID" != "$$" ]; then
+    echo "::error::register_leg '$1' was called from a SUBSHELL — the registration would be discarded with the subshell and the leg would go unguarded. Call it in the parent shell, before backgrounding the leg." >&2
+    exit 1
+  fi
+  LEG_NAMES+=("$1")
+  LEG_COV_DIR["$1"]="$TMPDIR/$2"
+}
+
+# Fail loud, NAMING each registered leg that produced no lcov. Mirrors the
+# shard-mode guard's shape and message style; the per-leg name is the
+# diagnostic the silent skip destroyed. An EMPTY lcov counts as missing (-s):
+# it contributes exactly as much to the merge as an absent one.
+check_leg_lcov() {
+  local leg missing=()
+  for leg in "${LEG_NAMES[@]}"; do
+    if [ ! -s "${LEG_COV_DIR[$leg]}/lcov.info" ]; then missing+=("$leg"); fi
+  done
+  if [ "${#missing[@]}" -eq 0 ]; then return 0; fi
+  for leg in "${missing[@]}"; do
+    echo "::error::$leg coverage leg produced no lcov output (infrastructure failure) — expected ${LEG_COV_DIR[$leg]}/lcov.info"
+  done
+  return 1
+}
+
+# ── host-pool pass/fail gate ────────────────────────────────────────────────
+# ONE definition of "does a host-pool failure red this run", shared by BOTH
+# modes of scripts/test-coverage.sh that run the host pool: host-shard (CI)
+# and full (local). It lives here, beside passfail_files, because the whole
+# rule is a question about set membership in P.
+#
+# WHY IT IS SHARED: the rule was written inline in the shard branch and full
+# mode had NO equivalent at all — full mode printed its failing files under
+# the label "visibility only" and then exited on the COVERAGE verdict alone.
+# That is how `bun run test:coverage` came to print "22953 pass | 14 fail",
+# "Coverage gate PASSED", and exit 0 on the same run: the authoritative gate
+# reported a clean suite with fourteen red tests on screen. One definition
+# also means a full local run and a CI shard can never disagree about whether
+# a given file is red.
+#
+# THE RULE (unchanged from the host-shard design it was lifted from):
+#   - failures OUTSIDE P are TOLERATED and merely listed — the Per-file
+#     coverage gate's thresholds remain their only gate. C\P is the scoped web
+#     bun:test files, whose pass/fail home is `web-bun-tests` / vitest.
+#   - a failing P member is re-run ONCE — serially, isolated, PLAIN (no
+#     --coverage, no parallel siblings). Real breakage fails both runs; an
+#     instrumentation/contention flake (several backend suites are timing- and
+#     rate-limit-sensitive under --coverage) passes the clean re-run and is
+#     tolerated.
+#   - whatever still fails lands in STILL_FAILED, which each caller turns into
+#     its own mode's exit code (shard: 1; full: 2, "coverage passed, tests
+#     failed").
+#
+# Reads HOST_FAILED_FILES; sets STILL_FAILED; prints its own report.
+# Behaviour-tested in src/__tests__/coverage-leg-lcov-guard.test.ts against
+# this real function (stub `passfail_files` + a stub `bun` on PATH), never a
+# re-implementation.
+STILL_FAILED=()
+gate_host_failures() {
+  declare -A IN_P=()
+  while IFS= read -r pf; do IN_P["$pf"]=1; done < <(passfail_files)
+  local P_FAILED=() NONP_FAILED=() f RETRY_OUT RETRY_CODE
+  for f in "${HOST_FAILED_FILES[@]}"; do
+    if [ -n "${IN_P[$f]:-}" ]; then P_FAILED+=("$f"); else NONP_FAILED+=("$f"); fi
+  done
+
+  if [ "${#NONP_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Failing non-gating files (TOLERATED — not in the pass/fail set P; thresholds are their gate):"
+    for f in "${NONP_FAILED[@]}"; do echo "  - $f"; done
+  fi
+
+  STILL_FAILED=()
+  if [ "${#P_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Retry sweep: ${#P_FAILED[@]} failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):"
+    for f in "${P_FAILED[@]}"; do
+      set +e
+      # Wall-clock watchdog: bun's per-test timeout can't catch a module-LOAD
+      # hang, so cap the whole re-run at 5 min — it reds fast instead of
+      # stalling to the job timeout (timeout(1) exits 124 → still-failing;
+      # -k 30 sends SIGKILL 30s after SIGTERM for a SIGTERM-immune hang,
+      # exit 137 → still-failing). If the timeout binary is missing, fall
+      # back to the plain run: the exit code still gates identically,
+      # nothing soft-passes.
+      if command -v timeout >/dev/null 2>&1; then
+        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
+      else
+        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+      fi
+      RETRY_CODE=$?
+      set -e
+      if [ "$RETRY_CODE" = "0" ]; then
+        echo "  - $f: passed the isolated plain re-run (instrumentation/contention flake — tolerated)"
+      else
+        echo "  - $f: STILL FAILING after isolated re-run (exit $RETRY_CODE)"
+        echo "$RETRY_OUT" | tail -20 | sed 's/^/      /'
+        STILL_FAILED+=("$f")
+      fi
+    done
+  fi
+}
+
+# ── coverage-recovery for a crashed host-pool file ──────────────────────────
+# THE DEFECT THIS CLOSES: gate_host_failures' isolated retry sweep above
+# recovers the PASS/FAIL verdict for a crashed file by re-running it PLAIN —
+# deliberately WITHOUT --coverage, because instrumentation overhead is itself
+# a source of the flake (several backend suites are timing/rate-limit
+# sensitive under --coverage). That retry never touches the crashed file's
+# --coverage-dir, so its shard's lcov.info stays whatever the crash left
+# behind — usually NOTHING, because the process died before the lcov
+# reporter could flush. The merge then sees that source file ONLY through
+# OTHER shards that merely IMPORT it: their unexecuted-function zeros have no
+# positive "straddled" hit anywhere to be forgiven by merge-lcov's
+# no-evidence rule (see merge-lcov.ts's header — that rule requires SOME
+# shard to have genuinely executed around the gap), so they survive the merge
+# as ordinary misses. A file that was actually 100% tested reads as
+# partially covered, and whether the run fails depends entirely on WHICH file
+# bun happened to crash on — the coverage verdict becomes a lottery.
+#
+# THE FIX: for every host-pool file that failed (HOST_FAILED_FILES — P and
+# non-P alike; coverage integrity does not care about pass/fail set
+# membership), check whether its shard's lcov.info is missing or empty. If
+# so, re-run the SAME file ISOLATED + SERIAL WITH --coverage, up to
+# COVERAGE_RECOVERY_ATTEMPTS times, writing into the SAME --coverage-dir the
+# pooled run used — so a successful attempt's lcov.info lands exactly where
+# the merge glob ($TMPDIR/cov_*/lcov.info) already expects it, with no
+# special-casing downstream. The retry's own pass/fail is irrelevant here: a
+# genuine assertion failure still completes the process and flushes a full,
+# valid lcov. Only "did it produce coverage data" matters.
+#
+# BOUNDED, AND LOUD WHEN EXHAUSTED: the crash can recur — bun's coverage
+# instrumenter can genuinely SIGILL on some inputs, not just flake under
+# contention. After COVERAGE_RECOVERY_ATTEMPTS fruitless attempts the file
+# goes into UNRECOVERABLE_COVERAGE_FILES instead of looping forever. Callers
+# MUST fail the COVERAGE verdict loudly on a non-empty
+# UNRECOVERABLE_COVERAGE_FILES, and MUST do so BEFORE the merge step
+# (mirrors check_leg_lcov's placement) — never let check-coverage.ts compute
+# a percentage from data known to be incomplete. That is what keeps an
+# unrecoverable shard from reading as either extreme the task guards
+# against: it cannot fabricate a false "0% covered" miss (the run exits
+# before check-coverage.ts ever sees the file), and it cannot silently vanish
+# into a benign "no evidence" the way a healthy no-evidence zero does (that
+# mechanism is per-LINE and requires some OTHER shard's positive straddle —
+# a file nobody successfully executed has none, so its zeros would be
+# counted as real misses, not dropped, which is exactly the false-fail this
+# function prevents by never reaching that computation at all).
+#
+# SCOPE: this covers the per-file host pool only. It does NOT cover a whole
+# LEG dying (run_legs bundles many files into ONE `bun test` process, so a
+# SIGILL there takes far more than one file's coverage with it) — that case
+# is already fail-loud via check_leg_lcov (a dead leg's total absence from
+# the merge is caught by name, unconditionally, before the merge), so it does
+# not exhibit the SILENT-corruption defect this function targets. It is,
+# however, still a real gap: a leg SIGILL is not retried at all, coverage or
+# otherwise, so that failure mode always costs a full re-run of the leg
+# rather than self-healing the way a per-file crash now does.
+COVERAGE_RECOVERY_ATTEMPTS=2
+UNRECOVERABLE_COVERAGE_FILES=()
+
+# Caller populates HOST_COVDIR["<repo-relative file>"]="<covdir the pooled
+# run used>" for every host file before calling this (test-coverage.sh builds
+# it alongside HOST_FAILED_FILES, from the same $TMPDIR/cov_$i layout
+# run_host_pool wrote into). Reads HOST_FAILED_FILES + HOST_COVDIR; sets
+# UNRECOVERABLE_COVERAGE_FILES; prints its own report line per file.
+recover_missing_coverage() {
+  UNRECOVERABLE_COVERAGE_FILES=()
+  local f dir attempt recovered
+  for f in "${HOST_FAILED_FILES[@]}"; do
+    dir="${HOST_COVDIR[$f]:-}"
+    # No covdir on record for this file — a caller wiring gap, not a crash;
+    # nothing this function can act on.
+    [ -n "$dir" ] || continue
+    # A real assertion failure still completes the process and flushes a
+    # full lcov — only a crash-before-flush leaves this missing or empty.
+    [ -s "$dir/lcov.info" ] && continue
+
+    echo ""
+    echo "Coverage recovery: $f produced no lcov in the pooled run (crash before the reporter could flush?) — re-running isolated WITH --coverage, up to $COVERAGE_RECOVERY_ATTEMPTS attempt(s):"
+    recovered=0
+    for ((attempt = 1; attempt <= COVERAGE_RECOVERY_ATTEMPTS; attempt++)); do
+      set +e
+      if command -v timeout >/dev/null 2>&1; then
+        timeout -k 30 300 bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+          --coverage-dir="$dir" "./$f" >/dev/null 2>&1
+      else
+        bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+          --coverage-dir="$dir" "./$f" >/dev/null 2>&1
+      fi
+      set -e
+      if [ -s "$dir/lcov.info" ]; then
+        recovered=1
+        echo "  - $f: recovered coverage on attempt $attempt/$COVERAGE_RECOVERY_ATTEMPTS"
+        break
+      fi
+      echo "  - $f: attempt $attempt/$COVERAGE_RECOVERY_ATTEMPTS produced no lcov"
+    done
+    if [ "$recovered" != "1" ]; then
+      echo "  - $f: NO COVERAGE EVIDENCE after $COVERAGE_RECOVERY_ATTEMPTS attempt(s) — unrecoverable this run"
+      UNRECOVERABLE_COVERAGE_FILES+=("$f")
+    fi
+  done
+}
+
+# Extract the last "N pass" / "N fail" count from a bun test summary.
+# Usage: summary_count "$OUTPUT" pass|fail — prints nothing when no summary
+# was printed (module-load error, crash, SIGKILL); callers default with :-0.
+summary_count() {
+  local output="$1" word="$2"
+  echo "$output" | awk -v w="$word" \
+    '$0 ~ w {for(j=1;j<=NF;j++) if($j ~ /^[0-9]+$/ && $(j+1)==w) print $j}' | tail -1
+}
+
+# Collect the per-file pool results written by the run loops into
+# $TMPDIR/result_$i + $TMPDIR/code_$i. Takes the NAME of the file-list array;
+# updates the caller's TOTAL_PASS / TOTAL_FAIL / FAILED_FILES and prints a
+# per-file failure block (the "(fail)" lines, or the output tail when a file
+# errored at load / was killed).
+#
+# A MISSING result/code file is a FAILURE, never a skip: an OOM/SIGKILL-ed
+# subshell writes neither file, and `continue`-ing past it silently green-lit
+# a killed shard. It is recorded as CODE=1 with reason
+# "no result recorded (killed?)" so it is always counted and listed.
+#
+# A caller that runs files through ez_watchdog_run_file (scripts/lib/
+# watchdog.sh — currently only test.sh) may ALSO leave a $TMPDIR/watchdog_$i
+# file for an index the per-worker CPU-progress watchdog had to kill. When
+# present it is shown INSTEAD of the generic output-tail fallback below: a
+# watchdog kill already carries its own attributable diagnostic (file, pid,
+# stall duration, cpu-tick evidence), and printing that beats guessing from
+# whatever partial/empty stdout a SIGKILLed process happened to flush. The
+# fail/pass tally itself is untouched — CODE is already non-zero for a killed
+# worker (bun's own exit code for a killed process), so it was already
+# counted as a failure before this file is even consulted. A caller that
+# never uses the watchdog (test-web.sh) never has this file, so this is a
+# pure no-op addition for it.
+collect_pool_results() {
+  local -n _cp_files=$1
+  local i OUTFILE WDFILE OUTPUT CODE PASS FAIL DETAIL
+  for ((i=0; i<${#_cp_files[@]}; i++)); do
+    OUTFILE="$TMPDIR/result_$i"
+    WDFILE="$TMPDIR/watchdog_$i"
+    if [ -f "$OUTFILE" ]; then
+      OUTPUT=$(cat "$OUTFILE")
+      CODE=$(cat "$TMPDIR/code_$i" 2>/dev/null || echo 1)
+    else
+      OUTPUT="no result recorded (killed?) — the subshell wrote no output/exit-code file"
+      CODE=1
+    fi
+
+    PASS=$(summary_count "$OUTPUT" pass)
+    FAIL=$(summary_count "$OUTPUT" fail)
+
+    TOTAL_PASS=$((TOTAL_PASS + ${PASS:-0}))
+    # Count at least one failure when bun exited non-zero but printed no
+    # parseable "N fail" (module-load error, crash, or kill with no summary).
+    if [ "$CODE" != "0" ] && [ "${FAIL:-0}" = "0" ]; then
+      FAIL=1
+    fi
+    TOTAL_FAIL=$((TOTAL_FAIL + ${FAIL:-0}))
+
+    # A file is failing if bun exited non-zero OR the summary reported failures.
+    if [ "$CODE" != "0" ] || [ "${FAIL:-0}" != "0" ]; then
+      FAILED_FILES+=("${_cp_files[$i]}")
+      echo "--- FAIL: ${_cp_files[$i]} ---"
+      if [ -f "$WDFILE" ]; then
+        cat "$WDFILE"
+      else
+        DETAIL=$(echo "$OUTPUT" | awk '/\(fail\)/')
+        if [ -n "$DETAIL" ]; then
+          echo "$DETAIL"
+        else
+          # No per-test "(fail)" line — the file errored at load or was killed.
+          # Surface the tail of its output so CI failures are diagnosable instead
+          # of printing an empty header (the historical false-positive symptom).
+          echo "  (no per-test failures parsed; exit code $CODE — showing output tail)"
+          echo "$OUTPUT" | tail -20 | sed 's/^/  /'
+        fi
+      fi
+      echo ""
+    fi
+  done
+}

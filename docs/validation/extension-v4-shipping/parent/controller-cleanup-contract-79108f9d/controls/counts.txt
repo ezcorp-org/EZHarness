@@ -1,0 +1,4 @@
+controllers=3
+fixtures_per_controller=5
+parser_rows=15
+controllers_per_fixture=3

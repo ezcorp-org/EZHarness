@@ -1,0 +1,2 @@
+sha256_verify_exit=0
+indexed_files=26

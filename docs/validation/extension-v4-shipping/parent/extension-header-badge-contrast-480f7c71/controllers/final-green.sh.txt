@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd /home/dev/work/EZCorp/extension-v4-badge-contrast
+receipt=${1:?receipt}
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+set +e
+( cd web && EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$PWD/../$receipt/blob-report.zip" bunx playwright test e2e/extension-deep-links.spec.ts ) > "$receipt/green.log" 2>&1
+rc=$?
+set -e
+printf '%s\n' "$rc" > "$receipt/green.exit"
+git diff --check > "$receipt/diff-check.log" 2>&1
+printf '%s\n' "$?" > "$receipt/diff-check.exit"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+exit "$rc"

@@ -1,0 +1,17 @@
+{
+  "rawComposeLogsRemainPrivate": true,
+  "inputs": [
+    {
+      "phase": "first",
+      "privateReceiptPath": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/embedding-cache-final-79108f9d-20260907T173148Z/first/runtime/compose.log",
+      "sha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab",
+      "bytes": 4088
+    },
+    {
+      "phase": "second",
+      "privateReceiptPath": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/embedding-cache-final-79108f9d-20260907T173148Z/second/runtime/compose.log",
+      "sha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe",
+      "bytes": 13929
+    }
+  ]
+}

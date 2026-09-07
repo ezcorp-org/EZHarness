@@ -1,0 +1,9 @@
+Copied successful logs, commands, exits, source heads, hashes, and inert source
+inputs are byte-for-byte copies. The three diagnostic attempt logs and command
+files were text-sanitized only as follows:
+- /home/dev/work/EZCorp/extension-v4-launcher-cancellation -> <isolated-worktree>
+- /tmp/ez-production-lifecycle-<random> -> <temporary-run-root>
+- /tmp/production-lifecycle-launch-<random> -> <temporary-fixture-root>
+No token, header, cookie, request body, authenticated state, raw trace, or raw
+receipt archive is included. Original receipts remain private in the isolated
+worktree cache.

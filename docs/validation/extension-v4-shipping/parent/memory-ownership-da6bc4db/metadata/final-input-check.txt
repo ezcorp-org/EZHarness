@@ -1,0 +1,10 @@
+src/db/queries/memories.ts: OK
+src/__tests__/memory-list-derived-owner.integration.test.ts: OK
+src/__tests__/security/h3-conversations-memories-idor.test.ts: OK
+web/src/routes/api/memories/+server.ts: OK
+web/src/routes/api/memories/[id]/+server.ts: OK
+web/src/__tests__/api-memories-patch.server.test.ts: OK
+web/e2e/real-auth/audit-web-regressions.spec.ts: OK
+web/src/lib/components/MemoryItem.svelte: OK
+docs/extension-v4-independent-validation-report.md: OK
+docs/plans/extension-v4-independent-validation-handoff.md: OK

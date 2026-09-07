@@ -1,0 +1,5 @@
+source=480f7c71bc9e23839a6b526ccbfe453ea426ce17
+bun=1.3.14
+node=v22.22.2
+conmon=/tmp/ez-audit-ci-conmon
+cache=0

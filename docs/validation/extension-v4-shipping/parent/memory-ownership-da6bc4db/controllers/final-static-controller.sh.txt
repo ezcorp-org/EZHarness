@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Caller owns shared heavy-validation lock. No source mutation.
+set -euo pipefail
+cd /home/dev/work/EZCorp/extension-v4-independent-audit
+receipt=${1:?New absolute receipt directory}
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 2
+expected=aa2485639e052569f997a30ff36a93d3436e1daa
+[[ "$(git rev-parse HEAD)" == "$expected" ]] || exit 3
+git diff --cached --quiet
+mkdir -p "$receipt/inputs"
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+cp "$0" "$receipt/controller.sh.txt"
+cp .cache/terra-shipping/parent/merged-memory-final-source-files.txt "$receipt/source-files.txt"
+mapfile -t inputs < "$receipt/source-files.txt"
+for input in "${inputs[@]}"; do
+ mkdir -p "$receipt/inputs/$(dirname "$input")"
+ cp "$input" "$receipt/inputs/$input.txt"
+ sha256sum "$input" >> "$receipt/input.sha256"
+done
+git diff -- "${inputs[@]}" > "$receipt/source.patch"
+printf '%s\n' "$expected" > "$receipt/base-source.txt"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+finish() { local rc=$?; trap - EXIT; printf '%s\n' "$rc" > "$receipt/controller.exit"; date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"; exit "$rc"; }
+trap finish EXIT
+failed=0
+run_check() {
+ local name=$1 rc
+ shift
+ if "$@" > "$receipt/$name.log" 2>&1; then rc=0; else rc=$?; fi
+ printf '%s\t%s\n' "$name" "$rc" | tee -a "$receipt/results.tsv"
+ if [[ "$rc" != 0 ]]; then failed=1; fi
+}
+run_check typecheck-all bun run typecheck
+run_check lint-boundaries bash -c 'bun run lint && bun scripts/check-boundaries.ts'
+run_check manifest-lock bun scripts/regenerate-manifest-lock.ts --check
+run_check authored-whitespace git diff --check -- "${inputs[@]}"
+sha256sum --check "$receipt/input.sha256" > "$receipt/final-input-check.txt"
+[[ "$(git rev-parse HEAD)" == "$expected" ]] || exit 4
+git diff --cached --quiet
+exit "$failed"

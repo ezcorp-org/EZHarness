@@ -1,0 +1,71 @@
+{
+  "failedRuns": [
+    {
+      "receipt": "cache-default-final-checks-20260907T180011Z",
+      "controllerExit": 1,
+      "results": {
+        "state": 0,
+        "embeddings": 0,
+        "token-cap": 0,
+        "log-guard": 0,
+        "typecheck": 1,
+        "lint": 1,
+        "boundaries": 0,
+        "manifest": 0,
+        "shell": 0,
+        "whitespace": 0,
+        "source-guard": 0
+      },
+      "failure": "typecheck TS2322 in memory-embeddings-state.test.ts; lint control-flow diagnostic in a new fixture"
+    },
+    {
+      "receipt": "cache-default-final-checks-20260907T180159Z",
+      "controllerExit": 1,
+      "results": {
+        "state": 0,
+        "embeddings": 0,
+        "token-cap": 0,
+        "log-guard": 0,
+        "typecheck": 1,
+        "lint": 0,
+        "boundaries": 0,
+        "manifest": 0,
+        "shell": 0,
+        "whitespace": 0,
+        "source-guard": 0
+      },
+      "failure": "typecheck TS2322 in memory-embeddings-state.test.ts"
+    }
+  ],
+  "passingRuns": [
+    {
+      "receipt": "cache-default-type-followup-20260907T1804Z",
+      "controllerExit": 0,
+      "results": {
+        "stateTest": 0,
+        "typecheck": 0,
+        "lint": 0
+      },
+      "stateTest": "14 pass; 35 expectations"
+    },
+    {
+      "receipt": "embedding-log-fixture-lint-20260907T1805Z",
+      "results": {
+        "logGuardTest": 0,
+        "lint": 0
+      },
+      "logGuardTest": "5 pass; 22 expectations"
+    },
+    {
+      "receipt": "embedding-log-guard-parent-controls-20260907T1803Z",
+      "controls": {
+        "firstBad": 1,
+        "secondBad": 1,
+        "valid": 0,
+        "missing": 1,
+        "duplicate": 1,
+        "malformed": 1
+      }
+    }
+  ]
+}

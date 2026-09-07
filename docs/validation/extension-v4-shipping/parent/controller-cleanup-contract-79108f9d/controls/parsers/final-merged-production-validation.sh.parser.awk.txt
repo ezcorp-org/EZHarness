@@ -1,0 +1,18 @@
+    BEGIN { split("command_exit app_log_exit owned_cleanup_exit verifier_cleanup_exit", fields, " ") }
+    {
+      for (field_index in fields) {
+        field = fields[field_index]
+        prefix = field "="
+        if (index($0, prefix) == 1) {
+          counts[field]++
+          values[field] = substr($0, length(prefix) + 1)
+        }
+      }
+    }
+    END {
+      for (field_index in fields) {
+        field = fields[field_index]
+        if (counts[field] != 1 || values[field] !~ /^[0-9]+$/) exit 1
+      }
+      printf "%s\t%s\t%s\t%s\n", values[fields[1]], values[fields[2]], values[fields[3]], values[fields[4]]
+    }

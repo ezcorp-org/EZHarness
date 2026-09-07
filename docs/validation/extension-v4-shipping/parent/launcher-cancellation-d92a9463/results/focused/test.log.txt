@@ -1,0 +1,12 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/production-image-lifecycle-launch.integration.test.ts:
+(pass) long persistent state keeps the authenticated runner transport below the Unix-path limit [1217.64ms]
+(pass) launcher cancellation reaps its verifier and runner before streams drain [5351.02ms]
+(pass) launcher cancellation before verifier group readiness reaps its owned starter [1207.13ms]
+(pass) launcher preserves verifier and tee failure exits [2205.39ms]
+
+ 4 pass
+ 0 fail
+ 39 expect() calls
+Ran 4 tests across 1 file. [10.46s]
