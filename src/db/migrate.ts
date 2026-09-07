@@ -1167,6 +1167,13 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
 
   // ── Multi-Project Memory Assignment (junction table) ──────────────
+  // The initial junction migration imports the legacy single-project column
+  // exactly once. `migrate()` runs on every boot: repeating that import would
+  // turn a later, deliberate removal of every junction row back into a
+  // project assignment because `memories.project_id` is compatibility data.
+  const memoryProjectsExisted = (await db.execute(sql`
+    SELECT to_regclass('memory_projects') IS NOT NULL AS exists
+  `)) as { rows: Array<{ exists: boolean }> };
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS memory_projects (
       memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
@@ -1178,12 +1185,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_memory ON memory_projects(memory_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_project ON memory_projects(project_id)`);
 
-  // Backfill: migrate existing single-project assignments to junction table
-  await db.execute(sql`
-    INSERT INTO memory_projects (memory_id, project_id)
-    SELECT id, project_id FROM memories WHERE project_id IS NOT NULL
-    ON CONFLICT DO NOTHING
-  `);
+  if (!memoryProjectsExisted.rows[0]?.exists) {
+    // First creation only: all non-null legacy values were the authoritative
+    // single-project scope before this table existed.
+    await db.execute(sql`
+      INSERT INTO memory_projects (memory_id, project_id)
+      SELECT id, project_id FROM memories WHERE project_id IS NOT NULL
+      ON CONFLICT DO NOTHING
+    `);
+  }
 
   // ── Message Attachments (multi-modal uploads) ──────────────────
   await db.execute(sql`

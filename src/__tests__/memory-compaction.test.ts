@@ -54,7 +54,7 @@ mock.module("../db/queries/settings", () => {
 mockDbConnection();
 mockEmbeddingsModule();
 
-const { insertMemory, searchMemories, getMemoryById } = await import("../db/queries/memories");
+const { insertMemory, searchMemories, getMemoryById, getMemoryProjectIds } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
@@ -67,6 +67,7 @@ const OWNER = "compaction-owner";
 const OTHER_USER = "compaction-other";
 
 let projectId: string;
+let projectId2: string;
 let conversationId: string;
 let otherConversationId: string;
 let unownedConversationId: string;
@@ -86,6 +87,7 @@ beforeAll(async () => {
   ]).onConflictDoNothing();
   const project = await createProject({ name: "compaction-test", path: "/tmp/compaction" });
   projectId = project.id;
+  projectId2 = (await createProject({ name: "compaction-test-2", path: "/tmp/compaction-2" })).id;
   const conv = await createConversation(projectId, { title: "compaction conv", userId: OWNER });
   conversationId = conv.id;
   const otherConv = await createConversation(projectId, { title: "other user's conv", userId: OTHER_USER });
@@ -109,8 +111,15 @@ beforeEach(async () => {
   await deleteSetting("compaction:lastRun");
 });
 
-async function insertTestMemory(content: string, opts?: { category?: string; status?: string; conversationId?: string | null }) {
-  const embedding = mockEmbedding();
+async function insertTestMemory(content: string, opts?: {
+  category?: string;
+  status?: string;
+  conversationId?: string | null;
+  embedding?: number[];
+  projectIds?: string[];
+  injectionEligible?: boolean;
+}) {
+  const embedding = opts?.embedding ?? mockEmbedding();
   const convId = opts?.conversationId === undefined ? conversationId : opts.conversationId;
   const provenance: MemoryProvenance = {
     sourceConversationId: convId ?? "",
@@ -122,12 +131,14 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
   const mem = await insertMemory({
     content,
     category: (opts?.category ?? "technical") as any,
-    projectId,
+    projectId: opts?.projectIds ? (opts.projectIds[0] ?? null) : projectId,
+    ...(opts?.projectIds ? { projectIds: opts.projectIds } : {}),
     conversationId: convId,
     messageIds: ["msg-comp"],
     confidence: "high",
     embedding,
     provenance,
+    ...(opts?.injectionEligible !== undefined ? { injectionEligible: opts.injectionEligible } : {}),
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
@@ -137,9 +148,11 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
 }
 
 describe("Memory Compaction", () => {
-  test("runCompaction merges two similar active memories via LLM", async () => {
-    const mem1 = await insertTestMemory("User prefers TypeScript for backend");
-    const mem2 = await insertTestMemory("User likes TypeScript on the server");
+  test("runCompaction excludes the source and merges distinct near neighbours via LLM", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    const mem1 = await insertTestMemory("User prefers TypeScript for backend", { embedding: vectorA });
+    const mem2 = await insertTestMemory("User likes TypeScript on the server", { embedding: vectorB });
 
     const mergedCount = await runCompaction(projectId, testMergeFn);
     expect(mergedCount).toBe(1);
@@ -164,6 +177,55 @@ describe("Memory Compaction", () => {
     // without the stamp it has neither user_id nor conversation_id and the
     // user-scoped injection predicate in retrieval.ts can never return it.
     expect(merged.userId).toBe(OWNER);
+  });
+
+  test("runCompaction preserves complete multi-project membership and rejects a narrower neighbour", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    await insertTestMemory("multi-project source", { embedding: vectorA, projectIds: [projectId, projectId2] });
+    await insertTestMemory("multi-project candidate", { embedding: vectorB, projectIds: [projectId, projectId2] });
+    await insertTestMemory("wrong narrower scope", { embedding: vectorA, projectIds: [projectId] });
+
+    expect(await runCompaction(projectId, testMergeFn)).toBe(1);
+    const remaining = await searchMemories({ projectId, status: "active" });
+    const merged = remaining.find((memory) => memory.content.startsWith("Merged:"));
+    expect(merged).toBeDefined();
+    expect((await getMemoryProjectIds(merged!.id)).sort()).toEqual([projectId, projectId2].sort());
+    expect(remaining.some((memory) => memory.content === "wrong narrower scope")).toBe(true);
+  });
+
+  test("runCompaction preserves a global pair as global", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    await insertTestMemory("global source", { embedding: vectorA, projectIds: [] });
+    await insertTestMemory("global candidate", { embedding: vectorB, projectIds: [] });
+
+    expect(await runCompaction(undefined, testMergeFn)).toBe(1);
+    const global = await searchMemories({ scope: "global", status: "active" });
+    expect(global).toHaveLength(1);
+    expect(await getMemoryProjectIds(global[0]!.id)).toEqual([]);
+  });
+
+  test("runCompaction retains false injection eligibility on a merged extension pair", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    await insertTestMemory("private extension note A", { embedding: vectorA, injectionEligible: false });
+    await insertTestMemory("private extension note B", { embedding: vectorB, injectionEligible: false });
+
+    expect(await runCompaction(projectId, testMergeFn)).toBe(1);
+    const merged = await searchMemories({ projectId, status: "active" });
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.injectionEligible).toBe(false);
+  });
+
+  test("runCompaction does not merge rows with different injection eligibility", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    await insertTestMemory("eligible note", { embedding: vectorA, injectionEligible: true });
+    await insertTestMemory("ineligible note", { embedding: vectorB, injectionEligible: false });
+
+    expect(await runCompaction(projectId, testMergeFn)).toBe(0);
+    expect(await searchMemories({ projectId, status: "active" })).toHaveLength(2);
   });
 
   test("runCompaction never merges across users — similar rows owned by different users both survive", async () => {

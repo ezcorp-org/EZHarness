@@ -1,5 +1,10 @@
 // Memory compaction: merges highly similar memories via LLM
-import { findSimilarMemory, insertMemory, deleteMemory, getMemoryById } from "../db/queries/memories";
+import {
+  findSimilarMemory,
+  getMemoryById,
+  getMemoryProjectIds,
+  mergeMemoriesAtomically,
+} from "../db/queries/memories";
 import { searchMemories } from "../db/queries/memories";
 import { getConversation } from "../db/queries/conversations";
 import { getSetting, upsertSetting } from "../db/queries/settings";
@@ -120,19 +125,34 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
     const owner = await resolveMemoryOwner(memory, ownerCache);
     if (!owner) continue;
 
-    // Find a similar memory (threshold 0.90) owned by the same user
+    // A compaction replacement keeps the complete junction scope of both
+    // sources. This keeps global rows global and multi-project rows whole.
+    const memoryProjectIds = await getMemoryProjectIds(memory.id);
+
+    // The source exclusion belongs in SQL: skipping a self-match after
+    // LIMIT 1 cannot reach the next nearest candidate.
     const similar = await findSimilarMemory(
       memory.embedding as number[],
       COMPACTION_SIMILARITY_THRESHOLD,
-      { ownerUserId: owner },
+      {
+        ownerUserId: owner,
+        excludeMemoryId: memory.id,
+        status: "active",
+        projectIds: memoryProjectIds,
+        injectionEligible: memory.injectionEligible,
+      },
     );
 
-    if (!similar || similar.id === memory.id) continue;
+    if (!similar) continue;
     if (processedIds.has(similar.id)) continue;
 
     // Verify the similar memory still exists and is active
     const similarMemory = await getMemoryById(similar.id);
-    if (!similarMemory || similarMemory.status !== "active") continue;
+    if (similarMemory?.status !== "active") continue;
+    const similarProjectIds = await getMemoryProjectIds(similarMemory.id);
+    if (similarMemory.injectionEligible !== memory.injectionEligible) continue;
+    if (similarProjectIds.length !== memoryProjectIds.length
+      || !similarProjectIds.every((id) => memoryProjectIds.includes(id))) continue;
 
     // Merge via LLM
     const mergedContent = await (mergeFn ?? mergeContents)(memory.content, similar.content);
@@ -155,22 +175,24 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
       ],
     };
 
-    // Create merged memory. Stamp the resolved owner directly (ownership
-    // shape 1) so the merged row stays visible to the user-scoped injection
-    // predicate even if the source conversations are later deleted.
-    await insertMemory({
+    // The replacement and both removals commit together. Recheck the owner,
+    // status, eligibility, and membership after the LLM wait so a concurrent
+    // edit cannot be overwritten by this merge.
+    const replacement = await mergeMemoriesAtomically([memory.id, similar.id], {
+      ownerUserId: owner,
+      projectIds: memoryProjectIds,
+      injectionEligible: memory.injectionEligible,
+    }, {
       content: mergedContent,
       category: memory.category,
-      projectId: memory.projectId,
+      projectIds: memoryProjectIds,
       confidence: memory.confidence,
       userId: owner,
       embedding,
       provenance,
+      injectionEligible: memory.injectionEligible,
     });
-
-    // Delete originals
-    await deleteMemory(memory.id);
-    await deleteMemory(similar.id);
+    if (!replacement) continue;
 
     processedIds.add(memory.id);
     processedIds.add(similar.id);
