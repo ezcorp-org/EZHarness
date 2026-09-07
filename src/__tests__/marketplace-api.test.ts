@@ -340,8 +340,12 @@ describe("export/import", () => {
 
   test("import with valid manifest JSON creates local agent", async () => {
     const importManifest = { ...exportedManifest, exportedAt: new Date().toISOString() };
+    const { exportedAt: _exportedAt, ...publicManifest } = importManifest;
 
-    const validation = validateManifestV2(importManifest);
+    // `exportedAt` is marketplace transport metadata, not a public manifest
+    // field. The import route removes this named envelope field before strict
+    // manifest validation.
+    const validation = validateManifestV2(publicManifest);
     expect(validation.valid).toBe(true);
 
     // Create local agent from manifest (with suffix to avoid name collision)

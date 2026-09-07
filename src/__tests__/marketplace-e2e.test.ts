@@ -331,7 +331,8 @@ describe("export → import lifecycle", () => {
     // buildV2Manifest slugifies the display name (matches production publish).
     expect(parsed.name).toBe("exportable-agent");
 
-    const { valid } = validateManifestV2(parsed);
+    const { exportedAt: _exportedAt, ...publicManifest } = parsed;
+    const { valid } = validateManifestV2(publicManifest);
     expect(valid).toBe(true);
   });
 
@@ -341,17 +342,19 @@ describe("export → import lifecycle", () => {
     const exported = { ...manifest, exportedAt: new Date().toISOString() };
     const json = JSON.stringify(exported);
 
-    const parsed = JSON.parse(json) as ExtensionManifestV2;
-    const { valid } = validateManifestV2(parsed);
+    const parsed = JSON.parse(json);
+    const { exportedAt: _exportedAt, ...publicManifest } = parsed;
+    const { valid } = validateManifestV2(publicManifest);
     expect(valid).toBe(true);
+    const importedManifest = publicManifest as ExtensionManifestV2;
 
     // Create local agent with "(Imported)" suffix
     const importedConfig = await createAgentConfig({
-      name: `${parsed.name} (Imported)`,
-      description: parsed.description,
-      prompt: parsed.agent!.prompt,
-      capabilities: parsed.agent!.capabilities,
-      category: parsed.agent!.category,
+      name: `${importedManifest.name} (Imported)`,
+      description: importedManifest.description,
+      prompt: importedManifest.agent!.prompt,
+      capabilities: importedManifest.agent!.capabilities,
+      category: importedManifest.agent!.category,
       userId: installerId,
     });
 
