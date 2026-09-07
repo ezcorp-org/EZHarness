@@ -156,8 +156,8 @@ try {
   await writeRunnerEvidence();
 }
 if (echoText(await client.invokeExtensionTool(conversation.id, name, "echo", { text: marker })) !== `echo-v1:${marker}`) throw new Error("Old active echo changed immediately after app restart and worker unpause.");
-// One lease may expire while the app is down; a second bounded lease window
-// covers the recovered isolated build and candidate verification.
+// One lease may expire while the app is down. Bounded long-polls let the
+// recovered isolated build complete verification.
 const recovered = await waitForVerified(client, installationId, build.id, 24, state => captureBuildFailure(runRoot, installationId, state, build.id));
 runnerEvidence.afterRecovery = await ownedRunnerState(runRoot, paused.runnerOperationId);
 await writeRunnerEvidence();
