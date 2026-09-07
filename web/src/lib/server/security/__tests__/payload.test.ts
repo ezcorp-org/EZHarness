@@ -49,40 +49,142 @@ function hasBoundedRequests(counts: { warm: number; first: number; second: numbe
     && counts.second - counts.first <= RETAINED_REQUEST_LIMIT;
 }
 
+type BunAdmissionEvent = { request: Request; platform: { server: unknown; request: Request } };
+type AdmittedBunRequest = {
+  request: Request;
+  sameEvent: () => boolean;
+  rawHadBody: boolean;
+};
+
+async function withAdmittedBunServer(
+  respond: (input: AdmittedBunRequest) => Promise<Response>,
+  exercise: (origin: URL) => Promise<void>,
+): Promise<void> {
+  const events = new AsyncLocalStorage<BunAdmissionEvent>();
+  let server: ReturnType<typeof Bun.serve>;
+  server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(rawRequest) {
+      const url = new URL(rawRequest.url);
+      // Match svelte-adapter-bun: clone before the event enters ALS.
+      const event: BunAdmissionEvent = {
+        request: new Request(url.origin + url.pathname + url.search, rawRequest),
+        platform: { server, request: rawRequest },
+      };
+      return events.run(event, async () => {
+        const rawHadBody = event.request.body !== null;
+        event.request = await admitRequestPayload(event.request, url.pathname);
+        return respond({ request: event.request, rawHadBody, sameEvent: () => events.getStore() === event });
+      });
+    },
+  });
+  try {
+    await exercise(server.url);
+  } finally {
+    server.stop(true);
+  }
+}
+
 test("bodyless request admission preserves the original request", async () => {
   const request = new Request("http://localhost/api/extensions/control");
   expect(await admitRequestPayload(request, "/api/extensions/control")).toBe(request);
 });
 
 test("admitted Bun server payload remains readable through the request event context", async () => {
-  type RequestEvent = { request: Request; platform: { request: Request } };
-  const events = new AsyncLocalStorage<RequestEvent>();
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(rawRequest) {
-      // Match the adapter: make the public request before its event enters ALS.
-      const request = new Request(rawRequest.url, rawRequest);
-      const event = { request, platform: { request: rawRequest } };
-      return events.run(event, async () => {
-        event.request = await admitRequestPayload(event.request, "/api/extensions/control");
-        const payload = await readBoundedJson(event.request, getMaxPayload("/api/extensions/control")) as { text: string };
-        return Response.json({ text: payload.text, preserved: events.getStore() === event });
-      });
-    },
-  });
   const text = `payload-${"😀".repeat(1024)}`;
-  try {
-    const response = await fetch(new URL("/api/extensions/control", server.url), {
+  await withAdmittedBunServer(async ({ request, sameEvent }) => {
+    const payload = await readBoundedJson(request, getMaxPayload("/api/extensions/control")) as { text: string };
+    return Response.json({ text: payload.text, preserved: sameEvent() });
+  }, async origin => {
+    const response = await fetch(new URL("/api/extensions/control", origin), {
       method: "POST",
       headers: { "content-type": "application/json", connection: "close" },
       body: JSON.stringify({ text }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ text, preserved: true });
-  } finally {
-    server.stop(true);
-  }
+  });
+});
+
+test("admitted Bun HTTP multipart preserves its exact boundary and bytes", async () => {
+  await withAdmittedBunServer(async ({ request, sameEvent }) => {
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) return new Response("missing file", { status: 400 });
+    return Response.json({
+      contentType: request.headers.get("content-type"),
+      customHeader: request.headers.get("x-payload-probe"),
+      text: form.get("text"),
+      file: {
+        bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
+        name: file.name,
+        type: file.type,
+      },
+      preserved: sameEvent(),
+    });
+  }, async origin => {
+    const form = new FormData();
+    form.set("text", "café 😀");
+    form.set("file", new File([new Uint8Array([0, 255, 1, 2])], "résumé-😀.bin", { type: "application/octet-stream" }));
+    // Construct before fetch so the assertion pins the actual generated boundary.
+    const outbound = new Request(new URL("/api/extensions/control", origin), {
+      method: "POST",
+      headers: { "x-payload-probe": "preserved" },
+      body: form,
+    });
+    const originalContentType = outbound.headers.get("content-type");
+    expect(originalContentType).toMatch(/^multipart\/form-data;.*boundary=/);
+    const response = await fetch(outbound);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      contentType: originalContentType,
+      customHeader: "preserved",
+      text: "café 😀",
+      file: { bytes: [0, 255, 1, 2], name: "résumé-😀.bin", type: "application/octet-stream" },
+      preserved: true,
+    });
+  });
+});
+
+test("admission preserves a direct body-bearing zero-byte stream", async () => {
+  const emptyStream = new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } });
+  const request = new Request("http://localhost/api/extensions/control", {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream", "x-payload-probe": "preserved" },
+    body: emptyStream,
+    // @ts-expect-error — Bun/undici stream-body needs duplex:"half".
+    duplex: "half",
+  });
+  expect(request.body).not.toBeNull();
+  const admitted = await admitRequestPayload(request, "/api/extensions/control");
+  expect(admitted.body).not.toBeNull();
+  expect(admitted.headers.get("x-payload-probe")).toBe("preserved");
+  expect(new Uint8Array(await admitted.arrayBuffer())).toEqual(new Uint8Array());
+});
+
+test("admitted Bun HTTP zero-byte POST preserves wire body state", async () => {
+  await withAdmittedBunServer(async ({ request, sameEvent, rawHadBody }) => Response.json({
+    rawHadBody,
+    admittedHadBody: request.body !== null,
+    bytes: Array.from(new Uint8Array(await request.arrayBuffer())),
+    preserved: sameEvent(),
+  }), async origin => {
+    const emptyStream = new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } });
+    const response = await fetch(new URL("/api/extensions/control", origin), {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: emptyStream,
+      // @ts-expect-error — Bun/undici stream-body needs duplex:"half".
+      duplex: "half",
+    });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { rawHadBody: boolean; admittedHadBody: boolean; bytes: number[]; preserved: boolean };
+    expect(typeof result.rawHadBody).toBe("boolean");
+    expect(result.admittedHadBody).toBe(result.rawHadBody);
+    expect(result.bytes).toEqual([]);
+    expect(result.preserved).toBe(true);
+  });
 });
 
 test("stream admission stays bounded across two Bun ALS request batches", async () => {
