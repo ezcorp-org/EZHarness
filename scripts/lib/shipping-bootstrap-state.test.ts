@@ -1,10 +1,25 @@
 import { expect, spyOn, test } from "bun:test";
 import type { HarnessClient } from "@ezcorp/harness-client";
 import { resolveBundledExtensions } from "../../src/extensions/bundled";
-import { type BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
+import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
-function state(status: "queued" | "verified" | "failed") {
-  return { operations: { build: { id: "build", kind: "build", state: status, diagnostics: [], events: [], updatedAt: "2026-09-07T00:00:00.000Z" } } };
+function state(
+  status: "queued" | "verified" | "failed",
+  metadata: { lease?: { fence: number; until: number }; events?: Array<{ sequence: number; state: string; at: string }> } = {},
+) {
+  return {
+    operations: {
+      build: {
+        id: "build",
+        kind: "build",
+        state: status,
+        diagnostics: [],
+        events: metadata.events ?? [],
+        updatedAt: "2026-09-07T00:00:00.000Z",
+        ...(metadata.lease ? { lease: metadata.lease } : {}),
+      },
+    },
+  };
 }
 
 test("waits for observed bundled work to become terminal and retains its receipt", async () => {
@@ -41,25 +56,69 @@ test("rejects ambiguous installation mapping and failed bundled builds", async (
 
 test("reports no snapshot when the bounded bootstrap observer has no poll", async () => {
   const client = { async listExtensions() { throw new Error("must not poll"); }, async extensionControl() { throw new Error("must not inspect"); } } as unknown as HarnessClient;
-  await expect(waitForBundledBootstrap(client, { deadlineMs: -1 })).rejects.toMatchObject({ name: "BundledBootstrapTimeoutError", snapshot: null } satisfies Partial<BundledBootstrapTimeoutError>);
+  await expect(waitForBundledBootstrap(client, { deadlineMs: -1 })).rejects.toMatchObject({
+    name: "BundledBootstrapTimeoutError",
+    snapshot: null,
+    observer: { deadlineMs: -1 },
+  } satisfies Partial<BundledBootstrapTimeoutError>);
 });
 
 test("reports the final pending operations in a bounded bootstrap timeout", async () => {
   let now = 0;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
   const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now += 1; });
-  const client = { async listExtensions() { return []; }, async extensionControl() { return state("queued"); } } as unknown as HarnessClient;
+  const client = {
+    async listExtensions() { return []; },
+    async extensionControl() {
+      return state("queued", {
+        lease: { fence: 2, until: 60_001 },
+        events: [{ sequence: 1, state: "building", at: "2026-09-07T00:00:00.000Z" }],
+      });
+    },
+  } as unknown as HarnessClient;
   try {
-    await expect(waitForBundledBootstrap(client, { deadlineMs: 1 })).rejects.toMatchObject({
-      name: "BundledBootstrapTimeoutError",
-      snapshot: {
-        capturedAt: expect.any(String),
-        bootstrapInstallations: resolveBundledExtensions().length,
-        initialPending: resolveBundledExtensions().length,
-        maximumPending: resolveBundledExtensions().length,
-        terminalOperationStates: { queued: resolveBundledExtensions().length },
-      },
-    } satisfies Partial<BundledBootstrapTimeoutError>);
+    let timeout: BundledBootstrapTimeoutError | undefined;
+    try {
+      await waitForBundledBootstrap(client, { deadlineMs: 1 });
+    } catch (error) {
+      expect(error).toBeInstanceOf(BundledBootstrapTimeoutError);
+      timeout = error as BundledBootstrapTimeoutError;
+    }
+    expect(timeout?.snapshot).toMatchObject({
+      capturedAt: expect.any(String),
+      observer: { deadlineMs: 1 },
+      bootstrapInstallations: resolveBundledExtensions().length,
+      initialPending: resolveBundledExtensions().length,
+      maximumPending: resolveBundledExtensions().length,
+      terminalOperationStates: { queued: resolveBundledExtensions().length },
+    });
+    expect(timeout?.snapshot?.terminalOperations[0]?.operations[0]).toMatchObject({
+      lease: { fence: 2, until: 60_001 },
+      lastEvent: { state: "building", at: "2026-09-07T00:00:00.000Z" },
+    });
+  } finally {
+    sleep.mockRestore();
+    clock.mockRestore();
+  }
+});
+
+test("allows an R2 observer to finish after a six-minute lease and two idle polls", async () => {
+  let now = 0;
+  let polls = 0;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now = 360_001; });
+  const client = {
+    async listExtensions() { polls += 1; return []; },
+    async extensionControl() { return state(polls === 1 ? "building" : "verified"); },
+  } as unknown as HarnessClient;
+  try {
+    const result = await waitForBundledBootstrap(client, { requireObservedPending: false, deadlineMs: 480_000 });
+    expect(result).toMatchObject({
+      observer: { deadlineMs: 480_000 },
+      initialPending: resolveBundledExtensions().length,
+      terminalOperationStates: { verified: resolveBundledExtensions().length },
+    });
+    requireBundledBootstrapVerified(result, "after a recovered lease");
   } finally {
     sleep.mockRestore();
     clock.mockRestore();

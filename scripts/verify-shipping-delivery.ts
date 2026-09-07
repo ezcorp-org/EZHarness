@@ -6,6 +6,10 @@ import { releaseAllShippingEffects, releaseShippingEffect, shippingEffectState, 
 import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
 
 const CALLBACK_PORT = 7071;
+// R2 restarts while the initial bundled build lease remains valid. The
+// observer needs that six-minute lease plus bounded verification and two idle
+// checks; the enclosing production proof remains capped at fifteen minutes.
+const R2_BOOTSTRAP_DEADLINE_MS = 480_000;
 function hash(value: string): string {
   return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
@@ -119,9 +123,9 @@ async function main(): Promise<void> {
     await proveKilledDelivery("after");
     let bundledBootstrap: Awaited<ReturnType<typeof waitForBundledBootstrap>>;
     try {
-      bundledBootstrap = await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false });
+      bundledBootstrap = await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false, deadlineMs: R2_BOOTSTRAP_DEADLINE_MS });
     } catch (error) {
-      if (error instanceof BundledBootstrapTimeoutError) await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2-timeout.json"), JSON.stringify(error.snapshot) + "\n", { mode: 0o600 });
+      if (error instanceof BundledBootstrapTimeoutError) await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2-timeout.json"), JSON.stringify({ observer: error.observer, snapshot: error.snapshot }) + "\n", { mode: 0o600 });
       throw error;
     }
     await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2.json"), JSON.stringify(bundledBootstrap) + "\n", { mode: 0o600 });
