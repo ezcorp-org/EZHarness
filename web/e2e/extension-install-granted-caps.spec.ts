@@ -1,17 +1,14 @@
 /**
- * B2-UI — the extension detail page DISPLAYS the capability-tier grants
- * (storage / spawnAgents / eventSubscriptions) that are auto-granted at install
- * from the manifest.
+ * B2-UI — the extension detail page displays immutable release permission
+ * evidence for storage, spawn agents, event subscriptions, and workflows.
  *
- * These are all-or-nothing: they're granted at install (no per-cap toggle) and
- * the PUT /permissions endpoint re-strips custom event subscriptions via
- * `clampExtensionPermissions`. So the UI renders them READ-ONLY ("granted at
- * install"), never as editable toggles. This spec pins that surface against a
- * mocked extension whose manifest declares all three.
+ * This surface has no consent controls. A human reviews and approves the
+ * exact candidate release in the author workspace; real-auth release-gate
+ * coverage proves that separate authority transition. This mock spec keeps
+ * the read-only detail UI and its Review navigation in the blocking mock lane.
  *
- * The `@evidence`-tagged case satisfies the Visual evidence CI gate (a
- * frontend-visual change to the extension detail page). `captureEvidence` is a
- * hard no-op unless `EZCORP_E2E_EVIDENCE=1`.
+ * The `@evidence` capture records both the detail and rendered Review target.
+ * `captureEvidence` is a hard no-op unless `EZCORP_E2E_EVIDENCE=1`.
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
