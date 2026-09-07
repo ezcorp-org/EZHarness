@@ -14,6 +14,20 @@ const PAYLOAD_LIMITS: Record<string, number> = {
 
 const DEFAULT_MAX = 1024 * 1024; // 1MB
 
+/**
+ * Keep an admitted payload in JavaScript-owned stream storage. Bun 1.3.14's
+ * native ArrayBuffer body source can retain the request's async context after
+ * a server handler has fully consumed it.
+ */
+function oneChunkBody(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
 export function getMaxPayload(pathname: string): number {
   if (pathname === "/api/extensions/control") return 128 * 1024 * 1024;
   for (const [prefix, limit] of Object.entries(PAYLOAD_LIMITS)) {
@@ -49,7 +63,12 @@ export async function admitRequestPayload(request: Request, pathname: string): P
   const bytes = await readBoundedBody(request, getMaxPayload(pathname));
   const headers = new Headers(request.headers);
   headers.set("content-length", String(bytes.length));
-  return new Request(request, { headers, body: new Uint8Array(bytes).buffer });
+  return new Request(request, {
+    headers,
+    body: oneChunkBody(bytes),
+    // @ts-expect-error — Bun/undici stream-body needs duplex:"half".
+    duplex: "half",
+  });
 }
 
 export function payloadTooLarge(maxBytes?: number): Response {

@@ -7,18 +7,88 @@
 // hook-level generic one).
 
 import { test, expect, describe } from "bun:test";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { join } from "node:path";
 import {
   admitRequestPayload,
   getMaxPayload,
   payloadTooLarge,
 } from "../payload";
+import { readBoundedJson } from "../bounded-json";
 
 const ONE_MB = 1024 * 1024;
+const RETAINED_REQUEST_LIMIT = 16;
+const faultMode = process.env.EZ_PAYLOAD_RETENTION_FAULT;
+if (faultMode !== undefined && faultMode !== "native") throw new Error("EZ_PAYLOAD_RETENTION_FAULT must be native when set");
+
+async function retentionCounts(mode: "native" | "stream"): Promise<{ warm: number; first: number; second: number }> {
+  const child = Bun.spawn([
+    "timeout", "--foreground", "--kill-after=5s", "15s",
+    process.execPath, join(import.meta.dir, "payload-retention-child.ts"),
+  ], {
+    env: { ...process.env, EZ_PAYLOAD_RETENTION_MODE: mode },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(exitCode, stderr).toBe(0);
+    return JSON.parse(stdout) as { warm: number; first: number; second: number };
+  } finally {
+    child.kill();
+    await child.exited;
+  }
+}
+
+function hasBoundedRequests(counts: { warm: number; first: number; second: number }): boolean {
+  return counts.first - counts.warm <= RETAINED_REQUEST_LIMIT
+    && counts.second - counts.first <= RETAINED_REQUEST_LIMIT;
+}
 
 test("bodyless request admission preserves the original request", async () => {
   const request = new Request("http://localhost/api/extensions/control");
   expect(await admitRequestPayload(request, "/api/extensions/control")).toBe(request);
 });
+
+test("admitted Bun server payload remains readable through the request event context", async () => {
+  type RequestEvent = { request: Request; platform: { request: Request } };
+  const events = new AsyncLocalStorage<RequestEvent>();
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(rawRequest) {
+      // Match the adapter: make the public request before its event enters ALS.
+      const request = new Request(rawRequest.url, rawRequest);
+      const event = { request, platform: { request: rawRequest } };
+      return events.run(event, async () => {
+        event.request = await admitRequestPayload(event.request, "/api/extensions/control");
+        const payload = await readBoundedJson(event.request, getMaxPayload("/api/extensions/control")) as { text: string };
+        return Response.json({ text: payload.text, preserved: events.getStore() === event });
+      });
+    },
+  });
+  const text = `payload-${"😀".repeat(1024)}`;
+  try {
+    const response = await fetch(new URL("/api/extensions/control", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json", connection: "close" },
+      body: JSON.stringify({ text }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ text, preserved: true });
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("stream admission stays bounded across two Bun ALS request batches", async () => {
+  const counts = await retentionCounts(faultMode === "native" ? "native" : "stream");
+  expect(hasBoundedRequests(counts)).toBe(true);
+}, 30_000);
 
 describe("getMaxPayload — prefix table", () => {
   test("/api/extensions/<name>/uploads → 25MB", () => {

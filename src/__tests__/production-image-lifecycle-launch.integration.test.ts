@@ -65,7 +65,7 @@ printf '%s' "$code"
   let timedOut = false;
   try {
     await writeFile(join(state, "persistent-sentinel.txt"), "retain persistent state");
-    child = Bun.spawn([
+    const launched = Bun.spawn([
       "bash",
       "scripts/verify-production-image-lifecycle.sh",
       "--",
@@ -92,14 +92,15 @@ printf '%s' "$code"
       stdout: "pipe",
       stderr: "pipe",
     });
+    child = launched;
     deadline = setTimeout(() => {
       timedOut = true;
       child!.kill("SIGTERM");
     }, 20_000);
     const [exit, stdout, stderr] = await Promise.all([
       child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
+      new Response(launched.stdout).text(),
+      new Response(launched.stderr).text(),
     ]);
     expect(timedOut).toBe(false);
     expect(exit, `${stdout}\n${stderr}`).toBe(0);
