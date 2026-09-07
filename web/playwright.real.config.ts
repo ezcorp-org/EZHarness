@@ -156,6 +156,9 @@ export default defineConfig({
     command: `bun run build && bun run preview -- --port ${previewPort} --strictPort`,
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
+    // Preserve preview stdout in CI so a startup timeout retains its last
+    // completed application stage. Fresh setup inherits this webServer config.
+    stdout: "pipe",
     // Real harness MUST never reuse a stale server — a previous run
     // might have a DB that's already past first-boot setup, breaking
     // globalSetup's idempotent contract. Always start a fresh server.
