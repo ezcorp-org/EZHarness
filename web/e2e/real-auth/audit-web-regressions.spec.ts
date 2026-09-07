@@ -1,5 +1,40 @@
 import { test, expect, waitForHydration } from "../fixtures/hydration.js";
+import type { APIRequestContext, Browser, BrowserContext } from "@playwright/test";
 import { captureEvidence } from "../fixtures/evidence.js";
+
+async function inviteVerifiedMember({
+	request,
+	baseURL,
+	browser,
+	email,
+	name,
+}: {
+	request: APIRequestContext;
+	baseURL: string | undefined;
+	browser: Browser;
+	email: string;
+	name: string;
+}): Promise<BrowserContext> {
+	const inviteResponse = await request.post("/api/auth/invite", {
+		data: { email, role: "member" },
+	});
+	expect(inviteResponse.status(), await inviteResponse.text()).toBe(201);
+	const { invite } = (await inviteResponse.json()) as { invite: { token: string } };
+	const memberContext = await browser.newContext({ baseURL });
+	try {
+		const accepted = await memberContext.request.post(`/api/auth/invite/${invite.token}`, {
+			data: { name, email, password: "Audit-Local-Pw-9x!" },
+		});
+		expect(accepted.status(), await accepted.text()).toBe(201);
+		const me = await memberContext.request.get("/api/auth/me");
+		expect(me.status()).toBe(200);
+		expect(((await me.json()) as { user: { role: string } }).user.role).toBe("member");
+		return memberContext;
+	} catch (error) {
+		await memberContext.close();
+		throw error;
+	}
+}
 
 test.describe("@evidence audit web regressions", () => {
 	test("a real invited member completes onboarding without server-refused provider writes", async ({
@@ -8,21 +43,14 @@ test.describe("@evidence audit web regressions", () => {
 		browser,
 	}, testInfo) => {
 		const email = `audit-member-${Date.now()}@example.com`;
-		const inviteResponse = await request.post("/api/auth/invite", {
-			data: { email, role: "member" },
+		const memberRequest = await inviteVerifiedMember({
+			request,
+			baseURL,
+			browser,
+			email,
+			name: "Audit Member",
 		});
-		expect(inviteResponse.status(), await inviteResponse.text()).toBe(201);
-		const { invite } = (await inviteResponse.json()) as { invite: { token: string } };
-
-		const memberRequest = await browser.newContext({ baseURL });
 		try {
-			const accepted = await memberRequest.request.post(`/api/auth/invite/${invite.token}`, {
-				data: { name: "Audit Member", email, password: "Audit-Local-Pw-9x!" },
-			});
-			expect(accepted.status(), await accepted.text()).toBe(201);
-			const me = await memberRequest.request.get("/api/auth/me");
-			expect(((await me.json()) as { user: { role: string } }).user.role).toBe("member");
-
 			const page = await memberRequest.newPage();
 			const refusedWrites: string[] = [];
 			page.on("request", (outgoing) => {
@@ -56,6 +84,104 @@ test.describe("@evidence audit web regressions", () => {
 		} finally {
 			await memberRequest.close();
 		}
+	});
+
+	test("a memory owner edits and deletes through the UI while an invited member cannot discover it", async ({
+		request,
+		baseURL,
+		browser,
+		page,
+	}, testInfo) => {
+		const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const originalContent = `Owner-only memory ${nonce}`;
+		const editedContent = `Owner-edited memory ${nonce}`;
+		const createdResponse = await request.post("/api/memories", {
+			data: {
+				content: originalContent,
+				category: "preferences",
+				confidence: "high",
+			},
+		});
+		expect(createdResponse.status(), await createdResponse.text()).toBe(201);
+		const created = (await createdResponse.json()) as { id: string; content: string; injectionEligible: boolean };
+		expect(created.content).toBe(originalContent);
+		expect(created.injectionEligible).toBe(true);
+
+		const memberEmail = `memory-member-${nonce}@example.com`;
+		const memberContext = await inviteVerifiedMember({
+			request,
+			baseURL,
+			browser,
+			email: memberEmail,
+			name: "Memory Scope Member",
+		});
+		try {
+			const memberList = await memberContext.request.get("/api/memories?scope=all");
+			expect(memberList.status()).toBe(200);
+			const visibleMemories = (await memberList.json()) as Array<{ id: string; content: string }>;
+			expect(visibleMemories.some((memory) => memory.id === created.id || memory.content === originalContent)).toBe(false);
+			const memberItem = await memberContext.request.get(`/api/memories/${created.id}`);
+			expect(memberItem.status()).toBe(404);
+		} finally {
+			await memberContext.close();
+		}
+
+		await page.goto("/memories");
+		await waitForHydration(page);
+		const ownerRow = page.getByTestId("memory-row").filter({ hasText: originalContent });
+		await expect(ownerRow).toBeVisible();
+		await ownerRow.getByText(originalContent, { exact: true }).click();
+		await expect(ownerRow.getByRole("button", { name: "Edit" })).toBeVisible();
+		await ownerRow.getByRole("button", { name: "Edit" }).click();
+		await ownerRow.locator("textarea").fill(editedContent);
+		const updateResponse = page.waitForResponse(
+			(response) => response.url().endsWith(`/api/memories/${created.id}`) && response.request().method() === "PUT",
+		);
+		await ownerRow.getByRole("button", { name: "Save" }).click();
+		expect((await updateResponse).status()).toBe(200);
+		const editedRow = page.getByTestId("memory-row").filter({ hasText: editedContent });
+		await expect(editedRow.locator("p")).toHaveText(editedContent);
+
+		const persisted = await request.get(`/api/memories/${created.id}`);
+		expect(persisted.status()).toBe(200);
+		expect(((await persisted.json()) as { content: string }).content).toBe(editedContent);
+
+		const injectionToggle = editedRow.getByTestId("injection-eligibility-toggle");
+		await expect(injectionToggle).toHaveAttribute("data-state", "allowed");
+		const toggleResponse = page.waitForResponse(
+			(response) => response.url().endsWith(`/api/memories/${created.id}`) && response.request().method() === "PATCH",
+		);
+		await injectionToggle.click();
+		expect((await toggleResponse).status()).toBe(200);
+		await expect(injectionToggle).toHaveAttribute("data-state", "excluded");
+		await page.evaluate(() => {
+			localStorage.setItem("ezcorp-theme", "light");
+			document.documentElement.classList.remove("dark");
+		});
+		await expect(page.locator("html")).not.toHaveClass(/dark/);
+		await captureEvidence(page, testInfo, "memory-owner-ui-edited-and-excluded-light", { fullPage: true });
+		await page.evaluate(() => {
+			localStorage.setItem("ezcorp-theme", "dark");
+			document.documentElement.classList.add("dark");
+		});
+		await expect(page.locator("html")).toHaveClass(/dark/);
+		await captureEvidence(page, testInfo, "memory-owner-ui-edited-and-excluded-dark", { fullPage: true });
+		await page.evaluate(() => {
+			localStorage.setItem("ezcorp-theme", "light");
+			document.documentElement.classList.remove("dark");
+		});
+
+		await editedRow.getByRole("button", { name: "Delete" }).click();
+		await expect(editedRow.getByRole("button", { name: "Confirm Delete?" })).toBeVisible();
+		const deleteResponse = page.waitForResponse(
+			(response) => response.url().endsWith(`/api/memories/${created.id}`) && response.request().method() === "DELETE",
+		);
+		await editedRow.getByRole("button", { name: "Confirm Delete?" }).click();
+		expect((await deleteResponse).status()).toBe(204);
+		await expect(editedRow).toHaveCount(0);
+		const deleted = await request.get(`/api/memories/${created.id}`);
+		expect(deleted.status()).toBe(404);
+		await captureEvidence(page, testInfo, "memory-owner-ui-deleted", { fullPage: true });
 	});
 
 	test("an admin provider save refreshes the checklist before reload", async ({ page, request }, testInfo) => {

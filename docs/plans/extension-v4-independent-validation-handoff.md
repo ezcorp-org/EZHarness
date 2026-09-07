@@ -99,7 +99,7 @@ For each deliberate feature removal, record `accepted by maintainer`, `restorati
 | Grant expiry | Per-capability TTL and Never renewal issuance |
 | Data removal | Destructive discard/purge instead of immutable history and retained data |
 | Imports and updates | Generic Git import and automatic updates |
-| Host execution | Host lifecycle scripts and legacy `subAgents` metadata |
+| Host execution | Host lifecycle scripts and the removed extension-manifest/example `subAgents` field; active team and agent-config `subAgents` remain supported |
 
 These are product changes, not automatically test defects. Refusal of a retired endpoint does not prove that its former feature still works. Do not restore unsafe host execution to obtain nominal parity.
 

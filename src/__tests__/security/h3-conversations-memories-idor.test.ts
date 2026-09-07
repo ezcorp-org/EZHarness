@@ -6,9 +6,11 @@
 // which short-circuited whenever `row.userId` was null. Rows with a null
 // userId (e.g. tool-invoked / legacy sub-conversations) could therefore be
 // read and mutated by any authenticated user. The fix changes the check to
-// fail-closed: unowned rows are admin-only.
+// fail closed. Conversation rows and fully unattributed memory rows are
+// admin-only. A memory with a null direct user id may instead be owned by its
+// source conversation; that owner alone is allowed by `memoryOwnedByUser`.
 //
-//   // sec-H3: fail-closed — unowned rows (null userId) are admin-only
+//   // sec-H3: fail-closed — fully unattributed rows are admin-only
 //   if (row.userId !== user.id && user.role !== "admin") return null;
 //
 // This test covers the six files touched by the fix commit (the bytes
@@ -31,7 +33,7 @@
 //   (B) Behavioral probes on the two canonical handlers
 //       (conversations/[id]/+server.ts and memories/[id]/+server.ts)
 //       using the standard mock-request helper. These prove the fixed
-//       code path produces 404 for a non-admin on a null-owner row and
+//       code path produces 404 for a non-admin on an unattributed row and
 //       200 for an admin. A pre-fix build returns 200 in both cases.
 //
 // Other H3 sites (tasks/+server.ts, messages/+server.ts, export/+server.ts,
@@ -108,6 +110,7 @@ type Conversation = {
 type Memory = {
   id: string;
   userId: string | null;
+  conversationUserId?: string | null;
   content: string;
   status: string;
 };
@@ -139,7 +142,14 @@ mock.module("$server/db/queries/conversations", convQueriesMock);
 mock.module("../../db/queries/conversations", convQueriesMock);
 
 const memoriesMock = () => ({
-  getMemoryById: async (id: string) => memoryStore.get(id) ?? null,
+  getMemoryById: async (id: string, ownerUserId?: string) => {
+    const memory = memoryStore.get(id);
+    if (!memory || ownerUserId === undefined) return memory ?? null;
+    return memory.userId === ownerUserId
+      || (memory.userId === null && memory.conversationUserId === ownerUserId)
+      ? memory
+      : null;
+  },
   updateMemory: async () => {},
   updateMemoryStatus: async () => {},
   deleteMemory: async (id: string) => memoryStore.delete(id),
@@ -288,7 +298,8 @@ describe("sec-H3: all call sites have the fail-closed ownership check (source)",
     const src = readFileSync(resolve(REPO_ROOT, rel), "utf8");
 
     test(`${rel} — contains the fail-closed admin escape hatch`, () => {
-      // The fixed code gates unowned rows behind `user.role !== "admin"`.
+      // The fixed code either gates unowned rows behind `user.role !== "admin"`
+      // or delegates memory lookup to the query boundary.
       // Pre-fix no file contained this token. The exact shape varies a bit:
       //   - inline: four files keep the literal
       //     `<row>.userId !== user.id && user.role !== "admin"` check.
@@ -303,9 +314,12 @@ describe("sec-H3: all call sites have the fail-closed ownership check (source)",
       //     freely readable), so accepting the helper call preserves — not
       //     relaxes — the regression signal. The helper's own gate is pinned
       //     directly by web/src/lib/server/conversation-ownership.ts.
-      // Require EITHER the inline role-gate OR the helper delegation.
+      // Memory items delegate to `getMemoryById(id, admin ? undefined : user.id)`.
+      // Its shared SQL predicate allows a conversation owner only when the
+      // direct user id is null, and otherwise fails closed.
+      // Require EITHER the inline role-gate OR a scoped helper delegation.
       expect(src).toMatch(
-        /user\.role\s*!==\s*"admin"|resolveRootConversationForOwnership/,
+        /user\.role\s*!==\s*"admin"|resolveRootConversationForOwnership|getMemoryById\(id,\s*user\.role\s*===\s*"admin"\s*\?\s*undefined\s*:\s*user\.id\)/,
       );
     });
 

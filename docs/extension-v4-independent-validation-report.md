@@ -141,7 +141,7 @@ No maintainer decision has been supplied in this audit. C5 also covers the old e
 | Grant expiry | Per-capability TTL and Never renewal issuance. |
 | Data removal | Destructive discard/purge; the replacement retains history and data. |
 | Imports and updates | Generic Git import and automatic updates. |
-| Host execution | Host lifecycle scripts and legacy `subAgents` metadata. |
+| Host execution | Host lifecycle scripts and the removed extension-manifest/example `subAgents` field; active team and agent-config `subAgents` remain supported. |
 
 ## Live-service inputs
 

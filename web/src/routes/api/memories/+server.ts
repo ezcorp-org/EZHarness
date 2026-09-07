@@ -18,10 +18,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const user = requireAuth(locals);
   // Memory content is per-user PII. Mirror the single-row rule in
   // `[id]/+server.ts` (sec-H3 fail-closed): a non-admin sees ONLY memories
-  // they own — never another user's rows, never unowned (null userId) rows.
-  // Admins keep the full org-wide management view. The `userId` filter in
-  // `searchMemories` uses `eq(memories.userId, …)`, so passing `user.id`
-  // also excludes unowned rows, exactly like the `[id]` route.
+  // they own — directly, or through a source conversation when the memory has
+  // no direct owner. Fully unattributed rows remain hidden. Admins keep the
+  // full org-wide management view. `searchMemories` applies this same
+  // direct-first ownership predicate for `user.id`.
   const isAdmin = user.role === "admin";
   const projectId = url.searchParams.get("projectId") ?? undefined;
   const scope = url.searchParams.get("scope") as "project" | "global" | "all" | undefined;

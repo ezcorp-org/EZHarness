@@ -416,7 +416,7 @@ export async function listMemories(opts?: {
   const conditions = [];
   if (opts?.projectId) conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
   if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
-  if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
+  if (opts?.userId) conditions.push(memoryOwnedByUser(opts.userId));
 
   const query = db
     .select()
@@ -430,8 +430,15 @@ export async function listMemories(opts?: {
   return query;
 }
 
-export async function getMemoryById(id: string): Promise<Memory | undefined> {
-  const rows = await getDb().select().from(memories).where(eq(memories.id, id));
+/**
+ * Look up one memory, optionally in a non-admin user's direct-first ownership
+ * scope. Omit `ownerUserId` only for trusted organization-wide callers.
+ */
+export async function getMemoryById(id: string, ownerUserId?: string): Promise<Memory | undefined> {
+  const predicate = ownerUserId === undefined
+    ? eq(memories.id, id)
+    : and(eq(memories.id, id), memoryOwnedByUser(ownerUserId));
+  const rows = await getDb().select().from(memories).where(predicate);
   return rows[0];
 }
 
@@ -458,7 +465,7 @@ export async function searchMemories(opts?: {
     conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
   }
   if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
-  if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
+  if (opts?.userId) conditions.push(memoryOwnedByUser(opts.userId));
 
   // Default: exclude archived
   if (opts?.status) {

@@ -155,11 +155,9 @@ describe("PATCH /api/memories/[id] — ownership gates", () => {
 	});
 
 	test("returns 404 when memory is owned by a different user (no enumeration leak)", async () => {
-		// Headline cross-project / cross-user gate: the row exists but
-		// belongs to someone else. The handler MUST collapse this to a
-		// 404 with the SAME body as the not-found case so an attacker
-		// can't probe for valid ids.
-		mockGetMemoryById.mockResolvedValue(makeMemory({ userId: "u-other" }));
+		// The query applies the ownership predicate, so the route gets the
+		// same absent result for a foreign row and a missing id.
+		mockGetMemoryById.mockResolvedValue(undefined);
 		const res = await PATCH(
 			makePatchEvent({
 				locals: { user: USER },
@@ -171,6 +169,7 @@ describe("PATCH /api/memories/[id] — ownership gates", () => {
 		expect(body.error).toBe("Memory not found");
 		expect(mockUpdateInjectionEligibility).not.toHaveBeenCalled();
 		expect(mockInsertAuditEntry).not.toHaveBeenCalled();
+		expect(mockGetMemoryById).toHaveBeenCalledWith("mem-1", USER.id);
 	});
 
 	test("admin users CAN flip another user's memory (admin override)", async () => {
@@ -196,11 +195,10 @@ describe("PATCH /api/memories/[id] — ownership gates", () => {
 		expect((metaArg as Record<string, unknown>).actor).toBe(ADMIN.id);
 	});
 
-	test("returns 404 for unowned (userId === null) rows when caller is not admin", async () => {
-		// sec-H3 fail-closed: rows whose userId is null can only be
-		// touched by admins. The 404 keeps the message identical for
-		// non-admin callers.
-		mockGetMemoryById.mockResolvedValue(makeMemory({ userId: null }));
+	test("returns 404 for fully unattributed rows when caller is not admin", async () => {
+		// The query returns no row for a fully unattributed memory. This
+		// keeps its 404 indistinguishable from a missing id.
+		mockGetMemoryById.mockResolvedValue(undefined);
 		const res = await PATCH(
 			makePatchEvent({
 				locals: { user: USER },

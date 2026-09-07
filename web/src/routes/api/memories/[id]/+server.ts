@@ -28,14 +28,16 @@ const updateMemorySchema = z.object({
   projectIds: z.unknown().optional(),
 }).strict();
 
+function getVisibleMemory(id: string, user: { id: string; role: "admin" | "member" }) {
+  return getMemoryById(id, user.role === "admin" ? undefined : user.id);
+}
+
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const memory = await getMemoryById(params.id);
+  const memory = await getVisibleMemory(params.id, user);
   if (!memory) return errorJson(404, "Memory not found");
-  // sec-H3: fail-closed — unowned rows (null userId) are admin-only
-  if (memory.userId !== user.id && user.role !== "admin") return errorJson(404, "Memory not found");
   const projectIds = await getMemoryProjectIds(params.id);
   return json({ ...memory, projectIds });
 };
@@ -44,10 +46,8 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const memory = await getMemoryById(params.id);
+  const memory = await getVisibleMemory(params.id, user);
   if (!memory) return errorJson(404, "Memory not found");
-  // sec-H3: fail-closed — unowned rows (null userId) are admin-only
-  if (memory.userId !== user.id && user.role !== "admin") return errorJson(404, "Memory not found");
 
   const parsed = updateMemorySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -98,7 +98,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     await setMemoryProjects(params.id, rawProjectIds);
   }
 
-  const updated = await getMemoryById(params.id);
+  const updated = await getVisibleMemory(params.id, user);
   const projectIds = await getMemoryProjectIds(params.id);
   return json({ ...updated, projectIds });
 };
@@ -111,8 +111,9 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
  *
  * Auth mirrors PUT/DELETE: must hold the `write` scope on an API key
  * (cookie auth bypasses; GET alone takes `read`), must be
- * authenticated, must own the row
- * (or be admin) — ownership-mismatch and missing-row both 404 to
+ * authenticated, must own the row directly, or through its source conversation
+ * only when it has no direct owner (or be admin) — ownership-mismatch and
+ * missing-row both 404 to
  * prevent id enumeration (sec-H3 fail-closed).
  *
  * Behavior:
@@ -130,14 +131,8 @@ export const PATCH: RequestHandler = async ({ params, request, locals }) => {
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
 
-  const memory = await getMemoryById(params.id);
+  const memory = await getVisibleMemory(params.id, user);
   if (!memory) return errorJson(404, "Memory not found");
-  // sec-H3: fail-closed — unowned rows (null userId) are admin-only,
-  // and cross-user access is collapsed into 404 to prevent id
-  // enumeration (matches GET/PUT/DELETE on this same route).
-  if (memory.userId !== user.id && user.role !== "admin") {
-    return errorJson(404, "Memory not found");
-  }
 
   const parsed = patchMemorySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
@@ -192,10 +187,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const memory = await getMemoryById(params.id);
+  const memory = await getVisibleMemory(params.id, user);
   if (!memory) return errorJson(404, "Memory not found");
-  // sec-H3: fail-closed — unowned rows (null userId) are admin-only
-  if (memory.userId !== user.id && user.role !== "admin") return errorJson(404, "Memory not found");
 
   await deleteMemory(params.id);
   return new Response(null, { status: 204 });

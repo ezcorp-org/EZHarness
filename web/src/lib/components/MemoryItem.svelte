@@ -115,10 +115,10 @@
 	let deleteTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const categoryColors: Record<string, string> = {
-		preferences: "bg-blue-500/20 text-blue-300",
-		technical: "bg-green-500/20 text-green-300",
-		biographical: "bg-purple-500/20 text-purple-300",
-		decisions_goals: "bg-amber-500/20 text-amber-300",
+		preferences: "bg-blue-500/20 text-blue-800 dark:text-blue-300",
+		technical: "bg-green-500/20 text-green-800 dark:text-green-300",
+		biographical: "bg-purple-500/20 text-purple-800 dark:text-purple-300",
+		decisions_goals: "bg-amber-500/20 text-amber-800 dark:text-amber-300",
 	};
 
 	const categoryLabels: Record<string, string> = {
@@ -305,7 +305,7 @@
 		</span>
 
 		<!-- Scope badge -->
-		<span class="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium {(memory.projectIds?.length ?? 0) > 0 ? 'bg-slate-500/20 text-slate-300' : 'bg-cyan-500/20 text-cyan-300'}">
+		<span class="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium {(memory.projectIds?.length ?? 0) > 0 ? 'bg-slate-500/20 text-slate-800 dark:text-slate-300' : 'bg-cyan-500/20 text-cyan-800 dark:text-cyan-300'}">
 			{#if (memory.projectIds?.length ?? 0) > 0}
 				<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
 				{memory.projectIds!.length === 1 ? "1 project" : `${memory.projectIds!.length} projects`}
@@ -475,8 +475,8 @@
 						aria-pressed={!injectionEligible}
 						class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-60
 							{injectionEligible
-							? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
-							: 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'}"
+							? 'bg-emerald-500/15 text-emerald-800 hover:bg-emerald-500/25 dark:text-emerald-300'
+							: 'bg-amber-500/15 text-amber-800 hover:bg-amber-500/25 dark:text-amber-300'}"
 					>
 						<span
 							aria-hidden="true"
