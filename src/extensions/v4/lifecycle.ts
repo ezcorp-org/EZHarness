@@ -367,7 +367,9 @@ export class ExtensionLifecycle {
     const { operation, runnerOperationId } = await this.transaction(actor, installationId, (state) => {
       const current = this.operation(state, operationId);
       if (["active", "verified", "reconciling"].includes(current.state)) throw new LifecycleError("operation_committed", "A committed operation cannot be cancelled.");
-      const runnerOperationId = current.kind === "build" && current.lease && !this.deferredByRunnerBusy(current) && (["building", "verifying", "cancelled"].includes(current.state)) ? current.lease.holder : undefined;
+      const queuedBusy = this.retryableBusy(current);
+      const runnerOperationId = current.kind === "build" && current.lease && !queuedBusy && (["building", "verifying", "cancelled"].includes(current.state)) ? current.lease.holder : undefined;
+      if (queuedBusy) current.lease = undefined;
       this.transition(current, "cancelled");
       return { operation: current, runnerOperationId };
     });

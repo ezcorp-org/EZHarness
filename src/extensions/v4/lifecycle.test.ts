@@ -286,6 +286,39 @@ describe("durable extension lifecycle", () => {
     expect({ buildCalls, cancelCalls }).toEqual({ buildCalls: 1, cancelCalls: 0 });
   });
 
+  test("a later accepted build cancels its live holder after an earlier runner-busy retry", async () => {
+    let now = 1_000;
+    let firstHolder: string | undefined;
+    let started: () => void = () => {};
+    const startedBuild = new Promise<void>(resolve => { started = resolve; });
+    let unblock: () => void = () => {};
+    const blocked = new Promise<void>(resolve => { unblock = resolve; });
+    const cancelled: string[] = [];
+    const setup = harness({ now: () => now });
+    const build = setup.dependencies.runner.build;
+    let calls = 0;
+    setup.dependencies.runner.build = async input => {
+      calls += 1;
+      if (calls === 1) { firstHolder = input.operationId; throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true); }
+      started();
+      await blocked;
+      return build(input);
+    };
+    setup.dependencies.runner.cancel = async holder => { cancelled.push(holder); };
+    const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "retry-then-cancel" } });
+    const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "retry-then-cancel" });
+    expect((await setup.lifecycle.runBuild(actor, installation.id, operation.id)).state).toBe("queued");
+    now += runnerBusyRetryMs(1);
+    const accepted = setup.lifecycle.runBuild(actor, installation.id, operation.id);
+    await startedBuild;
+    const liveHolder = (await setup.lifecycle.inspect(actor, installation.id)).operations[operation.id]?.lease?.holder;
+    await setup.lifecycle.cancel(actor, installation.id, operation.id);
+    unblock();
+    expect((await accepted).state).toBe("cancelled");
+    expect(cancelled).toEqual([liveHolder]);
+    expect(liveHolder).not.toBe(firstHolder);
+  });
+
   test("a completed build drains another installation deferred by runner capacity", async () => {
     const setup = harness();
     const originalBuild = setup.dependencies.runner.build;
