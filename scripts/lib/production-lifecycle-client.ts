@@ -51,7 +51,7 @@ export async function readStoppedProductionDatabase<T>(read: (database: PGlite) 
   } finally { await database.close(); }
 }
 
-type SessionRequest = { method?: string; body?: unknown; headers?: Record<string, string> };
+export type SessionRequest = { method?: string; body?: unknown; headers?: Record<string, string> };
 
 export async function productionLifecycleClient() {
   const origin = required("EZ_PRODUCTION_ORIGIN");
@@ -59,13 +59,16 @@ export async function productionLifecycleClient() {
   const apiKey = (await readFile(required("EZ_PRODUCTION_API_KEY_FILE"), "utf8")).trim();
   assert(apiKey, "The launcher must provide an API key");
   const client = new HarnessClient({ baseUrl: origin, apiKey });
-  async function sessionJson<T = unknown>(path: string, options: SessionRequest = {}): Promise<T> {
-    const response = await fetch(`${origin}${path}`, {
+  async function sessionResponse(path: string, options: SessionRequest = {}): Promise<Response> {
+    return fetch(`${origin}${path}`, {
       method: options.method ?? (options.body === undefined ? "GET" : "POST"),
       headers: { cookie, origin, ...(options.body === undefined ? {} : { "content-type": "application/json" }), ...options.headers },
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       signal: AbortSignal.timeout(120_000),
     });
+  }
+  async function sessionJson<T = unknown>(path: string, options: SessionRequest = {}): Promise<T> {
+    const response = await sessionResponse(path, options);
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}: ${await response.text()}`);
     return response.status === 204 ? undefined as T : response.json() as Promise<T>;
   }
@@ -101,5 +104,5 @@ export async function productionLifecycleClient() {
     const state = await waitVerified(created.installation.id, operation.id);
     return { ...created, operation: state.operations[operation.id]!, state, release: state.releases[state.operations[operation.id]!.releaseId!]! };
   }
-  return { origin, cookie, client, sessionJson, inspect, waitVerified, approveAndActivate, createBuild };
+  return { origin, cookie, client, sessionResponse, sessionJson, inspect, waitVerified, approveAndActivate, createBuild };
 }

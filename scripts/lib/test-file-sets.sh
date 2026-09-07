@@ -73,6 +73,15 @@
 # can never drift apart.
 
 # P — the pass/fail set.
+# The same shipping fixture checks run in both P and C.
+shipping_fixture_files() {
+  printf '%s\n' \
+    scripts/lib/shipping-bootstrap-state.test.ts \
+    scripts/verify-shipping-runtime-resources-config.test.ts \
+    scripts/verify-shipping-runtime-resource-accounting.test.ts \
+    scripts/lib/shipping-runtime-cycle-conversation.test.ts
+}
+
 passfail_files() {
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
@@ -124,9 +133,7 @@ passfail_files() {
     web_host_files
     # Shipping bootstrap state is production-suite control logic. Keep its
     # mock-client receipt checks in both canonical pools.
-    printf '%s\n' scripts/lib/shipping-bootstrap-state.test.ts
-    printf '%s\n' scripts/verify-shipping-runtime-resources-config.test.ts
-    printf '%s\n' scripts/verify-shipping-runtime-resource-accounting.test.ts
+    shipping_fixture_files
     # Remote-control route-contract governance meta-test — a HARD pass/fail gate
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
@@ -282,9 +289,13 @@ coverage_host_files() {
     #     dedicated cov-extras suggest leg (suggest_leg_files — small
     #     isolated shard dodging the same attribution drift); sweeping them
     #     here too would double-measure. Pass/fail-gated via P (residual).
+    #   - production-image-lifecycle-launch: a real runner subprocess and
+    #     shell launcher integration. Child-process coverage is not collected
+    #     by this pool; keep its assertions in the residual pass/fail job.
     find src -name "*.test.ts" \
       ! \( -path "src/extensions/__tests__/*" -name "*integration*" \) \
-      ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \)
+      ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
+      ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
@@ -301,9 +312,7 @@ coverage_host_files() {
     # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
     # a C-only web entry is a DE-GATED file, not a coverage-only one).
     web_host_files
-    printf '%s\n' scripts/lib/shipping-bootstrap-state.test.ts
-    printf '%s\n' scripts/verify-shipping-runtime-resources-config.test.ts
-    printf '%s\n' scripts/verify-shipping-runtime-resource-accounting.test.ts
+    shipping_fixture_files
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)

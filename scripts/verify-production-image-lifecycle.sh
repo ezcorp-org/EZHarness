@@ -68,12 +68,18 @@ trap 'exit 130' INT TERM
 
 mkdir -p "$state_root"
 chmod 700 "$state_root"
-mkdir -p "$state_root/socket" "$state_root/app-data" "$state_root/extension-state"
-chmod 700 "$state_root/socket" "$state_root/app-data" "$state_root/extension-state"
-rm -f "$state_root/socket/runner.sock"
-export RUN_ROOT="$state_root" APP_UID="$app_uid" APP_GID="$app_gid"
-export EZ_EXTENSION_RUNNER_SOCKET="$state_root/socket/runner.sock"
-export EZ_EXTENSION_RUNNER_TOKEN_FILE="$state_root/token"
+# A persistent external state root can be too long for the runner's private
+# Unix socket (`socket/.private-<uuid>/runner.sock`). Keep transport material
+# below the launcher's short, owned root; only data that must survive a replay
+# stays below state_root.
+runner_root="$run_root/s"
+runner_token="$run_root/token"
+mkdir -p "$runner_root" "$state_root/app-data" "$state_root/extension-state"
+chmod 700 "$runner_root" "$state_root/app-data" "$state_root/extension-state"
+rm -f "$runner_root/runner.sock"
+export RUN_ROOT="$state_root" RUNNER_ROOT="$runner_root" RUNNER_TOKEN="$runner_token" APP_UID="$app_uid" APP_GID="$app_gid"
+export EZ_EXTENSION_RUNNER_SOCKET="$runner_root/runner.sock"
+export EZ_EXTENSION_RUNNER_TOKEN_FILE="$runner_token"
 export EZ_EXTENSION_RUNNER_STORE="$state_root/store"
 export EZ_EXTENSION_APP_UID="$runner_uid"
 
@@ -106,8 +112,8 @@ services:
     volumes:
       - ${RUN_ROOT}/app-data:/app/data
       - ${RUN_ROOT}/extension-state:/app/.ezcorp
-      - ${RUN_ROOT}/socket:/run/ez-extension-runner:ro
-      - ${RUN_ROOT}/token:/run/secrets/extension-runner-token:ro
+      - ${RUNNER_ROOT}:/run/ez-extension-runner:ro
+      - ${RUNNER_TOKEN}:/run/secrets/extension-runner-token:ro
 EOF
 
 export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"

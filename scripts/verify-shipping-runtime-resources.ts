@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
 import { resourceRunConfig, resourceRunReachedTarget } from "./lib/shipping-runtime-resource-config";
+import { invokeExtensionOnceInFreshConversation } from "./lib/shipping-runtime-cycle-conversation";
 import { type FdClasses, type OpenDescriptor, type RelationDescriptor, fdClass, isPgliteRelationFile, isPgliteRelationPath, nonRelationPathGrew, relationDescriptorProblems } from "./lib/shipping-runtime-resource-accounting";
 
 type CleanupObservation = { baselineConnections: number; remainingConnections: number; polls: number; durationMs: number };
@@ -231,7 +232,7 @@ const appContainer = required("EZ_PRODUCTION_CONTAINER");
 const runRoot = required("EZ_PRODUCTION_RUN_ROOT");
 const runnerPid = required("EZ_PRODUCTION_RUNNER_PID");
 const production = await productionLifecycleClient();
-const { origin, cookie, client, createBuild, approveAndActivate, inspect } = production;
+const { origin, cookie, client, createBuild, approveAndActivate, inspect, sessionResponse } = production;
 const appProcessPid = await appPid(appContainer);
 const pgliteDataRoot = "/app/data/ezcorp";
 const count = config.maximumCycles;
@@ -250,7 +251,6 @@ const installationId = firstBuild.installation.id;
 const workspaceId = firstBuild.workspace.id;
 let revision = firstBuild.workspace.revision;
 let activeReleaseId: string | null = null;
-const conversation = await client.createConversation({ title: "R4 repeat lifecycle" });
 // Each pass uses the same installation and a new candidate. The private receipt
 // records PGlite relation paths and inodes. The default leaves four identical
 // passes after the observed relation-cache warm-up; smaller configured runs
@@ -320,11 +320,7 @@ for (let cycle = 1; cycle <= count; cycle++) {
     releaseId = built.operations[build.id]!.releaseId!;
   }
   await approveAndActivate(installationId, releaseId, activeReleaseId);
-  if (cycle === 1) {
-    const wired = await client.wireExtensions(conversation.id, [name]);
-    if (!wired.wired.includes(name)) throw new Error("R4 extension was not wired to its owned conversation.");
-  }
-  if (echoText(await client.invokeExtensionTool(conversation.id, name, "echo", { text: marker })) !== `cycle-${cycle}:${marker}`) throw new Error(`Cycle ${cycle} did not produce its real echo output.`);
+  await invokeExtensionOnceInFreshConversation({ client, sessionResponse, extensionName: name, cycle, marker, outputText: echoText });
   const appConnectionsBeforeSse = await appEstablishedTcpConnections(appProcessPid);
   for (let connection = 0; connection < reconnectsPerCycle; connection++) await reconnectRuntimeEvents(origin, cookie);
   const sseCleanup = await waitForAppSseCleanup(appProcessPid, appConnectionsBeforeSse);
