@@ -63,29 +63,24 @@ const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const HOST_TYPES = readFileSync(join(REPO_ROOT, "src/extensions/types.ts"), "utf8");
 
 const reexportBlock = HOST_TYPES.match(/export type \{([\s\S]*?)\} from "@ezcorp\/sdk";/)?.[1];
+const AUTHOR_TYPE_REEXPORTS = [
+  "AgentComponentDefinition", "CapabilityDeclaration", "DependencySpec",
+  "ExtensionPageDeclaration", "McpTransport", "MessageToolbarItem",
+  "PreprocessorDecl", "ScriptDefinition", "SettingsField",
+  "SettingsFieldBoolean", "SettingsFieldNumber", "SettingsFieldSecret",
+  "SettingsFieldSelect", "SettingsFieldText", "SettingsSchema",
+  "SkillDefinition", "ToolDefinition",
+] as const;
+const AUTHOR_TYPE_REEXPORT_CASES = AUTHOR_TYPE_REEXPORTS.map((name) => [name] as const);
 
 describe("SDK/host author declaration parity", () => {
   test("host imports the author manifest from the SDK", () => {
     expect(HOST_TYPES).toContain('ExtensionManifestV2 as AuthorExtensionManifestV2');
   });
 
-  test("re-exports AgentComponentDefinition", () => expect(reexportBlock).toMatch(/\bAgentComponentDefinition\b/));
-  test("re-exports CapabilityDeclaration", () => expect(reexportBlock).toMatch(/\bCapabilityDeclaration\b/));
-  test("re-exports DependencySpec", () => expect(reexportBlock).toMatch(/\bDependencySpec\b/));
-  test("re-exports ExtensionPageDeclaration", () => expect(reexportBlock).toMatch(/\bExtensionPageDeclaration\b/));
-  test("re-exports McpTransport", () => expect(reexportBlock).toMatch(/\bMcpTransport\b/));
-  test("re-exports MessageToolbarItem", () => expect(reexportBlock).toMatch(/\bMessageToolbarItem\b/));
-  test("re-exports PreprocessorDecl", () => expect(reexportBlock).toMatch(/\bPreprocessorDecl\b/));
-  test("re-exports ScriptDefinition", () => expect(reexportBlock).toMatch(/\bScriptDefinition\b/));
-  test("re-exports SettingsField", () => expect(reexportBlock).toMatch(/\bSettingsField\b/));
-  test("re-exports SettingsFieldBoolean", () => expect(reexportBlock).toMatch(/\bSettingsFieldBoolean\b/));
-  test("re-exports SettingsFieldNumber", () => expect(reexportBlock).toMatch(/\bSettingsFieldNumber\b/));
-  test("re-exports SettingsFieldSecret", () => expect(reexportBlock).toMatch(/\bSettingsFieldSecret\b/));
-  test("re-exports SettingsFieldSelect", () => expect(reexportBlock).toMatch(/\bSettingsFieldSelect\b/));
-  test("re-exports SettingsFieldText", () => expect(reexportBlock).toMatch(/\bSettingsFieldText\b/));
-  test("re-exports SettingsSchema", () => expect(reexportBlock).toMatch(/\bSettingsSchema\b/));
-  test("re-exports SkillDefinition", () => expect(reexportBlock).toMatch(/\bSkillDefinition\b/));
-  test("re-exports ToolDefinition", () => expect(reexportBlock).toMatch(/\bToolDefinition\b/));
+  test.each(AUTHOR_TYPE_REEXPORT_CASES)("re-exports %s", (name) => {
+    expect(reexportBlock).toMatch(new RegExp(`\\b${name}\\b`));
+  });
 
   test("host-only MCP launch fields stay outside the SDK type", () => {
     expect(HOST_TYPES).toContain("Host-only MCP launch metadata");
