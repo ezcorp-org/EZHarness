@@ -1,0 +1,364 @@
+{
+  "legacySource": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "candidateSource": "29eefc057be55c114761762a1fd4d3b9aa55c1fc",
+  "owner": {
+    "id": "6283d46d-d77a-4f81-99c8-ea63f27357f5",
+    "role": "admin"
+  },
+  "installation": {
+    "id": "4480d3de-e008-41eb-955f-06a613b660f7",
+    "name": "legacy-adopt-mtqijuyo",
+    "ownerId": "6283d46d-d77a-4f81-99c8-ea63f27357f5",
+    "source": "local:/app/.ezcorp/extensions/legacy-adopt-mtqijuyo",
+    "installPath": "/app/.ezcorp/extensions/legacy-adopt-mtqijuyo",
+    "storageKey": "legacy-adoption-sentinel",
+    "value": "legacy-value-67a05b8d-f77c-4763-a5c3-dfd584380895"
+  },
+  "conversationId": "1d7ce705-b90a-4e98-93c2-51b6ba744fb1",
+  "runnerCapacity": {
+    "bootstrapInstallations": 28,
+    "initialPending": 28,
+    "maximumPending": 28,
+    "terminalOperationStates": {
+      "verified": 28
+    },
+    "terminalOperations": [
+      {
+        "name": "scratchpad",
+        "installationId": "7b44fe3d-9a18-4f02-97da-9d43404682a6",
+        "operations": [
+          {
+            "id": "8a1150c3-f09b-4583-a63e-8e4242284357",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "task-tracking",
+        "installationId": "6c4c8cf6-bd13-4c2b-92ed-b961fcd2438b",
+        "operations": [
+          {
+            "id": "7b6126db-d78a-444b-88e6-df0685488a88",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "orchestration",
+        "installationId": "419f53fa-8de5-4dfe-9d9c-73770a6db3c8",
+        "operations": [
+          {
+            "id": "d6ef0f58-3842-456d-8f1a-8d0ba9288af3",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "ask-user",
+        "installationId": "9c0c70d3-1724-4d0c-bec2-de161c69136c",
+        "operations": [
+          {
+            "id": "a6b524cf-e247-45a8-a195-ee1187194beb",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "project-analyzer",
+        "installationId": "181fe052-29b1-4c83-9929-22e40e22fd0e",
+        "operations": [
+          {
+            "id": "e4ac8c70-3732-440c-b256-564dc39693e0",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "markdown-utils",
+        "installationId": "766157b3-a1ed-4aaa-8817-1d8c87eab7a6",
+        "operations": [
+          {
+            "id": "883d6047-c48e-4b7f-95b4-e0f32b9e0199",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "code-review-delegator",
+        "installationId": "b53d3489-1459-4440-9e4d-986d959175ea",
+        "operations": [
+          {
+            "id": "2794ddb3-1f09-4629-a3a6-dfc667f2b755",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "github-stats",
+        "installationId": "514c1ccb-a52a-4ed6-a4f7-7aabf4f0f60a",
+        "operations": [
+          {
+            "id": "7ddaa0d2-7029-4686-9ebf-9a23894c11a4",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "multi-agent-orchestrator",
+        "installationId": "1e213f4c-f6b1-4da4-a35e-1e76888d0428",
+        "operations": [
+          {
+            "id": "a5018538-4c2c-4fb1-94f9-fa5c682c4a0a",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "research-agent",
+        "installationId": "88836643-c61d-4599-87fb-1e276815463d",
+        "operations": [
+          {
+            "id": "c646279f-0f7b-4e62-826b-b5d8c49c4110",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "file-refactor",
+        "installationId": "70f206ed-6ea7-46b3-9308-49e3c9fe9424",
+        "operations": [
+          {
+            "id": "08d53922-c954-4b83-9745-8d04cb0d1f65",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "log-analyzer",
+        "installationId": "7f772006-349d-4ba5-80f4-0866a408bd93",
+        "operations": [
+          {
+            "id": "f2ff3353-ecdd-4f24-a214-027f4a9bcce7",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "todo-tracker",
+        "installationId": "61fdc477-1e44-4607-a659-667962c7c475",
+        "operations": [
+          {
+            "id": "57a600c0-c48b-41d8-99c7-dff7b37a4761",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "ai-kit",
+        "installationId": "dafa3f09-c402-43b0-9027-e7191ba2d6d8",
+        "operations": [
+          {
+            "id": "33b89565-c183-4dcb-bb39-7089c40b7364",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "web-search",
+        "installationId": "a86f20ba-dbb4-458e-909d-2e054532d2b2",
+        "operations": [
+          {
+            "id": "658575b8-393d-4c43-8848-d62cf3936d01",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "openai-image-gen-2",
+        "installationId": "ae0ad2a5-af20-4ef6-a974-90e7cd9b7189",
+        "operations": [
+          {
+            "id": "a937c56d-a28e-4830-98f2-14f27a9db894",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "claude-design",
+        "installationId": "0173fcdb-5ba7-492c-8a1b-d10e3f4f68fa",
+        "operations": [
+          {
+            "id": "17462c78-8f9f-4e6a-8a26-71adc196b648",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "price-chart",
+        "installationId": "d6c0e742-e76a-47c4-a455-53e03b4922c2",
+        "operations": [
+          {
+            "id": "01c9ee1a-132b-4f0c-a9e3-0d6ec6ba1f26",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "city-conditions",
+        "installationId": "b38270a3-955f-434e-9c44-c9f0d24c638a",
+        "operations": [
+          {
+            "id": "826e5cc1-1d71-4692-b1a4-085cb9889809",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "kokoro-tts",
+        "installationId": "5050033b-d063-4be3-a00c-bccc83e6b5bb",
+        "operations": [
+          {
+            "id": "b3822b1e-a352-4e55-aed2-7f813dd0a4d4",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "lessons-distiller",
+        "installationId": "70739f6c-45f2-4aa4-8a6b-834a45e7e5d7",
+        "operations": [
+          {
+            "id": "889e255a-00fa-4503-b9b5-f8516887ac50",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "extension-author",
+        "installationId": "08bfdc7f-df8b-40c7-949a-cecd4c9e0d9f",
+        "operations": [
+          {
+            "id": "280f6756-8fcc-4946-bfcc-cf57523080f8",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "memory-extractor",
+        "installationId": "e70e1508-5489-4c59-9349-25f9b9dc928f",
+        "operations": [
+          {
+            "id": "a26c699d-21f8-4e8e-a93d-2b75422d42fa",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "ez-code",
+        "installationId": "9a90f667-0338-4857-8d63-04de9f7b4055",
+        "operations": [
+          {
+            "id": "ab81eced-ce81-4b07-a2de-231bcfc3d91b",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "file-organizer",
+        "installationId": "b2271d0f-1374-4926-be26-02a2a814388f",
+        "operations": [
+          {
+            "id": "019506e8-6d8b-4e0a-a6a3-f052892600b8",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "ping-loop",
+        "installationId": "a145a05e-d7f1-4067-86de-c9b12fb9659d",
+        "operations": [
+          {
+            "id": "0e0c39fa-f7a6-4ade-b09a-822475cf8266",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "github-projects",
+        "installationId": "1999cde7-a6f8-4f93-b831-c5f958e0c09a",
+        "operations": [
+          {
+            "id": "2703a0a7-3f59-47fb-9063-dd54cb472ba1",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      },
+      {
+        "name": "ez-factory",
+        "installationId": "c54bef21-fbf4-40ca-a28b-e6ec32e22d38",
+        "operations": [
+          {
+            "id": "26846fc5-7702-4b85-8f88-3289343d90ad",
+            "kind": "build",
+            "state": "verified",
+            "diagnostics": []
+          }
+        ]
+      }
+    ]
+  }
+}
