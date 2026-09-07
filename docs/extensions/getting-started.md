@@ -6,7 +6,7 @@ Build and publish your first EZCorp extension. This guide walks through two exte
 
 - An EZCorp account on your team's hosted instance
 - [Bun](https://bun.sh) installed locally
-- A checkout of the EZCorp repo. There is no installed `ezcorp` binary — the CLI is `src/cli.ts`, invoked from the repo root as `bun src/cli.ts ext …` (or `bun index.ts ext …`). Everywhere this guide shows `ezcorp ext …`, read it as shorthand for that invocation.
+- A checkout of the EZCorp repo. There is no installed `ezcorp` binary. Set `EZCORP_HOST` to that checkout and invoke its CLI as `bun "$EZCORP_HOST/src/cli.ts" ext …`.
 
 For self-hosting setup, see [Quick Start](../quick-start.md).
 
@@ -17,7 +17,9 @@ Skills inject knowledge and prompts into agent conversations. No code required -
 ### Scaffold the project
 
 ```bash
-ezcorp ext init my-writing-skill --type skill
+export EZCORP_HOST=/absolute/path/to/EZHarness
+cd "$EZCORP_HOST"
+bun src/cli.ts ext init my-writing-skill --type skill
 ```
 
 This creates:
@@ -49,7 +51,7 @@ bun install
 import { defineExtension } from "@ezcorp/sdk";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 3,
   name: "my-writing-skill",
   version: "0.1.0",
   description: "An ezcorp extension",
@@ -91,7 +93,7 @@ Add the `files` array to your skill and update the prompt:
 import { defineExtension } from "@ezcorp/sdk";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 3,
   name: "my-writing-skill",
   version: "0.1.0",
   description: "Provides writing style guidance and tone consistency",
@@ -114,7 +116,8 @@ The `files` array makes `style-guide.md` available to the agent when this skill 
 
 ```bash
 cd my-writing-skill
-ezcorp ext test
+bun test
+bun "$EZCORP_HOST/src/cli.ts" ext verify "$PWD"
 ```
 
 Tests run in a sandboxed environment with restricted filesystem and memory limits. Edit `index.test.ts` to add your own assertions:
@@ -125,7 +128,7 @@ import manifest from "./ezcorp.config.ts";
 
 describe("my-writing-skill", () => {
   test("manifest has required fields", () => {
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(3);
     expect(manifest.skills.length).toBeGreaterThan(0);
   });
 
@@ -138,13 +141,13 @@ describe("my-writing-skill", () => {
 ### Install locally
 
 ```bash
-ezcorp ext install ./my-writing-skill
+bun "$EZCORP_HOST/src/cli.ts" ext install "$PWD"
 ```
 
 Verify it appears:
 
 ```bash
-ezcorp ext list
+bun "$EZCORP_HOST/src/cli.ts" ext list
 ```
 
 The skill is now active. Start a conversation and the agent has access to your writing style rules.
@@ -156,7 +159,8 @@ Tools are callable functions that agents invoke during conversations. They commu
 ### Scaffold the project
 
 ```bash
-ezcorp ext init my-first-tool --type tool
+cd "$EZCORP_HOST"
+bun src/cli.ts ext init my-first-tool --type tool
 ```
 
 This creates:
@@ -181,24 +185,31 @@ bun install
 
 ### Where to put persistent data
 
-If your tool needs to write user-visible files (markdown notes, JSON state, logs), store them under:
-
-```
-<projectRoot>/.ezcorp/extension-data/<extension-name>/
-```
-
-`<projectRoot>` is the nearest ancestor containing a `.git/` directory. This convention keeps every extension's state under a single gitignored root, avoids filename collisions across extensions, and lets users reset all extension data by deleting one directory.
-
-The runtime entry exports a helper that locates it for you:
+For private extension state, use the host-mediated `Storage` API. It works in
+the sandbox and does not need filesystem access:
 
 ```typescript
-import { findProjectRoot, getExtensionDataDir } from "@ezcorp/sdk/runtime";
+import { Storage } from "@ezcorp/sdk/runtime";
 
-const dataDir = getExtensionDataDir("my-first-tool");
-// Resolves to <projectRoot>/.ezcorp/extension-data/my-first-tool/
+const storage = new Storage("global");
+await storage.set("state", { updatedAt: new Date().toISOString() });
 ```
 
-See [Data Storage Convention](data-storage.md) for the `postinstall.ts` scaffold pattern, read patterns for agents, and when to use this instead of the `ezcorp/storage` key-value API.
+The manifest must grant storage both to the extension and to the tool:
+
+```typescript
+tools: [{
+  // ... name, description, inputSchema, and handler
+  capabilities: { storage: true },
+}],
+permissions: { storage: true },
+```
+
+For user-visible files, use `<projectRoot>/.ezcorp/extension-data/<extension-name>/`
+through the host-mediated filesystem API and declare matching filesystem paths
+and `read`/`write` tool capabilities. Do not call `findProjectRoot()` or
+`getExtensionDataDir()` from tool runtime code. See [Data Storage
+Convention](data-storage.md) for the complete filesystem pattern.
 
 ### Examine the manifest
 
@@ -207,7 +218,7 @@ import { defineExtension } from "@ezcorp/sdk";
 import { handleRequest } from "./index";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 3,
   name: "my-first-tool",
   version: "0.1.0",
   description: "An ezcorp extension",
@@ -223,6 +234,7 @@ export default defineExtension({
           input: { type: "string", description: "Input text" },
         },
       },
+      capabilities: {},
       handler: handleRequest,
     },
   ],
@@ -248,113 +260,41 @@ Key differences from skills:
 
 ### Examine the entrypoint
 
-The generated `index.ts` is a JSON-RPC 2.0 server over stdio:
+The generated `index.ts` uses the SDK dispatcher. It keeps the host channel open for reverse RPC calls such as `Storage`:
 
 ```typescript
 #!/usr/bin/env bun
-// my-first-tool - JSON-RPC 2.0 tool server over stdio
 
-import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import {
+  createToolDispatcher,
+  getChannel,
+  toolResult,
+  type ToolHandler,
+} from "@ezcorp/sdk/runtime";
 
-// IMPORT-SAFE: the stdin reader grab + the JSON-RPC loop run ONLY when
-// this file is the process entrypoint (`import.meta.main`). When the
-// module is merely imported — by `ezcorp.config.ts` for the
-// `handleRequest` reference, by `index.test.ts`, or by the host's
-// `loadManifest` / `ezcorp ext verify` — we must NOT lock stdin's
-// reader (doing so throws "ReadableStream is locked" on the next
-// import / subprocess spawn). The runtime still runs the loop because
-// the host launches this file directly as the subprocess entrypoint.
-async function main() {
-  const reader = Bun.stdin.stream().getReader();
-  const decoder = new TextDecoder();
-  const stdoutWriter = Bun.stdout.writer();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+export const handleRequest: ToolHandler = (args) => {
+  return toolResult(`Received: ${args.input ?? ""}`);
+};
 
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = handleRequest(req);
-        stdoutWriter.write(JSON.stringify(res) + "\n");
-        await stdoutWriter.flush();
-      } catch {
-        // Ignore malformed lines
-      }
-    }
-  }
-}
-
-export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
-  if (req.method === "tools/call") {
-    const toolName = (req.params?.name as string) ?? "";
-    const args = (req.params?.arguments as Record<string, unknown>) ?? {};
-
-    if (toolName === "my-first-tool-example") {
-      return {
-        jsonrpc: "2.0",
-        id: req.id,
-        result: {
-          content: [{ type: "text", text: `Received: ${args.input ?? ""}` }],
-          isError: false,
-        },
-      };
-    }
-
-    return {
-      jsonrpc: "2.0",
-      id: req.id,
-      error: { code: -32601, message: `Unknown tool: ${toolName}` },
-    };
-  }
-
-  return {
-    jsonrpc: "2.0",
-    id: req.id,
-    error: { code: -32601, message: `Unknown method: ${req.method}` },
-  };
-}
-
-// Only run the stdio server when launched as the entrypoint — NOT when
-// imported for `handleRequest` (config / tests / host loadManifest).
 if (import.meta.main) {
-  main();
+  const channel = getChannel();
+  createToolDispatcher({ "my-first-tool-example": handleRequest });
+  channel.start();
 }
 ```
 
-**How the protocol works:**
-
-1. The platform spawns your extension as a subprocess
-2. It sends JSON-RPC requests as newline-delimited JSON on stdin
-3. Your extension reads stdin, parses each line, and writes responses to stdout
-4. The buffer + newline scanning pattern handles messages split across read chunks
-
-> The `toolName` in `tools/call` is the short name from your manifest (e.g., `my-first-tool-example`), not the namespaced version the platform uses internally.
+The dispatcher receives `tools/call` requests and writes JSON-RPC responses. Use it instead of reading stdin yourself when the tool uses any host-mediated SDK helper.
 
 ### Modify the tool
 
 Replace the echo behavior with something useful -- a word counter:
 
 ```typescript
-if (toolName === "my-first-tool-example") {
+export const handleRequest: ToolHandler = (args) => {
   const text = String(args.input ?? "");
   const wordCount = text.split(/\s+/).filter(Boolean).length;
-  return {
-    jsonrpc: "2.0",
-    id: req.id,
-    result: {
-      content: [{ type: "text", text: `Word count: ${wordCount}` }],
-      isError: false,
-    },
-  };
-}
+  return toolResult(`Word count: ${wordCount}`);
+};
 ```
 
 Update the manifest description to match:
@@ -376,13 +316,14 @@ Update the manifest description to match:
 
 ```bash
 cd my-first-tool
-ezcorp ext test
+bun test
+bun "$EZCORP_HOST/src/cli.ts" ext verify "$PWD"
 ```
 
 ### Start the dev server
 
 ```bash
-ezcorp ext dev
+bun "$EZCORP_HOST/src/cli.ts" ext dev "$PWD"
 ```
 
 The dev server:
@@ -395,13 +336,13 @@ Edit your code while the dev server runs -- changes take effect immediately.
 ### Install locally
 
 ```bash
-ezcorp ext install ./my-first-tool
+bun "$EZCORP_HOST/src/cli.ts" ext install "$PWD"
 ```
 
 Verify:
 
 ```bash
-ezcorp ext list
+bun "$EZCORP_HOST/src/cli.ts" ext list
 ```
 
 The tool is now available to agents. Ask a question that triggers word counting and the agent will call your tool.
@@ -420,19 +361,19 @@ Both extensions are ready. Let's publish the tool.
 
 ```bash
 cd my-first-tool
-ezcorp ext publish --token <your-token>
+bun "$EZCORP_HOST/src/cli.ts" ext publish --token <your-token>
 ```
 
 Or save the token to `~/.ezcorp/config.json` and skip the flag:
 
 ```bash
-ezcorp ext publish
+bun "$EZCORP_HOST/src/cli.ts" ext publish
 ```
 
 The publish pipeline:
 
 1. **Validates the manifest** -- checks all required fields, schema version, entrypoint exists
-2. **Runs tests** -- your extension must pass `ezcorp ext test` before publishing
+2. **Runs tests** -- your extension must pass `bun test` and `ext verify` before publishing
 3. **Computes checksums** -- integrity verification for all package files
 4. **Checks version** -- rejects if this version is already published (bump `version` in ezcorp.config.ts)
 5. **Creates the listing** -- your extension is live in the marketplace
@@ -444,7 +385,7 @@ Published my-first-tool v0.1.0
 Your extension is now available in the marketplace. Other users can install it with:
 
 ```bash
-ezcorp ext install github:your-username/my-first-tool
+bun "$EZCORP_HOST/src/cli.ts" ext install github:your-username/my-first-tool
 ```
 
 ## Troubleshooting
@@ -465,7 +406,7 @@ permissions: {
 ```
 
 **"Publish failed"**
-Verify your token is valid (regenerate at Settings > Developer if needed). Ensure tests pass with `ezcorp ext test`. Check that the version in `ezcorp.config.ts` hasn't already been published -- bump the version number.
+Verify your token is valid (regenerate at Settings > Developer if needed). Run `bun test` and `bun "$EZCORP_HOST/src/cli.ts" ext verify "$PWD"` from the extension directory. Check that the version in `ezcorp.config.ts` hasn't already been published -- bump the version number.
 
 ## Installing from a git repo without a release
 

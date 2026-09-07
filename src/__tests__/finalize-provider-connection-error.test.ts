@@ -129,6 +129,8 @@ function makeHarness(): Harness {
 function makeCtx(run: AgentRun, modelBaseUrl?: string): StreamChatContext {
   return {
     run,
+    toolAbortControllers: new Map(),
+    unsubAgentActivity: [],
     modelBaseUrl,
     lastSavedMessageId: null,
     allTurnsText: "",

@@ -8,7 +8,7 @@
 # differently across machines).
 #
 # Usage:
-#   bash scripts/ci-local.sh           # full parity (~15-30 min: coverage + e2e)
+#   bash scripts/ci-local.sh           # full parity (~15-30 min: coverage + gated e2e)
 #   bash scripts/ci-local.sh --fast    # pre-push sanity (~5 min: skips
 #                                      # coverage merge/gates + playwright)
 #   BASE_REF=origin/main               # diff base for the diff-scoped gates
@@ -81,8 +81,13 @@ run_step "Gate integrity (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/ga
 run_step "Visual evidence (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-visual-evidence.ts
 run_step "Manifest lockfile drift" bun run scripts/regenerate-manifest-lock.ts --check
 run_step "Route contract" bash -c 'cd web && bun test ./src/__tests__/route-contract.test.ts'
-run_step "Web tests (vitest)" bash -c 'cd web && bunx --bun vitest run'
+# Vitest coverage runs in Node because coverage-v8 needs node:inspector. Keep
+# local component/server tests on that same runtime so a Bun-only pass cannot
+# hide a Node failure in the coverage producer.
+run_step "Web tests (vitest, Node)" bash -c 'cd web && npx vitest run'
 run_step "Web tests (bun-leg orphans)" bash scripts/test-web.sh
+run_step "Svelte check" bash -c 'cd web && bun run check'
+run_step "Web production build" bash -c 'cd web && bun run build'
 run_step "Backend + example tests (pass/fail pool)" bun run test
 
 # ── Heavy gates (coverage merge + thresholds + diff gates + e2e) ────────────
@@ -93,9 +98,16 @@ if [ "$FAST" = "0" ]; then
   # Both diff gates read the coverage/lcov.info the previous step produced.
   run_step "New-file coverage (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-new-file-coverage.ts
   run_step "Patch coverage (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-patch-coverage.ts
-  run_step "E2E (mock, playwright)" bash -c 'cd web && bunx playwright test'
+  run_step "E2E (mock gate, chromium)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+    [ "${#ARGS[@]}" -gt 0 ] || exit 1
+    cd web && bunx playwright test --project=chromium "${ARGS[@]}"'
+  run_step "E2E (real auth sandbox spawn probe)" bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
+  run_step "E2E (fresh setup, real PGlite)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
+    [ "${#ARGS[@]}" -gt 0 ] || exit 1
+    bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"'
+  run_step "E2E (real auth, real PGlite)" bun scripts/run-real-e2e.ts real-auth
 else
-  RESULTS+=("SKIP  Coverage + per-file thresholds / new-file / patch coverage / E2E  (--fast)")
+  RESULTS+=("SKIP  Coverage + per-file thresholds / new-file / patch coverage / gated E2E  (--fast)")
 fi
 
 echo ""

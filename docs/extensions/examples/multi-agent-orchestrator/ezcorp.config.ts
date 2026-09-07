@@ -4,25 +4,13 @@ export default defineExtension({
   schemaVersion: 2,
   name: "multi-agent-orchestrator",
   version: "1.0.0",
-  description: "Orchestrate sub-agents to complete complex development tasks (forward-looking manifest shape)",
+  description: "Plan complex development tasks with a focused assistant",
   author: {
     name: "EZCorp",
   },
   agent: {
-    prompt: "You orchestrate sub-agents to complete complex development tasks.",
+    prompt: "Break complex development tasks into clear, ordered plans.",
     category: "Development",
   },
-  subAgents: [
-    {
-      name: "planner",
-      prompt: "Break down complex tasks into ordered steps. Analyze the project structure before proposing changes.",
-      tools: ["project-analyzer.listFiles"],
-    },
-    {
-      name: "executor",
-      prompt: "Execute implementation steps precisely. Verify code quality after each change.",
-      tools: ["code-quality.analyzeFile", "project-analyzer.readFile"],
-    },
-  ],
   permissions: {},
 });

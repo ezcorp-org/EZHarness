@@ -121,10 +121,10 @@ describe("weather", () => {
 });
 
 describe("multi-agent-orchestrator", () => {
-  test("has agent, subAgents, and no entrypoint", async () => {
+  test("has a supported agent declaration and no entrypoint", async () => {
     const m = await readManifest("multi-agent-orchestrator");
     expect(m.agent).toBeDefined();
-    expect((m as any).subAgents).toBeDefined();
+    expect("subAgents" in m).toBe(false);
     expect(m.entrypoint).toBeUndefined();
   });
 });

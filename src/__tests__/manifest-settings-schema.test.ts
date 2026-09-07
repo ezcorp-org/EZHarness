@@ -123,20 +123,21 @@ describe("validateSettingsSchema — accepts each field type", () => {
     expect(r.valid).toBe(true);
   });
 
-  test("unknown keys on a field are tolerated (forward-compat)", () => {
+  test("unknown keys on a field are rejected", () => {
     const r = validateManifestV2(
       makeManifest({
         settings: {
           x: {
             type: "boolean",
             label: "X",
-            // @ts-expect-error — unknown field for forward-compat
+            // @ts-expect-error — unknown author field
             futureKey: "ignored",
           },
         },
       }),
     );
-    expect(r.valid).toBe(true);
+    expect(r.valid).toBe(false);
+    expect(r.errors).toContain("settings.x.futureKey is not a recognized field");
   });
 });
 

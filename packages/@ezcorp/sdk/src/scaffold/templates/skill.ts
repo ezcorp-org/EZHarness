@@ -1,10 +1,12 @@
 // ── Skill Extension Template ────────────────────────────────────
 
+import { authorWorkflow } from "./author-workflow";
+
 export function skillManifest(name: string, description: string): string {
   return `import { defineExtension } from "@ezcorp/sdk";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 3,
   name: "${name}",
   version: "0.1.0",
   description: "${description}",
@@ -28,10 +30,14 @@ export function skillEntrypoint(_name: string, _description: string): string {
 
 export function skillTest(name: string, _description: string): string {
   return `import { test, expect, describe } from "bun:test";
+import manifest from "./ezcorp.config";
 
 describe("${name}", () => {
-  test.todo("skill prompt is well-formed");
-  test.todo("skill files are accessible");
+  test("declares the example skill", () => {
+    const skill = manifest.skills?.[0];
+    expect(skill?.name).toBe("${name}-example");
+    expect(skill?.prompt).toContain("${name}");
+  });
 });
 `;
 }
@@ -41,20 +47,10 @@ export function skillReadme(name: string, description: string): string {
 
 ${description}
 
-## Install
-
-\`\`\`bash
-ezcorp ext install ./${name}
-\`\`\`
-
 ## Usage
 
 This skill adds contextual knowledge to your conversations. Once installed, the agent will have access to the skill's prompt and associated files.
 
-## Test
-
-\`\`\`bash
-bun test
-\`\`\`
+${authorWorkflow()}
 `;
 }

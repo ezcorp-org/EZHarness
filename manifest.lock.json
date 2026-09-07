@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-15T15:36:47.476Z",
+  "generatedAt": "2026-09-07T01:07:14.503Z",
   "extensions": {
     "ai-kit": {
       "version": "0.1.0",
@@ -60,7 +60,7 @@
     "github-stats": {
       "version": "1.0.0",
       "entrypoint": "./index.ts",
-      "toolsHash": "sha256-UdILWKrly+nKrH9EKHY8eKe0g+aDVaephsKN2fPp78I="
+      "toolsHash": "sha256-In5NLIs6Gq3A/erGGe8vZteCvWUzVPgo/yxpFBa1FqI="
     },
     "kokoro-tts": {
       "version": "1.0.0",

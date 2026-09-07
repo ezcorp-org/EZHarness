@@ -52,6 +52,7 @@ restoreModuleMocks();
 // Records the advisory-lock SQL the migrate guard issues and the pool close.
 const sqlCalls: string[] = [];
 let migrateCalls = 0;
+const migrationHandles: unknown[] = [];
 
 /**
  * Fake transaction handle. Mirrors the real driver's shape enough to exercise
@@ -73,13 +74,27 @@ function createFakeTx(): FakeTx {
   return tx;
 }
 
+interface FakeSqlClient {
+  (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
+  close?: () => Promise<void>;
+  reserve?: () => Promise<FakeSqlClient>;
+  release?: () => void;
+}
+
+function createReservedClient(events: string[]): FakeSqlClient {
+  return Object.assign(
+    (strings: TemplateStringsArray): Promise<unknown[]> => {
+      events.push(strings.join("?"));
+      return Promise.resolve([]);
+    },
+    { release: () => { events.push("release"); } },
+  );
+}
+
 interface FakePool {
   execute: (...a: unknown[]) => Promise<unknown[]>;
   transaction: (fn: (tx: FakeTx) => unknown, config?: unknown) => Promise<unknown>;
-  $client: {
-    (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
-    close: () => Promise<void>;
-  };
+  $client: FakeSqlClient;
   /** How many times THIS pool was drained. */
   closed: number;
 }
@@ -93,7 +108,7 @@ interface FakePool {
  * exposes .close() for the pool-drain branch. No `reserve` → the lock is taken
  * on this bare client (the reserve-absent fallback).
  */
-function createFakePool(): FakePool {
+function createFakePool(client?: FakeSqlClient): FakePool {
   const pool: FakePool = {
     // Returns an array so initPostgres's execute() wrapper normalizes it to
     // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
@@ -103,7 +118,7 @@ function createFakePool(): FakePool {
     // transaction object off the driver's class prototype), which is exactly
     // why `db.execute`'s own wrap never reached `tx.execute` before this fix.
     transaction: async (fn: (tx: FakeTx) => unknown, _config?: unknown) => fn(createFakeTx()),
-    $client: Object.assign(
+    $client: client ?? Object.assign(
       (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
         sqlCalls.push(strings.join("?"));
         return Promise.resolve([]);
@@ -121,6 +136,10 @@ function createFakePool(): FakePool {
 
 /** Every pool the driver has handed out, in open order. */
 const openedPools: FakePool[] = [];
+/** Drizzle handles constructed specifically around a reserved connection. */
+const reservedMigrationPools: FakePool[] = [];
+/** Makes the next normal `drizzle({ connection })` pool reserve this client. */
+let nextReservedClient: FakeSqlClient | null = null;
 
 // Snapshot the real jsonb mappers so afterAll can undo applyBunSqlJsonbFix's
 // global identity patch.
@@ -134,15 +153,25 @@ const origJsonMapper = (PgJson.prototype as any).mapToDriverValue;
 // loaded connection module's `./migrate` import and its lazy
 // `import("drizzle-orm/bun-sql")`.
 mock.module("drizzle-orm/bun-sql", () => ({
-  drizzle: () => {
-    const pool = createFakePool();
+  drizzle: (config?: { client?: FakeSqlClient }) => {
+    const pool = createFakePool(config?.client);
+    if (config?.client) {
+      reservedMigrationPools.push(pool);
+      return pool;
+    }
+    if (nextReservedClient) {
+      const reserved = nextReservedClient;
+      nextReservedClient = null;
+      pool.$client.reserve = async () => reserved;
+    }
     openedPools.push(pool);
     return pool;
   },
 }));
 mock.module("../db/migrate", () => ({
-  migrate: async (): Promise<void> => {
+  migrate: async (db: unknown): Promise<void> => {
     migrateCalls += 1;
+    migrationHandles.push(db);
   },
 }));
 
@@ -191,6 +220,59 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
     expect(only.closed).toBe(1);
     // State cleared: getDb() now throws.
     expect(() => conn.getDb()).toThrow("Database not initialized");
+  });
+
+  test("migrates on the reserved connection's normalized Drizzle handle", async () => {
+    const events: string[] = [];
+    const reserved = createReservedClient(events);
+    nextReservedClient = reserved;
+    const priorMigrateCalls = migrateCalls;
+
+    await conn.__test.initPostgres();
+
+    const primaryPool = openedPools.at(-1)!;
+    const migrationDb = reservedMigrationPools.at(-1)!;
+    // `migrate()` gets the handle Drizzle built over the reserved connection,
+    // never the normal pool handle that reserve() removed that connection from.
+    expect(migrateCalls).toBe(priorMigrateCalls + 1);
+    expect(migrationHandles.at(-1)).toBe(migrationDb);
+    expect(migrationDb).not.toBe(primaryPool);
+    expect(migrationDb.$client).toBe(reserved);
+
+    // The dynamically built handle receives the same execute normalization as
+    // the main external handle, so migration callers keep the { rows } shape.
+    const normalized = (await migrationDb.execute()) as unknown as { rows: unknown[] };
+    expect(normalized).toEqual({ rows: [] });
+    expect(events[0]).toContain("pg_advisory_lock");
+    expect(events[1]).toContain("pg_advisory_unlock");
+    expect(events[2]).toBe("release");
+
+    await conn.closeDb();
+    expect(primaryPool.closed).toBe(1);
+  });
+});
+
+describe("withPostgresMigrateLock — reserved migration failure cleanup (unit, mocked driver)", () => {
+  test("unlocks and releases the reserved client when its callback throws", async () => {
+    const events: string[] = [];
+    const reserved = createReservedClient(events);
+    const primaryPool = createFakePool();
+    primaryPool.$client.reserve = async () => reserved;
+    conn.__test.setState(primaryPool, null);
+
+    try {
+      await expect(conn.__test.withPostgresMigrateLock(async (migrationDb) => {
+        const result = await migrationDb.execute();
+        expect(result).toEqual({ rows: [] });
+        expect(migrationDb).toBe(reservedMigrationPools.at(-1));
+        throw new Error("migration failed");
+      })).rejects.toThrow("migration failed");
+      expect(events[0]).toContain("pg_advisory_lock");
+      expect(events[1]).toContain("pg_advisory_unlock");
+      expect(events[2]).toBe("release");
+    } finally {
+      conn.__test.setState(null, null);
+    }
   });
 });
 

@@ -5,6 +5,7 @@
 	import AccessModeIcon from "./AccessModeIcon.svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import { PROVIDER_META } from "$lib/provider-meta.js";
+	import { refreshQuickstart } from "$lib/stores.svelte.js";
 
 	let { statuses = $bindable([]) }: { statuses?: ProviderStatus[] } = $props();
 
@@ -80,6 +81,7 @@
 			showKey = { ...showKey, [provider]: false };
 			cardAction = { ...cardAction, [provider]: null };
 			await load();
+			await refreshQuickstart();
 			// Newly connected — pull the latest model list straight away.
 			void handleRefreshModels(provider);
 		} catch {
@@ -94,6 +96,7 @@
 		try {
 			await deleteProviderKey(provider);
 			await load();
+			await refreshQuickstart();
 		} catch {
 			errorMsg = `Failed to remove key for ${provider}`;
 		} finally {
@@ -127,6 +130,7 @@
 				oauthPending = null;
 				codeInput = "";
 				await load();
+				await refreshQuickstart();
 				void handleRefreshModels(result.provider);
 			} else {
 				oauthError = result.error ?? "Unknown error";
@@ -149,6 +153,7 @@
 		try {
 			await disconnectOAuth(provider);
 			await load();
+			await refreshQuickstart();
 		} catch {
 			errorMsg = `Failed to disconnect ${provider}`;
 		} finally {
@@ -220,7 +225,7 @@
 </script>
 
 {#if errorMsg}
-	<div class="mb-4 rounded-md border border-red-800 bg-red-900/30 p-3 text-sm text-red-300">
+	<div class="mb-4 rounded-md border border-red-500 bg-red-500/10 p-3 text-sm font-medium text-[var(--color-text-primary)]" role="alert" data-testid="provider-error">
 		{errorMsg}
 	</div>
 {/if}
@@ -281,7 +286,7 @@
 		{@const onboardingLink = ONBOARDING_LINKS[p.provider]}
 		{@const action = cardAction[p.provider] ?? null}
 		{@const testResult = testResults[p.provider]}
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4" data-testid="provider-card-{p.provider}">
 			<div class="flex items-center gap-4">
 				<ProviderIcon provider={p.provider} size="lg" />
 				<div class="min-w-0 flex-1">
@@ -446,7 +451,9 @@
 					{:else if p.source === "byok" && action === "editing"}
 						<div class="mt-2 flex items-center gap-2">
 							<div class="relative flex-1">
+								<label class="sr-only" for="provider-key-{p.provider}">API key for {info.name}</label>
 								<input
+									id="provider-key-{p.provider}"
 									use:autofocus
 									type={showKey[p.provider] ? "text" : "password"}
 									autocomplete="new-password"
@@ -458,6 +465,7 @@
 									onclick={() => (showKey = { ...showKey, [p.provider]: !showKey[p.provider] })}
 									class="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 									title={showKey[p.provider] ? "Hide" : "Show"}
+									aria-label={showKey[p.provider] ? `Hide API key for ${info.name}` : `Show API key for ${info.name}`}
 									type="button"
 								>
 									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -505,7 +513,9 @@
 						{/if}
 						<div class="mt-2 flex items-center gap-2">
 							<div class="relative flex-1">
+								<label class="sr-only" for="provider-new-key-{p.provider}">API key for {info.name}</label>
 								<input
+									id="provider-new-key-{p.provider}"
 									type={showKey[p.provider] ? "text" : "password"}
 									autocomplete="new-password"
 									bind:value={keyInputs[p.provider]}
@@ -516,6 +526,7 @@
 									onclick={() => (showKey = { ...showKey, [p.provider]: !showKey[p.provider] })}
 									class="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
 									title={showKey[p.provider] ? "Hide" : "Show"}
+									aria-label={showKey[p.provider] ? `Hide API key for ${info.name}` : `Show API key for ${info.name}`}
 									type="button"
 								>
 									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

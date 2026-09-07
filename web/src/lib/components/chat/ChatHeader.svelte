@@ -100,10 +100,12 @@
 	let editing = $state(false);
 	let editValue = $state("");
 	let saving = $state(false);
+	let saveError = $state("");
 
 	function startEditing() {
 		if (!currentConversation) return;
 		editValue = currentConversation.title ?? "";
+		saveError = "";
 		editing = true;
 	}
 
@@ -121,9 +123,12 @@
 			return;
 		}
 		saving = true;
+		saveError = "";
 		try {
 			await onrename(trimmed);
 			editing = false;
+		} catch (error) {
+			saveError = error instanceof Error ? error.message : "Failed to rename chat";
 		} finally {
 			saving = false;
 		}
@@ -173,6 +178,9 @@
 				class="rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
 			>Cancel</button>
 		</form>
+		{#if editing && saveError}
+			<p class="text-xs font-medium text-red-600 dark:text-red-300" role="alert" data-testid="chat-title-save-error">{saveError}</p>
+		{/if}
 	{:else}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<span

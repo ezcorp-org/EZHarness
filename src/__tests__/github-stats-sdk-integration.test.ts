@@ -101,10 +101,10 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
     expect(data.TypeScript).toBe(12345);
   });
 
-  test("Authorization header propagates through fetchPermitted when caller passes it", async () => {
+  test("public GitHub calls use no credential header", async () => {
     mockFetch.mockResolvedValueOnce(new Response("{}", { status: 200 }));
     await fetchPermitted("https://api.github.com/users/octocat", {
-      headers: { Authorization: "Bearer test-token", "User-Agent": "github-stats-ext" },
+      headers: { "User-Agent": "github-stats-ext" },
     });
 
     expect(mockFetch.mock.calls.length).toBe(1);
@@ -112,7 +112,7 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
     const init = calls[0]?.[1];
     if (!init?.headers) throw new Error("expected init.headers");
     const headers = init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer test-token");
+    expect(headers.Authorization).toBeUndefined();
     expect(headers["User-Agent"]).toBe("github-stats-ext");
   });
 });
@@ -156,7 +156,7 @@ describe("github-stats SDK integration DENY path (real subprocess, sandbox fetch
       const r = await proc.callTool("repo-stats", { owner: "octocat", repo: "hello-world" });
       expect(r.isError).toBe(true);
       const first = r.content[0];
-      if (!first || first.type !== "text") throw new Error("expected text content");
+      if (first?.type !== "text") throw new Error("expected text content");
       // Wrapper denies api.github.com — empty allowlist means everything
       // not internal is denied with the same error.
       expect(first.text).toContain("api.github.com");
@@ -180,7 +180,7 @@ describe("github-stats SDK integration DENY path (real subprocess, sandbox fetch
       const r = await proc.callTool("repo-stats", { owner: "octocat", repo: "hello-world" });
       expect(r.isError).toBe(true);
       const first = r.content[0];
-      if (!first || first.type !== "text") throw new Error("expected text content");
+      if (first?.type !== "text") throw new Error("expected text content");
       expect(first.text).toContain("api.github.com");
       expect(first.text).toContain("example.com");
       // Phase 2: error message now comes from the sandbox-preload's

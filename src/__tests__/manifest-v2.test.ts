@@ -42,6 +42,32 @@ function makeValidManifest(
 // ── Validation: Required Fields ──────────────────────────────────
 
 describe("validateManifestV2", () => {
+  test("rejects unknown author fields at the manifest root and component levels", () => {
+    const manifest = {
+      ...makeValidManifest(),
+      permssions: { network: ["example.com"] },
+      tools: [{
+        name: "known-tool",
+        description: "Known tool",
+        inputSchema: {
+          type: "object",
+          properties: {
+            arbitraryAuthorKey: { type: "string", "x-ui": { color: "blue" } },
+          },
+        },
+        descriptin: "typo",
+      }],
+      permissions: { netwrok: ["example.com"] },
+    };
+    const result = validateManifestV2(manifest);
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("manifest.permssions is not a recognized field");
+    expect(result.errors).toContain("tools[0].descriptin is not a recognized field");
+    expect(result.errors).toContain("permissions.netwrok is not a recognized field");
+    expect(result.errors).not.toContain("tools[0].inputSchema.properties.arbitraryAuthorKey is not a recognized field");
+  });
+
   test("valid v2 manifest with all component types passes", () => {
     const manifest = makeValidManifest({
       skills: [{ name: "writing", description: "Writing skill" }],

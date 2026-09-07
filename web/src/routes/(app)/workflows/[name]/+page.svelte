@@ -24,6 +24,7 @@
 	import { mergeRunHistory } from "$lib/workflow-run-history.js";
 	import { relativeTime } from "$lib/utils/relative-time.js";
 	import { duplicateName } from "$lib/workflow-builder-logic.js";
+	import { definitionFields } from "$lib/workflow-yaml.js";
 	import { inputClass } from "$lib/styles.js";
 	import WorkflowBuilder from "$lib/components/WorkflowBuilder.svelte";
 	import RunPayload from "$lib/components/workflows/RunPayload.svelte";
@@ -129,6 +130,11 @@
 	function cancelEditing() {
 		editing = false;
 		editErrorMsg = "";
+	}
+
+	function openYamlEditor() {
+		if (!workflowName) return;
+		void goto(`/workflows/${encodeURIComponent(workflowName)}/edit?tab=yaml`);
 	}
 
 	async function handleEditSubmit(data: Record<string, unknown>) {
@@ -460,9 +466,10 @@
 
 			{#if editing}
 				<WorkflowBuilder
-					initial={workflow as unknown as Record<string, unknown>}
+					initial={definitionFields(workflow as unknown as Record<string, unknown>)}
 					agents={store.agents}
 					onsubmit={handleEditSubmit}
+					onopenyaml={openYamlEditor}
 					oncancel={cancelEditing}
 					submitting={editSubmitting}
 					submitLabel="Save"

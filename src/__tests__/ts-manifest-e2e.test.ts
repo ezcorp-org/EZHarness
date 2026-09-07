@@ -113,7 +113,7 @@ export default defineExtension({
   skills: [{
     name: "s1",
     description: "Skill one",
-    pattern: "do something",
+    prompt: "do something",
     handler: () => "skill result",
   }],
   agent: {
@@ -243,7 +243,7 @@ describe("handler stripping E2E", () => {
     const m = await writeAndLoad(`{
       schemaVersion: 2, name: "strip-skills", version: "1.0.0",
       description: "test", author: { name: "T" }, permissions: {},
-      skills: [{ name: "s", description: "s", pattern: "do", handler: () => "r", execute: async () => {} }],
+      skills: [{ name: "s", description: "s", prompt: "do", handler: () => "r", execute: async () => {} }],
     }`);
     const skill = m.skills![0] as any;
     expect(skill.handler).toBeUndefined();

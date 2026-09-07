@@ -35,6 +35,7 @@ const { validateManifestV2, validateSmokeTest } = await import(
   "../extensions/manifest"
 );
 const { verifyExtension } = await import("../extensions/sdk/verify");
+const { createTestExtension } = await import("../extensions/sdk/test-helpers");
 
 function evalManifest(src: string): Record<string, unknown> {
   const body = src
@@ -86,7 +87,82 @@ describe("scaffold — smokeTest + real test (tool/multi)", () => {
   }
 });
 
+describe("scaffold — author workflow", () => {
+  for (const type of ["tool", "skill", "agent", "multi"] as const) {
+    test(`${type}: generated files use the supported host workflow`, () => {
+      const { files } = scaffoldExtension({
+        name: `workflow-${type}`,
+        type,
+        description: "author workflow check",
+      });
+      expect(files["ezcorp.config.ts"]).toContain("schemaVersion: 3");
+      expect(files["README.md"]).toContain("EZCORP_HOST");
+      expect(files["README.md"]).toContain('ext verify "$PWD"');
+      expect(files["README.md"]).toContain('ext install "$PWD"');
+      expect(files["README.md"]).not.toMatch(/(?:^|\n)ezcorp ext /);
+      expect(files["index.test.ts"]).not.toContain("test.todo");
+    });
+  }
+
+  for (const type of ["tool", "multi"] as const) {
+    test(`${type}: declares an empty per-tool capability map`, () => {
+      const { files } = scaffoldExtension({ name: `capabilities-${type}`, type, description: "x" });
+      expect(files["ezcorp.config.ts"]).toContain("capabilities: {}");
+    });
+  }
+});
+
 describe("scaffold — verifyExtension passes on a fresh dir", () => {
+  test("tool scaffold round-trips declared Storage through the verify host", async () => {
+    const { files } = scaffoldExtension({
+      name: "gate-verify-storage",
+      type: "tool",
+      description: "storage verification",
+    });
+    const manifest = files["ezcorp.config.ts"]!
+      .replace("capabilities: {},", "capabilities: { storage: true },")
+      .replace("permissions: {},", "permissions: { storage: true },")
+      .replace('textIncludes: "Received: smoke"', 'textIncludes: "Stored: smoke"');
+    const echoHandler = `export const handleRequest: ToolHandler = (args) => {
+  return toolResult(\`Received: \${args.input ?? ""}\`);
+};`;
+    const storageHandler = `export const handleRequest: ToolHandler = async (args) => {
+  const storage = new Storage("global");
+  await storage.set("state", { input: args.input ?? "" });
+  return toolResult(\`Stored: \${args.input ?? ""}\`);
+};`;
+    const entrypoint = files["index.ts"]!
+      .replace("  toolResult,", "  toolResult,\n  Storage,")
+      .replace(echoHandler, storageHandler);
+    mkdirSync(SCAFFOLD_TMP_BASE, { recursive: true });
+    const dir = mkdtempSync(join(SCAFFOLD_TMP_BASE, "storage-"));
+    try {
+      for (const [name, content] of Object.entries(files)) {
+        writeFileSync(join(dir, name), name === "ezcorp.config.ts" ? manifest : name === "index.ts" ? entrypoint : content);
+      }
+      const result = await verifyExtension({ extDir: dir });
+      expect(result.pass).toBe(true);
+
+      const proc = await createTestExtension(dir);
+      try {
+        const handler = (proc as unknown as { pendingRequestHandler: (
+          req: { jsonrpc: "2.0"; id: number; method: string; params?: Record<string, unknown> },
+        ) => Promise<{ result?: unknown; error?: { code: number } }> }).pendingRequestHandler;
+        expect((await handler({ jsonrpc: "2.0", id: 1, method: "ezcorp/storage", params: { action: "set", key: "state", value: "saved" } })).error).toBeUndefined();
+        expect(await handler({ jsonrpc: "2.0", id: 2, method: "ezcorp/storage", params: { action: "get", key: "state" } })).toMatchObject({ result: { exists: true, value: "saved" } });
+        expect(await handler({ jsonrpc: "2.0", id: 3, method: "ezcorp/storage", params: { action: "list" } })).toMatchObject({ result: { keys: ["state"] } });
+        expect(await handler({ jsonrpc: "2.0", id: 4, method: "ezcorp/storage", params: { action: "delete", key: "state" } })).toMatchObject({ result: { deleted: true } });
+        expect((await handler({ jsonrpc: "2.0", id: 5, method: "ezcorp/storage", params: { action: "get" } })).error?.code).toBe(-32602);
+        expect((await handler({ jsonrpc: "2.0", id: 6, method: "ezcorp/storage", params: { action: "other", key: "state" } })).error?.code).toBe(-32602);
+        expect((await handler({ jsonrpc: "2.0", id: 7, method: "ezcorp/other" })).error?.code).toBe(-32601);
+      } finally {
+        proc.kill();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   test("tool scaffold written to disk ⇒ verifyExtension pass:true", async () => {
     const { files } = scaffoldExtension({
       name: "gate-verify-tool",

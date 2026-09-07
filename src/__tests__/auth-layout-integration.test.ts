@@ -2,7 +2,7 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:tes
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, ADMIN_USER } from "./helpers/mock-request";
+import { mockServerAlias, createMockEvent, ADMIN_USER, captureRedirect } from "./helpers/mock-request";
 
 mockDbConnection();
 mockServerAlias();
@@ -22,27 +22,6 @@ import { createSession, hashToken } from "../db/queries/sessions";
 import { users, invites, sessions, settings } from "../db/schema";
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-/** Detect a redirect thrown by SvelteKit (real Redirect class or our mock). */
-function isRedirect(err: unknown): err is { status: number; location: string } {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    typeof (err as any).status === "number" &&
-    typeof (err as any).location === "string"
-  );
-}
-
-async function expectRedirect(fn: () => Promise<unknown>, expectedStatus: number, expectedLocation: string) {
-  try {
-    await fn();
-    throw new Error("Expected redirect to be thrown");
-  } catch (err) {
-    if (!isRedirect(err)) throw err; // re-throw unexpected errors
-    expect(err.status).toBe(expectedStatus);
-    expect(err.location).toBe(expectedLocation);
-  }
-}
 
 async function makeValidSessionCookie(): Promise<string> {
   const secret = await getJwtSecret();
@@ -98,32 +77,32 @@ async function persistSessionFor(token: string, userId: string): Promise<void> {
 describe("Login / Setup redirect chain", () => {
   test("login redirects to /setup when no users exist", async () => {
     const event = createMockEvent({ url: "http://localhost/login" });
-    await expectRedirect(() => loginLoad(event as any), 302, "/setup");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/setup" });
   });
 
   test("setup redirects to /login when users exist", async () => {
     await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
     const event = createMockEvent({ url: "http://localhost/setup" });
-    await expectRedirect(() => setupLoad(event as any), 302, "/login");
+    expect(await captureRedirect(() => setupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("setup returns empty object when no users exist (no redirect)", async () => {
     const event = createMockEvent({ url: "http://localhost/setup" });
-    const result = await setupLoad(event as any);
+    const result = await setupLoad(event);
     expect(result).toEqual({});
   });
 
   test("login returns default returnTo when users exist and no session (no redirect)", async () => {
     await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
     const event = createMockEvent({ url: "http://localhost/login" });
-    const result = await loginLoad(event as any);
+    const result = await loginLoad(event);
     expect(result).toEqual({ returnTo: "/" });
   });
 
   test("no circular redirect: login->setup only when 0 users, setup->login only when >0 users", async () => {
     // With 0 users: login -> setup, setup stays
     const loginEvent = createMockEvent({ url: "http://localhost/login" });
-    await expectRedirect(() => loginLoad(loginEvent as any), 302, "/setup");
+    expect(await captureRedirect(() => loginLoad(loginEvent))).toEqual({ status: 302, location: "/setup" });
 
     const setupEvent = createMockEvent({ url: "http://localhost/setup" });
     const setupResult = await setupLoad(setupEvent as any);
@@ -133,7 +112,7 @@ describe("Login / Setup redirect chain", () => {
     await createUser({ email: "user@test.local", passwordHash: "h", name: "User" });
 
     const setupEvent2 = createMockEvent({ url: "http://localhost/setup" });
-    await expectRedirect(() => setupLoad(setupEvent2 as any), 302, "/login");
+    expect(await captureRedirect(() => setupLoad(setupEvent2))).toEqual({ status: 302, location: "/login" });
 
     const loginEvent2 = createMockEvent({ url: "http://localhost/login" });
     const loginResult = await loginLoad(loginEvent2 as any);
@@ -157,7 +136,7 @@ describe("Session-based redirects for authenticated users", () => {
       url: "http://localhost/login",
       cookies: { ezcorp_session: token },
     });
-    await expectRedirect(() => loginLoad(event as any), 302, "/");
+    expect(await captureRedirect(() => loginLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("login does NOT redirect with an invalid session token", async () => {
@@ -165,7 +144,7 @@ describe("Session-based redirects for authenticated users", () => {
       url: "http://localhost/login",
       cookies: { ezcorp_session: "garbage-token" },
     });
-    const result = await loginLoad(event as any);
+    const result = await loginLoad(event);
     expect(result).toEqual({ returnTo: "/" });
   });
 
@@ -175,7 +154,7 @@ describe("Session-based redirects for authenticated users", () => {
       url: "http://localhost/login",
       cookies: { ezcorp_session: expiredToken },
     });
-    const result = await loginLoad(event as any);
+    const result = await loginLoad(event);
     expect(result).toEqual({ returnTo: "/" });
   });
 
@@ -190,7 +169,7 @@ describe("Session-based redirects for authenticated users", () => {
       params: { token: invite.token },
       cookies: { ezcorp_session: token },
     });
-    await expectRedirect(() => signupLoad(event as any), 302, "/");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/" });
   });
 
   test("signup does NOT redirect with an invalid session token", async () => {
@@ -202,9 +181,9 @@ describe("Session-based redirects for authenticated users", () => {
       params: { token: invite.token },
       cookies: { ezcorp_session: "garbage-token" },
     });
-    const result = await signupLoad(event as any);
-    expect(result.invite.email).toBe("new@test.local");
-    expect(result.token).toBe(invite.token);
+    const result = await signupLoad(event);
+    expect(result?.invite.email).toBe("new@test.local");
+    expect(result?.token).toBe(invite.token);
   });
 });
 
@@ -247,7 +226,7 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
       cookies: { ezcorp_session: token },
     });
 
-    const result = await loginLoad(event as any);
+    const result = await loginLoad(event);
     expect(result).toEqual({ returnTo: "/" });
   });
 
@@ -258,7 +237,7 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
       cookies: { ezcorp_session: token },
     });
 
-    await loginLoad(event as any);
+    await loginLoad(event);
 
     // Defense in depth: even if the initial hooks-level deletion didn't
     // stick on the browser side, /login actively re-sends a deletion so
@@ -281,7 +260,7 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
     // Must NOT throw — rendering the form is the only correct outcome.
     let threw: unknown = null;
     try {
-      await loginLoad(event as any);
+      await loginLoad(event);
     } catch (e) {
       threw = e;
     }
@@ -299,10 +278,10 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
       cookies: { ezcorp_session: token },
     });
 
-    const result = await signupLoad(event as any);
+    const result = await signupLoad(event);
     // Should render the signup form with the invite details, not redirect.
-    expect(result.invite.email).toBe("new@test.local");
-    expect(result.token).toBe(invite.token);
+    expect(result?.invite.email).toBe("new@test.local");
+    expect(result?.token).toBe(invite.token);
   });
 
   test("signup clears the stale ezcorp_session cookie when session row is missing", async () => {
@@ -316,7 +295,7 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
       cookies: { ezcorp_session: token },
     });
 
-    await signupLoad(event as any);
+    await signupLoad(event);
 
     expect(event.cookies.get("ezcorp_session")).toBeNull();
   });
@@ -339,10 +318,10 @@ describe("Signup token validation", () => {
       params: { token: invite.token },
     });
 
-    const result = await signupLoad(event as any);
-    expect(result.invite.email).toBe("invited@test.local");
-    expect(result.invite.role).toBe("member");
-    expect(result.token).toBe(invite.token);
+    const result = await signupLoad(event);
+    expect(result?.invite.email).toBe("invited@test.local");
+    expect(result?.invite.role).toBe("member");
+    expect(result?.token).toBe(invite.token);
   });
 
   test("valid token with admin role returns role: admin", async () => {
@@ -352,8 +331,8 @@ describe("Signup token validation", () => {
       params: { token: invite.token },
     });
 
-    const result = await signupLoad(event as any);
-    expect(result.invite.role).toBe("admin");
+    const result = await signupLoad(event);
+    expect(result?.invite.role).toBe("admin");
   });
 
   test("invalid token redirects to /login", async () => {
@@ -361,7 +340,7 @@ describe("Signup token validation", () => {
       url: "http://localhost/signup/nonexistent-token-value",
       params: { token: "nonexistent-token-value" },
     });
-    await expectRedirect(() => signupLoad(event as any), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("used/consumed token redirects to /login", async () => {
@@ -372,7 +351,7 @@ describe("Signup token validation", () => {
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
     });
-    await expectRedirect(() => signupLoad(event as any), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("expired token redirects to /login", async () => {
@@ -387,7 +366,7 @@ describe("Signup token validation", () => {
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
     });
-    await expectRedirect(() => signupLoad(event as any), 302, "/login");
+    expect(await captureRedirect(() => signupLoad(event))).toEqual({ status: 302, location: "/login" });
   });
 
   test("invite without email returns null email in invite data", async () => {
@@ -397,10 +376,10 @@ describe("Signup token validation", () => {
       params: { token: invite.token },
     });
 
-    const result = await signupLoad(event as any);
-    expect(result.invite.email).toBeNull();
-    expect(result.invite.role).toBe("member");
-    expect(result.token).toBe(invite.token);
+    const result = await signupLoad(event);
+    expect(result?.invite.email).toBeNull();
+    expect(result?.invite.role).toBe("member");
+    expect(result?.token).toBe(invite.token);
   });
 });
 
@@ -410,13 +389,13 @@ describe("Public paths - auth pages accessible without session", () => {
   test("/login is accessible (returns default returnTo) when users exist and no session", async () => {
     await createUser({ email: "user@test.local", passwordHash: "h", name: "User" });
     const event = createMockEvent({ url: "http://localhost/login" });
-    const result = await loginLoad(event as any);
+    const result = await loginLoad(event);
     expect(result).toEqual({ returnTo: "/" });
   });
 
   test("/setup is accessible (returns data) when no users exist", async () => {
     const event = createMockEvent({ url: "http://localhost/setup" });
-    const result = await setupLoad(event as any);
+    const result = await setupLoad(event);
     expect(result).toEqual({});
   });
 
@@ -428,9 +407,9 @@ describe("Public paths - auth pages accessible without session", () => {
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
     });
-    const result = await signupLoad(event as any);
-    expect(result.invite).toBeDefined();
-    expect(result.token).toBe(invite.token);
+    const result = await signupLoad(event);
+    expect(result?.invite).toBeDefined();
+    expect(result?.token).toBe(invite.token);
   });
 
   test("hooks PUBLIC_PATHS correctly identifies public vs protected routes", () => {

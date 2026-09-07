@@ -1,8 +1,8 @@
 /**
  * Real-auth + real-DB Playwright config.
  *
- * Triggered explicitly: `PI_E2E_REAL=1 bunx playwright test --config
- * playwright.real.config.ts`. The default `playwright.config.ts` stays
+ * Triggered by `bun scripts/run-real-e2e.ts real-auth` from the repository
+ * root. The default `playwright.config.ts` stays
  * untouched — every existing fetch-mocked spec keeps running under the
  * `PI_SKIP_INIT=1` preview server.
  *
@@ -21,8 +21,6 @@
  *     `fetch` and breaks real-auth specs) doesn't sneak in.
  */
 import { defineConfig } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +34,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
+const previewPort = new URL(baseURL).port || "4173";
 
 // The deterministic mock LLM is served by this same preview server; pi-ai's
 // HTTP client must reach it on the actual bound port (vite preview's :4173),
@@ -43,12 +42,15 @@ const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
-// Fresh PGlite dir per run. Reused across the webServer + every
-// spec — the same directory must survive for the whole `playwright
-// test` invocation. Best-effort cleanup happens at process exit
-// (see globalTeardown).
-const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
-  ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
+// The outer runner owns generated DB lifecycle. Requiring its explicit path
+// prevents globalTeardown from deleting a PGlite directory while Playwright's
+// webServer plugin still has the preview process alive.
+const DB_DIR = process.env.PI_E2E_REAL_DB_PATH;
+if (!DB_DIR) {
+  throw new Error(
+    "PI_E2E_REAL_DB_PATH is required. Run `bun scripts/run-real-e2e.ts <real-auth|fresh-setup>` from the repository root.",
+  );
+}
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -129,9 +131,12 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: "bun run build && bun run preview",
+    command: `bun run build && bun run preview -- --port ${previewPort} --strictPort`,
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
+    // Preserve preview stdout in CI so a startup timeout retains its last
+    // completed application stage. Fresh setup inherits this webServer config.
+    stdout: "pipe",
     // Real harness MUST never reuse a stale server — a previous run
     // might have a DB that's already past first-boot setup, breaking
     // globalSetup's idempotent contract. Always start a fresh server.
@@ -141,6 +146,12 @@ export default defineConfig({
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
       EZCORP_DB_PATH: DB_DIR,
+      // The real harness is PGlite-only. A caller can run this wrapper from a
+      // Postgres test shell, so clear its alternate driver selection here.
+      DATABASE_URL: "",
+      // Likewise, a mock-preview caller must not make this real server skip
+      // initialization and silently invalidate the setup/auth contracts.
+      PI_SKIP_INIT: "",
       PI_E2E_REAL: "1",
       // Conscious operator opt-in for the destructive `/api/__test/**`
       // determinism surface. The gate (`src/test-surface.ts`) is
@@ -172,6 +183,10 @@ export default defineConfig({
       // Make the ezcorp-mock provider's loopback baseUrl match the preview
       // server's actual port (see MOCK_LLM_BASE_URL above).
       EZCORP_MOCK_LLM_BASE_URL: MOCK_LLM_BASE_URL,
+      // Bun 1.3.14 can retain a compiled server module's prior environment
+      // value across fresh processes. Disabling this runtime cache is required
+      // for a preview to use this invocation's generated PGlite directory.
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
     },
   },
 });

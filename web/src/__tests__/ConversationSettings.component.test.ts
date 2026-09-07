@@ -15,6 +15,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { test, expect, describe, vi } from "vitest";
+import { fireEvent } from "@testing-library/svelte";
 import { render } from "@testing-library/svelte";
 import ConversationSettings from "$lib/components/ConversationSettings.svelte";
 
@@ -115,5 +116,24 @@ describe("ConversationSettings — agent-scoped read-only mode", () => {
 
 		expect(queryByText(/system prompt is managed by the agent persona/i)).toBeNull();
 		expect(queryByText(/managed by agent persona/i)).toBeNull();
+	});
+
+	test("keeps the draft open and shows a readable save error", async () => {
+		const { container, getByRole, findByTestId } = render(ConversationSettings, {
+			props: {
+				conversation: makeConv(),
+				projectId: "p-1",
+				open: true,
+				onclose: () => {},
+				onsave: async () => { throw new Error("Connection lost"); },
+			},
+		});
+
+		const textarea = container.querySelector("#conv-prompt") as HTMLTextAreaElement;
+		await fireEvent.input(textarea, { target: { value: "Keep this draft" } });
+		await fireEvent.click(getByRole("button", { name: "Save" }));
+		const error = await findByTestId("conversation-settings-save-error");
+		expect(error).toHaveTextContent("Connection lost");
+		expect(textarea.value).toBe("Keep this draft");
 	});
 });

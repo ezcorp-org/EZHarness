@@ -26,7 +26,7 @@ import {
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
 import { effectiveModelOverride, resolveModelOverride } from "./workflow-model";
-import { prepareResolvedInput, prepareStepOutput } from "./workflow-step-output";
+import { prepareWorkflowStepRecord } from "./workflow-step-output";
 import {
   abortPendingApprovalsForScope,
   beginNonInteractiveScope,
@@ -1454,40 +1454,11 @@ export class WorkflowExecutor {
           let stepDurationMs: number | undefined;
           const persistStep = (): void => {
             const written = this.persistWrite("step", () =>
-              upsertWorkflowStepRun({
-                workflowRunId: workflowRun.id,
-                stepName: stepRun.stepName,
-                runId: stepRun.runId,
-                status: stepRun.status,
-                ...(stepRun.iterations !== undefined ? { iterations: stepRun.iterations } : {}),
-                // Known only after the agent attempt, so the "running"
-                // write leaves them NULL and the terminal write fills them.
-                provider: stepRun.provider,
-                model: stepRun.model,
-                attempt: stepRun.attempt,
-                // Undefined all the way to SQL NULL when nothing reported
-                // usage. A 0 here would be a claim, and every aggregate
-                // that sums this column would believe it.
-                inputTokens: stepRun.inputTokens,
-                outputTokens: stepRun.outputTokens,
+              upsertWorkflowStepRun(prepareWorkflowStepRecord(workflowRun.id, stepRun, {
+                output: stepOutput,
+                resolvedInput: inputSink.resolvedInput,
                 durationMs: stepDurationMs,
-                errorCode: stepRun.errorCode,
-                // Set only on the `skipped` path, immediately before this
-                // runs. Without persisting it a reloaded trace shows a
-                // skipped step with no reason, which reads exactly like a
-                // step that was never reached.
-                skippedReason: stepRun.skippedReason,
-                // Resume fodder: `$steps.<name>` for every later step.
-                // NULL until the step succeeds, and NULL forever for one
-                // that failed — a resume reads that as "no value" and
-                // fails closed rather than guessing.
-                ...(stepOutput !== undefined
-                  ? { output: prepareStepOutput(stepOutput) }
-                  : {}),
-                ...(inputSink.resolvedInput !== undefined
-                  ? { resolvedInput: prepareResolvedInput(inputSink.resolvedInput) }
-                  : {}),
-              }),
+              })),
             );
             // Still fire-and-forget for every caller — nothing awaits it
             // HERE, which is the property the `$prev` invariant depends

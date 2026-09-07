@@ -41,6 +41,7 @@
   "include": [
     "src/**/*.test.ts",
     "extensions/**/*.test.ts",
+    "packages/@ezcorp/sdk/test/types-host-parity.test.ts",
     "web/.svelte-kit/ambient.d.ts",
     "web/.svelte-kit/non-ambient.d.ts",
     "web/.svelte-kit/types/**/$types.d.ts",

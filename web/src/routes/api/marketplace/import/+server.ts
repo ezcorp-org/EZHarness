@@ -18,12 +18,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!parseResult.success) {
     return validationError(parseResult.error);
   }
-  const manifest = parseResult.data as ExtensionManifestV2;
+  // `exportedAt` belongs to the marketplace download envelope, not the
+  // author-written extension manifest. Remove only that known field; all
+  // other unknown keys remain for the strict public manifest validator.
+  const { exportedAt: _exportedAt, ...manifestDocument } = parseResult.data;
 
-  const validation = validateManifestV2(manifest);
+  const validation = validateManifestV2(manifestDocument);
   if (!validation.valid) {
     return errorJson(400, "Invalid manifest", { errors: validation.errors });
   }
+  const manifest = manifestDocument as ExtensionManifestV2;
 
   if (manifest.agent) {
     // Handle name collision

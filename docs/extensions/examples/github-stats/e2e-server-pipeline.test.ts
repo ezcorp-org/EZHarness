@@ -56,12 +56,12 @@ import { ExtensionProcess } from "../../../../src/extensions/subprocess";
 
 // ── buildAllowedEnv() parity ────────────────────────────────────
 // Mirrors `registry.ts buildAllowedEnv()` for github-stats's manifest
-// (`permissions.network: ["api.github.com"]`, `permissions.env: ["GITHUB_TOKEN"]`).
+// (`permissions.network: ["api.github.com"]`).
 // EZCORP_PERMITTED_HOSTS is DELIBERATELY OMITTED to simulate the
 // "extension installed but network permission not granted" state —
 // this is the deny-branch-1 scenario (http.ts:36-41, empty allowlist).
-// GITHUB_TOKEN is likewise omitted so no auth header is constructed,
-// though this is moot: fetchPermitted throws before any header is read.
+// The public-only implementation never constructs an authentication header;
+// fetchPermitted throws before it reaches the network in this deny branch.
 function buildAllowedEnvLike(extensionId: string): Record<string, string> {
   const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
   mkdirSync(extTmpDir, { recursive: true });

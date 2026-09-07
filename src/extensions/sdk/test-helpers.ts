@@ -6,12 +6,48 @@
 import { ExtensionProcess, parseMemoryLimit, DEFAULT_MEMORY_LIMIT_MB } from "../subprocess";
 import { buildAllowedEnv } from "../registry";
 import { loadManifestFresh } from "../loader";
-import type { ToolCallResult } from "../types";
+import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "../types";
 import { join } from "node:path";
 
 export interface TestExtensionOptions {
   /** Default true. Set to false to skip prlimit/env isolation. */
   sandbox?: boolean;
+}
+
+/**
+ * `ext verify` has no installed extension row or database. Give its isolated
+ * subprocess a small host-mediated storage transport so a scaffold can verify
+ * the same Storage reverse-RPC it will use after installation.
+ */
+function wireVerifyStorage(
+  proc: ExtensionProcess,
+  manifest: Awaited<ReturnType<typeof loadManifestFresh>>,
+): void {
+  if (manifest.permissions.storage !== true) return;
+  const values = new Map<string, unknown>();
+  proc.setRequestHandler(async (req: JsonRpcRequest): Promise<JsonRpcResponse> => {
+    if (req.method !== "ezcorp/storage") {
+      return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `Unsupported verify RPC: ${req.method}` } };
+    }
+    const params = req.params ?? {};
+    const key = typeof params.key === "string" ? params.key : "";
+    if (!key && params.action !== "list") {
+      return { jsonrpc: "2.0", id: req.id, error: { code: -32602, message: "Storage key is required" } };
+    }
+    switch (params.action) {
+      case "set":
+        values.set(key, params.value);
+        return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
+      case "get":
+        return { jsonrpc: "2.0", id: req.id, result: { exists: values.has(key), value: values.get(key) ?? null } };
+      case "delete":
+        return { jsonrpc: "2.0", id: req.id, result: { deleted: values.delete(key) } };
+      case "list":
+        return { jsonrpc: "2.0", id: req.id, result: { keys: [...values.keys()] } };
+      default:
+        return { jsonrpc: "2.0", id: req.id, error: { code: -32602, message: "Unsupported verify storage action" } };
+    }
+  });
 }
 
 /**
@@ -58,10 +94,12 @@ export async function createTestExtension(
     allowedEnv = { ...process.env } as Record<string, string>;
   }
 
-  return new ExtensionProcess(extensionId, entrypoint, allowedEnv, {
+  const proc = new ExtensionProcess(extensionId, entrypoint, allowedEnv, {
     memoryLimitBytes,
     persistent: false,
   });
+  wireVerifyStorage(proc, manifest);
+  return proc;
 }
 
 /**

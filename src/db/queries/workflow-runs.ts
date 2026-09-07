@@ -22,7 +22,7 @@ import {
   type DelegationOwnerKind,
   type TruncatedStepOutput,
 } from "../schema";
-import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
+import type { AgentResult, WorkflowCursor, WorkflowRunStatus, WorkflowStepRun } from "../../types";
 import {
   isTruncatedStepOutput,
   MAX_STEP_OUTPUT_BYTES,
@@ -498,50 +498,16 @@ export async function advanceWorkflowRunCursor(
     .where(eq(workflowRuns.id, workflowRunId));
 }
 
-export interface WorkflowStepRunUpsert {
+/** Internal durable state. Public step facts keep the SSE type's contract;
+ * private payloads must pass the storage preparation functions first. */
+export interface WorkflowStepRunUpsert extends WorkflowStepRun {
   workflowRunId: string;
-  stepName: string;
-  /** In-memory `WorkflowStepRun.runId`. `""` (transform/gate/tool) maps
-   *  to SQL NULL — an empty string would violate the runs FK. */
-  runId: string;
-  status: WorkflowRunStatus;
-  iterations?: number;
-  /** Provider / model the step's LLM call RESOLVED to. Absent for a step
-   *  that ran no LLM, and for the "running" write that happens before the
-   *  agent has resolved anything — both persist as SQL NULL. */
-  provider?: string;
-  model?: string;
-  /** The step's result, already redacted and size-checked by
-   *  {@link prepareStepOutput}. Absent for the "running" write and for a
-   *  step that failed — both persist as SQL NULL, which a resume treats
-   *  as "no value to rehydrate" and fails closed on. */
+  /** Redacted and size-checked output. Missing is SQL NULL. */
   output?: AgentResult | TruncatedStepOutput;
-  /** Agent invocations the step consumed (retries + loop iterations). */
-  attempt?: number;
-  /**
-   * Tokens the step reported, summed.
-   *
-   * **Absent must persist as SQL NULL, never 0.** "The provider reported
-   * nothing" and "the call used no tokens" are different facts, and only
-   * NULL says the first one — every SQL aggregate ignores NULL, while a 0
-   * is counted and silently deflates the total.
-   */
-  inputTokens?: number;
-  outputTokens?: number;
-  /** Wall-clock for the step, including retries and loop iterations. */
-  durationMs?: number;
-  /** Typed failure reason (`cancelled`, `step-failed`, …), not a message. */
-  errorCode?: string;
-  /** The step's resolved input mapping, already redacted and size-checked
-   *  by {@link prepareResolvedInput}. Never the raw value — that object
-   *  carries whatever credentials the author threaded in. */
+  /** Redacted and size-checked resolved input, never a public SSE field. */
   resolvedInput?: Record<string, unknown> | TruncatedStepOutput;
-  /** Why a `skipped` step did not run — its own `when`, or the name of the
-   *  skipped dependency that suppressed it. Absent for every other status,
-   *  and absent persists as SQL NULL: "this step was not skipped". Without
-   *  it a reloaded trace shows `status = 'skipped'` and no reason, which is
-   *  indistinguishable from a step that was never reached. */
-  skippedReason?: string;
+  /** Whole-step duration, kept off deterministic SSE payloads. */
+  durationMs?: number;
 }
 
 /**
@@ -560,64 +526,30 @@ export interface WorkflowStepRunUpsert {
 export async function upsertWorkflowStepRun(
   row: WorkflowStepRunUpsert,
 ): Promise<void> {
-  const runId = row.runId === "" ? null : row.runId;
-  const iterations = row.iterations ?? null;
-  const provider = row.provider ?? null;
-  const model = row.model ?? null;
-  const output = row.output ?? null;
-  const attempt = row.attempt ?? null;
-  // `?? null`, deliberately NOT `?? 0`. Absent means the provider
-  // reported nothing; a zero would be a measurement that was never taken
-  // and every SUM over this column would believe it.
-  const inputTokens = row.inputTokens ?? null;
-  const outputTokens = row.outputTokens ?? null;
-  const durationMs = row.durationMs ?? null;
-  const errorCode = row.errorCode ?? null;
-  const resolvedInput = row.resolvedInput ?? null;
-  const skippedReason = row.skippedReason ?? null;
-  // Derived from `row`'s own `provider` / `model` / `inputTokens` /
-  // `outputTokens` rather than passed in, so the cost is always a function
-  // of the tokens actually recorded and cannot be set independently of
-  // them. Advisory: it is for display and analysis, never a bound.
-  //
-  // NULL here means the cost could not be MEASURED — it never means
-  // "free". A `tool` / `transform` / `gate` step reports no tokens, so it
-  // prices as NULL while its real-world cost is simply unmeasured; an
-  // unpriced (OAuth-subscription) model prices as NULL too. Tokens reach
-  // this function only from an `agentRun`
-  // (`runtime/workflow-executor.ts:2158-2165`), so `SUM(cost_usd)`
-  // describes LLM spend and nothing else — least of all `tool` steps, the
-  // one kind that reaches an external side effect with a real bill. See
-  // {@link stepCostUsd}, which owns that distinction.
-  const costUsd = stepCostUsd(row);
+  // One complete mutable record drives both insert and update. Missing
+  // measurements remain NULL; zero is reserved for reported zero usage.
+  const values = {
+    runId: row.runId === "" ? null : row.runId,
+    status: row.status,
+    iterations: row.iterations ?? null,
+    provider: row.provider ?? null,
+    model: row.model ?? null,
+    output: row.output ?? null,
+    attempt: row.attempt ?? null,
+    inputTokens: row.inputTokens ?? null,
+    outputTokens: row.outputTokens ?? null,
+    costUsd: stepCostUsd(row),
+    durationMs: row.durationMs ?? null,
+    errorCode: row.errorCode ?? null,
+    resolvedInput: row.resolvedInput ?? null,
+    skippedReason: row.skippedReason ?? null,
+  };
   await getDb()
     .insert(workflowStepRuns)
-    .values({
-      workflowRunId: row.workflowRunId,
-      stepName: row.stepName,
-      runId,
-      status: row.status,
-      iterations,
-      provider,
-      model,
-      output,
-      attempt,
-      inputTokens,
-      outputTokens,
-      costUsd,
-      durationMs,
-      errorCode,
-      resolvedInput,
-      skippedReason,
-    })
+    .values({ workflowRunId: row.workflowRunId, stepName: row.stepName, ...values })
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
-      set: {
-        runId, status: row.status, iterations, provider, model, output,
-        attempt, inputTokens, outputTokens, costUsd, durationMs, errorCode,
-        resolvedInput, skippedReason,
-        updatedAt: sql`NOW()`,
-      },
+      set: { ...values, updatedAt: sql`NOW()` },
     });
 }
 

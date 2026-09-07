@@ -298,12 +298,9 @@ export async function finalizeSetupError(
   // Abort the controller so any in-flight sub-agents (auto-spin-up) get cancelled
   const ctrl = host.controllers.get(run.id);
   if (ctrl && !ctrl.signal.aborted) ctrl.abort();
-  host.controllers.delete(run.id);
-  host.runConversations.delete(run.id);
-  if (host.persist) {
-    try {
-      await dbRuns.updateRun(run);
-      await activeRunsDb.markInterrupted(run.id);
-    } catch { /* cleanup failure is non-fatal */ }
+  try {
+    await finalizeCleanup(ctx, host);
+  } catch (cleanupErr) {
+    log.error("Setup run cleanup failed", { error: String(cleanupErr) });
   }
 }

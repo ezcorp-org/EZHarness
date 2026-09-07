@@ -17,8 +17,41 @@ import {
   MAX_STEP_OUTPUT_BYTES,
   prepareResolvedInput,
   prepareStepOutput,
+  prepareWorkflowStepRecord,
 } from "../runtime/workflow-step-output";
 import type { AgentResult } from "../types";
+
+describe("durable workflow step record", () => {
+  test("prepares private payloads without changing the public event or copying extra properties", () => {
+    const step = { stepName: "draft", runId: "", status: "success" as const, inputTokens: 0, extra: "private" };
+    const details = {
+      output: { success: true, output: "ghp_abcdefghijklmnopqrstuvwxyz" },
+      resolvedInput: { token: "sk-abcdefghijklmnopqrstuvwxyz" },
+      durationMs: 25,
+    };
+    const record = prepareWorkflowStepRecord("workflow-1", step, details);
+    expect(record).toMatchObject({
+      workflowRunId: "workflow-1", stepName: "draft", runId: "", status: "success",
+      inputTokens: 0, durationMs: 25,
+      output: { success: true, output: "[REDACTED]" },
+      resolvedInput: { token: "[REDACTED]" },
+    });
+    expect(record).not.toHaveProperty("extra");
+    expect(record.outputTokens).toBeUndefined();
+    expect(step).not.toHaveProperty("resolvedInput");
+    expect(step).not.toHaveProperty("durationMs");
+    expect(details.output.output).toBe("ghp_abcdefghijklmnopqrstuvwxyz");
+  });
+
+  test("a step without private results keeps absent values absent", () => {
+    const record = prepareWorkflowStepRecord("workflow-2", { stepName: "gate", runId: "", status: "running" }, {});
+    expect(record.output).toBeUndefined();
+    expect(record.resolvedInput).toBeUndefined();
+    expect(record.durationMs).toBeUndefined();
+    expect(record.inputTokens).toBeUndefined();
+    expect(record.status).toBe("running");
+  });
+});
 
 describe("redactSecrets", () => {
   // One case per pattern: the port is verbatim, so a pattern that stops

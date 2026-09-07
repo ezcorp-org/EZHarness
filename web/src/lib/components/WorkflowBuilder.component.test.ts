@@ -28,6 +28,28 @@ function submitForm(container: HTMLElement) {
 }
 
 describe("WorkflowBuilder", () => {
+	test("routes unsupported stored fields to YAML without rendering a lossy form", () => {
+		const onopenyaml = vi.fn();
+		const { getByTestId, queryByLabelText } = render(WorkflowBuilder, {
+			props: {
+				initial: {
+					name: "review",
+					description: "",
+					inputSchema: { item: { type: "string" } },
+					steps: [{ name: "approve", kind: "approval", prompt: "Approve?", choices: ["yes"] }],
+				},
+				agents,
+				onsubmit: vi.fn(),
+				onopenyaml,
+			},
+		});
+
+		expect(getByTestId("workflow-yaml-fallback")).toHaveTextContent("inputSchema");
+		expect(queryByLabelText("Workflow Name")).toBeNull();
+		getByTestId("workflow-open-yaml").click();
+		expect(onopenyaml).toHaveBeenCalledOnce();
+	});
+
   test("renders defaults (one blank step) and Add Step appends another", async () => {
     const { getByLabelText, getAllByText, getByText } = render(WorkflowBuilder, {
       props: { agents, onsubmit: () => {} },

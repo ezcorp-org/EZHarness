@@ -172,7 +172,7 @@ describe("template generates valid ezcorp.config.ts", () => {
           noop,
         );
         expect(result).toBeDefined();
-        expect(result.schemaVersion).toBe(2);
+        expect(result.schemaVersion).toBe(3);
       });
 
       test("generated config references correct entrypoint pattern", async () => {

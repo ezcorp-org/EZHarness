@@ -147,7 +147,7 @@ describe("verifyExtension — skill/agent kinds (no tools)", () => {
         version: "1.0.0",
         description: "skill only",
         author: { name: "t" },
-        skills: [{ name: "s", description: "d", content: "c" }],
+        skills: [{ name: "s", description: "d", prompt: "c" }],
         permissions: {},
       })} as const;\n`,
     });

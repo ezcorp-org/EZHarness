@@ -4,17 +4,17 @@
  * Importing the config executes `defineExtension(...)`, which validates the
  * manifest and gives the coverage gate a measured line for ezcorp.config.ts.
  * The assertions also pin the security-load-bearing shape: the six thin tools,
- * the single Hub page, `bootSpawn`, and — critically — that the subprocess is
+ * the single Hub page and — critically — that the subprocess is
  * granted NO network / shell / env (all GitHub I/O is host-side).
  */
 import { describe, expect, test } from "bun:test";
 import config from "./ezcorp.config";
 
 describe("github-projects manifest", () => {
-  test("identity + bootSpawn", () => {
+  test("identity and entrypoint", () => {
     expect(config.name).toBe("github-projects");
     expect(config.schemaVersion).toBe(2);
-    expect(config.bootSpawn).toBe(true);
+    expect("bootSpawn" in config).toBe(false);
     expect(config.entrypoint).toBeTruthy();
   });
 

@@ -1,7 +1,7 @@
 import { eq, desc, sql, and, ne, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
 import type { DbTransaction } from "../connection";
-import { memories, memoryAuditLog, memoryProjects } from "../schema";
+import { conversations, memories, memoryAuditLog, memoryProjects } from "../schema";
 import type { Memory, NewMemory } from "../schema";
 import type { MemoryConfidence, MemoryProvenance, MemoryStatus } from "../../memory/types";
 import { toVectorLiteral } from "../../memory/vector-utils";
@@ -9,21 +9,48 @@ import { toVectorLiteral } from "../../memory/vector-utils";
 // ── Junction table helpers ────────────────────────────────────────
 
 /** Bulk assign memory to projects (idempotent via ON CONFLICT DO NOTHING) */
+async function syncLegacyProjectId(
+  tx: DbTransaction,
+  memoryId: string,
+  preferredProjectId?: string | null,
+): Promise<void> {
+  const rows = await tx.select({ projectId: memoryProjects.projectId })
+    .from(memoryProjects)
+    .where(eq(memoryProjects.memoryId, memoryId));
+  const projectIds = rows.map((row: { projectId: string }) => row.projectId);
+  const projectId = preferredProjectId && projectIds.includes(preferredProjectId)
+    ? preferredProjectId
+    : (projectIds[0] ?? null);
+  await tx.update(memories).set({ projectId }).where(eq(memories.id, memoryId));
+}
+
 export async function assignMemoryToProjects(memoryId: string, projectIds: string[]): Promise<void> {
   if (projectIds.length === 0) return;
   const db = getDb();
-  await db.insert(memoryProjects)
-    .values(projectIds.map((projectId) => ({ memoryId, projectId })))
-    .onConflictDoNothing();
+  await db.transaction(async (tx: DbTransaction) => {
+    const memory = (await tx.select({ projectId: memories.projectId }).from(memories)
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories }))[0];
+    await tx.insert(memoryProjects)
+      .values(projectIds.map((projectId) => ({ memoryId, projectId })))
+      .onConflictDoNothing();
+    await syncLegacyProjectId(tx, memoryId, memory?.projectId ?? projectIds[0]);
+  });
 }
 
 /** Remove specific project assignments */
 export async function removeMemoryFromProjects(memoryId: string, projectIds: string[]): Promise<void> {
   if (projectIds.length === 0) return;
   const db = getDb();
-  await db.delete(memoryProjects).where(
-    and(eq(memoryProjects.memoryId, memoryId), inArray(memoryProjects.projectId, projectIds)),
-  );
+  await db.transaction(async (tx: DbTransaction) => {
+    const memory = (await tx.select({ projectId: memories.projectId }).from(memories)
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories }))[0];
+    await tx.delete(memoryProjects).where(
+      and(eq(memoryProjects.memoryId, memoryId), inArray(memoryProjects.projectId, projectIds)),
+    );
+    await syncLegacyProjectId(tx, memoryId, memory?.projectId ?? null);
+  });
 }
 
 /**
@@ -39,12 +66,21 @@ export async function removeMemoryFromProjects(memoryId: string, projectIds: str
 export async function setMemoryProjects(memoryId: string, projectIds: string[]): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx: DbTransaction) => {
+    await tx.select({ id: memories.id }).from(memories)
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories });
     await tx.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
     if (projectIds.length > 0) {
       await tx.insert(memoryProjects)
         .values(projectIds.map((projectId) => ({ memoryId, projectId })))
         .onConflictDoNothing();
     }
+    // `memories.project_id` is compatibility data only; keeping it aligned
+    // with the junction prevents a later migration from reviving a project
+    // assignment the user deliberately removed.
+    await tx.update(memories)
+      .set({ projectId: projectIds[0] ?? null })
+      .where(eq(memories.id, memoryId));
   });
 }
 
@@ -74,14 +110,21 @@ export async function getProjectIdsForMemories(memoryIds: string[]): Promise<Map
 
 // ── Core memory CRUD ──────────────────────────────────────────────
 
-export async function insertMemory(data: NewMemory & { projectIds?: string[] }): Promise<Memory> {
-  const db = getDb();
-  const { projectIds, ...memoryData } = data;
+type MemoryInsertData = NewMemory & {
+  projectIds?: string[];
+  auditReason?: string;
+};
 
-  // Set legacy projectId to first project for backward compat
-  if (projectIds && projectIds.length > 0 && !memoryData.projectId) {
-    memoryData.projectId = projectIds[0];
-  }
+async function insertMemoryInTransaction(
+  tx: DbTransaction,
+  data: MemoryInsertData,
+): Promise<Memory> {
+  const { projectIds, auditReason, ...memoryData } = data;
+
+  // An explicit membership set owns the compatibility mirror too. In
+  // particular, `projectIds: []` means global even when an older caller also
+  // supplied the legacy projectId field.
+  if (projectIds !== undefined) memoryData.projectId = projectIds[0] ?? null;
 
   // Assign to projects via junction table
   const resolvedProjectIds = projectIds ?? (memoryData.projectId ? [memoryData.projectId] : []);
@@ -91,24 +134,133 @@ export async function insertMemory(data: NewMemory & { projectIds?: string[] }):
   // insert and the junction insert would otherwise leave a project-scoped
   // memory with ZERO junction rows — which the scope queries treat as GLOBAL,
   // silently widening it into every project.
-  return db.transaction(async (tx: DbTransaction) => {
-    const rows = await tx.insert(memories).values(memoryData).returning();
-    const memory = rows[0]!;
+  const rows = await tx.insert(memories).values(memoryData).returning();
+  const memory = rows[0]!;
 
-    if (resolvedProjectIds.length > 0) {
-      await tx.insert(memoryProjects)
-        .values(resolvedProjectIds.map((projectId) => ({ memoryId: memory.id, projectId })))
-        .onConflictDoNothing();
+  if (resolvedProjectIds.length > 0) {
+    await tx.insert(memoryProjects)
+      .values(resolvedProjectIds.map((projectId) => ({ memoryId: memory.id, projectId })))
+      .onConflictDoNothing();
+  }
+
+  await tx.insert(memoryAuditLog).values({
+    memoryId: memory.id,
+    action: "created",
+    newContent: memory.content,
+    reason: auditReason ?? "Extracted from conversation",
+  });
+  return memory;
+}
+
+export async function insertMemory(data: NewMemory & { projectIds?: string[] }): Promise<Memory> {
+  const db = getDb();
+  return db.transaction((tx: DbTransaction) => insertMemoryInTransaction(tx, data));
+}
+
+function sameProjectIds(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightIds = new Set(right);
+  return left.every((projectId) => rightIds.has(projectId));
+}
+
+/**
+ * Replace two still-eligible source memories with one merged memory.
+ *
+ * The LLM call happens before this function. The transaction then rechecks
+ * every mutable eligibility boundary before it writes, so an edit during that
+ * wait cannot produce a partial or incorrectly scoped merge.
+ */
+export async function mergeMemoriesAtomically(
+  sourceIds: [string, string],
+  expected: {
+    ownerUserId: string;
+    projectIds: string[];
+    injectionEligible: boolean;
+    sourceSnapshots: Record<string, { content: string; updatedAt: Date }>;
+  },
+  merged: NewMemory & { projectIds: string[] },
+): Promise<Memory | null> {
+  const db = getDb();
+  return db.transaction(async (tx: DbTransaction) => {
+    // All contenders lock the same two rows in ID order. Locking the source
+    // table explicitly avoids attempting to lock the nullable conversation
+    // side of the owner join.
+    const lockedSourceIds = [...sourceIds].sort() as [string, string];
+    const sources = await tx.select({
+      id: memories.id,
+      status: memories.status,
+      userId: memories.userId,
+      conversationUserId: conversations.userId,
+      injectionEligible: memories.injectionEligible,
+      content: memories.content,
+      updatedAt: memories.updatedAt,
+    })
+      .from(memories)
+      .leftJoin(conversations, eq(memories.conversationId, conversations.id))
+      .where(inArray(memories.id, lockedSourceIds))
+      .orderBy(memories.id)
+      .for("update", { of: memories });
+    if (sources.length !== 2) return null;
+    if (sources.some((source: {
+      id: string;
+      status: MemoryStatus;
+      userId: string | null;
+      conversationUserId: string | null;
+      injectionEligible: boolean;
+      content: string;
+      updatedAt: Date;
+    }) =>
+      source.status !== "active"
+      || source.injectionEligible !== expected.injectionEligible
+      || (source.userId ?? source.conversationUserId) !== expected.ownerUserId
+      || source.content !== expected.sourceSnapshots[source.id]?.content
+      || source.updatedAt.getTime() !== expected.sourceSnapshots[source.id]?.updatedAt.getTime()
+    )) return null;
+
+    const memberships = await tx.select({
+      memoryId: memoryProjects.memoryId,
+      projectId: memoryProjects.projectId,
+    })
+      .from(memoryProjects)
+      .where(inArray(memoryProjects.memoryId, lockedSourceIds));
+    const projectIdsByMemory = new Map(sourceIds.map((id) => [id, [] as string[]]));
+    for (const membership of memberships) projectIdsByMemory.get(membership.memoryId)!.push(membership.projectId);
+    if (sourceIds.some((id) => !sameProjectIds(projectIdsByMemory.get(id)!, expected.projectIds))) {
+      return null;
     }
 
-    await tx.insert(memoryAuditLog).values({
-      memoryId: memory.id,
-      action: "created",
-      newContent: memory.content,
-      reason: "Extracted from conversation",
-    });
+    const replacement = await insertMemoryInTransaction(tx, merged);
+    await tx.delete(memories).where(inArray(memories.id, lockedSourceIds));
+    return replacement;
+  });
+}
 
-    return memory;
+/**
+ * Atomically reserve one extension memory-write allowance and create the
+ * memory. The quota is charged only when the memory, its membership and its
+ * resource audit row commit together.
+ */
+export async function insertMemoryWithDailyExtensionQuota(
+  data: NewMemory & { projectIds?: string[] },
+  quota: { extensionId: string; day: string; maxWrites: number },
+): Promise<Memory | null> {
+  if (quota.maxWrites <= 0) return null;
+  const db = getDb();
+  return db.transaction(async (tx: DbTransaction) => {
+    const claimed = await tx.execute(sql`
+      INSERT INTO extension_memory_writes_daily (extension_id, day, writes)
+      VALUES (${quota.extensionId}, ${quota.day}::date, 1)
+      ON CONFLICT (extension_id, day) DO UPDATE
+      SET writes = extension_memory_writes_daily.writes + 1,
+          updated_at = NOW()
+      WHERE extension_memory_writes_daily.writes < ${quota.maxWrites}
+      RETURNING writes
+    `);
+    if (claimed.rows.length === 0) return null;
+    return insertMemoryInTransaction(tx, {
+      ...data,
+      auditReason: `ext:${quota.extensionId}`,
+    });
   });
 }
 
@@ -173,7 +325,15 @@ export async function findSimilarMemory(
    * an unattributable row may not claim anyone's memories). Omit the param
    * only for owner-agnostic maintenance reuse.
    */
-  scope?: { ownerUserId: string | null },
+  scope?: {
+    ownerUserId: string | null;
+    excludeMemoryId?: string;
+    projectId?: string;
+    /** Exact junction membership. `[]` means global; omitted is unscoped. */
+    projectIds?: string[];
+    status?: MemoryStatus;
+    injectionEligible?: boolean;
+  },
 ): Promise<{ id: string; content: string; similarity: number } | null> {
   if (scope && scope.ownerUserId === null) return null;
   const db = getDb();
@@ -184,6 +344,36 @@ export async function findSimilarMemory(
   const ownerFilter = scope
     ? sql` AND (user_id = ${scope.ownerUserId} OR (user_id IS NULL AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = memories.conversation_id AND c.user_id = ${scope.ownerUserId})))`
     : sql``;
+  const excludeFilter = scope?.excludeMemoryId
+    ? sql` AND id <> ${scope.excludeMemoryId}`
+    : sql``;
+  const statusFilter = scope?.status
+    ? sql` AND status = ${scope.status}`
+    : sql``;
+  const injectionEligibilityFilter = scope?.injectionEligible === undefined
+    ? sql``
+    : sql` AND injection_eligible = ${scope.injectionEligible}`;
+  const projectFilter = scope?.projectId
+    ? sql` AND EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = memories.id AND mp.project_id = ${scope.projectId})`
+    : sql``;
+  const exactProjectIds = scope?.projectIds === undefined
+    ? undefined
+    : [...new Set(scope.projectIds)];
+  const exactProjectFilter = exactProjectIds === undefined
+    ? sql``
+    : exactProjectIds.length === 0
+      ? sql` AND NOT EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = memories.id)`
+      : sql` AND (
+        SELECT count(*) FROM memory_projects mp WHERE mp.memory_id = memories.id
+      ) = ${exactProjectIds.length}${sql.join(
+        exactProjectIds.map((projectId) => sql`
+          AND EXISTS (
+            SELECT 1 FROM memory_projects mp
+            WHERE mp.memory_id = memories.id AND mp.project_id = ${projectId}
+          )
+        `),
+        sql``,
+      )}`;
   // Order by the RAW pgvector distance operator (ASC) so idx_memories_embedding_hnsw
   // drives the scan — a derived `1 - (embedding <=> vec)` in ORDER BY (or the
   // threshold in WHERE) forces a seq scan over every row. `ORDER BY embedding
@@ -196,7 +386,7 @@ export async function findSimilarMemory(
   const results = await db.execute(sql`
     SELECT id, content, (embedding <=> ${sql.raw(vectorLiteral)}) as distance
     FROM memories
-    WHERE embedding IS NOT NULL${ownerFilter}
+    WHERE embedding IS NOT NULL${ownerFilter}${excludeFilter}${statusFilter}${injectionEligibilityFilter}${projectFilter}${exactProjectFilter}
     ORDER BY embedding <=> ${sql.raw(vectorLiteral)}
     LIMIT 1
   `);

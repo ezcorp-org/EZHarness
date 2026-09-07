@@ -20,6 +20,8 @@ export const importManifestSchema = z.object({
   }).optional(),
   permissions: z.record(z.string(), z.unknown()).optional(),
   tags: z.array(z.string()).optional(),
+  // Marketplace export metadata, outside the public extension manifest.
+  exportedAt: z.string().datetime({ offset: true }).optional(),
 }).passthrough();
 
 export type ImportManifestInput = z.infer<typeof importManifestSchema>;

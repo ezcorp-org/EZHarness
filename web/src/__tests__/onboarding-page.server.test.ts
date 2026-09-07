@@ -79,7 +79,7 @@ describe("/(auth)/onboarding/+page.server load()", () => {
 		});
 		const data = (await load(event)) as { user: unknown; hasProvider: boolean };
 		expect(data).toEqual({
-			user: { id: "u-1", name: "U", email: "u@test.com" },
+			user: { id: "u-1", name: "U", email: "u@test.com", role: "member" },
 			hasProvider: false,
 		});
 		// Critical: load must NOT re-query the user row — the hook stashed it on locals.

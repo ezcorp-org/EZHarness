@@ -173,6 +173,13 @@ export interface TaskSnapshot {
 	activeTaskId?: string;
 }
 
+export interface QuickstartSteps {
+	provider: boolean;
+	chat: boolean;
+	extension: boolean;
+	agent: boolean;
+}
+
 class AppStore {
 	agents = $state<Agent[]>([]);
 	runs = $state<Run[]>([]);
@@ -185,6 +192,9 @@ class AppStore {
 	agentConfigs = $state<AgentConfig[]>([]);
 	workflows = $state<Workflow[]>([]);
 	workflowRuns = $state<WorkflowRun[]>([]);
+	// Shared server-owned completion state for the persistent checklist and
+	// the chat provider guard. Mutations refresh this resource in place.
+	quickstartSteps = $state<QuickstartSteps | null>(null);
 
 	// Theme and layout state
 	theme = $state<"dark" | "light" | "system">(
@@ -316,20 +326,47 @@ export function setActiveProjectId(id: string | null) {
 
 export function refreshProjects() {
 	fetchProjects()
-		.then((data) => (store.projects = data))
+		.then((data) => {
+			store.projects = data;
+		})
 		.catch(() => {});
 }
 
 function refreshSettings() {
 	fetchSettings()
-		.then((data) => (store.settings = data))
+		.then((data) => {
+			store.settings = data;
+		})
 		.catch(() => {});
 }
 
 export function refreshAgentConfigs() {
 	fetchAgentConfigs()
-		.then((data) => (store.agentConfigs = data))
+		.then((data) => {
+			store.agentConfigs = data;
+		})
 		.catch(() => {});
+}
+
+let quickstartRequest = 0;
+
+/** Reload completion state after a provider, conversation, or extension mutation. */
+export async function refreshQuickstart(): Promise<void> {
+	const request = ++quickstartRequest;
+	try {
+		const response = await fetch("/api/quickstart");
+		if (!response.ok || request !== quickstartRequest) return;
+		const data = (await response.json()) as { steps?: Partial<QuickstartSteps> };
+		if (!data.steps || request !== quickstartRequest) return;
+		store.quickstartSteps = {
+			provider: data.steps.provider === true,
+			chat: data.steps.chat === true,
+			extension: data.steps.extension === true,
+			agent: data.steps.agent === true,
+		};
+	} catch {
+		// Existing state remains useful if a refresh races a transient failure.
+	}
 }
 
 /** Reload the workflow list into the store.
@@ -736,7 +773,7 @@ export function openDock(conversationId: string, toolCallId: string): void {
 	// previous close would no-op forever because the auto-open effect would
 	// still skip the dismissed id.
 	const dismissed = store.dismissedDocks[conversationId];
-	if (dismissed && dismissed[toolCallId]) {
+	if (dismissed?.[toolCallId]) {
 		const { [toolCallId]: _drop, ...remaining } = dismissed;
 		store.dismissedDocks = {
 			...store.dismissedDocks,
@@ -864,17 +901,22 @@ export function closeTeamDrillDown(): void {
 
 export function initStores() {
 	fetchAgents()
-		.then((data) => (store.agents = data))
+		.then((data) => {
+			store.agents = data;
+		})
 		.catch(() => {});
 
 	fetchRuns()
-		.then((data) => (store.runs = data))
+		.then((data) => {
+			store.runs = data;
+		})
 		.catch(() => {});
 
 	refreshProjects();
 	refreshSettings();
 	refreshAgentConfigs();
 	refreshWorkflows();
+	void refreshQuickstart();
 
 	const client = createWSClient();
 	_wsManualRetry = client.manualRetry;
@@ -1487,6 +1529,7 @@ export function initStores() {
 				// `shouldDeliverEvent` already scoped this to the
 				// installing user's session; the page just needs to know
 				// "refresh now".
+				void refreshQuickstart();
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new CustomEvent("extensions:installed", {
 						detail: event.data,
@@ -1510,6 +1553,7 @@ export function initStores() {
 					projectId?: string | null;
 				};
 				if (!conversationId) break;
+				void refreshQuickstart();
 				unreadStore.markUnread(conversationId, projectId ?? null);
 				if (typeof window !== "undefined") {
 					window.dispatchEvent(new CustomEvent("conversation:created", {

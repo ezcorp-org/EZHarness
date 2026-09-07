@@ -6,7 +6,8 @@
  * ci.yml:
  *   - exhaustive: every on-disk spec appears in exactly ONE lane; no
  *     phantom entries for deleted specs.
- *   - marker consistency per lane (real-auth = the real config's testDir;
+ *   - marker consistency per lane (fresh-setup and real-auth each match their
+ *     dedicated real-PGlite config testDir;
  *     evidence-soft members carry @evidence; docker members are
  *     DOCKER_TEST-gated; no @evidence spec hides in `unwired`).
  *   - the blocking mock-gate list has ONE home: ci.yml derives its
@@ -25,7 +26,7 @@ import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwired"] as const;
+const LANE_NAMES = ["mock-gate", "fresh-setup", "real-auth", "evidence-soft", "docker", "unwired"] as const;
 
 // Landing-time size of the unwired backlog — shrink-only ratchet.
 // Unchanged (241) across the origin/main merge (fdca3a4f): main's Workflows
@@ -82,7 +83,9 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // an @evidence capture for the MCP list card, which is the surface the
 // max-length-name + contrast fixes changed — and an @evidence spec may not sit
 // in `unwired` (asserted below), so the move is forced by the tag.
-const UNWIRED_CEILING = 230;
+// 230 -> 229: the copied setup shell was replaced by a fresh-PGlite journey
+// and moved into its blocking lane.
+const UNWIRED_CEILING = 229;
 
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });
@@ -103,7 +106,7 @@ const dockerGated = new Set(
 );
 
 describe("e2e lane manifest", () => {
-  test("lane set is exactly the five known lanes", () => {
+  test("lane set is exactly the known lanes", () => {
     expect(Object.keys(lanes).sort()).toEqual([...LANE_NAMES].sort());
   });
 
@@ -132,6 +135,34 @@ describe("e2e lane manifest", () => {
   test("real-auth lane == the real config's testDir population", () => {
     const dirSpecs = onDisk.filter((f) => f.startsWith("web/e2e/real-auth/"));
     expect(lanes["real-auth"]!.slice().sort()).toEqual(dirSpecs.sort());
+  });
+
+  test("fresh-setup lane contains the dedicated config's original-path spec", () => {
+    expect(lanes["fresh-setup"]).toEqual(["web/e2e/setup-first-run.spec.ts"]);
+  });
+
+  test("real preview clears inherited alternate DB and mock-init modes", () => {
+    const probe = [
+      'import config from "./web/playwright.real.config.ts";',
+      "const server = Array.isArray(config.webServer) ? config.webServer[0] : config.webServer;",
+      "console.log(JSON.stringify(server.env));",
+    ].join(" ");
+    const proc = Bun.spawnSync([process.execPath, "-e", probe], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        PI_E2E_REAL_DB_PATH: "/tmp/ezcorp-e2e-config-contract",
+        DATABASE_URL: "postgres://test:test@127.0.0.1:1/unused_audit_probe",
+        PI_SKIP_INIT: "1",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const env = JSON.parse(proc.stdout.toString()) as Record<string, string>;
+    expect(env.DATABASE_URL).toBe("");
+    expect(env.PI_SKIP_INIT).toBe("");
+    expect(env.EZCORP_DB_PATH).toBe("/tmp/ezcorp-e2e-config-contract");
   });
 
   test("evidence-soft members all carry @evidence; no @evidence spec is unwired", () => {
@@ -207,13 +238,13 @@ describe("e2e lane manifest", () => {
 
     const leaked = out
       .split("\n")
-      .filter((l) => l.includes("real-auth/"))
+      .filter((l) => l.includes("real-auth/") || l.includes("setup-first-run.spec.ts"))
       .map((l) => l.trim());
     expect(
       leaked,
-      `web/playwright.config.ts collects ${leaked.length} real-auth test(s) into the MOCK lane — ` +
-        `they need a PI_E2E_REAL=1 webServer and will fail on their own test-surface guard. ` +
-        `Restore \`testIgnore\` for **/real-auth/**:\n  ${leaked.slice(0, 5).join("\n  ")}`,
+      `web/playwright.config.ts collects ${leaked.length} real-PGlite test(s) into the MOCK lane — ` +
+        `they need a PI_E2E_REAL=1 webServer and will fail against the mock preview. ` +
+        `Restore \`testIgnore\` for **/setup-first-run.spec.ts and **/real-auth/**:\n  ${leaked.slice(0, 5).join("\n  ")}`,
     ).toEqual([]);
 
     // The real tier must still be reachable SOMEWHERE — the partition has to
@@ -221,12 +252,16 @@ describe("e2e lane manifest", () => {
     // itself is pinned against the real config's testDir by the lane test
     // above; this asserts the manifest is non-empty so a delete can't satisfy
     // both halves at once.)
+    expect(lanes["fresh-setup"]!.length).toBeGreaterThan(0);
     expect(lanes["real-auth"]!.length).toBeGreaterThan(0);
   }, 120_000);
 
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-gate");
+    expect(ci).toContain("bun scripts/e2e-lane-args.ts fresh-setup");
+    expect(ci).toContain('bun scripts/run-real-e2e.ts fresh-setup "$' + '{ARGS[@]}"');
+    expect(ci).toContain("bun scripts/run-real-e2e.ts real-auth");
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });

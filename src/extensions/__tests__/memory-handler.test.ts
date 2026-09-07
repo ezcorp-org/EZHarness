@@ -17,12 +17,12 @@ mock.module("../../db/queries/settings", () => ({
 
 mockDbConnection();
 
-import { handlePiMemory, _resetMemoryWriteQuotaForTests } from "../memory-handler";
+import { handlePiMemory } from "../memory-handler";
 import { createUser } from "../../db/queries/users";
 import {
   extensions, conversations, projects,
   sdkCapabilityCalls, messages, errorLogs, auditLog,
-  memories, memoryAuditLog,
+  memories, memoryAuditLog, memoryProjects, extensionMemoryWritesDaily,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionPermissions } from "../types";
@@ -61,10 +61,10 @@ beforeEach(async () => {
   await getTestDb().delete(messages);
   await getTestDb().delete(memoryAuditLog);
   await getTestDb().delete(memories);
+  await getTestDb().delete(extensionMemoryWritesDaily);
   await getTestDb().delete(sdkCapabilityCalls);
   await getTestDb().delete(errorLogs);
   await getTestDb().delete(auditLog);
-  _resetMemoryWriteQuotaForTests();
 });
 
 afterAll(async () => {
@@ -155,6 +155,62 @@ describe("memory: write", () => {
     const denied = await handlePiMemory({ jsonrpc: "2.0", id: 12, method: "ezcorp/memory", params }, ctx, rpcMeta());
     expect(denied.error?.code).toBe(-32103);
     expect(denied.error?.data).toMatchObject({ reason: "writes-per-day" });
+  });
+
+  test("project-scoped RPC write atomically creates the junction membership and extension audit", async () => {
+    const response = await handlePiMemory(
+      { jsonrpc: "2.0", id: 13, method: "ezcorp/memory",
+        params: { action: "write", input: { content: "project-bound", category: "technical", projectId } } },
+      { granted: grantedWrite(), registeredTool: { extensionId }, embedFn: fakeEmbed },
+      rpcMeta(),
+    );
+    expect(response.error).toBeUndefined();
+    const memoryId = (response.result as { memory: { id: string } }).memory.id;
+    const assignments = await getTestDb().select().from(memoryProjects)
+      .where(eq(memoryProjects.memoryId, memoryId));
+    expect(assignments.map((row) => row.projectId)).toEqual([projectId]);
+    const audits = await getTestDb().select().from(memoryAuditLog)
+      .where(eq(memoryAuditLog.memoryId, memoryId));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]!.reason).toBe(`ext:${extensionId}`);
+  });
+
+  test("durable quota persists between RPC writes", async () => {
+    const ctx = {
+      granted: grantedWrite({ maxWritesPerDay: 1 }),
+      registeredTool: { extensionId },
+      embedFn: fakeEmbed,
+    };
+    const request = { jsonrpc: "2.0" as const, id: 14, method: "ezcorp/memory", params: {
+      action: "write" as const, input: { content: "quota-persists", category: "technical" as const },
+    } };
+    expect((await handlePiMemory(request, ctx, rpcMeta())).error).toBeUndefined();
+    expect((await handlePiMemory({ ...request, id: 15 }, ctx, rpcMeta())).error?.code).toBe(-32103);
+    const rows = await getTestDb().select().from(extensionMemoryWritesDaily)
+      .where(eq(extensionMemoryWritesDaily.extensionId, extensionId));
+    expect(rows[0]!.writes).toBe(1);
+  });
+
+  test("concurrent RPC writes cannot exceed the durable daily quota", async () => {
+    const ctx = {
+      granted: grantedWrite({ maxWritesPerDay: 1 }),
+      registeredTool: { extensionId },
+      embedFn: fakeEmbed,
+    };
+    const responses = await Promise.all(
+      [16, 17, 18].map((id) => handlePiMemory(
+        { jsonrpc: "2.0", id, method: "ezcorp/memory", params: {
+          action: "write", input: { content: `quota-concurrent-${id}`, category: "technical" },
+        } },
+        ctx,
+        rpcMeta(),
+      )),
+    );
+    expect(responses.filter((response) => response.error === undefined)).toHaveLength(1);
+    expect(await getTestDb().select().from(memories)).toHaveLength(1);
+    const rows = await getTestDb().select().from(extensionMemoryWritesDaily)
+      .where(eq(extensionMemoryWritesDaily.extensionId, extensionId));
+    expect(rows[0]!.writes).toBe(1);
   });
 
   test("embedder called once host-side; memory_audit_log row written", async () => {
