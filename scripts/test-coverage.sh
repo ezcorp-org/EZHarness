@@ -390,6 +390,7 @@ run_legs() {
       src/lib/components/ProviderSettings.component.test.ts \
       src/__tests__/stores-quickstart-refresh.component.test.ts \
       src/__tests__/stores-quickstart-events.component.test.ts \
+      src/__tests__/dock-store.integration.component.test.ts \
       src/__tests__/ConversationSettings.component.test.ts \
       src/lib/components/__tests__/Tooltip.component.test.ts \
       src/lib/components/chat/__tests__/ChatHeader.component.test.ts \
@@ -837,20 +838,20 @@ run_legs() {
       --coverage.include='src/lib/components/QuickStartChecklist.svelte' \
       --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
       --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
-      --coverage.include='**/active-run/+server.ts' \
+      --coverage.include='src/**/active-run/+server.ts' \
       --coverage.include='src/routes/api/service-accounts/+server.ts' \
       --coverage.include='src/routes/api/service-accounts/[id]/+server.ts' \
       --coverage.include='src/routes/api/service-accounts/[id]/daily-cap/+server.ts' \
       --coverage.include='src/lib/components/DelegationConsentDialog.svelte' \
-      --coverage.include='**/tool-calls/**/output/+server.ts' \
-      --coverage.include='**/mcp-servers/*/+server.ts' \
-      --coverage.include='**/auth/invite/*/+server.ts' \
-      --coverage.include='**/api/conversations/+server.ts' \
-      --coverage.include='**/api/extensions/+server.ts' \
+      --coverage.include='src/**/tool-calls/**/output/+server.ts' \
+      --coverage.include='src/**/mcp-servers/*/+server.ts' \
+      --coverage.include='src/**/auth/invite/*/+server.ts' \
+      --coverage.include='src/**/api/conversations/+server.ts' \
+      --coverage.include='src/**/api/extensions/+server.ts' \
       --coverage.include='src/lib/components/review/DiffStatBar.svelte' \
       --coverage.include='src/lib/components/review/ReviewFileCard.svelte' \
       --coverage.include='src/lib/components/review/ReviewFileTree.svelte' \
-      --coverage.include='**/users/[[]id]/+server.ts' \
+      --coverage.include='src/**/users/[[]id]/+server.ts' \
       --coverage.include='src/routes/api/health/+server.ts' \
       --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/export/+server.ts' \
