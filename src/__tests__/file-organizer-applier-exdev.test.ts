@@ -37,6 +37,9 @@ const realFspSnapshot = { ...realFsp };
 
 // When true, the next rename() throws EXDEV (forcing the copy fallback).
 let forceExdev = false;
+// When true, the next non-atomic rename throws EIO. This reaches the
+// quarantine operation catch after its directories and journal exist.
+let forceRenameError = false;
 // When true, copyFile() throws ENOSPC (disk full) — the move/quarantine
 // must abort with the original intact (never unlink before a verified copy).
 let forceEnospc = false;
@@ -65,6 +68,11 @@ mock.module("node:fs/promises", () => ({
     // the bookkeeping write rather than the move under test.
     const src = String(args[0]);
     const isAtomicTemp = /\.tmp-[a-z0-9]+$/.test(src);
+    if (forceRenameError && !isAtomicTemp) {
+      const err = new Error("EIO: input/output error, rename") as NodeJS.ErrnoException;
+      err.code = "EIO";
+      throw err;
+    }
     if (forceExdev && !isAtomicTemp) {
       const err = new Error("EXDEV: cross-device link not permitted") as NodeJS.ErrnoException;
       err.code = "EXDEV";
@@ -147,6 +155,7 @@ beforeEach(async () => {
   await mkdir(join(dataDir, ".trash"), { recursive: true });
   await mkdir(watched, { recursive: true });
   forceExdev = false;
+  forceRenameError = false;
   forceEnospc = false;
   forceMkdirThrow = false;
   forceRmThrow = false;
@@ -155,6 +164,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   forceExdev = false;
+  forceRenameError = false;
   forceEnospc = false;
   forceMkdirThrow = false;
   forceRmThrow = false;
@@ -239,7 +249,7 @@ describe("restoreFromQuarantine — EXDEV fallback", () => {
 // ── Error-branch coverage (the catch arms) ──────────────────────────
 
 describe("applyQuarantine — failure aborts with the original intact", () => {
-  test("an mkdir failure surfaces as 'failed' (outer catch)", async () => {
+  test("an mkdir failure surfaces as 'failed' before an operation starts", async () => {
     const src = join(watched, "junk.tmp");
     await writeFile(src, "x");
     forceMkdirThrow = true; // trash dir can't be created
@@ -247,6 +257,20 @@ describe("applyQuarantine — failure aborts with the original intact", () => {
     const outcome = await applyProposal(p, ctx());
     expect(outcome.status).toBe("failed");
     expect(await Bun.file(src).exists()).toBe(true); // original kept
+  });
+
+  test("a rename failure clears the journal and preserves the original", async () => {
+    const src = join(watched, "rename-fails.tmp");
+    await writeFile(src, "keep-me");
+    forceRenameError = true;
+    const outcome = await applyProposal(
+      { id: "rename-fails", kind: "delete-quarantine", src, dst: null, quarantineId: "q-rename", snapshot: { size: 7, mtimeMs: 0, isSymlink: false, nlink: 1 } },
+      ctx(),
+    );
+
+    expect(outcome.status).toBe("failed");
+    expect(await readFile(src, "utf8")).toBe("keep-me");
+    expect(await _applierInternals.readJournal(join(dataDir, "journal.json"))).toEqual([]);
   });
 });
 

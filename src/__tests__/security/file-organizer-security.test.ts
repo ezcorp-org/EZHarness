@@ -666,6 +666,24 @@ describe("journal replay: boot-time containment (no UI required to reach it)", (
     expect(await readFile(src, "utf8")).toBe("data");
     expect(await _applierInternals.pathExists(dst)).toBe(false);
   });
+
+  test("a denied replay preserves both completed and partial operation files", async () => {
+    const source = join(watched, "completed.txt");
+    const destination = join(watched, "sub", "partial.txt");
+    await mkdir(join(watched, "sub"), { recursive: true });
+    await writeFile(source, "completed");
+    await writeFile(destination, "partial");
+    const journalPath = join(dataDir, "journal.json");
+    const deniedAnchors = { ...replayAnchors([watched]), engine: fakeEngine("deny") };
+
+    await _applierInternals.writeJournal(journalPath, entry(source, null, "copy-done"));
+    expect(await replayJournal(journalPath, deniedAnchors)).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
+    expect(await readFile(source, "utf8")).toBe("completed");
+
+    await _applierInternals.writeJournal(journalPath, entry(source, destination, "copy-pending"));
+    expect(await replayJournal(journalPath, deniedAnchors)).toEqual({ finished: 0, rolledBack: 0, refused: 1 });
+    expect(await readFile(destination, "utf8")).toBe("partial");
+  });
 });
 
 describe("daemon: fail-closed on unset EZCORP_PROJECT_ROOT (host-side data dir)", () => {
