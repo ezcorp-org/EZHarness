@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import type { ProviderStatus } from "$lib/api.js";
 
 const api = vi.hoisted(() => ({
 	fetchProviders: vi.fn(), fetchSettings: vi.fn(), saveProviderKey: vi.fn(), deleteProviderKey: vi.fn(), disconnectOAuth: vi.fn(), upsertSetting: vi.fn(), testProviderConnection: vi.fn(), refreshProviderModels: vi.fn(),
@@ -86,7 +87,7 @@ describe("ProviderSettings completion refresh", () => {
 	});
 
 	test("saves an API key, refreshes quickstart, and exposes the saved-key controls", async () => {
-		let providers = [unconfiguredAnthropic];
+		let providers: ProviderStatus[] = [unconfiguredAnthropic];
 		api.fetchProviders.mockImplementation(async () => providers);
 		api.saveProviderKey.mockImplementation(async () => {
 			providers = [byokProvider];
@@ -150,7 +151,7 @@ describe("ProviderSettings completion refresh", () => {
 	});
 
 	test("connects an OAuth provider by pasted callback and saves its access choice", async () => {
-		let providers = [{ ...oauthProvider, oauthConnected: false }];
+		let providers: ProviderStatus[] = [{ ...oauthProvider, oauthConnected: false }];
 		api.fetchProviders.mockImplementation(async () => providers);
 		oauth.startOAuthFlow.mockResolvedValue({ provider: "openai", authUrl: "https://auth.example.test" });
 		oauth.completeOAuthWithCode.mockImplementation(async () => {

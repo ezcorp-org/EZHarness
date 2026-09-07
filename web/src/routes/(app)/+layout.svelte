@@ -365,7 +365,7 @@
 			{/each}
 			<div class="mt-auto">
 				<BriefingNudge />
-				<QuickStartChecklist />
+				<QuickStartChecklist role={currentUser?.role} />
 				<!-- User menu -->
 				{#if currentUser}
 					<div class="user-menu-container relative mt-2 border-t border-[var(--color-border)] pt-2">

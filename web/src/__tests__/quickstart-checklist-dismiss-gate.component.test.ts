@@ -48,6 +48,31 @@ describe("QuickStartChecklist — dismiss-gate", () => {
 		expect(queryByLabelText("Dismiss checklist")).toBeNull();
 	});
 
+	test("an unknown role gets provider guidance without a settings link", async () => {
+		const { findByText, container } = render(QuickStartChecklist);
+		await findByText("Ask an admin to connect a provider");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
+	test("a member gets provider guidance without a settings link", async () => {
+		const { findByText, container } = render(QuickStartChecklist, { role: "member" });
+		await findByText("Ask an admin to connect a provider");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
+	test("an admin can open provider settings from the checklist", async () => {
+		const { findByRole } = render(QuickStartChecklist, { role: "admin" });
+		const setup = await findByRole("link", { name: "Set up a provider" });
+		expect(setup).toHaveAttribute("href", "/settings/models#providers");
+	});
+
+	test("a member sees provider ready as a completed status", async () => {
+		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
+		const { findByText, container } = render(QuickStartChecklist, { role: "member" });
+		await findByText("Provider ready");
+		expect(container.querySelector('a[href="/settings/models#providers"]')).toBeNull();
+	});
+
 	test("progress=1 → dismiss button appears", async () => {
 		setQuickstartSteps({ provider: true, chat: false, extension: false, agent: false });
 		const { findByText, getByLabelText } = render(QuickStartChecklist);

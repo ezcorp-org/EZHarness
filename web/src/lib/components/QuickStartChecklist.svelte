@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { providerAccess } from "$lib/provider-access.js";
 	import { store } from "$lib/stores.svelte.js";
+
+	let { role }: { role?: string } = $props();
 
 	const QUICKSTART_KEY = "pi-quickstart";
 
@@ -27,16 +30,22 @@
 	let hasConversations = $derived(store.quickstartSteps?.chat ?? false);
 	let hasExtensions = $derived(store.quickstartSteps?.extension ?? false);
 	let hasAgents = $derived((store.quickstartSteps?.agent ?? false) || hasAgentsFromStore);
+	let canConfigureProvider = $derived(providerAccess(role).canConfigure);
 
 	interface Step {
 		id: string;
 		label: string;
 		done: boolean;
-		href: string;
+		href?: string;
 	}
 
 	let steps = $derived<Step[]>([
-		{ id: "provider", label: "Set up a provider", done: hasProvider, href: "/settings" },
+		{
+			id: "provider",
+			label: canConfigureProvider || !hasProvider ? (canConfigureProvider ? "Set up a provider" : "Ask an admin to connect a provider") : "Provider ready",
+			done: hasProvider,
+			href: canConfigureProvider ? "/settings/models#providers" : undefined,
+		},
 		{ id: "chat", label: "Start your first chat", done: hasConversations, href: `/project/${store.activeProjectId}/chat` },
 		{ id: "extension", label: "Install an extension", done: hasExtensions, href: "/marketplace" },
 		{ id: "agent", label: "Create an agent", done: hasAgents, href: "/agents/new" },
@@ -109,10 +118,7 @@
 		{#if !collapsed}
 			<div class="flex flex-col gap-1">
 				{#each steps as step}
-					<a
-						href={step.href}
-						class="flex items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-[var(--color-surface)] group"
-					>
+					{#snippet stepContent(step: Step)}
 						{#if step.done}
 							<svg class="h-3.5 w-3.5 shrink-0 text-green-500" fill="currentColor" viewBox="0 0 24 24">
 								<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
@@ -125,10 +131,24 @@
 						<span class="{step.done ? 'text-[var(--color-text-muted)] line-through' : 'text-[var(--color-text-secondary)]'}">
 							{step.label}
 						</span>
-						<svg class="h-3 w-3 ml-auto shrink-0 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-						</svg>
-					</a>
+						{#if step.href}
+							<svg class="h-3 w-3 ml-auto shrink-0 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+							</svg>
+						{/if}
+					{/snippet}
+					{#if step.href}
+						<a
+							href={step.href}
+							class="flex items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-[var(--color-surface)] group"
+						>
+							{@render stepContent(step)}
+						</a>
+					{:else}
+						<div class="flex items-center gap-2 rounded px-1.5 py-1 text-xs">
+							{@render stepContent(step)}
+						</div>
+					{/if}
 				{/each}
 			</div>
 		{/if}
