@@ -510,6 +510,27 @@ describe("durable extension lifecycle", () => {
     expect(Object.keys((await setup.lifecycle.inspect(actor, installation.id)).releases)).toHaveLength(0);
   });
 
+  test("a cancelled accepted build retries a failed runner stop", async () => {
+    const setup = harness();
+    const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "one" } });
+    const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "cancel-retry" });
+    let started: () => void = () => {};
+    const runningGate = new Promise<void>(resolve => { started = resolve; });
+    let unblock: () => void = () => {};
+    const blocked = new Promise<void>(resolve => { unblock = resolve; });
+    const build = setup.dependencies.runner.build;
+    setup.dependencies.runner.build = async input => { started(); await blocked; return build(input); };
+    let cancels = 0;
+    setup.dependencies.runner.cancel = async () => { cancels += 1; if (cancels === 1) throw new Error("runner stop unavailable"); };
+    const running = setup.lifecycle.runBuild(actor, installation.id, operation.id);
+    await runningGate;
+    await expect(setup.lifecycle.cancel(actor, installation.id, operation.id)).rejects.toThrow("runner stop unavailable");
+    await expect(setup.lifecycle.cancel(actor, installation.id, operation.id)).resolves.toMatchObject({ state: "cancelled" });
+    unblock();
+    expect((await running).state).toBe("cancelled");
+    expect(cancels).toBe(2);
+  });
+
   test("a lost database response after pointer commit resumes the durable outbox", async () => {
     let loseResponse = false;
     const faulty: LifecycleRepository = {

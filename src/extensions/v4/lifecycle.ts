@@ -55,6 +55,14 @@ export class ExtensionLifecycle {
     return operation;
   }
 
+  private deferredByRunnerBusy(operation: LifecycleOperation): boolean {
+    return operation.kind === "build" && operation.diagnostics.some(diagnostic => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
+  }
+
+  private retryableBusy(operation: LifecycleOperation): boolean {
+    return operation.state === "queued" && this.deferredByRunnerBusy(operation);
+  }
+
   private transition(operation: LifecycleOperation, state: LifecycleOperation["state"]): void {
     operation.state = state;
     operation.updatedAt = this.timestamp();
@@ -165,8 +173,7 @@ export class ExtensionLifecycle {
       const operation = this.operation(state, operationId);
       if (operation.kind !== kind) throw new LifecycleError("operation_kind", "Operation kind does not match.");
       if (["verified", "active", "failed", "cancelled", "reconciling"].includes(operation.state)) return null;
-      const retryableBusy = kind === "build" && operation.state === "queued" && operation.diagnostics.some(diagnostic => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
-      if (operation.lease && operation.lease.until > this.now() && !(capacityAvailable && retryableBusy)) return null;
+      if (operation.lease && operation.lease.until > this.now() && !(capacityAvailable && this.retryableBusy(operation))) return null;
       if (state.installation.uninstalled) throw new LifecycleError("uninstalled", "This installation has been uninstalled.");
       if (kind === "activate" && Object.values(state.operations).some((other) => other.id !== operation.id && other.kind === "activate" && other.state === "activating" && other.lease && other.lease.until > this.now())) throw new LifecycleError("activation_busy", "Another activation holds the installation lease.");
       const holder = randomUUID();
@@ -360,7 +367,7 @@ export class ExtensionLifecycle {
     const { operation, runnerOperationId } = await this.transaction(actor, installationId, (state) => {
       const current = this.operation(state, operationId);
       if (["active", "verified", "reconciling"].includes(current.state)) throw new LifecycleError("operation_committed", "A committed operation cannot be cancelled.");
-      const runnerOperationId = current.kind === "build" && ["building", "verifying"].includes(current.state) ? current.lease?.holder : undefined;
+      const runnerOperationId = current.kind === "build" && current.lease && !this.deferredByRunnerBusy(current) && (["building", "verifying", "cancelled"].includes(current.state)) ? current.lease.holder : undefined;
       this.transition(current, "cancelled");
       return { operation: current, runnerOperationId };
     });
@@ -404,8 +411,7 @@ export class ExtensionLifecycle {
     const state = await this.inspect(actor, installationId);
     if (state.installation.uninstalled) return;
     for (const operation of Object.values(state.operations)) {
-      const retryableBusy = operation.kind === "build" && operation.state === "queued" && operation.diagnostics.some(diagnostic => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
-      if (operation.lease && operation.lease.until > this.now() && !(options.capacityAvailable && retryableBusy)) continue;
+      if (operation.lease && operation.lease.until > this.now() && !(options.capacityAvailable && this.retryableBusy(operation))) continue;
       if (operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)) await this.runBuild(actor, installationId, operation.id, options);
       if (operation.kind === "activate" && ["awaiting_approval", "activating"].includes(operation.state)) await this.activate(actor, { installationId, approvalId: operation.approvalId!, idempotencyKey: operation.idempotencyKey, rollback: operation.rollback });
     }

@@ -118,8 +118,8 @@ async function main(): Promise<void> {
     await proveKilledDelivery("before");
     await proveKilledDelivery("after");
     const bundledBootstrap = await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false });
-    requireBundledBootstrapVerified(bundledBootstrap, "after delivery app restarts");
     await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "bundled-bootstrap-r2.json"), JSON.stringify(bundledBootstrap) + "\n", { mode: 0o600 });
+    requireBundledBootstrapVerified(bundledBootstrap, "after delivery app restarts");
     const freshKey = `fresh-${crypto.randomUUID()}`;
     const fresh = await fire(freshKey, "success");
     assert.equal(fresh.status, 200, "A distinct delivery after uncertain history must succeed");
