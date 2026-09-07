@@ -18,7 +18,7 @@ function tempRoot(): string {
 }
 
 function runFixture(root: string, command: string, env: Record<string, string> = {}) {
-  const environment = { ...process.env, TMPDIR: root };
+  const environment: NodeJS.ProcessEnv = { ...process.env, TMPDIR: root };
   delete environment.PI_E2E_REAL_DB_PATH;
   Object.assign(environment, env);
   return Bun.spawnSync(["bash", WRAPPER, "bash", "-c", command], {
