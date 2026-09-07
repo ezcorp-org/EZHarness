@@ -277,20 +277,16 @@ async function plannedPrivateTrashRoot(ctx: ApplierContext): Promise<PrivateDire
 
 /** Create then canonicalize a known private directory. Symlinks and files
  * fail closed, including a path planted between planning and creation. */
-async function materializePrivateDirectory(path: string, expected: string): Promise<PrivateDirectory> {
+async function materializePrivateDirectory(path: string): Promise<PrivateDirectory> {
   try {
     await mkdir(path, { recursive: true });
-  } catch {
-    return { status: "failed", reason: "could not create private quarantine directory" };
-  }
-  try {
     const entry = await lstat(path);
     if (!entry.isDirectory()) return { status: "blocked", reason: "private quarantine path is not a directory" };
     const canonical = await realpath(path);
-    if (canonical !== expected) return { status: "blocked", reason: "private quarantine path resolves outside its anchor" };
+    if (canonical !== path) return { status: "blocked", reason: "private quarantine path resolves outside its anchor" };
     return { status: "ready", path: canonical };
   } catch {
-    return { status: "failed", reason: "private quarantine directory unresolvable" };
+    return { status: "failed", reason: "private quarantine directory could not be created or verified" };
   }
 }
 
@@ -573,10 +569,10 @@ async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): 
   const auditId = await authorizeWrite(ctx, desired);
   if (auditId === null) return { status: "blocked", reason: "engine denied the quarantine write" };
 
-  const realTrash = await materializePrivateDirectory(plannedTrash.path, plannedTrash.path);
+  const realTrash = await materializePrivateDirectory(plannedTrash.path);
   if (realTrash.status !== "ready") return realTrash;
   const plannedTrashDir = join(realTrash.path, quarantineId);
-  const trashDir = await materializePrivateDirectory(plannedTrashDir, plannedTrashDir);
+  const trashDir = await materializePrivateDirectory(plannedTrashDir);
   if (trashDir.status !== "ready") return trashDir;
 
   try {

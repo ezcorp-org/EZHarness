@@ -468,6 +468,18 @@ describe("host applier: quarantine id containment (nothing escaping reaches the 
     expect(await readdir(outside)).toEqual([]);
   });
 
+  test("a file at the private trash root fails without moving the source", async () => {
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
+    await writeFile(join(dataDir, ".trash"), "not-a-directory");
+    const junk = join(watched, "junk.tmp");
+    await writeFile(junk, "keep-me");
+
+    const outcome = await applyProposal(quarantineOf(junk, "q1"), ctx(watched));
+
+    expect(outcome.status).toBe("failed");
+    expect(await readFile(junk, "utf8")).toBe("keep-me");
+  });
+
   test("a planted quarantine-id symlink is blocked before the source moves", async () => {
     const outside = join(root, "outside-id");
     await mkdir(outside);
