@@ -9,6 +9,7 @@ import { readdir, readFile, readlink, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
+import { resourceRunConfig, type ResourceRunConfig } from "./lib/shipping-runtime-resource-config";
 
 type CleanupObservation = { baselineConnections: number; remainingConnections: number; polls: number; durationMs: number };
 type FdClasses = { socket: number; pipe: number; anon: number; path: number; other: number };
@@ -30,11 +31,6 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function cycles(): number {
-  const value = Number(process.env.EZ_RUNTIME_RESOURCE_CYCLES ?? "10");
-  if (!Number.isSafeInteger(value) || value < 3 || value > 20) throw new Error("EZ_RUNTIME_RESOURCE_CYCLES must be an integer from 3 through 20.");
-  return value;
-}
 
 function bytes(text: string): number {
   const match = /^([0-9]+(?:\.[0-9]+)?)(B|[KMGT]i?B)\b/.exec(text.trim());
@@ -164,15 +160,19 @@ async function reconnectRuntimeEvents(origin: string, cookie: string): Promise<v
   }
 }
 
+export { resourceRunConfig, type ResourceRunConfig };
+
+export async function main(config = resourceRunConfig()): Promise<void> {
 const appContainer = required("EZ_PRODUCTION_CONTAINER");
 const runRoot = required("EZ_PRODUCTION_RUN_ROOT");
 const runnerPid = required("EZ_PRODUCTION_RUNNER_PID");
 const production = await productionLifecycleClient();
 const { origin, cookie, client, createBuild, approveAndActivate, inspect } = production;
 const appProcessPid = await appPid(appContainer);
-const count = cycles();
+const count = config.maximumCycles;
 const reconnectsPerCycle = 10;
 const start = Date.now();
+const requestedMinimumDurationMs = config.mode === "duration" ? config.requestedMinimumDurationMs : undefined;
 const store = join(runRoot, "store");
 const samples: Sample[] = [await sample(0, store, runnerPid, appProcessPid, appContainer)];
 const baseline = samples[0]!;
@@ -246,7 +246,19 @@ for (let cycle = 1; cycle <= count; cycle++) {
     if (after.appContainerMemoryBytes > relationCacheWarmup!.appContainerMemoryBytes + 64 * 1024 ** 2) throw new Error(`Cycle ${cycle} app container memory exceeded the relation-cache warm baseline by more than 64 MiB.`);
   }
   samples.push(after);
-  await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "r4-resource-samples.json"), JSON.stringify({ check: "R4", cycles: count, reconnectsPerCycle, relationCacheWarmupCycles, baseline, relationCacheWarmup, samples }) + "\n", { mode: 0o600 });
+  const actualDurationMs = Date.now() - start;
+  const receipt = { check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, completedCycles: cycle, reconnectsPerCycle, totalReconnects: cycle * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, baseline, relationCacheWarmup, samples };
+  await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "r4-resource-samples.json"), JSON.stringify(receipt) + "\n", { mode: 0o600 });
+  if (requestedMinimumDurationMs !== undefined && actualDurationMs >= requestedMinimumDurationMs) break;
 }
 
-console.log(JSON.stringify({ check: "R4", cycles: count, reconnectsPerCycle, totalReconnects: count * reconnectsPerCycle, relationCacheWarmupCycles, durationMs: Date.now() - start, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), samples: samples.map(resourceReport) }));
+const actualDurationMs = Date.now() - start;
+const completedCycles = samples.length - 1;
+if (requestedMinimumDurationMs !== undefined && actualDurationMs < requestedMinimumDurationMs) {
+  throw new Error(`R4 duration soak reached its ${count}-cycle ceiling after ${actualDurationMs}ms, before the requested ${requestedMinimumDurationMs}ms.`);
+}
+console.log(JSON.stringify({ check: "R4", mode: config.mode, requestedMinimumDurationMs, maximumCycles: count, completedCycles, reconnectsPerCycle, totalReconnects: completedCycles * reconnectsPerCycle, relationCacheWarmupCycles, actualDurationMs, baseline: resourceReport(baseline), relationCacheWarmup: relationCacheWarmup && resourceReport(relationCacheWarmup), final: resourceReport(samples.at(-1)!), samples: samples.map(resourceReport) }));
+
+}
+
+if (import.meta.main) await main();
