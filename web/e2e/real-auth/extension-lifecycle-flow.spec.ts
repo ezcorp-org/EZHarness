@@ -5,7 +5,7 @@
  * mock LLM for normal chat. Every lifecycle transition, conversation add,
  * invocation, and tool selection uses a human browser session.
  */
-import type { Page, Request, TestInfo } from "@playwright/test";
+import type { Page, Request, Route, TestInfo } from "@playwright/test";
 import { test, expect, waitForHydration } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
 import { buildWorkspace, extensionClient, requestRelease, waitForExtensionBuild, type CreatedWorkspace } from "../fixtures/extension-v4";
@@ -17,6 +17,16 @@ import {
 } from "../fixtures/composer";
 
 type FailedApiResponse = { method: string; status: number; path: string };
+type ExtensionControlRouteObservation = {
+  sameOrigin: boolean;
+  method: string;
+  path: string;
+  hasRawBody: boolean;
+  bodyType: "missing" | "invalid-json" | "array" | "object" | "other";
+  tool: string | null;
+  topLevelKeys: string[];
+  inputKeys: string[];
+};
 
 type BrowserDiagnostics = {
   pageErrors: string[];
@@ -25,13 +35,37 @@ type BrowserDiagnostics = {
   failedApiRequests: Array<FailedApiResponse & { error: string }>;
   ignoredApiResponses: FailedApiResponse[];
   expectedRuntimeEventCancellations: Array<FailedApiResponse & { error: string }>;
+  expectedPendingBuildInspectionCancellations: Array<FailedApiResponse & { error: string }>;
+  pendingBuildInspectionRequestObservations: ExtensionControlRouteObservation[];
+  pendingBuildInspectionRouteObservations: ExtensionControlRouteObservation[];
+  serviceWorkerState: { controlled: boolean; registrations: number } | null;
   expectedRuntimeEventTeardownMarks: number;
   browserEngine: string;
+};
+
+type PendingBuildInspectionSession = {
+  waitForRequest(): Promise<void>;
+  release(): Promise<void>;
+};
+
+type PendingBuildInspectionState = {
+  installationId: string;
+  operationId: string;
+  request?: Request;
+  captureOpen: boolean;
+  reloadStarted: boolean;
+  cancellationObserved: boolean;
+  routeCallbackObserved: boolean;
+  releaseRoute: () => void;
+  routeHandler: (route: Route) => Promise<void>;
 };
 
 type BrowserDiagnosticsObserver = {
   diagnostics: BrowserDiagnostics;
   markRuntimeEventTeardown(): void;
+  markReloadStart(): void;
+  preparePendingBuildInspectionCancellation(installationId: string, operationId: string): Promise<PendingBuildInspectionSession | undefined>;
+  assertPendingBuildInspectionRecovery(installationId: string, operationId: string): void;
 };
 
 const WEBKIT_VIEWPORT_WARNING = 'Viewport argument key "interactive-widget" not recognized and ignored.';
@@ -40,16 +74,63 @@ function isIgnoredBrowserConsoleError(text: string): boolean {
   return text === WEBKIT_VIEWPORT_WARNING;
 }
 
+function inspectExtensionControlRequest(request: Request, appOrigin: string): { installationId: string | null; observation: ExtensionControlRouteObservation } {
+  const url = new URL(request.url());
+  const observation: ExtensionControlRouteObservation = {
+    sameOrigin: url.origin === appOrigin,
+    method: request.method(),
+    path: url.pathname,
+    hasRawBody: false,
+    bodyType: "missing",
+    tool: null,
+    topLevelKeys: [],
+    inputKeys: [],
+  };
+  try {
+    const rawPayload = request.postData();
+    if (!rawPayload) return { installationId: null, observation };
+    observation.hasRawBody = true;
+    const payload: unknown = JSON.parse(rawPayload);
+    if (!payload || typeof payload !== "object") {
+      observation.bodyType = "other";
+      return { installationId: null, observation };
+    }
+    if (Array.isArray(payload)) {
+      observation.bodyType = "array";
+      return { installationId: null, observation };
+    }
+    observation.bodyType = "object";
+    const record = payload as Record<string, unknown>;
+    observation.topLevelKeys = Object.keys(record).sort();
+    observation.tool = typeof record.tool === "string" ? record.tool : null;
+    const input = record.input;
+    if (!input || typeof input !== "object" || Array.isArray(input)) return { installationId: null, observation };
+    const inputRecord = input as Record<string, unknown>;
+    observation.inputKeys = Object.keys(inputRecord).sort();
+    if (!observation.sameOrigin || observation.method !== "POST" || observation.path !== "/api/extensions/control") return { installationId: null, observation };
+    if (record.tool !== "extensions_inspect" || Object.keys(record).length !== 2) return { installationId: null, observation };
+    if (Object.keys(inputRecord).length !== 1 || typeof inputRecord.installationId !== "string") return { installationId: null, observation };
+    return { installationId: inputRecord.installationId, observation };
+  } catch {
+    observation.bodyType = "invalid-json";
+    return { installationId: null, observation };
+  }
+}
+
 function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnosticsObserver {
   const diagnostics: BrowserDiagnostics = {
     pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [],
-    expectedRuntimeEventCancellations: [], expectedRuntimeEventTeardownMarks: 0,
+    expectedRuntimeEventCancellations: [], expectedPendingBuildInspectionCancellations: [], pendingBuildInspectionRequestObservations: [], pendingBuildInspectionRouteObservations: [], serviceWorkerState: null, expectedRuntimeEventTeardownMarks: 0,
     browserEngine: page.context().browser()?.browserType().name() ?? "unknown",
   };
   const appOrigin = new URL(baseURL).origin;
   const completedExtensionDeletes = new WeakSet<Request>();
   const activeRuntimeEventRequests = new Set<Request>();
   const expectedRuntimeEventTeardowns = new WeakSet<Request>();
+  const expectedPendingBuildInspectionRequests = new WeakSet<Request>();
+  const pendingBuildInspectionCancellationError = diagnostics.browserEngine === "webkit" ? "Load request cancelled"
+    : diagnostics.browserEngine === "firefox" ? "NS_BINDING_ABORTED" : undefined;
+  let pendingBuildInspection: PendingBuildInspectionState | undefined;
   const isRuntimeEventRequest = (request: Request): boolean => {
     const url = new URL(request.url());
     return url.origin === appOrigin && request.method() === "GET" && url.pathname === "/api/runtime-events";
@@ -58,13 +139,89 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
     diagnostics.expectedRuntimeEventTeardownMarks += 1;
     for (const runtimeEventRequest of activeRuntimeEventRequests) expectedRuntimeEventTeardowns.add(runtimeEventRequest);
   };
+  const markReloadStart = (): void => {
+    if (pendingBuildInspection) pendingBuildInspection.reloadStarted = true;
+  };
+  const preparePendingBuildInspectionCancellation = async (installationId: string, operationId: string): Promise<PendingBuildInspectionSession | undefined> => {
+    if (!pendingBuildInspectionCancellationError) return undefined;
+    if (pendingBuildInspection) throw new Error("A pending-build inspection cancellation is already prepared.");
+    let releaseRoute: () => void = () => {};
+    const routeReleased = new Promise<void>(resolve => { releaseRoute = resolve; });
+    const inspection: PendingBuildInspectionState = {
+      installationId,
+      operationId,
+      captureOpen: true,
+      reloadStarted: false,
+      cancellationObserved: false,
+      routeCallbackObserved: false,
+      releaseRoute,
+      routeHandler: async (route: Route): Promise<void> => {
+        const request = route.request();
+        const inspected = inspectExtensionControlRequest(request, appOrigin);
+        diagnostics.pendingBuildInspectionRouteObservations.push(inspected.observation);
+        if (inspection.captureOpen && !inspection.request && inspected.installationId === inspection.installationId) {
+          inspection.routeCallbackObserved = true;
+          inspection.request = request;
+          expectedPendingBuildInspectionRequests.add(request);
+          await routeReleased;
+          if (inspection.cancellationObserved) return;
+        }
+        await route.continue();
+      },
+    };
+    pendingBuildInspection = inspection;
+    await page.route("**/api/extensions/control", inspection.routeHandler);
+    return {
+      waitForRequest: async () => {
+        await expect.poll(() => inspection.routeCallbackObserved && inspection.request ? "captured" : "waiting", {
+          timeout: 10_000,
+          intervals: [50],
+          message: "The user-visible Refresh status inspection must be in flight before reload.",
+        }).toBe("captured");
+      },
+      release: async () => {
+        inspection.captureOpen = false;
+        inspection.releaseRoute();
+        await page.unroute("**/api/extensions/control", inspection.routeHandler);
+      },
+    };
+  };
+  const assertPendingBuildInspectionRecovery = (installationId: string, operationId: string): void => {
+    if (!pendingBuildInspectionCancellationError) return;
+    expect(pendingBuildInspection?.installationId).toBe(installationId);
+    expect(pendingBuildInspection?.operationId).toBe(operationId);
+    expect(pendingBuildInspection?.routeCallbackObserved).toBe(true);
+    expect(pendingBuildInspection?.cancellationObserved).toBe(true);
+    const exactRouteInspections = diagnostics.pendingBuildInspectionRouteObservations.filter(observation => (
+      observation.sameOrigin
+      && observation.method === "POST"
+      && observation.path === "/api/extensions/control"
+      && observation.bodyType === "object"
+      && observation.tool === "extensions_inspect"
+      && JSON.stringify(observation.topLevelKeys) === JSON.stringify(["input", "tool"])
+      && JSON.stringify(observation.inputKeys) === JSON.stringify(["installationId"])
+    ));
+    expect(exactRouteInspections).toHaveLength(1);
+    // Nonmatching routed requests continue normally and cannot enter this
+    // one-use cancellation record.
+    expect(diagnostics.expectedPendingBuildInspectionCancellations).toEqual([
+      { method: "POST", path: "/api/extensions/control", status: 0, error: pendingBuildInspectionCancellationError },
+    ]);
+  };
   page.on("pageerror", error => diagnostics.pageErrors.push(error.message));
   page.on("console", message => {
     if (message.type() === "error" && !isIgnoredBrowserConsoleError(message.text())) diagnostics.consoleErrors.push(message.text());
   });
   page.on("request", request => {
-    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) markRuntimeEventTeardown();
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      markRuntimeEventTeardown();
+      if (pendingBuildInspection) pendingBuildInspection.captureOpen = false;
+    }
     if (isRuntimeEventRequest(request)) activeRuntimeEventRequests.add(request);
+    if (pendingBuildInspection?.captureOpen) {
+      const inspected = inspectExtensionControlRequest(request, appOrigin);
+      diagnostics.pendingBuildInspectionRequestObservations.push(inspected.observation);
+    }
   });
   // EventSource can emit requestfinished once response headers arrive while its
   // stream remains open. Keep its identity until a failure or teardown.
@@ -96,13 +253,21 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
       activeRuntimeEventRequests.delete(request);
       return;
     }
+    if (expectedPendingBuildInspectionRequests.has(request)
+      && pendingBuildInspectionCancellationError === error
+      && pendingBuildInspection?.request === request
+      && pendingBuildInspection.reloadStarted) {
+      diagnostics.expectedPendingBuildInspectionCancellations.push({ method: request.method(), path: url.pathname, status: 0, error });
+      if (pendingBuildInspection?.request === request) pendingBuildInspection.cancellationObserved = true;
+      return;
+    }
     activeRuntimeEventRequests.delete(request);
     if (url.origin === appOrigin && url.pathname.startsWith("/api/")) {
       diagnostics.failedApiRequests.push({ method: request.method(), path: url.pathname, status: 0, error });
     }
   });
   page.on("close", markRuntimeEventTeardown);
-  return { diagnostics, markRuntimeEventTeardown };
+  return { diagnostics, markRuntimeEventTeardown, markReloadStart, preparePendingBuildInspectionCancellation, assertPendingBuildInspectionRecovery };
 }
 
 async function navigateWithRuntimeEventTeardown(page: Page, observer: BrowserDiagnosticsObserver, url: string): Promise<void> {
@@ -112,6 +277,7 @@ async function navigateWithRuntimeEventTeardown(page: Page, observer: BrowserDia
 
 async function reloadWithRuntimeEventTeardown(page: Page, observer: BrowserDiagnosticsObserver): Promise<void> {
   observer.markRuntimeEventTeardown();
+  observer.markReloadStart();
   await page.reload();
 }
 
@@ -134,9 +300,28 @@ function echoSource(prefix: string): string {
   return `export function echo(input: Record<string, unknown>) { return { text: ${JSON.stringify(prefix)} + input.text }; }\n`;
 }
 
+async function refreshStatusAndWaitForInspection(page: Page): Promise<void> {
+  const installationId = new URL(page.url()).searchParams.get("installation") ?? "";
+  expect(installationId, "Refresh status must target the installation shown in the author URL.").not.toBe("");
+  const appOrigin = new URL(page.url()).origin;
+  const refreshStatus = page.getByRole("button", { name: "Refresh status", exact: true });
+  // Do not let this click wait behind a prior author action while its response
+  // satisfies this action's waiter.
+  await expect(refreshStatus).toBeEnabled();
+  const inspectionResponse = page.waitForResponse(response => (
+    response.ok()
+    && inspectExtensionControlRequest(response.request(), appOrigin).installationId === installationId
+  ));
+  await refreshStatus.click();
+  await inspectionResponse;
+  // The response alone does not establish that the visible author state has
+  // rendered. The button becomes enabled only after refresh() stores it.
+  await expect(refreshStatus).toBeEnabled();
+}
+
 async function waitForVisibleOperationState(page: Page, expected: "verified" | "failed"): Promise<void> {
   await expect.poll(async () => {
-    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    await refreshStatusAndWaitForInspection(page);
     return (await page.locator(".operation strong").allTextContents())[0] ?? "";
   }, {
     timeout: 240_000,
@@ -150,7 +335,7 @@ async function observePendingBuild(page: Page): Promise<string> {
   // causal UI barrier, not a delay: the current operation state is rendered
   // by the same Refresh status control a person uses to recover a closed tab.
   await expect.poll(async () => {
-    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    await refreshStatusAndWaitForInspection(page);
     const row = page.locator(".operation").first();
     return { id: (await row.locator("code").textContent())?.trim() ?? "", state: (await row.locator("strong").textContent())?.trim() ?? "" };
   }, {
@@ -472,6 +657,9 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
   expect(ignoredApiResponses).toEqual([]);
 });
 
+test.describe("reload transport control", () => {
+test.use({ serviceWorkers: "block" });
+
 test("reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence", async ({ page, request, baseURL }, testInfo) => {
   test.setTimeout(360_000);
   const browserObserver = observeBrowserDiagnostics(page, baseURL!);
@@ -484,6 +672,11 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
 
   try {
     await navigateWithRuntimeEventTeardown(page, browserObserver, "/extensions/author");
+    browserDiagnostics.serviceWorkerState = await page.evaluate(async () => ({
+      controlled: navigator.serviceWorker.controller !== null,
+      registrations: (await navigator.serviceWorker.getRegistrations()).length,
+    }));
+    expect(browserDiagnostics.serviceWorkerState).toEqual({ controlled: false, registrations: 0 });
     await page.getByLabel("Extension name").fill(name);
     await page.getByRole("button", { name: "Create workspace", exact: true }).click();
     await page.waitForURL(/\/extensions\/author\?installation=[^&]+&workspace=[^&]+/);
@@ -500,11 +693,25 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     const pendingOperationId = await observePendingBuild(page);
     const operationsBeforeReload = await page.locator(".operation").count();
 
-    await reloadWithRuntimeEventTeardown(page, browserObserver);
+    const pendingInspection = await browserObserver.preparePendingBuildInspectionCancellation(installationId, pendingOperationId);
+    if (pendingInspection) {
+      try {
+        const refreshStatus = page.getByRole("button", { name: "Refresh status", exact: true });
+        await expect(refreshStatus).toBeEnabled();
+        await refreshStatus.click();
+        await pendingInspection.waitForRequest();
+        await reloadWithRuntimeEventTeardown(page, browserObserver);
+      } finally {
+        await pendingInspection.release();
+      }
+    } else {
+      await reloadWithRuntimeEventTeardown(page, browserObserver);
+    }
     await waitForHydration(page);
     await expect(page.locator(".operation").filter({ hasText: pendingOperationId })).toBeVisible();
     await expect(page.locator(".operation")).toHaveCount(operationsBeforeReload);
     await waitForVisibleOperationState(page, "verified");
+    browserObserver.assertPendingBuildInspectionRecovery(installationId, pendingOperationId);
     const requestApproval = page.getByRole("button", { name: "Request approval", exact: true });
     await expect(requestApproval).toBeEnabled();
     await requestApproval.click();
@@ -567,6 +774,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     }
   }
   expectCleanBrowserDiagnostics(browserDiagnostics);
+});
 });
 
 test("same-session stale tabs cannot replace a new active release or restore an uninstall", async ({ page, request, baseURL }, testInfo) => {
