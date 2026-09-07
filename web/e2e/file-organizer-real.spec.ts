@@ -210,7 +210,7 @@ test.describe(
     // timeout would otherwise abort.
     test.describe.configure({ mode: "serial", timeout: 90_000 });
     let configSnapshot: string | null = null;
-    test.beforeAll(async ({ browser, request, baseURL }) => {
+    test.beforeAll(async ({ browser, request, baseURL }, testInfo) => {
 			test.setTimeout(300_000);
 			const onboarding = await request.post("/api/onboarding/complete");
 			expect(onboarding.status(), await onboarding.text()).toBe(204);
@@ -222,23 +222,39 @@ test.describe(
 			const project = (await projectResponse.json()) as { id: string };
 			const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
 			try {
+				const page = await context.newPage();
 				const { state } = await importAndActivateBundledExtension({
-					page: await context.newPage(),
+					page,
 					request,
 					baseURL: baseURL!,
 					name: "file-organizer",
 				});
-				const binding = await request.post(
-					`/api/extensions/releases/${state.installation.id}/project`,
-					{
-						data: {
-							projectId: project.id,
-							releaseId: state.installation.activeReleaseId,
-							generation: state.installation.generation,
-						},
-					},
-				);
-				expect(binding.status(), await binding.text()).toBe(200);
+                // Review and approve through the same visible controls as the
+                // owner. The following file-effect tests depend on this grant.
+                await page.goto(`/hub/${encodeURIComponent(FOLDERS_PAGE)}`);
+                await page.getByRole("button", { name: "Review folder access", exact: true }).click();
+                await expect(page).toHaveURL(new RegExp(`/extensions/author\\?installation=${state.installation.id}#project-access$`));
+                await page.getByLabel("Project", { exact: true }).selectOption(project.id);
+                await page.getByLabel("Approved write paths", { exact: true }).fill("fo-test-watched/, fo-verify-new/");
+                const approveAccess = page.getByRole("button", { name: "Approve project access", exact: true });
+                await expect(approveAccess).toBeDisabled();
+                await page.getByLabel("I reviewed this project's access and exact release.").check();
+                await page.locator("#project-access").screenshot({ path: testInfo.outputPath("file-organizer-folder-approval.png") });
+                const approvedResponse = page.waitForResponse(response => response.request().method() === "POST"
+                  && response.url().endsWith(`/api/extensions/releases/${state.installation.id}/project`));
+                await approveAccess.click();
+                const binding = await approvedResponse;
+                expect(binding.status(), await binding.text()).toBe(200);
+                expect(await binding.json()).toMatchObject({
+                  projectId: project.id,
+                  releaseId: state.installation.activeReleaseId,
+                  generation: state.installation.generation,
+                  writePaths: ["fo-test-watched/", "fo-verify-new/"],
+                });
+                await expect(page.getByRole("status")).toContainText("Project access approved");
+                await page.getByRole("link", { name: "Back to File Organizer", exact: true }).click();
+                await expect(page.getByTestId("hub-page-title")).toBeVisible({ timeout: 20_000 });
+                await page.screenshot({ path: testInfo.outputPath("file-organizer-folder-access-return.png"), fullPage: true });
 			} finally {
 				await context.close();
 			}

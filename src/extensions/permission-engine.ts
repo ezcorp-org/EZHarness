@@ -138,6 +138,9 @@ export interface AuthorizeContext {
    */
   capContext?: CapabilitySet;
   parentAuditId?: string;
+  /** Host-only sealed File Organizer action. Worker RPC cannot construct it. */
+  fileOrganizerActionAuthority?: unknown;
+  fileOrganizerEffect?: { action: string; subject: string; paths: readonly string[]; privatePath?: string };
 }
 
 export type Decision =
@@ -380,6 +383,56 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     // preserves the count plus the first/last timestamps — see
     // `perm-audit-coalescer.ts`.
     const missing = firstMissingCapability(needed, granted) ?? (liveGranted ? firstMissingCapability(needed, liveGranted) : undefined);
+    // A route-issued File Organizer proof is a finite action permit, never a
+    // general consent. Once the host applier supplies it, handle the entire
+    // request here so a stale, forged, or spent proof cannot fall through to
+    // a pre-existing `fs.write` always-allow row. Private companions still
+    // require the normal `/data` manifest/live grant; public effects use the
+    // live project binding admission instead of that virtual worker grant.
+    if (ctx.fileOrganizerActionAuthority !== undefined || ctx.fileOrganizerEffect !== undefined) {
+      if (!ctx.fileOrganizerActionAuthority || !ctx.fileOrganizerEffect) {
+        const reason = "invalid-file-organizer-action-context";
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, missing ?? undefined, reason);
+        return { decision: "deny", reason, auditId, ...(missing ? { missing } : {}) };
+      }
+      const requested = needed.length === 1 && needed[0]?.kind === "fs.write" && typeof needed[0].value === "string"
+        ? needed[0]
+        : undefined;
+      const denyFileOrganizerAction = async (reason: string, capability = (requested ?? missing) ?? undefined): Promise<Decision> => {
+        await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, capability, reason, {
+          fileOrganizerAction: ctx.fileOrganizerEffect?.action,
+          fileOrganizerSubject: ctx.fileOrganizerEffect?.subject,
+        });
+        return { decision: "deny", reason, auditId, ...(missing ? { missing } : {}) };
+      };
+      if (!requested) return denyFileOrganizerAction("invalid-file-organizer-action-capability");
+
+      const { admitFileOrganizerEffect, admitFileOrganizerPrivateEffect, matchesFileOrganizerActionContext } = await import("./file-organizer-action-authority");
+      const value = requested.value!;
+      const matches = matchesFileOrganizerActionContext(ctx.fileOrganizerActionAuthority, ctx.extensionId, [value]);
+      if (ctx.fileOrganizerEffect.privatePath === value) {
+        if (missing) return denyFileOrganizerAction("file-organizer-private-grant-missing");
+        if (matches && await admitFileOrganizerPrivateEffect(ctx.fileOrganizerActionAuthority, ctx.userId, ctx.fileOrganizerEffect, value)) {
+          await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, requested, "file-organizer-action-private-data", {
+            fileOrganizerAction: ctx.fileOrganizerEffect.action,
+            fileOrganizerSubject: ctx.fileOrganizerEffect.subject,
+          });
+          return { decision: "allow", auditId };
+        }
+        return denyFileOrganizerAction("invalid-file-organizer-private-action");
+      }
+      if (ctx.fileOrganizerEffect.paths.includes(value)
+        && matches
+        && await admitFileOrganizerEffect(ctx.fileOrganizerActionAuthority, ctx.userId, ctx.fileOrganizerEffect)) {
+        await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, requested, "file-organizer-project-binding", {
+          fileOrganizerAction: ctx.fileOrganizerEffect.action,
+          fileOrganizerSubject: ctx.fileOrganizerEffect.subject,
+          fileOrganizerPaths: ctx.fileOrganizerEffect.paths,
+        });
+        return { decision: "allow", auditId };
+      }
+      return denyFileOrganizerAction("invalid-file-organizer-project-binding");
+    }
     if (missing) {
       const reason = formatMissingReason(missing, ctx.toolName);
       if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "deny", missing, reason), auditId)) {

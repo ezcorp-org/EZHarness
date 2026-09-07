@@ -56,9 +56,14 @@ import {
   applyProposal,
   restoreFromQuarantine,
   hardDeleteTrash,
+  resolveNonOverwrite,
   type ApplierContext,
   type ApplierProposal,
 } from "./file-organizer-applier";
+import {
+  canonicalFileOrganizerPath,
+  type FileOrganizerEffect,
+} from "./file-organizer-action-authority";
 
 const log = logger.child("ext.file-organizer-state");
 
@@ -69,6 +74,8 @@ export interface StateDeps {
   userId: string;
   /** Quarantine settings (ttl/cap) resolved by the caller. */
   settings: { quarantineTtlDays: number; quarantineCapGb: number };
+  /** Sealed browser proof. Daemon and worker calls intentionally have none. */
+  actionAuthority?: unknown;
   now?: () => number;
 }
 
@@ -133,7 +140,7 @@ async function readManifest(p: string): Promise<QuarantineManifest> {
 
 // ── Applier context ─────────────────────────────────────────────────
 
-function applierCtx(deps: StateDeps, watchedRoot: string): ApplierContext {
+function applierCtx(deps: StateDeps, watchedRoot: string, hostActionEffect?: FileOrganizerEffect): ApplierContext {
   const p = paths(deps.dataDir);
   return {
     extensionId: deps.extensionId,
@@ -144,6 +151,8 @@ function applierCtx(deps: StateDeps, watchedRoot: string): ApplierContext {
     journalPath: p.journal,
     watchedRoot,
     dataDirRoot: deps.dataDir,
+    hostActionAuthority: hostActionEffect ? deps.actionAuthority : undefined,
+    hostActionEffect,
   };
 }
 
@@ -171,6 +180,93 @@ function watchedRootFor(config: Config, p: Proposal): string | null {
   return folder?.path ?? null;
 }
 
+async function proposalEffect(action: string, proposal: Proposal, dataDir?: string): Promise<FileOrganizerEffect> {
+  const paths = [proposal.src];
+  if ((proposal.kind === "move" || proposal.kind === "rename") && proposal.dst) paths.push(await resolveNonOverwrite(proposal.dst));
+  const privatePath = proposal.kind === "delete-quarantine" && dataDir
+    ? await privateVirtualPath(dataDir, await resolveNonOverwrite(join(dataDir, ".trash", proposal.quarantineId ?? proposal.id, proposal.src.split("/").at(-1)!)))
+    : undefined;
+  return { action: `file-organizer:${action}`, subject: `${proposal.id}:${proposal.version}:${proposal.kind}`, paths, ...(privatePath ? { privatePath } : {}) };
+}
+
+async function privateVirtualPath(dataDir: string, physicalPath: string): Promise<string | null> {
+  const [root, target] = await Promise.all([canonicalFileOrganizerPath(dataDir), canonicalFileOrganizerPath(physicalPath)]);
+  if (root === null || target === null || (target !== root && !target.startsWith(`${root}/`))) return null;
+  return target === root ? "/data" : `/data${target.slice(root.length)}`;
+}
+
+async function restoreEffect(action: string, entry: QuarantineManifest["entries"][number], dataDir: string): Promise<FileOrganizerEffect | null> {
+  const privatePath = await privateVirtualPath(dataDir, entry.trashPath);
+  if (privatePath === null) return null;
+  return {
+    action: `file-organizer:${action}`,
+    subject: `quarantine:${entry.id}:${entry.trashPath}`,
+    paths: [await resolveNonOverwrite(entry.originalPath)],
+    privatePath,
+  };
+}
+
+async function purgeEffect(action: string, entry: QuarantineManifest["entries"][number], dataDir: string): Promise<FileOrganizerEffect | null> {
+  const privatePath = await privateVirtualPath(dataDir, join(dataDir, ".trash", entry.id));
+  return privatePath === null ? null : {
+    action: `file-organizer:${action}`,
+    subject: `quarantine:${entry.id}:${entry.trashPath}`,
+    paths: [],
+    privatePath,
+  };
+}
+
+/** Route-side preflight: load only host effects from canonical state. The
+ * same state is loaded again immediately before consume, so edits after this
+ * browser click make the sealed descriptor fail rather than widen its scope. */
+export async function prepareFileOrganizerAction(
+  deps: Pick<StateDeps, "dataDir" | "settings" | "now">,
+  event: string,
+  payload: Record<string, unknown> | undefined,
+): Promise<FileOrganizerEffect | FileOrganizerEffect[] | null> {
+  const p = paths(deps.dataDir);
+  const id = typeof payload?.proposalId === "string" ? payload.proposalId : undefined;
+  const quarantineId = typeof payload?.quarantineId === "string" ? payload.quarantineId : undefined;
+  const canonical = async (effect: FileOrganizerEffect): Promise<FileOrganizerEffect | null> => {
+    const paths = await Promise.all(effect.paths.map(canonicalFileOrganizerPath));
+    const canonicalPaths = paths.filter((path): path is string => path !== null);
+    return canonicalPaths.length !== paths.length ? null : { action: effect.action, subject: effect.subject, paths: canonicalPaths, ...(effect.privatePath ? { privatePath: effect.privatePath } : {}) };
+  };
+  const canonicalEffects = async (effects: readonly (FileOrganizerEffect | null)[]): Promise<FileOrganizerEffect[] | null> => {
+    const canonicalized = await Promise.all(effects.map((effect) => effect === null ? null : canonical(effect)));
+    const present = canonicalized.filter((effect): effect is FileOrganizerEffect => effect !== null);
+    return present.length === canonicalized.length ? present : null;
+  };
+  if (event === "accept" && id) {
+    const proposal = findProposal((await loadProposals(proposalsIO(p.proposals))).file, id);
+    return proposal?.status === "pending" ? canonical(await proposalEffect(event, proposal, deps.dataDir)) : null;
+  }
+  if (event === "confirm-deletes") {
+    const file = (await loadProposals(proposalsIO(p.proposals))).file;
+    const proposals = file.proposals.filter((proposal) => proposal.status === "pending" && proposal.kind === "delete-quarantine");
+    return canonicalEffects(await Promise.all(proposals.map((proposal) => proposalEffect(event, proposal, deps.dataDir))));
+  }
+  if (event === "restore" || event === "undo-batch") {
+    const manifest = await readManifest(p.manifest);
+    const all = payload?.all === true;
+    const batchId = typeof payload?.batchId === "string" ? payload.batchId : undefined;
+    const entries = event === "undo-batch" ? manifest.entries.filter((entry) => entry.batchId === batchId) : all ? manifest.entries : quarantineId ? manifest.entries.filter((entry) => entry.id === quarantineId) : [];
+    return canonicalEffects(await Promise.all(entries.map((entry) => restoreEffect(event, entry, deps.dataDir))));
+  }
+  if (event === "purge" || event === "empty-quarantine" || event === "purge-expired") {
+    const manifest = await readManifest(p.manifest);
+    const entries = event === "purge"
+      ? manifest.entries.filter((entry) => entry.id === quarantineId)
+      : event === "purge-expired"
+        ? selectPruneVictims(manifest, { now: now(deps), capBytes: deps.settings.quarantineCapGb > 0 ? deps.settings.quarantineCapGb * 1024 ** 3 : 0 }).map((id) => manifest.entries.find((entry) => entry.id === id)!).filter(Boolean)
+        : manifest.entries;
+    return canonicalEffects(await Promise.all(entries.map((entry) => purgeEffect(event, entry, deps.dataDir))));
+  }
+  // Config and view actions do not reach the host applier. Keep the route's
+  // authenticated binding flow intact without minting a filesystem effect.
+  return { action: `file-organizer:${event}`, subject: "non-filesystem", paths: [] };
+}
+
 // ── Proposal apply / reject ─────────────────────────────────────────
 
 /**
@@ -196,7 +292,7 @@ export async function acceptProposal(deps: StateDeps, proposalId: string): Promi
     if (blocked) await saveProposals(io, replaceProposal(file, blocked));
     return { ok: false, message: "Blocked: watched folder removed", changed: true };
   }
-  const ctx = applierCtx(deps, watchedRoot);
+  const ctx = applierCtx(deps, watchedRoot, await proposalEffect("accept", proposal, deps.dataDir));
   const outcome = await applyProposal(toApplierProposal(proposal), ctx);
 
   const next = applyOutcomeToProposal(proposal, outcome, deps);
@@ -280,7 +376,7 @@ export async function confirmDeletes(deps: StateDeps): Promise<HandlerResult> {
       if (blocked) working = replaceProposal(working, blocked);
       continue;
     }
-    const ctx = applierCtx(deps, watchedRoot);
+    const ctx = applierCtx(deps, watchedRoot, await proposalEffect("confirm-deletes", proposal, deps.dataDir));
     const outcome = await applyProposal(toApplierProposal(proposal), ctx);
     const next = applyOutcomeToProposal(proposal, outcome, deps, batchId);
     if (next) working = replaceProposal(working, next);
@@ -303,8 +399,10 @@ export async function undoBatch(deps: StateDeps, batchId: string): Promise<Handl
   let working = manifest;
   let restored = 0;
   for (const entry of inBatch) {
-    const ctx = applierCtx(deps, rootForRestore(config, entry.originalPath));
-    const outcome = await restoreFromQuarantine({ trashPath: entry.trashPath, restorePath: entry.originalPath }, ctx);
+    const effect = await restoreEffect("undo-batch", entry, deps.dataDir);
+    if (effect === null) continue;
+    const ctx = applierCtx(deps, rootForRestore(config, entry.originalPath), effect);
+    const outcome = await restoreFromQuarantine({ trashPath: entry.trashPath, restorePath: effect.paths[0]! }, ctx);
     if (outcome.status === "applied") {
       working = removeEntry(working, entry.id);
       restored++;
@@ -325,8 +423,10 @@ export async function restore(deps: StateDeps, opts: { quarantineId?: string; al
   for (const id of ids) {
     const plan = planRestore(working, id, () => false);
     if (!plan) continue;
-    const ctx = applierCtx(deps, rootForRestore(config, plan.entry.originalPath));
-    const outcome = await restoreFromQuarantine({ trashPath: plan.entry.trashPath, restorePath: plan.entry.originalPath }, ctx);
+    const effect = await restoreEffect("restore", plan.entry, deps.dataDir);
+    if (effect === null) continue;
+    const ctx = applierCtx(deps, rootForRestore(config, plan.entry.originalPath), effect);
+    const outcome = await restoreFromQuarantine({ trashPath: plan.entry.trashPath, restorePath: effect.paths[0]! }, ctx);
     if (outcome.status === "applied") {
       working = removeEntry(working, id);
       restored++;
@@ -342,7 +442,10 @@ export async function purge(deps: StateDeps, quarantineId: string): Promise<Hand
   const manifest = await readManifest(p.manifest);
   const entry = manifest.entries.find((e) => e.id === quarantineId);
   if (!entry) return { ok: true, message: "Not found", changed: false };
-  await hardDeleteTrash(p.trashRoot, entry.id);
+  const effect = await purgeEffect("purge", entry, deps.dataDir);
+  if (effect === null || !(await hardDeleteTrash(p.trashRoot, entry.id, applierCtx(deps, rootForRestore(await readConfig(p.config), entry.originalPath), effect)))) {
+    return { ok: false, message: "Blocked: engine denied the private purge", changed: false };
+  }
   await atomicWrite(p.manifest, JSON.stringify(removeEntry(manifest, quarantineId), null, 2));
   return { ok: true, message: "Deleted permanently", changed: true };
 }
@@ -351,9 +454,18 @@ export async function purge(deps: StateDeps, quarantineId: string): Promise<Hand
 export async function emptyQuarantine(deps: StateDeps): Promise<HandlerResult> {
   const p = paths(deps.dataDir);
   const manifest = await readManifest(p.manifest);
-  for (const e of manifest.entries) await hardDeleteTrash(p.trashRoot, e.id);
-  await atomicWrite(p.manifest, JSON.stringify(emptyManifest(), null, 2));
-  return { ok: true, message: "Quarantine emptied", changed: manifest.entries.length > 0 };
+  const config = await readConfig(p.config);
+  let working = manifest;
+  let deleted = 0;
+  for (const entry of manifest.entries) {
+    const effect = await purgeEffect("empty-quarantine", entry, deps.dataDir);
+    if (effect && await hardDeleteTrash(p.trashRoot, entry.id, applierCtx(deps, rootForRestore(config, entry.originalPath), effect))) {
+      working = removeEntry(working, entry.id);
+      deleted++;
+    }
+  }
+  await atomicWrite(p.manifest, JSON.stringify(working, null, 2));
+  return { ok: deleted === manifest.entries.length, message: `Quarantine emptied ${deleted}`, changed: deleted > 0 };
 }
 
 /** TTL/size-cap prune of expired quarantine entries. */
@@ -362,13 +474,20 @@ export async function purgeExpired(deps: StateDeps): Promise<HandlerResult> {
   const manifest = await readManifest(p.manifest);
   const capBytes = deps.settings.quarantineCapGb > 0 ? deps.settings.quarantineCapGb * 1024 ** 3 : 0;
   const victims = selectPruneVictims(manifest, { now: now(deps), capBytes });
+  const config = await readConfig(p.config);
   let working = manifest;
+  let deleted = 0;
   for (const id of victims) {
-    await hardDeleteTrash(p.trashRoot, id);
-    working = removeEntry(working, id);
+    const entry = working.entries.find((candidate) => candidate.id === id);
+    if (!entry) continue;
+    const effect = await purgeEffect("purge-expired", entry, deps.dataDir);
+    if (effect && await hardDeleteTrash(p.trashRoot, id, applierCtx(deps, rootForRestore(config, entry.originalPath), effect))) {
+      working = removeEntry(working, id);
+      deleted++;
+    }
   }
   await atomicWrite(p.manifest, JSON.stringify(working, null, 2));
-  return { ok: true, message: `Purged ${victims.length}`, changed: victims.length > 0 };
+  return { ok: deleted === victims.length, message: `Purged ${deleted}`, changed: deleted > 0 };
 }
 
 /**
@@ -401,7 +520,7 @@ export async function dismissStale(deps: StateDeps, proposalId: string): Promise
   const io = proposalsIO(p.proposals);
   const { file } = await loadProposals(io);
   const proposal = findProposal(file, proposalId);
-  if (!proposal || proposal.status !== "stale-source") return { ok: true, message: "Nothing to dismiss", changed: false };
+  if (proposal?.status !== "stale-source") return { ok: true, message: "Nothing to dismiss", changed: false };
   const rejected = transition(proposal, "rejected", { by: deps.userId, at: nowIso(deps) });
   if (!rejected) return { ok: false, message: "Could not dismiss", changed: false };
   await saveProposals(io, replaceProposal(file, rejected));
@@ -555,7 +674,7 @@ async function recordQuarantineEntry(
   await atomicWrite(paths_.manifest, JSON.stringify({ ...manifest, entries: [...manifest.entries, entry] }, null, 2));
 }
 
-function now(deps: StateDeps): number {
+function now(deps: Pick<StateDeps, "now">): number {
   return (deps.now ?? Date.now)();
 }
 function nowIso(deps: StateDeps): string {

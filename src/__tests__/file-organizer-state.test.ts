@@ -325,6 +325,15 @@ describe("quarantine restore / undo / purge", () => {
     expect((await readManifest()).entries).toHaveLength(0);
   });
 
+  test("a denied private purge preserves its trash bytes and manifest entry", async () => {
+    await seedConfig();
+    await seedQuarantine();
+    const r = await state.purge(deps(fakeEngine("deny")), "q1");
+    expect(r).toEqual({ ok: false, message: "Blocked: engine denied the private purge", changed: false });
+    expect(await Bun.file(join(dataDir, ".trash", "q1", "a.txt")).text()).toBe("restored");
+    expect((await readManifest()).entries.map((entry: { id: string }) => entry.id)).toEqual(["q1"]);
+  });
+
   test("emptyQuarantine clears all", async () => {
     await seedConfig();
     await seedQuarantine();

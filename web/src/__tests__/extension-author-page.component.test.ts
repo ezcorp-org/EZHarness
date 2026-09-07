@@ -61,7 +61,7 @@ function pageData(approval = false, canApprove = true): ComponentProps<typeof Au
 
 test("human approval shows explicit opaque TCP and raw secret disclosure warnings", () => {
   const data = pageData(true);
-  data.state!.releases.release = { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", releaseDigest: "exact-release-digest", policyDigest: "policy", runnerProfile: "podman", createdAt: "2026-09-04", evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, manifest: { schemaVersion: 4, name: "native-network", version: "1.0.0", author: { name: "tests" }, description: "Native fixture", permissions: { networkTcp: ["example.com:443"], secretRead: ["GITHUB_TOKEN"] } } };
+  data.state!.releases.release = verifiedRelease();
   const view = render(AuthorPage, { data });
   expect(view.getByText("Opaque TCP access:")).toBeVisible();
   expect(view.getByText("Raw credential extraction:")).toBeVisible();
@@ -264,4 +264,25 @@ test("approved activation and disable send explicit lifecycle actions", async ()
   await fireEvent.click(view.getByRole("button", { name: "Disable installation" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
   expect(JSON.parse(String(fetcher.mock.calls[2]![1]?.body))).toMatchObject({ tool: "extensions_release", input: { action: "disable" } });
+});
+
+function verifiedRelease(name = "native-network"): InstallationState["releases"][string] {
+  return { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", releaseDigest: "exact-release-digest", policyDigest: "policy", runnerProfile: "podman", createdAt: "2026-09-04", evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, manifest: { schemaVersion: 4, name, version: "1.0.0", author: { name: "tests" }, description: "Native fixture", permissions: { networkTcp: ["example.com:443"], secretRead: ["GITHUB_TOKEN"] } } };
+}
+
+
+test.each(["file-organizer", "another-extension"])("project access instructions match the active extension (%s)", async (name) => {
+  const data = pageData();
+  data.state!.installation = { ...installation, enabled: true, activeReleaseId: "release" };
+  data.state!.releases.release = verifiedRelease(name);
+  const view = render(AuthorPage, { data });
+  expect(view.container.querySelector("#project-access")).toBeVisible();
+  if (name === "file-organizer") {
+    expect(view.getByText(/Choose the project that contains your watched folders/)).toBeVisible();
+    expect(view.getByRole("link", { name: "Back to File Organizer" })).toHaveAttribute("href", "/hub/ext:file-organizer:overview");
+    expect(view.getByRole("button", { name: "Approve project access" })).toBeDisabled();
+  } else {
+    expect(view.queryByText(/Choose the project that contains your watched folders/)).not.toBeInTheDocument();
+    expect(view.queryByRole("link", { name: "Back to File Organizer" })).not.toBeInTheDocument();
+  }
 });

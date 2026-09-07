@@ -23,6 +23,7 @@
   let projectId = $state(untrack(() => data.projectBinding?.projectId ?? ""));
   let writeScope = $state(untrack(() => data.projectBinding?.writePaths.join(", ") ?? ""));
   let reviewedProject = $state(false);
+  const isFileOrganizer = $derived(installationState?.releases[installationState.installation.activeReleaseId ?? ""]?.manifest.name === "file-organizer");
   const fileNames = $derived(Object.keys(files).sort());
   const selectedFile = $derived(files[selected]);
   const dirty = $derived(JSON.stringify(files) !== saved);
@@ -210,13 +211,15 @@
       </article>{/each}
     </section>
     {#if installationState.installation.enabled && installationState.installation.activeReleaseId}
-      <section class="panel project-access"><h2>04 / Project access</h2><p class="muted">Bind this exact release to one project for background Git reads. Leave write paths empty for read-only access. Every GitHub change still needs its own human review.</p>
+      <section id="project-access" class="panel project-access"><h2>04 / Project access</h2><p class="muted">Bind this exact release to one project. Leave write paths empty for read-only access. Every GitHub change still needs its own human review.</p>
+        {#if isFileOrganizer}<p class="muted">Choose the project that contains your watched folders. Enter each folder as a path relative to that project, ending in /, for example <code>Downloads/</code>. File Organizer can move or delete files only in the folders you approve.</p>{/if}
         <label for="bound-project">Project</label><select id="bound-project" bind:value={projectId} onchange={() => reviewedProject = false} disabled={!!busy || !data.canBindProject}><option value="">Select a project</option>{#each data.projects ?? [] as project}<option value={project.id}>{project.name}</option>{/each}</select>
         <label for="project-write-paths">Approved write paths</label><input id="project-write-paths" bind:value={writeScope} oninput={() => reviewedProject = false} placeholder="README.md, docs/" disabled={!!busy || !data.canBindProject} /><p class="muted">Comma-separated relative files or directory prefixes ending in /. No wildcards or parent paths.</p>
         <label class="review-check"><input type="checkbox" bind:checked={reviewedProject} disabled={!!busy || !data.canBindProject} />I reviewed this project's access and exact release.</label>
         <div class="actions"><button class="primary" disabled={!!busy || !data.canBindProject || !projectId || !reviewedProject} onclick={() => bindProject()}>Approve project access</button><button disabled={!!busy || !data.canBindProject || !projectBinding || projectBinding.generation !== installationState.installation.generation} onclick={() => bindProject(true)}>Revoke project access</button></div>
         {#if projectBinding && projectBinding.generation === installationState.installation.generation}<p class="muted">Bound project: {projectBinding.projectId} · {projectBinding.writePaths.length ? projectBinding.writePaths.join(", ") : "Read-only"}</p>{/if}
       </section>
+      {#if isFileOrganizer}<p><a href="/hub/ext:file-organizer:overview">Back to File Organizer</a></p>{/if}
     {/if}
     <footer class="actions"><a href="/extensions">Back to extensions</a><button disabled={!!busy || !installationState.installation.enabled} onclick={() => releaseAction("disable")}>Disable installation</button><span class="muted">Disabling and rollback retain extension data.</span></footer>
   {/if}

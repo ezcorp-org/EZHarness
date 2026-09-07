@@ -241,11 +241,16 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
         "$server/extensions/file-organizer-events"
       );
       if (IN_PROCESS_EVENTS.has(event)) {
+        let actionAuthority: unknown;
+        let dataDir!: string;
+        let settings!: { quarantineTtlDays: number; quarantineCapGb: number };
+        let actionTime!: number;
         try {
           const authority = await authorizeExtensionBrowser(name, user.id);
           const binding = await getExtensionProjectBinding(ext.id);
           const declaredEvents = authority.active.release.manifest.permissions.eventSubscriptions;
           const declaredGrants = buildFullGrantFromManifest(authority.active.release.manifest);
+          const project = binding ? await getProject(binding.projectId) : null;
           if (authority.extension.id !== ext.id || authority.active.installation.ownerId !== authority.user.id
             || authority.active.release.manifest.name !== name
             || !authority.active.release.manifest.pages?.some(page => page.id === pageId)
@@ -256,20 +261,42 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
             || binding.releaseId !== authority.active.release.id || binding.generation !== authority.active.installation.generation
             || authority.active.installation.scope !== "global" && authority.active.installation.scope !== `project:${binding.projectId}`
             || await checkProjectRole({ user: authority.user }, binding.projectId, "member") instanceof Response
-            || !await getProject(binding.projectId)) return errorJson(404, "Not found");
+            || !project?.path) return errorJson(404, "Not found");
+          const { getProjectRoot } = await import("$server/extensions/bundled");
+          const { join } = await import("node:path");
+          const { realpath } = await import("node:fs/promises");
+          const projectRoot = await realpath(project.path);
+          // The project is the public host-file authority. File Organizer's
+          // private state remains under the application's trusted root.
+          dataDir = join(await realpath(getProjectRoot()), ".ezcorp", "extension-data", "file-organizer");
+          settings = await resolveFileOrganizerQuarantineSettings(ext.manifest);
+          actionTime = Date.now();
+          const { prepareFileOrganizerAction } = await import("$server/extensions/file-organizer-state");
+          const effect = await prepareFileOrganizerAction({ dataDir, settings, now: () => actionTime }, event, payload);
+          if (!effect) return errorJson(404, "Not found");
+          const { issueFileOrganizerActionAuthority } = await import("$server/extensions/file-organizer-action-authority");
+          actionAuthority = issueFileOrganizerActionAuthority({
+            installationId: ext.id,
+            userId: user.id,
+            releaseId: authority.active.release.id,
+            generation: authority.active.installation.generation,
+            bindingId: binding.id,
+            projectId: binding.projectId,
+            projectRoot,
+            dataDirRoot: dataDir,
+            effects: Array.isArray(effect) ? effect : [effect],
+          });
         } catch {
           return errorJson(404, "Not found");
         }
-        const { getProjectRoot } = await import("$server/extensions/bundled");
-        const { join } = await import("node:path");
-        const dataDir = join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer");
-        const settings = await resolveFileOrganizerQuarantineSettings(ext.manifest);
         const result = await dispatchFileOrganizerEvent(event, payload, {
           dataDir,
           engine: getPermissionEngine(),
           extensionId: ext.id,
           userId: user.id,
           settings,
+          actionAuthority,
+          now: () => actionTime,
         });
         if (result.handled) {
           if (result.changed) getPageCache().invalidate(ext.id, pageId);

@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
 	import HubComponentRenderer from "$lib/components/hub/HubComponentRenderer.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
@@ -61,6 +62,24 @@
 	let stale = $state(false);
 	let errorMsg = $state("");
 	let actionPending = $state(false);
+	const activePage = $derived(parseHubPageId(pageId));
+	const isFileOrganizer = $derived(activePage?.kind === "ext" && activePage.extension === "file-organizer");
+
+	async function reviewFileOrganizerAccess() {
+		if (actionPending) return;
+		actionPending = true;
+		try {
+			const response = await fetch("/api/extensions/file-organizer");
+			if (!response.ok) throw new Error("File Organizer is unavailable");
+			const extension = await response.json() as { id?: string };
+			if (typeof extension.id !== "string" || !extension.id) throw new Error("File Organizer is unavailable");
+			await goto(`/extensions/author?installation=${encodeURIComponent(extension.id)}#project-access`);
+		} catch {
+			addToast({ type: "error", message: "Could not open folder access. Try again." });
+		} finally {
+			actionPending = false;
+		}
+	}
 
 	// Host-rendered confirm dialog (never extension content beyond the
 	// validated, truncated `confirm` string).
@@ -348,6 +367,13 @@
 					{tab.title}
 				</a>
 			{/each}
+		</div>
+	{/if}
+
+	{#if isFileOrganizer}
+		<div class="rounded-lg border border-[var(--color-border)] p-3 text-sm text-[var(--color-text-secondary)]" data-testid="file-organizer-access-notice">
+			<p>File changes need approved project folders.</p>
+			<button type="button" class="mt-2 rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium hover:bg-[var(--color-surface-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] disabled:opacity-50" disabled={actionPending} onclick={reviewFileOrganizerAccess}>Review folder access</button>
 		</div>
 	{/if}
 

@@ -208,6 +208,7 @@
   "web/src/lib/extension-tool-options.ts": 100,
   "web/src/lib/rbac-grants-view.ts": 100,
   "src/extensions/mcp-sandbox.ts": 91,
+  "src/extensions/file-organizer-action-authority.ts": 100,
   "src/extensions/file-organizer-applier.ts": 100,
   "src/extensions/file-organizer-daemon.ts": 100,
   "src/extensions/file-organizer-events.ts": 100,
