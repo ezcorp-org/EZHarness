@@ -342,13 +342,16 @@ export function refreshAgentConfigs() {
 		.catch(() => {});
 }
 
+let quickstartRequest = 0;
+
 /** Reload completion state after a provider, conversation, or extension mutation. */
 export async function refreshQuickstart(): Promise<void> {
+	const request = ++quickstartRequest;
 	try {
 		const response = await fetch("/api/quickstart");
-		if (!response.ok) return;
+		if (!response.ok || request !== quickstartRequest) return;
 		const data = (await response.json()) as { steps?: Partial<QuickstartSteps> };
-		if (!data.steps) return;
+		if (!data.steps || request !== quickstartRequest) return;
 		store.quickstartSteps = {
 			provider: data.steps.provider === true,
 			chat: data.steps.chat === true,

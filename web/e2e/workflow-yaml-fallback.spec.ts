@@ -6,7 +6,7 @@ const workflow = makeWorkflow({
 	description: "A workflow that requires a human decision.",
 	inputSchema: { request: { type: "string" } },
 	steps: [
-		{ name: "approve", kind: "approval", prompt: "Approve this request?", choices: ["approve", "reject"] },
+		{ name: "approve", kind: "approval" },
 		{ name: "run-child", kind: "workflow", workflow: "child-flow" },
 	],
 });

@@ -15,6 +15,8 @@
 	// (or leaves it unset), matching the plan's "Skip = leave unchanged"
 	// contract for unselected interactions.
 	let tierTouched = $state(false);
+	let tierSaving = $state(false);
+	let tierSaveError = $state<string | null>(null);
 	let finishing = $state(false);
 	let access = $derived(providerAccess(data.user.role));
 
@@ -26,14 +28,21 @@
 	function selectTier(tier: "quality" | "balanced" | "budget") {
 		defaultTier = tier;
 		tierTouched = true;
+		tierSaveError = null;
 	}
 
 	async function next() {
+		if (tierSaving) return;
 		if (step === 2 && tierTouched && access.canConfigure) {
+			tierSaving = true;
+			tierSaveError = null;
 			try {
 				await upsertSetting("provider:defaultTier", defaultTier);
 			} catch {
-				// Non-fatal: tier persists on retry from settings page.
+				tierSaveError = "Could not save your default tier. Try again.";
+				return;
+			} finally {
+				tierSaving = false;
 			}
 		}
 		step += 1;
@@ -123,8 +132,8 @@
 					>Continue</button>
 				</div>
 			{:else if step === 2}
-				<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Pick a default tier</h2>
 				{#if access.canConfigure}
+					<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Pick a default tier</h2>
 					<p class="text-sm text-[var(--color-text-secondary)] mb-4">
 						Pick the trade-off that fits most of your work. You can override per-conversation later.
 					</p>
@@ -155,9 +164,13 @@
 					{/each}
 					</div>
 				{:else}
+					<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Admin-managed setup</h2>
 					<p class="text-sm text-[var(--color-text-secondary)] mb-4" data-testid="member-tier-guidance">
 						An administrator selects the workspace default tier. You can change your chat choices when providers are ready.
 					</p>
+				{/if}
+				{#if tierSaveError}
+					<p class="mt-4 text-sm text-red-600 dark:text-red-300" role="alert" data-testid="onboarding-tier-save-error">{tierSaveError}</p>
 				{/if}
 
 				<div class="mt-6 flex items-center justify-between">
@@ -170,9 +183,10 @@
 					<button
 						type="button"
 						onclick={next}
+						disabled={tierSaving}
 						data-testid="onboarding-step2-continue"
-						class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-md transition-colors"
-					>Continue</button>
+						class="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors"
+					>{tierSaving ? "Saving..." : "Continue"}</button>
 				</div>
 			{:else}
 				<h2 class="text-lg font-semibold text-[var(--color-text-primary)] mb-1">Three keystrokes to know</h2>

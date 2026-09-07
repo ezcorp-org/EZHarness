@@ -20,7 +20,7 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { render, fireEvent } from "@testing-library/svelte";
+import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("$lib/components/ProviderSettings.svelte", async () => {
@@ -44,7 +44,8 @@ describe("Onboarding wizard (+page.svelte)", () => {
 		fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(null, { status: 204 }),
 		);
-		vi.mocked(upsertSetting).mockClear();
+		vi.mocked(upsertSetting).mockReset();
+		vi.mocked(upsertSetting).mockResolvedValue(undefined);
 		originalLocation = window.location;
 		Object.defineProperty(window, "location", {
 			value: { href: "" },
@@ -131,6 +132,37 @@ describe("Onboarding wizard (+page.svelte)", () => {
 		expect(vi.mocked(upsertSetting)).toHaveBeenCalledWith("provider:defaultTier", "quality");
 		// Step 3 should now be visible.
 		expect(getByText("Three keystrokes to know")).toBeInTheDocument();
+	});
+
+	test("a failed tier save keeps the selection at Step 2 and retries", async () => {
+		vi.mocked(upsertSetting).mockRejectedValueOnce(new Error("offline"));
+		const { getByTestId, getByText, container } = render(OnboardingPage, {
+			data: { user: baseUser, hasProvider: true },
+		});
+		await fireEvent.click(getByTestId("onboarding-step1-continue"));
+		const quality = container.querySelector<HTMLInputElement>('input[value="quality"]')!;
+		await fireEvent.click(quality);
+		await fireEvent.click(getByTestId("onboarding-step2-continue"));
+
+		await waitFor(() => expect(getByTestId("onboarding-tier-save-error")).toHaveTextContent("Could not save"));
+		expect(quality.checked).toBe(true);
+		expect(container.querySelector('[data-testid="onboarding-step2-continue"]')).toBeInTheDocument();
+		expect(container.textContent).not.toContain("Three keystrokes to know");
+
+		await fireEvent.click(getByTestId("onboarding-step2-continue"));
+		await waitFor(() => expect(getByText("Three keystrokes to know")).toBeInTheDocument());
+		expect(vi.mocked(upsertSetting)).toHaveBeenCalledTimes(2);
+	});
+
+	test("members see the admin-managed tier handoff", async () => {
+		const { getByTestId, getByText, queryByText, queryByLabelText } = render(OnboardingPage, {
+			data: { user: { ...baseUser, role: "member" as const }, hasProvider: false },
+		});
+		await fireEvent.click(getByTestId("onboarding-step1-continue"));
+		expect(getByText("Admin-managed setup")).toBeInTheDocument();
+		expect(getByTestId("member-tier-guidance")).toBeInTheDocument();
+		expect(queryByText("Pick a default tier")).toBeNull();
+		expect(queryByLabelText("Default model tier")).toBeNull();
 	});
 
 	test("Step 2 Skip does NOT call upsertSetting and still advances to Step 3", async () => {

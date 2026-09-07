@@ -96,6 +96,7 @@
 		try {
 			await deleteProviderKey(provider);
 			await load();
+			await refreshQuickstart();
 		} catch {
 			errorMsg = `Failed to remove key for ${provider}`;
 		} finally {
@@ -152,6 +153,7 @@
 		try {
 			await disconnectOAuth(provider);
 			await load();
+			await refreshQuickstart();
 		} catch {
 			errorMsg = `Failed to disconnect ${provider}`;
 		} finally {
@@ -284,7 +286,7 @@
 		{@const onboardingLink = ONBOARDING_LINKS[p.provider]}
 		{@const action = cardAction[p.provider] ?? null}
 		{@const testResult = testResults[p.provider]}
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4" data-testid="provider-card-{p.provider}">
 			<div class="flex items-center gap-4">
 				<ProviderIcon provider={p.provider} size="lg" />
 				<div class="min-w-0 flex-1">
