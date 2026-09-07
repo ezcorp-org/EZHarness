@@ -34,7 +34,7 @@ and still goes red, it just doesn't block the merge button. Verify with
 | **Web tests (vitest)** | yes | Thin aggregator over a 3-way sharded `cd web && bunx --bun vitest run` — `*.component.test.ts` (Svelte DOM) + `*.server.test.ts` (route-handler units). |
 | **Web tests (bun-leg orphans)** | yes | `scripts/test-web.sh` — the plain `web/src/**/*.test.ts` files that neither the vitest leg nor the backend coverage/pass-fail pools already run. |
 | **E2E (mock, no Docker)** | yes | Scoped Playwright run vs **mocked** backends (preview server on :4173, no Docker/seed). Gates UI render + action wiring. |
-| **E2E (real auth + real DB)** | NO | `PI_E2E_REAL=1` Playwright against `playwright.real.config.ts` — the real-auth/real-DB/mock-LLM tier, incl. a sandbox-spawn probe so the two extension specs can't silently skip on a runner that lost spawn capability. |
+| **E2E (real auth + real DB)** | NO | `scripts/run-real-e2e.ts` runs fresh setup and real-auth/real-DB/mock-LLM lanes, with database cleanup after Playwright stops; includes a sandbox-spawn probe so extension specs cannot silently skip on a runner that lost spawn capability. |
 | **Lint (biome)** | yes | `bun run lint` → `biome check` over an EXPLICIT path list (not `.`, which an ignore glob can silently reduce to zero files inside an agent worktree). Hard gate; warnings/infos stay non-blocking. |
 | **Manifest lockfile drift check** | yes | `scripts/regenerate-manifest-lock.ts --check` — re-derives `manifest.lock.json` from bundled extensions' `ezcorp.config.ts` and fails on drift. |
 | **Per-file coverage gate** | yes | `bun run test:coverage` → `scripts/check-coverage.ts`; the **new-file** + **patch-coverage** gates ride in the same job (reusing the lcov it just built). |

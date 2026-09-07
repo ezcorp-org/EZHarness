@@ -41,6 +41,19 @@ Final verification also exposed these defects outside the original audit list:
   the write limit, and two invites stay within the full suite's invite budget.
   Production limits are unchanged. The ownership test also now probes a real
   admin-owned conversation, alongside its missing-ID control.
+- External Postgres migration reserved a connection for its advisory lock,
+  then requested a different pooled connection for the migration. A supported
+  one-connection pool deadlocked. Migration now uses the same reserved
+  connection and the shared result normalization. Real Postgres tests prove
+  first and repeated migration at both default and one-connection pool sizes.
+- Playwright runs global teardown before it stops the preview server. Database
+  deletion there could remove a live PGlite directory. A shared outer runner
+  now owns generated databases, waits for Playwright to exit, then removes
+  its directory and PID sidecar. Caller-provided paths remain caller-owned.
+- The real browser config could inherit `DATABASE_URL` or `PI_SKIP_INIT` from
+  the invoking shell. A dummy unreachable database URL reproduced the wrong
+  driver choice before repair. Real previews now explicitly select PGlite and
+  enable initialization. Runner launch failures also clean their generated data.
 
 ## Design limits
 
@@ -66,27 +79,31 @@ production build.
 
 | Check | Result |
 | --- | --- |
-| Full backend pool | 24,004 passed across 1,395 files. |
+| Full backend pool | 24,011 passed across 1,396 files after the Postgres repair; the expanded reserved-connection suite then passed 8/8. |
 | Full web Bun pool | 4,238 passed across 224 files. |
 | Full Node Vitest pool | 7,019 passed across 525 files; the later actual-store dock test also passed in the coverage producer. |
-| Full coverage pipeline | 25,197 Bun tests passed across 1,382 shards; 4,496 Node tests passed. |
-| Final coverage producer refresh | 1,370 package tests and 4,497 Node tests passed. Merged with the unchanged full host coverage. |
-| Coverage gates | All 1,081 thresholds pass; the new source file and every changed executable line pass. |
+| Full coverage pipeline | Final Postgres repair run: 25,206 Bun tests passed across 1,383 shards; 4,497 Node tests passed. |
+| Coverage gates | All 1,081 thresholds pass; the new source file and every changed executable line across 33 measured files pass. |
+| Real external Postgres | 24/24 pass with the default pool; 24/24 pass at the supported pool-size-one floor. |
 | Typecheck and Svelte check | No errors. The checked-file exception count is 50; Svelte reports 18 existing warnings. |
 | Lint and integrity | Lint, gate integrity, manifest hashes, lane checks, and diff checks pass. Lint reports 87 warnings and 14 informational findings. |
-| Fresh first-user setup | 3/3 pass against a new database. |
+| Fresh first-user setup | 3/3 pass through the shared runner against a new database, with conflicting database and initialization settings inherited from the shell. |
 | Full mock browser gate | 241 pass; 12 existing Docker-only tests skip. Process exits 0. |
-| Real-auth browser lane | All 52 tests pass on a fresh database; process exits 0. Includes isolated caller-tool users and the actual cross-user ownership check. |
+| Real-auth browser lane | All 52 tests pass through the shared runner with the same conflicting shell settings; process exits 0. Includes isolated caller-tool users and the actual cross-user ownership check. |
+| Actual cancellation | A real preview reached readiness on a private port. Sending SIGTERM to its outer runner stopped the preview before database cleanup, returned 130, and removed the generated directory and sidecar. |
+| Runner contracts | All 25 runner, lane, and capture tests pass, including spawn failure, signal handling, caller-owned paths, and inherited environment checks. |
 | Visual capture | 71 mock tests and 2 real-auth tests pass; 92 screenshots from both reports are retained. |
 
 The final Node coverage refresh also removed generated Svelte-check copies from
 source matching by rooting the existing route patterns under `src/`. No source
 file was excluded and no threshold was reduced.
 
-One local preview launch reached its startup timeout before opening a port.
-Controlled later launches started normally. The log did not establish a
-deterministic blocking operation; this change does not claim that startup
-incident is repaired. No timeout increase or test retry was added.
+One local preview launch and the first hosted real-auth run reached their
+startup timeout before opening a port. Controlled same-port setup/auth runs
+passed, as did ten fresh preview cycles. Those runs did not establish a
+deterministic startup cause. The cleanup defect above is independently proven;
+this report does not claim it explains the timeout. Preview stdout is now
+retained for diagnosis. No timeout increase or test retry was added.
 
 The public chat setup regression was run against the original source and the
 repair. It fails on the original source and passes after provider validation is

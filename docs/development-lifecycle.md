@@ -132,7 +132,7 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Web tests (vitest)** | component + server-route units pass | — |
 | **Web tests (bun-leg orphans)** | the plain web unit tests the Vitest leg doesn't run (`scripts/test-web.sh`) | — |
 | **E2E (mock, no Docker)** | UI render + action wiring works | broken UI shipped green |
-| **E2E (real auth + real DB)** | fresh first-user setup plus real-auth/real-DB tiers (`PI_E2E_REAL=1`, `playwright.fresh-setup.config.ts` and `playwright.real.config.ts`), incl. a sandbox spawn probe so extension specs can't silently skip | mock-only green hiding real-stack breakage |
+| **E2E (real auth + real DB)** | fresh first-user setup plus real-auth/real-DB tiers through `scripts/run-real-e2e.ts`, which owns database cleanup after Playwright exits; includes a sandbox spawn probe so extension specs can't silently skip | mock-only green hiding real-stack breakage |
 | **Lint (biome)** | style/lint clean | — |
 | **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
 | **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job, and it fails unless all coverage producers (backend shards, extras legs, **Web security coverage**) succeeded | undertested code / incomplete coverage data |

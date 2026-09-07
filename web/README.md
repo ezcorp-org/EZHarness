@@ -32,7 +32,7 @@ Three Playwright modes are wired:
 | Script              | Config                       | DB        | Auth                       | When to use                                                                 |
 | ------------------- | ---------------------------- | --------- | -------------------------- | --------------------------------------------------------------------------- |
 | `test:e2e`          | `playwright.config.ts`       | none      | `PI_SKIP_INIT=1` (bypass)  | Fast. The explicit mock lane uses `e2e/fixtures/test-base`.                 |
-| —                   | `playwright.fresh-setup.config.ts` | PGlite | no session | Blocking first-user `/setup` journey. Run through `scripts/ci-local.sh`. |
+| `test:e2e:fresh`     | `playwright.fresh-setup.config.ts` | PGlite | no session | Blocking first-user `/setup` journey. |
 | `test:e2e:real`     | `playwright.real.config.ts`  | PGlite    | real cookie session        | Slow. Specs under `e2e/real-auth/` drive the full stack end-to-end.         |
 
 ### Real-auth mode
@@ -42,10 +42,20 @@ cd web
 bun run test:e2e:real
 ```
 
+From the repository root, use the shared runner directly to choose a lane or
+pass Playwright filters:
+
+```sh
+bun scripts/run-real-e2e.ts fresh-setup
+bun scripts/run-real-e2e.ts real-auth
+bun scripts/run-real-e2e.ts real-auth caller-tool-flow.spec.ts
+```
+
 What happens:
 
-1. Playwright `webServer` runs `bun run build && bun run preview` with
-   `EZCORP_DB_PATH` pointing to a fresh `mkdtemp` directory and **no**
+1. The runner creates a temporary database directory, then starts Playwright.
+   Its `webServer` runs `bun run build && bun run preview` with
+   `EZCORP_DB_PATH` pointing to that directory and **no**
    `PI_SKIP_INIT`. The DB layer initialises, migrates, and auth gates
    start enforcing.
 2. `globalSetup` (`e2e/real-auth-setup.ts`) POSTs to `/api/auth/setup`
@@ -55,8 +65,9 @@ What happens:
    the cookie to `e2e/.real-auth.json` (gitignored).
 3. Every spec under `e2e/real-auth/*.spec.ts` reuses that storage
    state via `use.storageState`.
-4. `globalTeardown` removes only the PGlite dir it created and the storage
-   state file. A caller-supplied `PI_E2E_REAL_DB_PATH` remains intact.
+4. `globalTeardown` removes the storage-state file. After Playwright exits and
+   its preview server has stopped, the runner removes its database directory
+   and PID sidecar. A caller-supplied `PI_E2E_REAL_DB_PATH` remains intact.
 
 **Test user credentials** (see `e2e/real-auth-setup.ts`):
 
@@ -67,18 +78,20 @@ What happens:
 **Workers**: forced to 1. PGlite is a single-writer embedded engine;
 parallel workers writing to the same DB deadlock.
 
-**Test-only HTTP endpoints**: two routes under `/api/__test/*` are
-inert unless `PI_E2E_REAL=1` is set (they return 404 in production
-deploys). Specs use them to seed `ez_drafts` rows + scaffold files
+**Test-only HTTP endpoints**: routes under `/api/__test/*` require
+`PI_E2E_REAL=1`, `EZCORP_ALLOW_TEST_SURFACE=1`, and a non-production
+`NODE_ENV`. The real preview config sets these flags. Specs use them to seed `ez_drafts` rows + scaffold files
 on disk and to clean up installed extensions — the running webServer
 holds the PGlite lock so the seed fixture cannot open the DB
 directly.
 
-**DB lifecycle**: `EZCORP_DB_PATH` defaults to a unique `mkdtemp`
+**DB lifecycle**: the runner creates a unique `mkdtemp`
 under `$TMPDIR/ezcorp-e2e-XXXXXX` per invocation. Override with
 `PI_E2E_REAL_DB_PATH` to keep state across runs (the setup
 endpoint then returns 403 "setup already completed" — the harness
 falls back to login).
+Direct Playwright calls with the real or fresh setup config must supply
+`PI_E2E_REAL_DB_PATH`; the shared runner manages this by default.
 
 **Port isolation**: the mock and real configs start a strict preview server.
 Set `PI_E2E_MOCK_BASE_URL` or `PI_E2E_REAL_BASE_URL` to a free explicit port
