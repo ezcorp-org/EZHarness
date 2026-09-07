@@ -4,7 +4,7 @@ import { resolveBundledExtensions } from "../../src/extensions/bundled";
 import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
 function state(
-  status: "queued" | "verified" | "failed",
+  status: "queued" | "building" | "verified" | "failed",
   metadata: { lease?: { fence: number; until: number }; events?: Array<{ sequence: number; state: string; at: string }> } = {},
 ) {
   return {
@@ -106,7 +106,8 @@ test("allows an R2 observer to finish after a six-minute lease and two idle poll
   let now = 0;
   let polls = 0;
   const clock = spyOn(Date, "now").mockImplementation(() => now);
-  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now = 360_001; });
+  let sleeps = 0;
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { now = 360_001 + sleeps; sleeps += 1; });
   const client = {
     async listExtensions() { polls += 1; return []; },
     async extensionControl() { return state(polls === 1 ? "building" : "verified"); },
@@ -119,6 +120,8 @@ test("allows an R2 observer to finish after a six-minute lease and two idle poll
       terminalOperationStates: { verified: resolveBundledExtensions().length },
     });
     requireBundledBootstrapVerified(result, "after a recovered lease");
+    expect(polls).toBe(3);
+    expect(sleeps).toBe(2);
   } finally {
     sleep.mockRestore();
     clock.mockRestore();
