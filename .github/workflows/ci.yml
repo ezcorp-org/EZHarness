@@ -303,10 +303,9 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      # Fail fast if the sandbox can't spawn here — otherwise the two extension
-      # specs would silently skip and the job would go green without them (#55).
+      # This installs the runner and executes PodmanRunner.initialize(), which
+      # verifies that the real extension sandbox can start on the CI host.
       - run: bash scripts/setup-extension-runner-ci.sh --install
-      - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
       - name: Verify fresh real-auth setup without committed storage state
         shell: bash
         run: |

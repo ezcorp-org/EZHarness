@@ -21,6 +21,7 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
@@ -255,6 +256,19 @@ describe("e2e lane manifest", () => {
     expect(lanes["fresh-setup"]!.length).toBeGreaterThan(0);
     expect(lanes["real-auth"]!.length).toBeGreaterThan(0);
   }, 120_000);
+
+  test("hosted and local CI Bun file commands name existing modules", async () => {
+    const commandSources = [".github/workflows/ci.yml", "scripts/ci-local.sh"];
+    for (const source of commandSources) {
+      const text = await Bun.file(join(REPO_ROOT, source)).text();
+      const modules = [...text.matchAll(/\bbun\s+((?:scripts|web)\/[A-Za-z0-9_./-]+\.ts)/g)].map(
+        (match) => match[1]!,
+      );
+      expect(modules.length, `${source} has no explicit Bun file commands`).toBeGreaterThan(0);
+      const missing = modules.filter((module) => !existsSync(join(REPO_ROOT, module)));
+      expect(missing, `${source} invokes missing Bun module(s): ${missing.join(", ")}`).toEqual([]);
+    }
+  });
 
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
