@@ -1,105 +1,107 @@
-import { test, expect, mock, beforeAll, beforeEach } from "bun:test";
-import { fetchPermitted } from "@ezcorp/sdk/runtime";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { ToolCallResult } from "@ezcorp/sdk";
 
-function at<T>(arr: readonly T[], i: number, what: string): T {
-  const v = arr[i];
-  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
-  return v;
-}
+import { _internals } from "./index";
 
-// Mock the global — fetchPermitted internally delegates to fetch once the
-// hostname allowlist check passes.
+const originalFetch = globalThis.fetch;
+const originalHosts = process.env.EZCORP_PERMITTED_HOSTS;
 const mockFetch = mock<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
   () => Promise.resolve(new Response("{}")),
 );
-globalThis.fetch = mockFetch as unknown as typeof fetch;
 
-// Local helper that mirrors the shape of index.ts's githubFetch so we can
-// assert behavior without spinning up the stdin-driven dispatcher.
-async function githubFetch(path: string) {
-  const headers: Record<string, string> = { "User-Agent": "github-stats-ext" };
-  const res = await fetchPermitted(`https://api.github.com${path}`, { headers });
-  const data = await res.json();
-  return { ok: res.ok, status: res.status, data };
+function text(result: ToolCallResult): string {
+  const first = result.content[0];
+  if (!first || first.type !== "text") throw new Error("expected a text tool result");
+  return first.text;
+}
+
+function json(result: ToolCallResult): Record<string, unknown> {
+  return JSON.parse(text(result)) as Record<string, unknown>;
 }
 
 beforeAll(() => {
-  // fetchPermitted fails closed when EZCORP_PERMITTED_HOSTS is unset. In
-  // tests we simulate the post-install granted state for api.github.com —
-  // this matches what the host's buildAllowedEnv would inject once the
-  // user grants the manifest-declared network permission.
   process.env.EZCORP_PERMITTED_HOSTS = "api.github.com";
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+  if (originalHosts === undefined) delete process.env.EZCORP_PERMITTED_HOSTS;
+  else process.env.EZCORP_PERMITTED_HOSTS = originalHosts;
 });
 
 beforeEach(() => {
   mockFetch.mockReset();
 });
 
-test("repo-stats returns repository data", async () => {
-  const repoData = {
-    full_name: "octocat/hello-world",
-    stargazers_count: 100,
-    forks_count: 50,
-    open_issues_count: 5,
-    language: "TypeScript",
-    description: "A test repo",
-  };
-  mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(repoData), { status: 200 }));
+describe("github-stats public GitHub API handlers", () => {
+  test("repo-stats returns selected public repository fields without a token", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      full_name: "octocat/hello-world",
+      stargazers_count: 100,
+      forks_count: 50,
+      open_issues_count: 5,
+      language: "TypeScript",
+      description: "A test repo",
+    }), { status: 200 }));
 
-  const result = await githubFetch("/repos/octocat/hello-world");
-  expect(result.ok).toBe(true);
-  expect((result.data as Record<string, unknown>).full_name).toBe("octocat/hello-world");
-  expect((result.data as Record<string, unknown>).stargazers_count).toBe(100);
-});
+    const result = await _internals.repoStats({ owner: "octocat", repo: "hello-world" });
 
-test("user-profile returns user data", async () => {
-  const userData = {
-    login: "octocat",
-    name: "The Octocat",
-    bio: "GitHub mascot",
-    public_repos: 8,
-    followers: 1000,
-    following: 5,
-  };
-  mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(userData), { status: 200 }));
+    expect(result.isError).toBe(false);
+    expect(json(result)).toEqual({
+      name: "octocat/hello-world",
+      stars: 100,
+      forks: 50,
+      openIssues: 5,
+      language: "TypeScript",
+      description: "A test repo",
+    });
+    const [, init] = mockFetch.mock.calls[0] ?? [];
+    expect(init?.headers).toEqual({ "User-Agent": "github-stats-ext" });
+  });
 
-  const result = await githubFetch("/users/octocat");
-  expect(result.ok).toBe(true);
-  expect((result.data as Record<string, unknown>).login).toBe("octocat");
-  expect((result.data as Record<string, unknown>).followers).toBe(1000);
-});
+  test("user-profile returns selected public user fields", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({
+      login: "octocat",
+      name: "The Octocat",
+      bio: "GitHub mascot",
+      public_repos: 8,
+      followers: 1000,
+      following: 5,
+    }), { status: 200 }));
 
-test("repo-languages returns language breakdown", async () => {
-  const languages = { TypeScript: 50000, JavaScript: 10000, CSS: 5000 };
-  mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(languages), { status: 200 }));
+    const result = await _internals.userProfile({ username: "octocat" });
 
-  const result = await githubFetch("/repos/octocat/hello-world/languages");
-  expect(result.ok).toBe(true);
-  expect((result.data as Record<string, unknown>).TypeScript).toBe(50000);
-});
+    expect(result.isError).toBe(false);
+    expect(json(result)).toEqual({
+      login: "octocat",
+      name: "The Octocat",
+      bio: "GitHub mascot",
+      publicRepos: 8,
+      followers: 1000,
+      following: 5,
+    });
+  });
 
-test("handles 404 not found", async () => {
-  mockFetch.mockResolvedValueOnce(new Response('{"message":"Not Found"}', { status: 404 }));
+  test("repo-languages returns the public API language map", async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ TypeScript: 50_000, JavaScript: 10_000 }), { status: 200 }));
 
-  const result = await githubFetch("/repos/nonexistent/repo");
-  expect(result.ok).toBe(false);
-  expect(result.status).toBe(404);
-});
+    const result = await _internals.repoLanguages({ owner: "octocat", repo: "hello-world" });
 
-test("handles 403 rate limit", async () => {
-  mockFetch.mockResolvedValueOnce(new Response('{"message":"rate limit"}', { status: 403 }));
+    expect(result.isError).toBe(false);
+    expect(json(result)).toEqual({ TypeScript: 50_000, JavaScript: 10_000 });
+  });
 
-  const result = await githubFetch("/repos/octocat/hello-world");
-  expect(result.ok).toBe(false);
-  expect(result.status).toBe(403);
-});
+  test.each([
+    ["repo-stats", _internals.repoStats, { owner: "missing", repo: "repo" }, 404, "Repository missing/repo not found"],
+    ["user-profile", _internals.userProfile, { username: "octocat" }, 403, "GitHub public API rate limit exceeded; try again later"],
+    ["repo-languages", _internals.repoLanguages, { owner: "octocat", repo: "hello-world" }, 500, "GitHub API error: 500"],
+  ])("%s maps public API status %i to a readable error", async (_name, handler, args, status, expected) => {
+    mockFetch.mockResolvedValueOnce(new Response("{}", { status }));
 
-test("uses only the public API header", async () => {
-  mockFetch.mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const result = await handler(args);
 
-  await githubFetch("/users/test");
-
-  const callArgs = at(mockFetch.mock.calls, 0, "fetch call");
-  const headers = (callArgs[1] as RequestInit).headers as Record<string, string>;
-  expect(headers).toEqual({ "User-Agent": "github-stats-ext" });
+    expect(result.isError).toBe(true);
+    expect(text(result)).toBe(expected);
+  });
 });

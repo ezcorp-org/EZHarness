@@ -23,17 +23,19 @@ async function githubFetch(path: string): Promise<{ ok: boolean; status: number;
   return { ok: res.ok, status: res.status, data };
 }
 
+function githubError(status: number, notFound: string) {
+  if (status === 404) return toolError(notFound);
+  if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
+  return toolError(`GitHub API error: ${status}`);
+}
+
 // Tool handlers — each returns a ToolCallResult; host-side dispatcher
 // serializes into the JSON-RPC envelope.
 
 const repoStats: ToolHandler = async (args) => {
   const { owner, repo } = args as { owner: string; repo: string };
   const { ok, status, data } = await githubFetch(`/repos/${owner}/${repo}`);
-  if (!ok) {
-    if (status === 404) return toolError(`Repository ${owner}/${repo} not found`);
-    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
-    return toolError(`GitHub API error: ${status}`);
-  }
+  if (!ok) return githubError(status, `Repository ${owner}/${repo} not found`);
   const d = data as Record<string, unknown>;
   return toolResult(JSON.stringify({
     name: d.full_name, stars: d.stargazers_count, forks: d.forks_count,
@@ -44,11 +46,7 @@ const repoStats: ToolHandler = async (args) => {
 const userProfile: ToolHandler = async (args) => {
   const { username } = args as { username: string };
   const { ok, status, data } = await githubFetch(`/users/${username}`);
-  if (!ok) {
-    if (status === 404) return toolError(`User ${username} not found`);
-    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
-    return toolError(`GitHub API error: ${status}`);
-  }
+  if (!ok) return githubError(status, `User ${username} not found`);
   const d = data as Record<string, unknown>;
   return toolResult(JSON.stringify({
     login: d.login, name: d.name, bio: d.bio,
@@ -59,11 +57,7 @@ const userProfile: ToolHandler = async (args) => {
 const repoLanguages: ToolHandler = async (args) => {
   const { owner, repo } = args as { owner: string; repo: string };
   const { ok, status, data } = await githubFetch(`/repos/${owner}/${repo}/languages`);
-  if (!ok) {
-    if (status === 404) return toolError(`Repository ${owner}/${repo} not found`);
-    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
-    return toolError(`GitHub API error: ${status}`);
-  }
+  if (!ok) return githubError(status, `Repository ${owner}/${repo} not found`);
   return toolResult(JSON.stringify(data));
 };
 
@@ -72,6 +66,9 @@ const tools: Record<string, ToolHandler> = {
   "user-profile": userProfile,
   "repo-languages": repoLanguages,
 };
+
+/** Actual handlers exposed only for the in-process example tests. */
+export const _internals = { repoStats, userProfile, repoLanguages };
 
 // --- Production wiring ---
 //
