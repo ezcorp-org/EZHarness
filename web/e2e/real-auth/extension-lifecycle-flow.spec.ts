@@ -26,6 +26,7 @@ type BrowserDiagnostics = {
   ignoredApiResponses: FailedApiResponse[];
   expectedRuntimeEventCancellations: Array<FailedApiResponse & { error: string }>;
   expectedRuntimeEventTeardownMarks: number;
+  browserEngine: string;
 };
 
 type BrowserDiagnosticsObserver = {
@@ -43,6 +44,7 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
   const diagnostics: BrowserDiagnostics = {
     pageErrors: [], consoleErrors: [], failedApiResponses: [], failedApiRequests: [], ignoredApiResponses: [],
     expectedRuntimeEventCancellations: [], expectedRuntimeEventTeardownMarks: 0,
+    browserEngine: page.context().browser()?.browserType().name() ?? "unknown",
   };
   const appOrigin = new URL(baseURL).origin;
   const completedExtensionDeletes = new WeakSet<Request>();
@@ -87,7 +89,9 @@ function observeBrowserDiagnostics(page: Page, baseURL: string): BrowserDiagnost
     const error = request.failure()?.errorText ?? "unknown transport failure";
     // WebKit reports a live EventSource as cancelled when an observed main
     // frame navigation tears it down. Any other stream failure stays strict.
-    if (expectedRuntimeEventTeardowns.has(request) && error === "Load request cancelled") {
+    const expectedCancellation = error === "Load request cancelled"
+      || (diagnostics.browserEngine === "firefox" && error === "NS_BINDING_ABORTED");
+    if (expectedRuntimeEventTeardowns.has(request) && expectedCancellation) {
       diagnostics.expectedRuntimeEventCancellations.push({ method: request.method(), path: url.pathname, status: 0, error });
       activeRuntimeEventRequests.delete(request);
       return;
