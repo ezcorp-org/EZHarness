@@ -48,7 +48,7 @@ Sub-agent bus events (`agent:spawn`/`agent:status`/`agent:complete`) for this `r
 - **`finalizeSuccess`** — set `run.status = "success"`, drain `ctx.dbQueue`, write a fallback single message if no per-turn save happened, emit `run:complete` + `obs:turn`.
 - **`finalizeError`** — three sub-paths: `AbortError` → `cancelled` (saves the partial turn text, emits `run:cancel`); `ProviderUnavailableError` → structured JSON error payload; any other `Error` → `friendlyProviderError` rewrite of cryptic connection text. The error message is written at most once via `claimErrorPersistSlot` (a shared `errorMessagePersisted` set the watchdog also claims synchronously — exactly one visible error bubble per run).
 - **`finalizeCleanup`** — always runs: detach every `unsub*`, clear per-tool abort controllers, `watchdog.clearRun`, drop the run from `controllers`/`activeAgents`/`runConversations`, persist the terminal run row, and delete (or mark interrupted) the `active_runs` row.
-- **`finalizeSetupError`** — safety net for failures before the inner try (credential/OAuth/model resolution); marks the run errored, aborts the controller so in-flight auto-spin-up sub-agents unwind.
+- **`finalizeSetupError`** — safety net for failures before the inner try (credential/OAuth/model resolution); marks the run errored, aborts the controller so in-flight auto-spin-up sub-agents unwind, and calls the same `finalizeCleanup` used after streaming. When one parallel setup task fails, `setupTools` aborts the run and waits for all setup tasks to settle before it returns that failure. A sibling cannot finish acquiring resources after cleanup.
 
 ### Context compaction
 

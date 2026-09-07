@@ -24,9 +24,41 @@
  *     value. Failing loudly beats a run whose second half saw different
  *     inputs than its first.
  */
-import type { AgentResult } from "../types";
+import type { AgentResult, WorkflowStepRun } from "../types";
 import type { TruncatedStepOutput } from "../db/schema";
+import type { WorkflowStepRunUpsert } from "../db/queries/workflow-runs";
 import { redactSecretsDeep } from "./secret-redaction";
+
+/** Project public progress and private execution facts into a durable record.
+ * Explicit fields prevent extra runtime properties from entering storage;
+ * preparing payloads here keeps raw credentials off both storage and SSE. */
+export function prepareWorkflowStepRecord(
+  workflowRunId: string,
+  step: WorkflowStepRun,
+  details: {
+    output?: AgentResult;
+    resolvedInput?: Record<string, unknown>;
+    durationMs?: number;
+  },
+): WorkflowStepRunUpsert {
+  return {
+    workflowRunId,
+    stepName: step.stepName,
+    runId: step.runId,
+    status: step.status,
+    iterations: step.iterations,
+    provider: step.provider,
+    model: step.model,
+    attempt: step.attempt,
+    inputTokens: step.inputTokens,
+    outputTokens: step.outputTokens,
+    errorCode: step.errorCode,
+    skippedReason: step.skippedReason,
+    durationMs: details.durationMs,
+    output: details.output === undefined ? undefined : prepareStepOutput(details.output),
+    resolvedInput: details.resolvedInput === undefined ? undefined : prepareResolvedInput(details.resolvedInput),
+  };
+}
 
 /**
  * Per-step cap on the stored output, in bytes of UTF-8 JSON.

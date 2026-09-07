@@ -37,6 +37,7 @@ interface CreatedMessage {
 const createdMessages: CreatedMessage[] = [];
 const updateRunCalls: Array<{ id: string; status: string }> = [];
 const markInterruptedCalls: string[] = [];
+let failRunUpdate = false;
 
 mock.module("../db/queries/conversations", () => ({
   createMessage: async (
@@ -82,6 +83,7 @@ mock.module("../db/queries/runs", () => ({
   terminalizeOrphanedRuns: async () => 0,
   updateRun: async (run: { id: string; status: string }) => {
     updateRunCalls.push({ id: run.id, status: run.status });
+    if (failRunUpdate) throw new Error("Run storage unavailable");
   },
 }));
 
@@ -139,6 +141,8 @@ function makeHarness(): Harness {
 function makeCtx(run: AgentRun): StreamChatContext {
   return {
     run,
+    toolAbortControllers: new Map(),
+    unsubAgentActivity: [],
     lastSavedMessageId: null,
     allTurnsText: "",
     turnText: "",
@@ -149,6 +153,7 @@ function makeCtx(run: AgentRun): StreamChatContext {
 }
 
 beforeEach(() => {
+  failRunUpdate = false;
   createdMessages.length = 0;
   updateRunCalls.length = 0;
   markInterruptedCalls.length = 0;
@@ -239,6 +244,23 @@ describe("finalizeError ProviderUnavailableError persist-slot idempotency", () =
 // ── finalizeSetupError ─────────────────────────────────────────────────
 
 describe("finalizeSetupError persist-slot idempotency", () => {
+  test("a failed terminal write still releases local subscriptions and preserves the setup error", async () => {
+    const h = makeHarness();
+    const run = makeRun("running");
+    const ctx = makeCtx(run);
+    const released = mock(() => {});
+    ctx.unsubModeChange = released;
+    failRunUpdate = true;
+
+    await finalizeSetupError(ctx, h.host, CONV_ID, {}, new Error("credential resolution failed"));
+
+    expect(released).toHaveBeenCalledTimes(1);
+    expect(h.host.controllers.has(RUN_ID)).toBe(false);
+    expect(h.host.runConversations.has(RUN_ID)).toBe(false);
+    expect(run.result?.error).toBe("credential resolution failed");
+    expect(h.runErrors).toEqual(["credential resolution failed"]);
+  });
+
   test("B1 slot UNclaimed → exactly one persisted message + run:error", async () => {
     const h = makeHarness();
     const run = makeRun("running");

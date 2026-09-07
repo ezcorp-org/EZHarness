@@ -970,7 +970,7 @@ export async function setupTools(
   // clobbered by its `ctx.system = injection.systemPrompt` assignment.
   const preprocessNotes: string[] = [];
 
-  const [, , resolvedModel] = await Promise.all([
+  const setupTasks = [
     // 1. Memory/KB injection (non-fatal) — skip entirely if project has no data
     (async () => {
       if (!options.projectId) return;
@@ -1835,7 +1835,17 @@ export async function setupTools(
       credentialConversationId,
       turnRoutingContext,
     ),
-  ]);
+  ] as const;
+  let resolvedModel: SetupToolsResult;
+  try {
+    [, , resolvedModel] = await Promise.all(setupTasks);
+  } catch (err) {
+    // A rejected sibling does not stop the other setup tasks. Cancel work
+    // that observes the signal, then settle all acquisitions before cleanup.
+    ctx.controller.abort();
+    await Promise.allSettled(setupTasks);
+    throw err;
+  }
 
   // Deterministic-preprocess grounding notes ride the UNCACHED
   // systemMemoryTail trailing block, NOT the byte-stable cached region-1
