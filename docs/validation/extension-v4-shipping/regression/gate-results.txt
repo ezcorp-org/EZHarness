@@ -1,0 +1,4 @@
+per_file_exit=0
+new_file_exit=0
+patch_exit=0
+e121_focused_exit=0

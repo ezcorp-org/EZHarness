@@ -1,0 +1,14 @@
+worktree=/home/dev/work/EZCorp/extension-v4-independent-audit
+source=5133652d6ba7f598aa2e896139fd399526647ea6
+bun=1.3.14
+node=v22.22.2
+conmon=/tmp/ez-audit-ci-conmon
+default_parallel=6
+ M docs/validation/extension-v4-shipping/security/vm-seccomp-audit.log
+ M docs/validation/extension-v4-shipping/security/vm-seccomp-ingest.log
+ M gates/shipping-security.md
+ M tasks/lessons.md
+?? docs/extension-v4-shipping-validation-report.md
+?? docs/validation/extension-v4-shipping/security/available-checks-receipt.json
+?? docs/validation/extension-v4-shipping/security/provider-environment-presence.json
+?? docs/validation/extension-v4-shipping/security/provider-inputs.md
