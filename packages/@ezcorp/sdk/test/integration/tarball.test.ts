@@ -23,6 +23,7 @@ const SDK_DIR = join(import.meta.dir, "..", "..");
 
 let packDir: string;
 let fixtureDir: string;
+let installCacheDir: string | undefined;
 let tarballPath: string;
 
 async function run(
@@ -48,7 +49,7 @@ beforeAll(async () => {
   fixtureDir = mkdtempSync(join(tmpdir(), "phase3-tarball-fixture-"));
 
   // Pack SDK.
-  const pack = await run(["bun", "pm", "pack", "--destination", packDir], {
+  const pack = await run([process.execPath, "pm", "pack", "--destination", packDir], {
     cwd: SDK_DIR,
   });
   if (pack.exitCode !== 0) {
@@ -123,7 +124,7 @@ test("@ezcorp/sdk/v4: contract and runtime import from packed dependencies", () 
 
   // Install tarball into fixture. Empty HOME/XDG_CACHE to avoid writing to the
   // user's global bun install state; use a scratch dir instead.
-  const installCacheDir = mkdtempSync(join(tmpdir(), "phase3-tarball-cache-"));
+  installCacheDir = mkdtempSync(join(tmpdir(), "phase3-tarball-cache-"));
   const install = await run([process.execPath, "add", `file:${join(packDir, contractTarball)}`, `file:${tarballPath}`], {
     cwd: fixtureDir,
     env: {
@@ -138,14 +139,15 @@ test("@ezcorp/sdk/v4: contract and runtime import from packed dependencies", () 
 }, 120_000);
 
 afterAll(() => {
-  if (packDir) rmSync(packDir, { recursive: true, force: true });
-  if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
+  for (const directory of [packDir, fixtureDir, installCacheDir]) {
+    if (directory) rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test(
   "installed @ezcorp/sdk tarball: fixture extension test suite passes",
   async () => {
-    const result = await run(["bun", "test", "fixture.test.ts"], {
+    const result = await run([process.execPath, "test", "fixture.test.ts"], {
       cwd: fixtureDir,
     });
     if (result.exitCode !== 0) {

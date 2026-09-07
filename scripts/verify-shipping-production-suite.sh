@@ -81,7 +81,7 @@ run_proof file-organizer 30m \
 # R1 deliberately waits through one real lease expiry after the app is killed
 # while an owned build is paused. Its normal runtime is about seven minutes; fifteen
 # minutes permits slower hosted runners while still making a hang finite.
-for proof in runtime delivery revocation runtime-resources; do
+for proof in embeddings runtime delivery revocation runtime-resources; do
   proof_timeout=15m
   [[ "$proof" == runtime-resources ]] && proof_timeout=25m
   run_proof "$proof" "$proof_timeout" \
