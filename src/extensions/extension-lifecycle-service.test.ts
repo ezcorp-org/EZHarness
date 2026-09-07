@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, mock, spyOn, test } from "bun:test";
 import type { ReleaseRecord, Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { createLifecycleAuthorization, recoverInstallation, recoveryDeadline, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
 import { requestedReleaseGrants } from "./extension-control";
@@ -158,11 +158,16 @@ test("recovery reports and rejects an immediate lifecycle failure", async () => 
 
 test("deferred recovery contains a later lifecycle failure", async () => {
   const fixture = recoveryFixture(false);
+  const deferredFailure = mock(async () => { throw new Error("deferred recover failed"); });
   try {
     await recoverInstallation(fixture.services, installation.id);
-    fixture.services.lifecycle.recover = async () => { throw new Error("deferred recover failed"); };
+    fixture.services.lifecycle.recover = deferredFailure;
     await expect(fixture.timers[0]!()).resolves.toBeUndefined();
-    expect(fixture.recoverCalls()).toBe(1);
+    expect(deferredFailure).toHaveBeenCalledTimes(1);
+    expect(deferredFailure).toHaveBeenCalledWith(
+      { principalId: installation.ownerId, scope: installation.scope, kind: "service" },
+      installation.id,
+    );
   } finally {
     fixture.setTimer.mockRestore();
     fixture.clearTimer.mockRestore();
