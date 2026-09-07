@@ -1,0 +1,2 @@
+Private only: GitHub job logs, browser artifacts, and artifact archives. They are not copied into metadata because they can include authenticated browser data or repository runner state.
+Safe metadata was generated from the GitHub run/job JSON and terminal summaries in private logs. No raw log content is included.

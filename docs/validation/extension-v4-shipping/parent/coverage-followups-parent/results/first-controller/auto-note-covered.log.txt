@@ -1,0 +1,22 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts:
+(pass) E2E: real subprocess + JSON-RPC > close waits for the owned subprocess and its streams to close [747.00ms]
+(pass) E2E: real subprocess + JSON-RPC > subprocess starts and responds to vault-tree [638.97ms]
+(pass) E2E: real subprocess + JSON-RPC > capture in yolo mode writes files to the vault directory [634.87ms]
+(pass) E2E: real subprocess + JSON-RPC > capture via real subprocess honors LLM-supplied category (learn-about-cows regression) [611.31ms]
+(pass) E2E: real subprocess + JSON-RPC > capture does NOT emit unsolicited stdout that could break JSON-RPC framing [620.72ms]
+(pass) E2E: real subprocess + JSON-RPC > lifecycle hook triggers ezcorp/state notification (expected emission point) [613.18ms]
+(pass) E2E: real subprocess + JSON-RPC > subprocess handles sequential calls without crashing [624.20ms]
+(pass) E2E: real subprocess + JSON-RPC > approval-mode capture returns plan ID and confirm executes it [620.93ms]
+(pass) E2E: real subprocess + JSON-RPC > configure tool persists settings and reads them back [608.89ms]
+(pass) E2E: real subprocess + JSON-RPC > configure does NOT write to the real project config path [658.09ms]
+(pass) E2E: real subprocess + JSON-RPC > unknown tool returns JSON-RPC error, subprocess stays alive [624.20ms]
+(pass) E2E: real subprocess + JSON-RPC > lifecycle hook notifications do not crash subprocess [606.56ms]
+(pass) E2E: real subprocess + JSON-RPC > capture with related notes links them bidirectionally on disk [654.31ms]
+(pass) E2E: real subprocess + JSON-RPC > subprocess does not write outside its cwd [609.39ms]
+
+ 14 pass
+ 0 fail
+ 42 expect() calls
+Ran 14 tests across 1 file. [9.50s]

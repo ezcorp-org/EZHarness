@@ -1,0 +1,1 @@
+{"beforeExe":"/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/bun-gated-exec","beforeLive":true,"beforeDenied":true,"afterExe":"/nix/store/jwvp9g5w6yl3zz5v5axs0094ywkg30jr-coreutils-full-9.10/bin/coreutils","afterLive":false}

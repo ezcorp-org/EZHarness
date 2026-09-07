@@ -1,0 +1,387 @@
+# Development lifecycle
+
+How code gets from a branch to a deployed release in EZCorp, and how the gate
+stays trustworthy when an **autonomous agent** writes both the feature and its
+tests in the same PR that must pass the gate.
+
+## Why this exists
+
+EZCorp ships features through agent workflows (`ez-feature`, sub-agent teams).
+The same actor writes the code, writes the tests, and *can edit the gate config*
+— and is rewarded for declaring "done / all green". A naive coverage gate is
+gameable: lower a threshold, add an `EXCLUDES` entry, write assertion-free
+tests, `.skip` a failing one, or push straight past CI. This lifecycle is
+designed so it **can't** be — every control is either:
+
+- **Out-of-reach** — the gate lives where the PR diff can't touch it (GitHub
+  branch protection, CODEOWNERS requiring a *different* approver), or
+- **Semantic** — it measures behavior, not a number a vacuous test satisfies
+  (patch coverage, mutation testing).
+
+## Branching & promotion (trunk-based)
+
+```
+feat/… fix/… ci/… docs/… chore/… security/…   ← short-lived, branched off main
+      │
+      ▼ open PR
+   required checks (green) + non-author review
+      │
+      ▼ squash-merge   (linear history, no force-push, no admin bypass)
+    main ── always deployable ─────────────────────────────────────────►
+      │
+      ▼ bump package.json version + push tag app-vX.Y.Z
+ release-image.yml → verify → multi-arch build → GHCR → GitHub Release
+      ▼ self-hosted instances update-check against releases/latest
+```
+
+- `main` is the single source of truth and is always releasable.
+- Branches are short-lived, rebased on `main`, deleted after merge.
+- No long-lived `develop` branch. No direct pushes to `main`.
+
+### Multi-branch programs: `bun run branches:unlanded`
+
+Squash-merge is what keeps `main` linear, and it is also what makes "did this
+branch land?" unanswerable by ancestry. A squash rewrites history, so **no
+merged branch is ever an ancestor of `main`** — `git merge-base --is-ancestor`
+says "not on main" for branches that fully landed and for branches that were
+silently dropped, identically. A program that ran across ~30 branches lost four
+finished pieces of work to exactly that false signal.
+
+`bun run branches:unlanded` is the check (`scripts/unlanded-branches.ts`,
+pinned by `src/__tests__/unlanded-branches.test.ts`). It runs
+`git cherry <integration-tip> <branch>` per branch and reports the `+` commits.
+`git cherry` compares **patch-ids**, not ancestry, so it survives rebases and
+re-authoring — but see the tip rule below.
+
+```
+bun run branches:unlanded                              # tip: origin/main, program prefixes
+bun run branches:unlanded feat/my-integration          # tip: your integration branch
+bun run branches:unlanded feat/x --pattern='feat/x-*'  # --pattern REPLACES the default scope
+```
+
+| exit | meaning | stdout |
+|---|---|---|
+| 0 | every matched branch fully landed | empty |
+| 1 | unlanded commits found — paste stdout into the PR | branch + sha + subject |
+| 2 | unusable: bad args, unresolvable tip, `git` failure, or the pattern matched **zero** branches | empty |
+| 3 | degenerate tip (see below) | empty |
+
+Empty stdout means "nothing dropped" **only at exit 0**. The scope line
+(`tip=… patterns=… examined=N branch(es) flagged=N`) always goes to **stderr**,
+so stdout stays paste-clean while "how many branches did you actually look at"
+is never invisible — a pattern that matches nothing exits 2, never 0.
+
+**Point it at a history-preserving tip — the default will refuse.** Patch-id
+equivalence is per-commit; a squash replaces N commits with one combined
+patch-id that matches none of them. Against a squash-merged trunk `git cherry`
+therefore marks *every* branch commit `+`, landed and dropped alike. Because
+this repo squash-merges everything, **`origin/main` can never answer this
+question**, so running with no arguments is expected to exit 3 rather than
+print a wall of false positives. Measured on the ez-factory program: at
+`tip=origin/main` 33 of 34 branches flagged, *including* four known-landed
+control branches; at the integration tip, all four came back clean and only the
+real drops flagged.
+
+Exit 3 is a normal, useful outcome, not a crash. The message is the product: it
+names the tip as the thing at fault, explains the patch-id mechanism, and lists
+the local branches that **contain** the shared commit `origin/main` cannot see —
+ranked most-integrated first, as ready-to-run commands. Follow one of them:
+
+```
+$ bun run branches:unlanded
+FATAL: 'origin/main' cannot answer this question — it looks SQUASH-MERGED.
+  …
+  TRY ONE OF THESE. They are the local branches that CONTAIN 40d57aae,
+  most-integrated first …
+    bun run branches:unlanded feat/ez-factory-onto-main
+```
+
+The right tip is the **integration branch** — the ref the release was squashed
+from — which is the useful question during an integration anyway ("what is not
+in *this* branch yet"). Confirm a candidate with
+`git rev-parse <candidate>^{tree} origin/main^{tree}`: two identical lines means
+same content, real history. `--allow-all-unlanded` accepts a flagged result
+as-is when the branches genuinely do share unlanded work. The wording of this
+message is pinned by tests — it is the only thing most callers will ever read.
+
+Deliberately **not** a CI job: it reads local branches, which a CI checkout does
+not have. Run it before you declare a multi-branch program finished.
+
+## The gate (required checks on `main`)
+
+> **The applied branch protection has drifted from this table.** Measured
+> 2026-08-09, `gh api …/branches/main/protection/required_status_checks`
+> requires **10** contexts, not the 13 listed below: **Gate integrity**,
+> **Visual evidence**, **Svelte check** and **E2E (real auth + real DB)** are
+> NOT enforced (they run and report, but don't block merge), while
+> **Web security coverage** IS enforced and is absent from this table.
+> Re-applying the [snippet below](#applying-branch-protection-one-time)
+> reconciles it — an admin action, not a code change.
+> See [platform/dev-lifecycle-and-gates.md](features/platform/dev-lifecycle-and-gates.md#what-branch-protection-enforces).
+
+Every PR must pass these before it can merge. Names are the GitHub check
+contexts (the job `name:` in `.github/workflows/ci.yml`), pinned in branch
+protection so renaming/deleting a job in a PR doesn't dodge the requirement.
+
+| Check | Proves | Cheat it closes |
+|---|---|---|
+| **Typecheck** | `tsc` clean (backend + web) | — |
+| **Svelte check** | `svelte-check` clean (Svelte template/type errors in `web/`) | — |
+| **Backend tests** | aggregate: every backend coverage shard + the residual pass/fail set (incl. `route-contract.test.ts`) succeeded | shard/set drift silently de-gating a suite |
+| **Backend critical (strict pass/fail)** | curated deterministic correctness suites (RBAC engine/resolver, migration idempotency, auth, secrets, mention-wiring) run **plain** via `CRITICAL_ONLY=1` — no coverage instrumentation | the coverage shards' env-flake tolerance hiding a real assertion failure |
+| **Web tests (vitest)** | component + server-route units pass | — |
+| **Web tests (bun-leg orphans)** | the plain web unit tests the Vitest leg doesn't run (`scripts/test-web.sh`) | — |
+| **E2E (mock, no Docker)** | UI render + action wiring works | broken UI shipped green |
+| **E2E (real auth + real DB)** | fresh first-user setup plus real-auth/real-DB tiers through `scripts/run-real-e2e.ts`, which owns database cleanup after Playwright exits; mandatory `scripts/setup-extension-runner-ci.sh --install` runs `PodmanRunner.initialize()` so the current extension runner kernel controls must work | mock-only green hiding real-stack breakage |
+| **Lint (biome)** | style/lint clean | — |
+| **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
+| **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job, and it fails unless all coverage producers (backend shards, extras legs, **Web security coverage**) succeeded | undertested code / incomplete coverage data |
+| **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
+| **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec — and, when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched (deterministic, browser-free, fails closed, fails open to the coarse rule on a bad map; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot, or evidenced by an unrelated spec |
+
+### Dependency audit (running, NOT yet required)
+`.github/workflows/deps-audit.yml` runs `scripts/audit-deps.ts` on every PR,
+on pushes to `main`, and weekly on a cron (advisories appear with no code
+change, which is why it needs a schedule and therefore its own workflow rather
+than a job in `ci.yml`). It wraps `bun audit` over **both** lockfiles — root
+`bun.lock` and `web/bun.lock` — and fails on any advisory at or above the
+severity floor (default `high`) that isn't in `scripts/audit-allowlist.json`.
+
+Suppressions are `cargo-deny`-shaped, not `--ignore=<GHSA>`-shaped: every entry
+carries a written reason and a hard expiry, and the gate **also** fails on an
+**expired** entry (forcing periodic re-review) and on a **stale** entry matching
+no live advisory (so the list can't rot into a blanket ignore). A run that can't
+reach npm's advisory endpoint is retried once and then reported as an
+infrastructure failure (exit 2), never as a finding.
+
+It is deliberately **not** in branch protection yet — a new, network-dependent
+check earns that after it has run clean for a couple of weeks. Fix advisories by
+upgrading first; allowlist only when no in-range upgrade exists.
+
+### Per-file coverage gate
+`scripts/check-coverage.ts` enforces `scripts/coverage-thresholds.json` against
+`coverage/lcov.info`. Two diff-scoped gates run in the same job (reusing the
+lcov it just built, so it isn't rebuilt twice):
+
+- **New-file gate** (`scripts/check-new-file-coverage.ts`): every source file
+  *added* in the PR must be measured (≥1 covered line) **and** matched by a
+  threshold key. Closes the hole where a new file nobody added to
+  `coverage-thresholds.json` was silently un-gated.
+- **Patch coverage** (`scripts/check-patch-coverage.ts`): every *changed
+  executable line* must be covered. Catches undertested edits to existing files.
+
+### Gate integrity (anti-tamper + anti-cheat)
+`scripts/gate-integrity.ts` diffs the PR against `origin/main` and fails on:
+
+1. **EXCLUDES grew** — a new un-gating pattern in `scripts/coverage-config.ts`.
+2. **Coverage ratchet broken** — a removed key or lowered value in
+   `coverage-thresholds.json` (thresholds may only rise).
+3. **`.skip` / `.only` / `.todo`** added to a test file.
+4. **Empty `catch {}`** added to a test file (swallowed failures).
+5. **Assertion-free test** — a newly-touched `test()`/`it()` block with no
+   `expect`/`assert`.
+6. **Committed `coverage/lcov.info`** — the report must be built in CI.
+7. **`biome.json` weakened** — the LINT gate's un-gating surface, structurally
+   identical to `EXCLUDES`: a new `"!<path>"` in `files.includes`, a new or
+   widened `overrides[]` entry that disarms a rule, or a severity lowered out
+   of `"error"` (only `error` blocks — CI keeps biome warnings non-blocking).
+   Strengthening is silent: raising a severity, removing an exclusion,
+   shrinking an opt-out override.
+8. **The biome config FILE moved** — root `biome.json` deleted/renamed, or a
+   nested `biome.json`/`biome.jsonc` added (biome resolves the nearest config,
+   so one can un-lint a whole subtree without the root diff showing anything).
+
+All of them are diff-scoped, so pre-existing skips/mocks don't false-positive.
+
+## Local hooks (shift-left)
+
+The checks above run in CI, but you don't have to wait for a red CI run to find
+a lint slip or a stale lockfile. Checked-in git hooks under `.githooks/` run the
+cheap ones locally:
+
+- **pre-commit** — biome-lints your **staged** files (by explicit path) and, when
+  a staged path is an `ezcorp.config.ts` or `manifest.lock.json`, runs the
+  manifest-lock drift check. Fast (targets a couple seconds on a typical commit).
+- **pre-push** — the fuller pass before you share code: full biome lint,
+  `bun run typecheck` (backend + web + tests ratchet), and `svelte-check`.
+
+**Auto-setup:** `scripts/setup-git-hooks.sh` points git at `.githooks` and runs
+from `bun install`'s postinstall. It scopes the setting **per working tree**
+(`extensions.worktreeConfig` + `git config --worktree core.hooksPath .githooks`)
+rather than to the shared config — so enabling hooks in one worktree doesn't flip
+them on for a sibling checkout that shares the same `.git`. It's a safe no-op in
+CI (`$CI` set), in Docker builds, in tarball installs (no `.git`), and on a git
+too old for `--worktree`, so it never fails an install.
+
+**Escape hatches:** skip a single run with `git commit --no-verify` /
+`git push --no-verify`, or set `EZ_SKIP_HOOKS=1` for the command.
+
+These hooks are **advisory speed, not the gate** — they're bypassable by design,
+and the CI required checks above remain the enforcement backstop. They just move
+the feedback earlier.
+
+## What the local commands do NOT cover
+
+`bun run typecheck && bun run lint && bun run test && bun run test:coverage` is
+the pre-push line, and it is worth knowing precisely where it stops. Each gap
+below has already cost someone a red CI run or a wrong conclusion.
+
+**`bun run test` is the BACKEND pool only** (`scripts/test.sh`). It does not run:
+
+- `scripts/test-web.sh` — 222 orphaned `web/src/**/*.test.ts`, their own CI job
+  (`Web tests (bun-leg orphans)`);
+- the Vitest surface (`bun run --cwd web test:component`);
+- any e2e.
+
+A green `bun run test` therefore says nothing about three separate CI jobs. Run
+`bash scripts/test-web.sh` too when you touch anything under `web/`.
+
+**`bun run test:e2e` is NOT the e2e gate.** It collects the whole `e2e/` tree,
+including the `unwired` backlog that has no CI server fixture and the real-PGlite
+tiers that require a fresh database. Expect it to be substantially red. CI
+derives every blocking browser file list from `web/e2e/lanes.json`. To reproduce
+the mock gate exactly:
+
+```sh
+bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+         cd web && bunx playwright test --project=chromium "${ARGS[@]}"'
+```
+
+`mapfile` is **bash-only**. Under zsh it is not a builtin, `ARGS` silently comes
+out empty, and Playwright runs the whole backlog instead of the lane. Keep the
+`bash -c`, and verify `${#ARGS[@]}` is non-zero. The same CI job then runs the
+fresh-setup and real-auth real-PGlite configs. `bash scripts/ci-local.sh` runs
+all three browser commands from the same manifest.
+
+**A rebase invalidates your baselines. Re-measure the control on the new base.**
+Comparing post-rebase numbers against pre-rebase ones silently attributes
+upstream changes to your branch. Worked example: PR #172 swapped the typecheck
+toolchain to tsgo, and `svelte-check`'s reported file count went **4906 → 509**
+on `main` itself. A branch measured after that rebase, compared against a
+pre-rebase 4906, would look like it had dropped 4400 files from type checking.
+It hadn't — the baseline moved. Take the control on the rebased base (a detached
+checkout of the new `origin/main`, both installs re-run) and compare like with
+like.
+
+## Trustworthy green
+
+The blocking e2e suite runs with **`retries: 0`** (`web/playwright.config.ts`):
+a retry that flips red→green hides a real failure and makes "all green"
+meaningless. A genuinely-flaky spec must be moved to a **separate, non-blocking
+lane** with an owner and a tracking issue — never papered over with a retry.
+
+## Out-of-reach: branch protection + CODEOWNERS
+
+The in-repo gate only binds because the GitHub config below sits above the repo:
+
+**Branch protection on `main`** (applied via `gh`; see "Applying" below):
+required status checks (strict) for all the jobs above; ≥1 approving review;
+dismiss stale approvals; require CODEOWNERS review; `enforce_admins` on (no
+admin bypass — break-glass is a named human); linear history; no force-push, no
+deletion.
+
+**`.github/CODEOWNERS`** assigns the gate files (the `coverage-*` scripts,
+`coverage-thresholds.json`, CI workflows, `playwright.config.ts`, `biome.json`,
+`bunfig.toml`) to a human. With "require CODEOWNERS review" on, a PR that
+changes the gate needs an approval the agent cannot give itself.
+
+**Org setting (manual, one-time):** *disallow GitHub Actions from approving
+PRs* — closes the `github-actions`-bot self-approval bypass.
+
+## Changing the gate
+
+Legitimate gate changes (a new threshold, a justified `EXCLUDES` entry, a CI
+tweak) go through a human:
+
+1. A CODEOWNERS reviewer approves the gate-file diff.
+2. A maintainer applies the **`gate-change-approved`** label, which sets
+   `GATE_CHANGE_APPROVED=1` so the `Gate integrity` check bypasses its findings.
+
+An agent's token cannot apply a restricted label, so it cannot self-clear.
+
+## Release & deploy
+
+1. Bump `version` in `package.json`.
+2. Push tag `app-vX.Y.Z` (tag must equal `package.json` version —
+   `release-image.yml` hard-checks this).
+3. The workflow runs fast unit + snapshot/rollback/circuit-breaker verification,
+   then a Docker smoke + rollback + two-image-upgrade check, then pushes a
+   multi-arch image to GHCR and publishes the GitHub Release marked `latest`.
+4. Deployed instances poll `releases/latest` (see
+   [docs/update-check.md](update-check.md)) and surface the update.
+
+**Rollback:** redeploy a prior `app-v*` image; the Docker rollback flow is
+covered by `scripts/verify-docker-rollback.sh` / `verify:docker-rollback`.
+
+## Applying branch protection (one-time)
+
+As an org admin (`gh auth switch --user EZArchy`):
+
+```sh
+gh api -X PUT repos/ezcorp-org/EZHarness/branches/main/protection \
+  --input - <<'JSON'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": [
+      "Typecheck", "Svelte check", "Backend tests",
+      "Backend critical (strict pass/fail)", "Web tests (vitest)",
+      "Web tests (bun-leg orphans)", "E2E (mock, no Docker)",
+      "E2E (real auth + real DB)", "Lint (biome)",
+      "Manifest lockfile drift check", "Per-file coverage gate",
+      "Gate integrity", "Visual evidence"
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews": true,
+    "require_code_owner_reviews": true
+  },
+  "restrictions": null,
+  "required_linear_history": true,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+
+gh label create gate-change-approved \
+  --description "Maintainer-approved gate-config change (bypasses gate-integrity)" \
+  --color B60205
+```
+
+## Residual risks (honest)
+
+- **Admin/token bypass** is the only structural hole: an agent running under a
+  repo-admin token or a ruleset bypass could disable protection. Mitigation:
+  `enforce_admins=true`, named-human-only bypass, CI `GITHUB_TOKEN` scoped to
+  `contents: read` (already the default in `ci.yml`).
+- **e2e-per-feature** isn't fully mechanically inferable for the *general* case
+  (no feature→spec manifest). The **visual subset**, however, now HAS one:
+  `web/e2e/evidence-covers.json` maps each visual-source glob to the `@evidence`
+  spec(s) that render it. That manifest drives both the `Visual evidence` gate
+  (a changed visual file with a covering entry must have one of its covering
+  specs touched — not just any spec) and diff-scoped capture selection (only the
+  specs that render the diff are screenshotted). A meta-test
+  (`src/__tests__/visual-evidence-covers.test.ts`) self-ratchets it: adding an
+  `@evidence` spec without a mapping fails CI. The non-visual remainder is still
+  enforced by the PR-template checkbox + the agent contract in `CLAUDE.md` + CI
+  running all specs at `retries: 0`.
+- **Visual evidence proves presence, not assertion.** The `Visual evidence` gate
+  proves *a spec was added/changed*, not that it asserts the visual behavior —
+  a junk `expect(true)` passes it. Non-author review + the assertion-free-spec
+  ban (`gate-integrity`'s `unassertedAddedBlocks`) are the backstop; full
+  assertion quality is future mutation-testing work (see below).
+- **Assertion quality** beyond "has an assertion" is only truly caught by
+  **mutation testing**, the planned next layer (see below).
+
+## Roadmap: mutation testing
+
+Line coverage is blind to assertion quality; mutation testing is the definitive
+fix. Stryker has no official Bun runner and the backend suite's per-file
+`mock.module` isolation fights perTest coverage, so the pragmatic path is to run
+Stryker via the **Node/Vitest leg** the coverage job already provisions, scoped
+to **pure-logic modules** (`web/src/lib/search/**`, `goal-row-logic.ts`,
+`deep-link-resolve.ts`, …), **diff/incremental on PR + full nightly**, with the
+`break` threshold **ratcheted to the current score**. It starts as a
+**non-blocking pilot** and is promoted to a required check once stable.

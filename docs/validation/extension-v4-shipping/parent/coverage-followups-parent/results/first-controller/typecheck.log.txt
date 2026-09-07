@@ -1,0 +1,13 @@
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (34 ratcheted file(s) excluded)...
+src/__tests__/chat-tools-integration.test.ts(136,27): error TS2352: Conversion of type '{ eventType: string; }' to type '{ data: { tokenUsage: { input: number; output: number; }; }; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'data' is missing in type '{ eventType: string; }' but required in type '{ data: { tokenUsage: { input: number; output: number; }; }; }'.
+→ Typechecking web-e2e (15 ratcheted file(s) excluded)...
+✗ tests-typecheck failed (backend-tests exit 2, web-e2e exit 0).
+
+✗ Tests/e2e typecheck failed (see scripts/typecheck-tests.ts output).
+error: script "typecheck" exited with code 1

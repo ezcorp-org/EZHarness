@@ -1,0 +1,222 @@
+{
+  "run_id": 34158014590,
+  "job_id": 101853766510,
+  "workflow_head": "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7",
+  "job_started_utc": "2026-09-07T20:04:51Z",
+  "job_completed_utc": "2026-09-07T20:45:50Z",
+  "job_conclusion": "success",
+  "workflow_conclusion": "failure",
+  "workflow_failures_external_to_production_job": [
+    "E2E (real auth + real DB)",
+    "Gate integrity"
+  ],
+  "artifact": {
+    "id": 10032461946,
+    "name": "production-image-lifecycle",
+    "size_bytes": 167346
+  },
+  "proofs": [
+    {
+      "proof": "file-organizer",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/file-organizer"
+    },
+    {
+      "proof": "embeddings",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/embeddings"
+    },
+    {
+      "proof": "runtime",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/runtime"
+    },
+    {
+      "proof": "delivery",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/delivery"
+    },
+    {
+      "proof": "revocation",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/revocation"
+    },
+    {
+      "proof": "runtime-resources",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/runtime-resources"
+    },
+    {
+      "proof": "historical-upgrade",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/historical-upgrade"
+    },
+    {
+      "proof": "legacy-adoption",
+      "exit": 0,
+      "artifact_receipt": ".cache/production-lifecycle/legacy-adoption"
+    }
+  ],
+  "launcher_exit_fields": {
+    "historical-upgrade/upgrade/assert-candidate/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "historical-upgrade/upgrade/seed-previous/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "historical-upgrade/upgrade/assert-restore/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "delivery/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "file-organizer/runtime/command.log": {
+      "runtime_events_idle_exit": 0,
+      "playwright_exit": 0,
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "revocation/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "runtime/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "legacy-adoption/legacy/seed/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "legacy-adoption/legacy/adopt/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "runtime-resources/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "embeddings/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    }
+  },
+  "embedding_log_guard": [
+    "runtime_exit=0",
+    "embedding_log_guard_exit=0"
+  ],
+  "runtime_provenance": {
+    "provenance.txt": {
+      "image_id": "125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103"
+    },
+    "historical-upgrade/upgrade/assert-candidate/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "historical-upgrade/upgrade/seed-previous/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "localhost/ezcorp-extension-v4:audit-final-3ec53eaa",
+      "image_id": "sha256:da4676aeecc23e76add13551d95424d6dee95aded3b81bf0eae86531bf268682",
+      "revision": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    "historical-upgrade/upgrade/assert-restore/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "delivery/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "file-organizer/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "revocation/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "runtime/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "legacy-adoption/legacy/provenance.txt": {
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production"
+    },
+    "legacy-adoption/legacy/seed/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "localhost/ezcorp-extension-v4:legacy-main-537f074e-derived",
+      "image_id": "sha256:c20dad3e1e43cb5ba064ba8c855fc11ebceca0688339924a05c66566e76966ff",
+      "revision": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3"
+    },
+    "legacy-adoption/legacy/adopt/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "runtime-resources/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    },
+    "embeddings/runtime/provenance.txt": {
+      "launcher_source": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+      "image": "ezcorp:ci-production",
+      "image_id": "sha256:125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+      "revision": "00e2b3ea26274cbd50c2b9ecea583881b39f257b"
+    }
+  },
+  "identity_assessment": {
+    "workflow_pr_head": "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7",
+    "checkout_merge_commit": "00e2b3ea26274cbd50c2b9ecea583881b39f257b",
+    "merge_parents": [
+      "bd7364388d0106364864e18a3d321b13ba978c36",
+      "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7"
+    ],
+    "checkout_tree": "d2cb79e4a2f13651778886beb62594856f3aadc9",
+    "pr_head_tree": "d2cb79e4a2f13651778886beb62594856f3aadc9",
+    "tree_equal": true,
+    "assessment": "The image was built from GitHub Actions synthetic PR merge checkout 00e2b3ea. Its tree equals the published PR head 2bdf4708."
+  }
+}

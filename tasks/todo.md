@@ -377,11 +377,29 @@ Final local production review at `2c542bac`: the v2 outer chain completes at 19:
 - [x] Verify the completed canonical, independent and 30-minute chain against the exact frozen source and image.
 - [x] Recheck remote refs; main is still bd736438 and the remote feature is still 8a47c37e.
 - [x] Finish evidence membership, checksum, local-link and mode review.
-- [ ] Scan the exact staged snapshot and all expanded archives with the pinned scanner; record every exit.
-- [ ] Commit the scanned index and push normally, with all hooks enabled.
+- [x] Scan the exact staged snapshot and all expanded archives with the pinned scanner; record every exit.
+- [x] Commit the scanned index and push normally, with all hooks enabled.
 - [ ] Verify every hosted technical job against the new pushed head and retain safe results.
 
 Plan review: local product checks are complete. The next change publishes reviewed records and the existing source commits. The remote branch will receive a normal fast-forward push. The 83 migration-policy findings remain a maintainer decision; no policy exception or shipping approval is applied.
 
 
 Publication preflight review: all 28 new evidence folders have complete local checksum membership. The parent preserves two absolute historical hash receipts as inert text and normalizes inert file modes without changing their bytes. The private scanner is repaired to recognize neutral archive names from bounded headers. All 16 existing and six new classification controls pass; an actual pinned scan detects its synthetic positive only in the expanded member and accepts the clean control. The complete staged snapshot then passes with zero findings, scanner/controller/cleanup exits 0 and 7,445,289,360 expanded bytes across 15,943 payload members. The source and authored records have no whitespace errors; exact retained tool logs preserve 613 whitespace findings across 28 receipt files. Final receipt publication is followed by an exact updated-index scan, a normal commit and a normal push. Hosted results remain open.
+
+
+## Hosted closeout at 2bdf4708 — 2026-09-07
+
+- [x] Scan the exact updated index, commit it unchanged, pass normal hooks and push normally.
+- [x] Verify remote head 2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7 and a clean worktree after publication.
+- [x] Compare all 83 hosted migration-policy findings with the exact local ordered list; no difference or policy label change.
+- [x] Reproduce the authenticated-browser prerequisite failure: CI invokes a deleted legacy sandbox probe after current v4 runner setup passes.
+- [x] Integrate and independently verify removal of both stale invocations, keep the real kernel-control check, and guard CI/local file references against recurrence.
+- [ ] Diagnose and fix the three observed first-pass coverage failures before accepting the hosted backend result as clean.
+- [ ] Finish current hosted production and visual results, scan/commit/push reviewed repairs, then verify all technical jobs on the new head.
+
+Plan review: normal publication succeeds with all four typecheck sections and Svelte errors zero. Hosted real-auth fails before tests because `_sandbox-spawn-probe.bun.ts` was deliberately deleted as obsolete but remained referenced in CI and ci-local. Independent review confirms that current mandatory `PodmanRunner.initialize()` executes the supported isolation checks. Parent repeats that real native runner probe successfully with no new roots. Terra prepares a five-file workflow/local/test/documentation repair in isolation. Hosted backend and coverage jobs succeed, but three raw first passes need the existing retry sweep: chat-tools-integration, db-live-holder-guard and auto-note legacy-subprocess. Two Terra owners now inspect the actual failures and reproduce their process/API boundaries before any fixes. No timeout, coverage threshold or failure tolerance is weakened. Hosted production and visual work continues on the published head.
+
+
+Hosted repair review: `153e74d8` removes the stale CI/local probe invocations and adds the real module-reference regression. Parent observes its original failure and repaired 12-case pass, repeats the supported kernel probe, and verifies all five committed inputs. `a28bba35` then makes the three affected tests wait for child identity, event delivery, persisted data and actual child closure. The coverage wrapper now prints its first failure before recovery or retry. Parent reproduces both the missing-output failure and premature child close against the former behavior. The repaired wrapper passes 41 cases, the holder suites pass 14 and 11, and chat/Auto Note pass 3 and 14 with coverage in separate processes. The first combined type check finds TS2352 in the new chat test; a narrow typed API result fixes it. All four types, lint, boundaries, Svelte, manifest, shell and source guards pass on the final five-file commit. Its normal hook passes. All 83 main-relative policy findings remain exactly unchanged. The original three hosted assertions were discarded by the former wrapper, so their exact causes remain unknown. The next hosted run must verify the repaired source.
+
+Hosted production finishes at 20:45:50 UTC with all eight proof exits and all eleven launcher quartets zero. Parent checks all 85 private artifact identities, the embedding runtime/log guard, nine current app logs, and all 11 short resource samples with 3,675 descriptor rows. The GitHub merge checkout 00e2b3ea has parents bd736438 and 2bdf4708, and its tree equals the published head exactly. Current workflow failures remain the repaired real-auth prerequisite and unchanged policy review. The follow-up publication now receives its exact-index scan and normal push.

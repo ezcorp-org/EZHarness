@@ -1,0 +1,23 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts:
+129 |   });
+130 | 
+131 |   test("close waits for the owned subprocess and its streams to close", async () => {
+132 |     const ext = await spawnExtension({ cwd: E2E_DIR });
+133 |     const close = await ext.close();
+134 |     expect(close.closeObserved).toBe(true);
+                                      ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts:134:33)
+(fail) E2E: real subprocess + JSON-RPC > close waits for the owned subprocess and its streams to close [735.06ms]
+
+ 0 pass
+ 13 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [1328.00ms]

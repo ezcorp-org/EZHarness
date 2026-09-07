@@ -1,0 +1,10 @@
+RETRY_SUCCESS_SENTINEL
+== host-shard mode (HOST_FILES_OVERRIDE, dev-only): 1 files ==
+
+Coverage recovery: src/__tests__/coverage-leg-lcov-guard.test.ts produced no lcov in the pooled run (crash before the reporter could flush?) — re-running isolated WITH --coverage, up to 2 attempt(s):
+  - src/__tests__/coverage-leg-lcov-guard.test.ts: recovered coverage on attempt 1/2
+
+  0 pass | 0 fail | 1 files (shard 0/1)
+
+Retry sweep: 1 failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):
+  - src/__tests__/coverage-leg-lcov-guard.test.ts: passed the isolated plain re-run (instrumentation/contention flake — tolerated)

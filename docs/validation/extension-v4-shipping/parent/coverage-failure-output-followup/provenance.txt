@@ -1,0 +1,6 @@
+base_commit=2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7
+isolated_worktree=/home/dev/work/EZCorp/extension-v4-coverage-output-fix
+accepted_final_script_sha256=dc65290906d3476700976f02e17dbbb87689ea5e527a496b44351515114c9a06
+accepted_final_test_sha256=9a62297b65d3f30e7a85902847583904c23a430466469934c99031ec20cac885
+pinned_bun=1.3.14
+shared_lock=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock

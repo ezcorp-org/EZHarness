@@ -1,0 +1,360 @@
+{
+  "scope": "Independent parent review of source/evidence bytes and hosted counts; hosted production and next-head CI are separate.",
+  "reviews": {
+    "stale-ci-probe-independent-curation-review.json": {
+      "verified_raw_and_commit_copies": 22,
+      "indexed_files": 24,
+      "hosted_raw_identity": true,
+      "rows": [
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/ci-local-syntax.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/ci-local-syntax.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/types.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/types.log",
+          "sha256": "beadd1fb90b6cf5a09d66010d09d9db6a86bb5a963505d7a6b7748813f2b80be"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/e2e-lanes-green.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/e2e-lanes-green.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/missing-module-regression-red.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/missing-module-regression-red.log",
+          "sha256": "18d7f7afe0b0f23c05f25e25c958aaa91b544e25576194ea1793512c0d289d25"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/missing-module-regression-red.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/missing-module-regression-red.exit",
+          "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/ci-local-syntax.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/ci-local-syntax.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/commit.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/commit.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/types.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/types.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/authored-whitespace.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/authored-whitespace.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/test-lint.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/test-lint.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/commit.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/commit.log",
+          "sha256": "344327532c2a044fbc1e580eeeca1afbe659beed47875d498f352dddee1adfc3"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/test-lint.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/test-lint.log",
+          "sha256": "fd06ed1906864d862af1b302e14f95710bd4ba5d86680bb0976e34e5bf20f03a"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/controller.exit",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/controller.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/e2e-lanes-green.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/e2e-lanes-green.log",
+          "sha256": "d2663e9e0197daa7985f0211f96c63184ad8c08cbfdd98dfea77f82ed98b6856"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/local/authored-whitespace.log",
+          "raw": ".cache/terra-shipping/parent/stale-ci-probe-parent-20260907T201809Z/authored-whitespace.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/kernel/command.log",
+          "raw": ".cache/terra-shipping/parent/current-runner-probe-20260907T201017Z/command.log",
+          "sha256": "254d14a604c7b3d38cfcbed1e945f2f525fcd46a4365bf0858ef21e0ac52c2de"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/kernel/command.exit",
+          "raw": ".cache/terra-shipping/parent/current-runner-probe-20260907T201017Z/command.exit",
+          "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/inputs/.github__workflows__ci.yml.txt",
+          "commit": "153e74d8",
+          "source": ".github/workflows/ci.yml",
+          "sha256": "033ab5b79d3daffbafcbc18ab613295a8d297feda034523b103301abc1b998ff"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/inputs/scripts__ci-local.sh.txt",
+          "commit": "153e74d8",
+          "source": "scripts/ci-local.sh",
+          "sha256": "d25cf03b8ec83593931fc5420535cf1f56661a5a2bcf52a8fcec0be4ee5d4ea5"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/inputs/src____tests____e2e-lanes.test.ts.txt",
+          "commit": "153e74d8",
+          "source": "src/__tests__/e2e-lanes.test.ts",
+          "sha256": "af1abb35ce0c16d0d8ee8b4ca2c73b3ba7a3468f31f761dfc4d766f976e02cc1"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/inputs/docs__development-lifecycle.md.txt",
+          "commit": "153e74d8",
+          "source": "docs/development-lifecycle.md",
+          "sha256": "39df86863b4cb155dc84226d343b321e7691a96b3b2726fe1487891992f8d4cc"
+        },
+        {
+          "published": "docs/validation/extension-v4-shipping/parent/stale-ci-probe-153e74d8/inputs/docs__features__platform__dev-lifecycle-and-gates.md.txt",
+          "commit": "153e74d8",
+          "source": "docs/features/platform/dev-lifecycle-and-gates.md",
+          "sha256": "81d067fd01055c73f97c05727493d69211a0920b05e0fee5f35cddc8e88effa3"
+        }
+      ]
+    },
+    "db-holder-curation-parent-review.json": {
+      "mapped_bytes_verified": 33,
+      "indexed_files": 36,
+      "root_source_matches_final": true
+    },
+    "followup-evidence-independent-review.json": {
+      "coverage-failure-output-followup": {
+        "indexed_files": 17,
+        "mapped_raw": [
+          {
+            "published": "receipts/hostile-ci-green.log.txt",
+            "sha256": "dc309482b597b9903927a6a5b4fdd17f44577ad65108c2813d07a65f67c16f14",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/hostile-env-green.log"
+            ]
+          },
+          {
+            "published": "receipts/original-wrapper-red.command.txt",
+            "sha256": "a59068103074e77875d89d43d97edbd443025aba68ecdd62cbababa149b3100a",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/wrapper-red.command.txt"
+            ]
+          },
+          {
+            "published": "receipts/original-wrapper-red.log.txt",
+            "sha256": "4af26e8a0ce5f7da455595bb47bc602aa93a5865f99949c3a84135823d15b444",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/wrapper-red.log"
+            ]
+          },
+          {
+            "published": "receipts/hostile-ci-green.receipt.txt",
+            "sha256": "3783f00cd8eeea12383dcf2695e823ed5f0e1fb27c800204ebe17161004c42e1",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/hostile-env-green.receipt.txt"
+            ]
+          },
+          {
+            "published": "receipts/focused-green.log.txt",
+            "sha256": "895f8014980cc77f2506eca4ed3cd2c536bccead36287da26154eb7b99ce5bdd",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/focused-green-final2.log"
+            ]
+          },
+          {
+            "published": "receipts/original-wrapper-red.exit.txt",
+            "sha256": "19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/wrapper-red.exit.txt",
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/hostile-env-lint.exit.txt"
+            ]
+          },
+          {
+            "published": "receipts/hostile-ci-lint.exit.txt",
+            "sha256": "19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/wrapper-red.exit.txt",
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/hostile-env-lint.exit.txt"
+            ]
+          },
+          {
+            "published": "receipts/focused-green.exits.txt",
+            "sha256": "b8a0c77dbdb4865c10922a7e18836f5ce4332658204f005f0c29e52aaae92704",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/final-validation.exit.txt"
+            ]
+          },
+          {
+            "published": "receipts/hostile-ci-lint.log.txt",
+            "sha256": "df35c4761fda144689f83cdeeb167c74fdb70cf21493f879287ee1a20dd7ae74",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/hostile-env-lint.log",
+              "/home/dev/work/EZCorp/extension-v4-coverage-output-fix/.cache/coverage-output-fix/file-lint-final2.log"
+            ]
+          }
+        ]
+      },
+      "hosted-2bdf4708-browser-review": {
+        "indexed_files": 10,
+        "metadata_copies_verified": [
+          "artifact-metadata.json",
+          "assigned-jobs.tsv",
+          "raw-material-boundary.txt",
+          "terminal-steps.tsv",
+          "browser-observations.txt",
+          "run-provenance.json"
+        ]
+      },
+      "coverage-flake-chat-auto-2bdf4708": {
+        "indexed_files": 11,
+        "mapped_raw": [
+          {
+            "published": "logs/old-close-control.exit.txt",
+            "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/typecheck.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/auto-covered.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/old-close-control.exit"
+            ]
+          },
+          {
+            "published": "logs/final-covered.log.txt",
+            "sha256": "d35898e7f4bd033ba4720ef59234008bd0018274ce21c3d83414469ef2255386",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered-final4.log"
+            ]
+          },
+          {
+            "published": "logs/final-covered.exit.txt",
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered-final2.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-covered.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/chat-covered.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/combined-covered-rerun10.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/auto-covered-corrected.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered-final4.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered-final.exit",
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/fixed-bounded-covered-final3.exit"
+            ]
+          },
+          {
+            "published": "logs/old-close-control.log.txt",
+            "sha256": "a6a428df0131095ea662e2b08e57749684a0c890b7b8b800d27219ecfdd9cf5d",
+            "raw": [
+              "/home/dev/work/EZCorp/extension-v4-coverage-flake-fix/.cache/flake-repro/old-close-control.log"
+            ]
+          }
+        ]
+      },
+      "hosted-2bdf4708-backend-flakes": {
+        "indexed_files": 2,
+        "raw_retry_and_gate_claims_verified": true,
+        "gate_comparison_normalization": "file(s) to files; metadata messages are paraphrased"
+      }
+    },
+    "combined-followup-curation-parent-review.json": {
+      "mapped_raw_copies": 52,
+      "indexed_files": 55,
+      "commit": "a28bba35dec4d9e2e7b0dbd67f08123f2a64ac4a"
+    },
+    "hosted-browser-counts-parent-review.json": [
+      {
+        "job": 101853766463,
+        "verified": [
+          {
+            "phrase": "255 passed",
+            "matching_lines": 1
+          },
+          {
+            "phrase": "13 skipped",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766560,
+        "verified": [
+          {
+            "phrase": "3 passed",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766428,
+        "verified": [
+          {
+            "phrase": "3 passed",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766498,
+        "verified": [
+          {
+            "phrase": "191 passed",
+            "matching_lines": 1
+          },
+          {
+            "phrase": "13 passed",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766495,
+        "verified": [
+          {
+            "phrase": "183 passed",
+            "matching_lines": 1
+          },
+          {
+            "phrase": "2413 passed",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766509,
+        "verified": [
+          {
+            "phrase": "183 passed",
+            "matching_lines": 1
+          },
+          {
+            "phrase": "2418 passed",
+            "matching_lines": 1
+          }
+        ]
+      },
+      {
+        "job": 101853766533,
+        "verified": [
+          {
+            "phrase": "183 passed",
+            "matching_lines": 1
+          },
+          {
+            "phrase": "2314 passed",
+            "matching_lines": 1
+          }
+        ]
+      }
+    ]
+  },
+  "policy_comparison": {
+    "exit": 1,
+    "current": 83,
+    "previous": 83,
+    "exact": true
+  }
+}

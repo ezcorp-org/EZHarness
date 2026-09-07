@@ -1,0 +1,178 @@
+{
+  "base_commit": "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7",
+  "hosted_run": 34158014590,
+  "hosted_job": 101853766688,
+  "hosted_observation": "Coverage shard 1 reported one first-pass failure for db-live-holder-guard.test.ts and its isolated plain retry passed. The retained hosted log does not contain the failed assertion output.",
+  "limitations": [
+    "The exact hosted assertion and root cause are unknown because the coverage controller retained only the first-pass failure summary, not the test stderr.",
+    "An immediate real Bun.spawn([\"sleep\", \"30\"]) observation ran 1000 times locally: 992 cmdlines were empty, 8 were sleep, 0 were bun, and 0 guard denials occurred. It did not reproduce the hosted failure.",
+    "The gated-exec control proves the readiness requirement only. It is not a reproduction of the specific hosted failure."
+  ],
+  "published_input_mappings": [
+    {
+      "published": "source/original-db-live-holder-guard.test.ts.txt",
+      "source": "git:2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7:src/__tests__/db-live-holder-guard.test.ts",
+      "sha256": "9b04467a95f0c973436e4b72f3b8e391cef0dc768d47b6dcdb17af431b38c23d"
+    },
+    {
+      "published": "source/final-db-live-holder-guard.test.ts.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/src/__tests__/db-live-holder-guard.test.ts",
+      "sha256": "44832125e923fd0978a199e8c7e7c5734bac56164ec8576ea3da9c6f73540173"
+    },
+    {
+      "published": "controls/gated-exec.c.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/gated-exec.c",
+      "sha256": "ea72a2ffc616d59ee600472411be72d36739788208e016f02592c86d8dffb678"
+    },
+    {
+      "published": "controls/repro-gated-exec.ts.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/repro-gated-exec.ts",
+      "sha256": "9b331dc525ba68e45bd037dc6430368c6358e5b38cb24a7250b1ded885d58074"
+    },
+    {
+      "published": "controls/repro-gated-exec.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/repro-gated-exec.log",
+      "sha256": "b02215b51b337b5c99c7c3a4bee8111a27453ffca75677e0ed64fe3961bcce1b"
+    },
+    {
+      "published": "controls/repro-gated-exec.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/repro-gated-exec.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/file-lint.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-filelint/biome.log",
+      "sha256": "7a6dfdd197ed4da5d27cc9242027bc7662b3384be132e1d8adb054e033123ffa"
+    },
+    {
+      "published": "results/file-lint.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-filelint/exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/focused-covered.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/fixed-v2-coverage/test.log",
+      "sha256": "a516499938b2e27568e8209f305bd478384a8ceb631e1aa7a3f7d47ddc8ef5b8"
+    },
+    {
+      "published": "results/focused-covered.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/fixed-v2-coverage/exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/grouped-summary.json",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/summary.json",
+      "sha256": "06ec7697400739a863b2f89332755fd2350377bf943d8785c363180eac93d32f"
+    },
+    {
+      "published": "results/immediate-sleep-observation.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/observe-sleep-spawn.log",
+      "sha256": "d5cf0a171ed274298e321cd90c2c147958d6811905d6b2dec6bb46af9a139245"
+    },
+    {
+      "published": "results/immediate-sleep-observation.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/observe-sleep-spawn.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/guard-covered-1.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-1.log",
+      "sha256": "1c62297f6a054be65398da4a654d5f83478fa9d8bc6c6d4c964c6408b69017b0"
+    },
+    {
+      "published": "results/guard-covered-1.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-1.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/connection-covered-1.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-1.log",
+      "sha256": "e2b54b0481f0800c630d0800b9e50ab0bd516f70d51d37cfd1c035d40ca9d3e7"
+    },
+    {
+      "published": "results/connection-covered-1.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-1.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/guard-covered-2.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-2.log",
+      "sha256": "ef2151ac2ea50960125f693b69fabf58ec4993d26ae9000bc49b9c640cea10d2"
+    },
+    {
+      "published": "results/guard-covered-2.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-2.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/connection-covered-2.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-2.log",
+      "sha256": "42a2d6231b60d86a7df9a14ab82f544bb97d471a617eb08606a09da96b8bdce2"
+    },
+    {
+      "published": "results/connection-covered-2.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-2.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/guard-covered-3.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-3.log",
+      "sha256": "72a4f652679d068d5d6ba98150088565546d9febc1a27068d71ab2f688e78110"
+    },
+    {
+      "published": "results/guard-covered-3.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-3.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/connection-covered-3.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-3.log",
+      "sha256": "94c753f83195f358f6bb9a64ab58a8eb48e50afa4aed55bcc32651960d9deb7a"
+    },
+    {
+      "published": "results/connection-covered-3.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-3.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/guard-covered-4.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-4.log",
+      "sha256": "1a36ff4322846fcc234b90f9c855e225ca1210d94da31aa3a1b4a9c61b8f5522"
+    },
+    {
+      "published": "results/guard-covered-4.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-4.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/connection-covered-4.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-4.log",
+      "sha256": "7184fd6b9fa3f95d61b609a68d91ca7eddaaf084da8944f435dc7867451787bc"
+    },
+    {
+      "published": "results/connection-covered-4.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-4.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/guard-covered-5.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-5.log",
+      "sha256": "bf11f7871e5729e726d4fb5567a7a82a616e1dde88c80daa6d98719622699354"
+    },
+    {
+      "published": "results/guard-covered-5.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/guard-5.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "published": "results/connection-covered-5.log.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-5.log",
+      "sha256": "4f03fb0bbe99631753e694e9e4e5c794611d068f9e858d2adf8904975663aa49"
+    },
+    {
+      "published": "results/connection-covered-5.exit.txt",
+      "source": "/home/dev/work/EZCorp/extension-v4-db-holder-flake/.cache/terra-db-holder/final-grouped/connection-5.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    }
+  ]
+}

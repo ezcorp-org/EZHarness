@@ -1,0 +1,11 @@
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+int main(void) {
+  char ready = 'R';
+  char release;
+  if (write(STDOUT_FILENO, &ready, 1) != 1) return 2;
+  if (read(STDIN_FILENO, &release, 1) != 1) return 3;
+  execlp("sleep", "sleep", "30", (char *)NULL);
+  return 4;
+}

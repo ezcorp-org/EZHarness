@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd /home/dev/work/EZCorp/extension-v4-independent-audit
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close "$PWD/.cache/validation-heavy.lock" bash "$0" --locked
+fi
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+receipt="$PWD/.cache/terra-shipping/parent/coverage-followups-static-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$receipt"
+cp "$0" "$receipt/controller.sh.txt"
+git rev-parse HEAD > "$receipt/base-commit.txt"
+git diff --binary -- scripts src web > "$receipt/source.patch"
+date -u +%FT%TZ > "$receipt/started.txt"
+failed=0
+run() {
+  local label="$1" rc=0
+  shift
+  "$@" > "$receipt/$label.log" 2>&1 || rc=$?
+  printf '%s\t%s\n' "$label" "$rc" | tee -a "$receipt/results.tsv"
+  if [[ "$rc" != 0 ]]; then failed=1; fi
+}
+run typecheck bun run typecheck
+run lint bun run lint
+run boundaries bun scripts/check-boundaries.ts
+run svelte bash -c 'cd web && bun run check'
+run manifest bun scripts/regenerate-manifest-lock.ts --check
+run shell bash -n scripts/test-coverage.sh scripts/ci-local.sh
+run whitespace git diff --check -- . ':(exclude)docs/validation/extension-v4-shipping/parent/**'
+git diff --binary -- scripts src web > "$receipt/source-final.patch"
+run source-guard cmp "$receipt/source.patch" "$receipt/source-final.patch"
+date -u +%FT%TZ > "$receipt/finished.txt"
+printf '%s\n' "$failed" > "$receipt/controller.exit"
+printf 'receipt=%s\n' "$receipt"
+exit "$failed"

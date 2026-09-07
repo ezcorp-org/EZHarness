@@ -1,0 +1,59 @@
+from pathlib import Path
+from datetime import datetime, timezone
+import subprocess, hashlib, os, json, fcntl
+
+repo = Path('/home/dev/work/EZCorp/extension-v4-independent-audit')
+base = repo / '.cache/terra-shipping/parent'
+other = repo.parent / 'extension-v4-coverage-flake-fix'
+r = base / ('combined-coverage-followups-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+r.mkdir()
+(base / 'latest-combined-coverage-followups-path.txt').write_text(str(r) + '\n')
+(r / 'executed-controller.py.txt').write_bytes(Path(__file__).read_bytes())
+print(r, flush=True)
+chat = 'src/__tests__/chat-tools-integration.test.ts'
+legacy = 'src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts'
+inputs = {chat: 'c84938d576efb18d270bde9319df1657679359781275ecbcf4ffffa34b01408b', legacy: 'ef72e0470cc978d9387538c9c0e2e5724381729d166cdae0fdaf9f8c2b43db01'}
+env = {**os.environ, 'PATH': '/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:' + os.environ['PATH'], 'BUN_RUNTIME_TRANSPILER_CACHE_PATH': '0'}
+
+def run(name, cmd, expected=0):
+    with (r / (name + '.log')).open('wb') as out:
+        p = subprocess.run(cmd, cwd=repo, env=env, stdout=out, stderr=subprocess.STDOUT)
+    (r / (name + '.exit')).write_text(str(p.returncode) + '\n')
+    print(name, p.returncode, flush=True)
+    assert p.returncode == expected, (name, p.returncode)
+
+with (repo / '.cache/validation-heavy.lock').open('a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    for file, digest in inputs.items():
+        assert (repo / file).read_bytes() == subprocess.check_output(['git', 'show', 'HEAD:' + file], cwd=repo)
+        data = (other / file).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == digest
+        for label, body in [('before', (repo / file).read_bytes()), ('after', data)]:
+            p = r / label / (file + '.txt'); p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(body)
+        (repo / file).write_bytes(data)
+    fixed = (repo / legacy).read_text()
+    start = fixed.index('  const stopOwnedChild = async () => {')
+    end = fixed.index('  const execution = new FramedExecution', start)
+    broken = fixed[:start] + '  const stopOwnedChild = async () => { proc.kill("SIGKILL"); };\n' + fixed[end:]
+    close_wait = '      await execution.close();\n      await waitForChildClose();\n'
+    assert broken.count(close_wait) == 1
+    broken = broken.replace(close_wait, '      await execution.close();\n')
+    (r / 'executed-old-close-control.ts.txt').write_text(broken)
+    try:
+        (repo / legacy).write_text(broken)
+        run('old-close-red', ['bun', 'test', './' + legacy, '-t', 'close waits for the owned subprocess and its streams to close'], 1)
+        assert 'Received: false' in (r / 'old-close-red.log').read_text()
+    finally:
+        (repo / legacy).write_text(fixed)
+    for name, file in [('chat-covered', chat), ('auto-note-covered', legacy)]:
+        run(name, ['bun', 'test', './' + file, '--coverage', '--coverage-reporter=lcov', '--coverage-dir=' + str(r / name)])
+    run('typecheck', ['bun', 'run', 'typecheck'])
+    run('lint', ['bun', 'run', 'lint'])
+    run('boundaries', ['bun', 'scripts/check-boundaries.ts'])
+    run('svelte', ['bun', 'run', '--cwd', 'web', 'check'])
+    run('manifest', ['bun', 'scripts/regenerate-manifest-lock.ts', '--check'])
+    run('shell', ['bash', '-n', 'scripts/test-coverage.sh', 'scripts/ci-local.sh'])
+    run('authored-whitespace', ['git', 'diff', '--check', '--', '.', ':(exclude)docs/validation/extension-v4-shipping/parent/**'])
+    for file, digest in inputs.items(): assert hashlib.sha256((repo / file).read_bytes()).hexdigest() == digest
+    (r / 'source-inputs.json').write_text(json.dumps({f: hashlib.sha256((repo / f).read_bytes()).hexdigest() for f in [chat, legacy, 'src/__tests__/db-live-holder-guard.test.ts', 'src/__tests__/coverage-leg-lcov-guard.test.ts', 'scripts/test-coverage.sh']}, indent=2) + '\n')
+    (r / 'controller.exit').write_text('0\n')

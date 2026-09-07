@@ -1,0 +1,22 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/db-live-holder-guard.test.ts:
+(pass) holderPidPath > is a SIBLING of the datadir, never inside it [0.08ms]
+(pass) readHolderPid > null when the sidecar file is absent [0.20ms]
+(pass) readHolderPid > null for garbage or non-positive contents [0.14ms]
+(pass) readHolderPid > parses a recorded pid (tolerating whitespace) [0.10ms]
+(pass) assertNoLiveHolder > passes with no claim, our own claim, or a dead holder [2.14ms]
+(pass) assertNoLiveHolder > throws DbInUseError for a LIVE bun holder, with remediation [0.84ms]
+(pass) assertNoLiveHolder > a recycled pid belonging to a NON-ezcorp process is treated as stale [0.54ms]
+(pass) isLiveHolder > dead pid is never a live holder [1.30ms]
+(pass) isLiveHolder > alive pid with unreadable cmdline counts as live (conservative) [0.10ms]
+(pass) claimHolder / releaseHolder > claim records our pid; release removes only our own claim [0.16ms]
+(pass) claimHolder / releaseHolder > release leaves a foreign claim untouched [0.10ms]
+(pass) claimHolder / releaseHolder > release of a missing claim is a no-op [0.08ms]
+(pass) claimHolder / releaseHolder > claim degrades silently when the sidecar is unwritable [0.05ms]
+(pass) claimHolder / releaseHolder > release swallows an rm failure on a read-only parent [0.21ms]
+
+ 14 pass
+ 0 fail
+ 26 expect() calls
+Ran 14 tests across 1 file. [511.00ms]

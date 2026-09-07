@@ -1,0 +1,3 @@
+command=flock --close <shared-lock> env PATH=<pinned-bun-and-node> BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test src/__tests__/coverage-leg-lcov-guard.test.ts
+exit=0
+control=simulated parent CI=true,COVERAGE_LEGS_ONLY=1,COV_OUT=<owned-parent-artifact-root>,SHARD_INDEX=9,SHARD_TOTAL=12; child clears/replaces all controls

@@ -1,0 +1,2 @@
+focused=0
+file_lint=0

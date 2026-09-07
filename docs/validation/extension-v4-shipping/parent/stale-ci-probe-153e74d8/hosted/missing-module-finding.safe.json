@@ -1,0 +1,9 @@
+{
+  "source_commit": "153e74d86ae88101667a425760cb1d7b50e19a33",
+  "published_base": "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7",
+  "raw_log_private_path": ".cache/terra-shipping/parent/hosted-2bdf4708/real-auth-job.log",
+  "raw_log_sha256": "db833bff81a565f4d7639c5bc7c3ed6e2187050f7d6a1858f5924a7fb82a55fb",
+  "observed_finding": "Hosted real-auth output reports the stale sandbox spawn probe module is missing after the runner kernel checks pass.",
+  "module_path": "web/e2e/real-auth/_sandbox-spawn-probe.bun.ts",
+  "raw_log_published": false
+}
