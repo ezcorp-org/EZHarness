@@ -13,7 +13,13 @@ type Receipt = {
   owner: { id: string; email: string; name: string; role: string };
   installation: { id: string; name: string; ownerId: string; source: string; installPath: string; storageKey: string; value: string };
   conversationId: string;
-  runnerCapacity?: { bootstrapInstallations: number; initialPending: number; maximumPending: number; terminalOperationStates: Record<string, number> };
+  runnerCapacity?: {
+    bootstrapInstallations: number;
+    initialPending: number;
+    maximumPending: number;
+    terminalOperationStates: Record<string, number>;
+    terminalOperations: Array<{ name: string; installationId: string; operations: Array<Pick<LifecycleOperation, "id" | "kind" | "state" | "diagnostics">> }>;
+  };
 };
 
 const mode = process.env.EZ_LEGACY_ADOPTION_MODE;
@@ -52,6 +58,14 @@ function operationStateCounts(states: InstallationState[]): Record<string, numbe
   return counts;
 }
 
+function terminalOperations(entries: Array<{ name: string; installationId: string; state: InstallationState }>): NonNullable<Receipt["runnerCapacity"]>["terminalOperations"] {
+  return entries.map(({ name, installationId, state }) => ({
+    name,
+    installationId,
+    operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })),
+  }));
+}
+
 async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNullable<Receipt["runnerCapacity"]>> {
   const deadline = Date.now() + 360_000;
   const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
@@ -61,17 +75,25 @@ async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNulla
   while (Date.now() < deadline) {
     const extensions = await client.listExtensions();
     const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
-    const lifecycleIds = [...bootstrapNames].map((name) => installationByName.get(name) ?? bundledInstallationId(name));
+    const lifecycleInstallations = [...bootstrapNames].map((name) => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
+    const lifecycleIds = lifecycleInstallations.map(({ installationId }) => installationId);
     assert.equal(new Set(lifecycleIds).size, bootstrapNames.size, "Candidate bootstrap installation IDs are not unique");
-    const states = await Promise.all(lifecycleIds.map((installationId) => client.extensionControl<InstallationState>("extensions_inspect", { installationId })));
-    const pending = states.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
+    const states = await Promise.all(lifecycleInstallations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
+    const installationStates = states.map(({ state }) => state);
+    const pending = installationStates.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
     if (pending > 0) {
       if (initialPending === 0) initialPending = pending;
       idleChecks = 0;
     } else if (initialPending > 0) {
       idleChecks += 1;
-      if (idleChecks === 2) return { bootstrapInstallations: lifecycleIds.length, initialPending, maximumPending, terminalOperationStates: operationStateCounts(states) };
+      if (idleChecks === 2) return {
+        bootstrapInstallations: lifecycleIds.length,
+        initialPending,
+        maximumPending,
+        terminalOperationStates: operationStateCounts(installationStates),
+        terminalOperations: terminalOperations(states),
+      };
     }
     await Bun.sleep(1_000);
   }
@@ -119,6 +141,8 @@ if (mode === "seed") {
   const legacyAttempt = await client.invokeExtensionTool(receipt.conversationId, receipt.installation.name, "echo");
   assert.equal(legacyAttempt.success, false, "Candidate ran a legacy extension before explicit v4 adoption");
   const runnerCapacity = await waitForRunnerIdle(receipt.installation.id);
+  await Bun.write(receiptPath, `${JSON.stringify({ ...receipt, runnerCapacity })}\n`);
+  assert.equal(runnerCapacity.terminalOperationStates.failed ?? 0, 0, `Candidate bootstrap has failed operations: ${JSON.stringify(runnerCapacity.terminalOperations)}`);
   const container = required("EZ_PRODUCTION_CONTAINER");
   const source = await mkdtemp(join(tmpdir(), "ezcorp-adopted-v4-source-"));
   try {
@@ -132,7 +156,6 @@ if (mode === "seed") {
     await command("docker", ["exec", container, "test", "!", "-e", `${receipt.installation.installPath}/index.ts`]);
     for (const file of ["extension.ts", "handler.ts", "extension.test.ts"]) await command("docker", ["exec", container, "test", "-f", `${receipt.installation.installPath}/${file}`]);
   } finally { await rm(source, { recursive: true, force: true }); }
-  await Bun.write(receiptPath, `${JSON.stringify({ ...receipt, runnerCapacity })}\n`);
   const imported = await session("/api/extensions/import-source", { kind: "local", path: receipt.installation.installPath, targetInstallationId: receipt.installation.id }) as { installation: { id: string; ownerId: string }; workspace: { id: string }; operation: LifecycleOperation };
   assert.equal(imported.installation.id, receipt.installation.id, "Adoption replaced the legacy installation ID");
   assert.equal(imported.installation.ownerId, receipt.owner.id, "Adoption changed the legacy owner");
