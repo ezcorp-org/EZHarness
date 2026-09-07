@@ -198,6 +198,7 @@ export async function mergeMemoriesAtomically(
       .from(memories)
       .leftJoin(conversations, eq(memories.conversationId, conversations.id))
       .where(inArray(memories.id, lockedSourceIds))
+      .orderBy(memories.id)
       .for("update", { of: memories });
     if (sources.length !== 2) return null;
     if (sources.some((source: {
