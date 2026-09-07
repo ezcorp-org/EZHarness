@@ -1,0 +1,4 @@
+path	existed	removed
+/home/dev/work/EZCorp/extension-v4-mock500-current-diagnostic/web/test-results	existed=true	removed=true
+/home/dev/work/EZCorp/extension-v4-mock500-current-diagnostic/web/blob-report	existed=false	removed=true
+/home/dev/work/EZCorp/extension-v4-mock500-current-diagnostic/web/playwright-report	existed=true	removed=true

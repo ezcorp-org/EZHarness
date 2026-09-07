@@ -1,0 +1,5 @@
+Running 1 test using 1 worker
+[1/1] [chromium] › e2e/chat-graph.spec.ts:104:2 › Chat DAG graph panel › header button opens the panel and level 1 renders one node per prompt
+[chromium] › e2e/chat-graph.spec.ts:104:2 › Chat DAG graph panel › header button opens the panel and level 1 renders one node per prompt
+[WebServer] {"ts":"2026-09-07T21:23:12.960Z","level":"error","msg":"server error","subsystem":"hooks.server","method":"GET","path":"/api/extensions","status":500}
+  1 passed (40.8s)

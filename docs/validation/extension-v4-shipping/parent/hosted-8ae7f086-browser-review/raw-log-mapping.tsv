@@ -1,0 +1,11 @@
+job_id	job_name	private_raw_log	sha256	bytes
+101863432221	E2E mock lane	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432221-e2e-mock.log	e416af5f2be8d96288310d76123f79cd7386527a5868a0f6bfbc74e64cd1b48d	131430
+101863432265	E2E (real auth + real DB)	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432265-e2e-real-auth.log	a743fd12ff6ec3c21c41506356883ecab4942dbbd01d82264899c7d32d78b5bd	533861
+101863432389	Extension lifecycle (firefox)	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432389-lifecycle-firefox.log	981f9b028645b89a96c9502bad8046281dcab772bea0e162c079b07459304285	299675
+101863432147	Extension lifecycle (webkit)	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432147-lifecycle-webkit.log	ff87708f82b3e093930808ca96aa815ad9398c53f96439cd05794bad1bfa855b	380356
+101863432355	Visual evidence	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432355-visual.log	13c513d80f50a068909517f678c8c291e749719e9766dbd3cec53d3a3f8bcb33	362649
+101863432179	Web tests (bun-leg orphans)	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432179-web-bun.log	86fdd478c5406502494b28c05e1fa59e6f318f61267a149035a198845a7b2c85	32945
+101863432249	Web tests shard 1	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432249-web-vitest-1.log	de56e82c9739436006feae0df67fb9f1aeedc8bb6b3cbe6b79a5c687933c5717	83482
+101863432197	Web tests shard 2	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432197-web-vitest-2.log	7f19e6a0e7d654d0dbedd54dc0c49708b507769558dde6108b338107609e0610	95746
+101863432322	Web tests shard 3	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432322-web-vitest-3.log	a40f47af5775052ec24bb244f41e798d38f76ab953ec206cda72b10544b0e90c	103959
+101863432278	Web security coverage	.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/raw/jobs/101863432278-web-security.log	9a718962af13d86616d664c93db20336b76fbbd84ad0718d31caf928612b8b5f	31903

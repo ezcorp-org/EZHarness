@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "purpose": "Safe metadata for assigned hosted coverage and PostgreSQL jobs. Raw hosted logs and LCOV artifacts remain private.",
+  "repository": "ezcorp-org/EZHarness",
+  "head_sha": "8ae7f0860728741c0918729452a8ec846cf6ed29",
+  "coverage_run_id": 34161268825,
+  "database_run_id": 34161268805,
+  "raw_receipt_root": ".cache/terra-shipping/parent/hosted-8ae7f086-coverage-review",
+  "raw_log_mapping": [
+    {
+      "job_id": 101863432155,
+      "kind": "coverage_shard",
+      "shard": 6,
+      "name": "Coverage shard 6",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T21:01:16Z",
+      "raw_log_path": "logs/101863432155.log",
+      "raw_log_sha256": "c8c25782728f527dbceefc16465be50db6a8a8ea53e8c1b0850c6c5c2ec6e29e",
+      "safe_terminal_summary": "1737 pass | 0 fail | 131 files (shard 6/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863432272,
+      "kind": "coverage_shard",
+      "shard": 7,
+      "name": "Coverage shard 7",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T21:00:24Z",
+      "raw_log_path": "logs/101863432272.log",
+      "raw_log_sha256": "ea93311c5692894a6c39c9a8055cce0e49ccf6d19b3d30c12c312a1b0ae47e07",
+      "safe_terminal_summary": "2079 pass | 0 fail | 130 files (shard 7/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863432288,
+      "kind": "coverage_shard",
+      "shard": 8,
+      "name": "Coverage shard 8",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T21:00:04Z",
+      "raw_log_path": "logs/101863432288.log",
+      "raw_log_sha256": "99eddc1b85ebc657aa3d58ffcc403184f3fe32238d07e89c646b211139353bac",
+      "safe_terminal_summary": "1843 pass | 0 fail | 130 files (shard 8/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863432251,
+      "kind": "coverage_shard",
+      "shard": 9,
+      "name": "Coverage shard 9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T21:00:37Z",
+      "raw_log_path": "logs/101863432251.log",
+      "raw_log_sha256": "7e0a7a4d30b3bde3fe1ba20cbf79b05130c1a394d7fdc35810f7618b7d80e54b",
+      "safe_terminal_summary": "2058 pass | 0 fail | 131 files (shard 9/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863432244,
+      "kind": "coverage_shard",
+      "shard": 10,
+      "name": "Coverage shard 10",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:18Z",
+      "completed_at": "2026-09-07T21:00:51Z",
+      "raw_log_path": "logs/101863432244.log",
+      "raw_log_sha256": "e3e035a0cae94e7c5b75174ce10b39fde1bb09613ffc7f9bfa015aafc3fae67f",
+      "safe_terminal_summary": "1925 pass | 0 fail | 130 files (shard 10/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863432282,
+      "kind": "coverage_shard",
+      "shard": 11,
+      "name": "Coverage shard 11",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T21:00:14Z",
+      "raw_log_path": "logs/101863432282.log",
+      "raw_log_sha256": "28dd0b82dcebaccc84d65d7f8f6e67195ec849cb43fba1de5db4c7a7f1f36904",
+      "safe_terminal_summary": "2071 pass | 0 fail | 130 files (shard 11/12)",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101864513763,
+      "kind": "per_file_coverage_gate",
+      "shard": null,
+      "name": "Per-file coverage gate",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:02:24Z",
+      "completed_at": "2026-09-07T21:02:41Z",
+      "raw_log_path": "logs/101864513763.log",
+      "raw_log_sha256": "4cf7f38eec0830ff3e540fb26e49d1e05f00e9ed824c1c4307a968b94184437c",
+      "safe_terminal_summary": "1260 enforced threshold files; 134 new source files; 394 changed files",
+      "first_pass_retry_or_pooled_failure_observed": false
+    },
+    {
+      "job_id": 101863431631,
+      "kind": "external_postgres",
+      "shard": null,
+      "name": "External Postgres (Bun.sql)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T20:56:17Z",
+      "completed_at": "2026-09-07T20:57:13Z",
+      "raw_log_path": "logs/101863431631.log",
+      "raw_log_sha256": "45647569a847b8974fca0ace77ebb7d5133089245bfa580d54fc0d4febb51164",
+      "safe_terminal_summary": "24 pass | 0 fail | 1 file",
+      "first_pass_retry_or_pooled_failure_observed": false
+    }
+  ],
+  "decisive_messages": {
+    "per_file_coverage_gate": [
+      "Coverage gate PASSED: 1260 enforced file(s) at or above threshold.",
+      "New-file coverage gate PASSED: 134 new source file(s) gated.",
+      "Patch coverage gate PASSED: all changed executable lines covered (394 file(s))."
+    ],
+    "external_postgres": [
+      "24 pass | 0 fail | 1 file."
+    ],
+    "coverage_shard": [
+      "Each assigned shard reported 0 fail and no Retry sweep or pooled coverage failure."
+    ]
+  },
+  "limitations": [
+    "This is a historical hosted checkpoint for the assigned jobs only.",
+    "Raw hosted logs are not published because they can contain test credentials.",
+    "A log SHA-256 identifies each private raw log; it does not publish its contents."
+  ]
+}

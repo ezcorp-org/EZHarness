@@ -1,0 +1,106 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - `__dirname` (vitest.config.ts:25:18). Use `import.meta.dirname` instead
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/dev/work/EZCorp/extension-v4-independent-audit/web
+
+ ❯ src/__tests__/api-extensions.server.test.ts (15 tests | 2 failed) 28ms
+     × returns unauthenticated 401 without querying extensions 19ms
+     × returns unauthenticated 401 without invoking the retired installer 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/__tests__/api-extensions.server.test.ts > GET /api/extensions > returns unauthenticated 401 without querying extensions
+{
+  constructor: 'Function<Response>',
+  type: 'default',
+  url: '',
+  redirected: false,
+  status: 401,
+  ok: false,
+  statusText: '',
+  headers: {
+    constructor: 'Function<Headers>',
+    append: 'Function<append>',
+    delete: 'Function<delete>',
+    get: 'Function<get>',
+    has: 'Function<has>',
+    set: 'Function<set>',
+    getSetCookie: 'Function<getSetCookie>',
+    keys: 'Function<keys>',
+    values: 'Function<values>',
+    entries: 'Function<entries>',
+    forEach: 'Function<forEach>'
+  },
+  body: {
+    constructor: 'Function<ReadableStream>',
+    locked: false,
+    cancel: 'Function<cancel>',
+    getReader: 'Function<getReader>',
+    pipeThrough: 'Function<pipeThrough>',
+    pipeTo: 'Function<pipeTo>',
+    tee: 'Function<tee>',
+    values: 'Function<values>'
+  },
+  bodyUsed: false,
+  clone: 'Function<clone>',
+  blob: 'Function<blob>',
+  arrayBuffer: 'Function<arrayBuffer>',
+  text: 'Function<text>',
+  json: 'Function<json>',
+  formData: 'Function<formData>',
+  bytes: 'Function<bytes>',
+  stacks: []
+}
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/__tests__/api-extensions.server.test.ts > POST /api/extensions > returns unauthenticated 401 without invoking the retired installer
+{
+  constructor: 'Function<Response>',
+  type: 'default',
+  url: '',
+  redirected: false,
+  status: 401,
+  ok: false,
+  statusText: '',
+  headers: {
+    constructor: 'Function<Headers>',
+    append: 'Function<append>',
+    delete: 'Function<delete>',
+    get: 'Function<get>',
+    has: 'Function<has>',
+    set: 'Function<set>',
+    getSetCookie: 'Function<getSetCookie>',
+    keys: 'Function<keys>',
+    values: 'Function<values>',
+    entries: 'Function<entries>',
+    forEach: 'Function<forEach>'
+  },
+  body: {
+    constructor: 'Function<ReadableStream>',
+    locked: false,
+    cancel: 'Function<cancel>',
+    getReader: 'Function<getReader>',
+    pipeThrough: 'Function<pipeThrough>',
+    pipeTo: 'Function<pipeTo>',
+    tee: 'Function<tee>',
+    values: 'Function<values>'
+  },
+  bodyUsed: false,
+  clone: 'Function<clone>',
+  blob: 'Function<blob>',
+  arrayBuffer: 'Function<arrayBuffer>',
+  text: 'Function<text>',
+  json: 'Function<json>',
+  formData: 'Function<formData>',
+  bytes: 'Function<bytes>',
+  stacks: []
+}
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 13 passed (15)
+   Start at  17:45:42
+   Duration  1.39s (transform 406ms, setup 371ms, import 388ms, tests 28ms, environment 515ms)
+

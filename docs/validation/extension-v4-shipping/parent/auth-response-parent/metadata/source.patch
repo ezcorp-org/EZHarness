@@ -1,0 +1,317 @@
+diff --git a/src/__tests__/auth-middleware.test.ts b/src/__tests__/auth-middleware.test.ts
+index cf77d48c..f34f5487 100644
+--- a/src/__tests__/auth-middleware.test.ts
++++ b/src/__tests__/auth-middleware.test.ts
+@@ -5,6 +5,7 @@ mockDbConnection(); // Must be at module level BEFORE imports that use db
+ 
+ import {
+   requireAuth,
++  checkAuth,
+   requireRole,
+   checkRole,
+   requireAdminSession,
+@@ -47,6 +48,27 @@ describe("requireAuth", () => {
+   });
+ });
+ 
++// ── checkAuth (non-throwing sibling for +server.ts handlers) ────────
++
++describe("checkAuth", () => {
++  test("returns the authenticated user", () => {
++    expect(checkAuth(makeLocals(memberUser))).toEqual(memberUser);
++  });
++
++  test("RETURNS the requireAuth 401 Response without throwing", async () => {
++    const result = checkAuth(makeLocals(undefined));
++    expect(result).toBeInstanceOf(Response);
++    expect((result as Response).status).toBe(401);
++    expect(await (result as Response).json()).toEqual({ error: "Authentication required" });
++  });
++
++  test("re-throws a non-Response error unchanged", () => {
++    const boom = new Error("checkAuth boom");
++    const locals = { get user(): AuthUser { throw boom; } } as unknown as App.Locals;
++    expect(() => checkAuth(locals)).toThrow(boom);
++  });
++});
++
+ // ── requireRole ─────────────────────────────────────────────────────
+ 
+ describe("requireRole", () => {
+diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts
+index a1dc7fdd..1e964dc6 100644
+--- a/src/auth/middleware.ts
++++ b/src/auth/middleware.ts
+@@ -72,6 +72,27 @@ export function requireRole(locals: AuthLocals, role: "admin"): AuthUser {
+   return user;
+ }
+ 
++/** Converts a deliberate auth denial into a route response without hiding bugs. */
++function returnThrownResponse<T>(read: () => T): T | Response {
++  try {
++    return read();
++  } catch (error) {
++    if (error instanceof Response) return error;
++    throw error;
++  }
++}
++
++/**
++ * Non-throwing sibling of {@link requireAuth} for `+server.ts` handlers.
++ *
++ * A route that only needs an authenticated principal must use this helper,
++ * rather than letting {@link requireAuth} throw its 401 Response through
++ * SvelteKit as a 500. It preserves the same user and 401 response shapes.
++ */
++export function checkAuth(locals: AuthLocals): AuthUser | Response {
++  return returnThrownResponse(() => requireAuth(locals));
++}
++
+ /**
+  * Non-throwing sibling of `requireRole` for `+server.ts` handlers.
+  *
+@@ -85,9 +106,9 @@ export function requireRole(locals: AuthLocals, role: "admin"): AuthUser {
+  * `checkRole` runs the exact same auth+role logic (delegating to
+  * `requireRole`, the single source of truth) but RETURNS the denial Response
+  * instead of throwing — mirroring `requireScope`'s `Response | null` style
+- * while still yielding the `AuthUser` on success. This is the one place the
+- * throw→return conversion lives, so the "uncaught thrown Response = 500" bug
+- * can't recur by copy-paste. Call sites become:
++ * while still yielding the `AuthUser` on success. `checkAuth` and `checkRole`
++ * share the private conversion helper, so the "uncaught thrown Response = 500"
++ * bug cannot recur by copy-paste. Call sites become:
+  *
+  *   const admin = checkRole(locals, "admin");
+  *   if (admin instanceof Response) return admin;
+@@ -102,7 +123,7 @@ export function requireRole(locals: AuthLocals, role: "admin"): AuthUser {
+  * 403, never a thrown Response (which SvelteKit surfaces as a 500).
+  */
+ export function checkRole(locals: AuthLocals, role: "admin"): AuthUser | Response {
+-  try {
++  return returnThrownResponse(() => {
+     const user = requireRole(locals, role);
+     if (!hasRequiredScope(locals.apiKeyScopes, "admin")) {
+       return Response.json(
+@@ -111,10 +132,7 @@ export function checkRole(locals: AuthLocals, role: "admin"): AuthUser | Respons
+       );
+     }
+     return user;
+-  } catch (e) {
+-    if (e instanceof Response) return e;
+-    throw e;
+-  }
++  });
+ }
+ 
+ /**
+diff --git a/web/e2e/chat-graph.spec.ts b/web/e2e/chat-graph.spec.ts
+index 6be351c0..351fc065 100644
+--- a/web/e2e/chat-graph.spec.ts
++++ b/web/e2e/chat-graph.spec.ts
+@@ -107,6 +107,13 @@ test.describe("Chat DAG graph panel", () => {
+ 	}) => {
+ 		const requested = await gotoChat(page, mockApi);
+ 
++		// The mock preview has no database-backed user. The public extensions
++		// route must return the deliberate auth denial, not throw it through
++		// SvelteKit as a 500 while this chat still renders from fixture data.
++		const extensionsResponse = await page.request.get("/api/extensions");
++		expect(extensionsResponse.status()).toBe(401);
++		expect(await extensionsResponse.json()).toEqual({ error: "Authentication required" });
++
+ 		// Closed until asked for — the drawer must not mount on page load.
+ 		await expect(page.getByTestId("chat-graph-panel")).toHaveCount(0);
+ 
+diff --git a/web/src/__tests__/api-extensions.server.test.ts b/web/src/__tests__/api-extensions.server.test.ts
+index 7eefcdf8..b3de864c 100644
+--- a/web/src/__tests__/api-extensions.server.test.ts
++++ b/web/src/__tests__/api-extensions.server.test.ts
+@@ -1,6 +1,6 @@
+ 
+ import { test, expect, describe, vi, beforeEach } from "vitest";
+-import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
++import { makeRequestEvent } from "./helpers/server-route-test-utils";
+ 
+ vi.mock("$server/db/queries/extensions", () => ({
+   listExtensions: vi.fn(),
+@@ -58,16 +58,12 @@ describe("GET /api/extensions", () => {
+     vi.mocked(listExtensions).mockReset();
+   });
+ 
+-  test("rejects unauthenticated request with 401", async () => {
+-    let res: Response | undefined;
+-    try {
+-      await GET(makeEvent({ locals: {} }));
+-      expect.fail("should have thrown");
+-    } catch (thrown) {
+-      expect(thrown).toBeInstanceOf(Response);
+-      res = thrown as Response;
+-    }
+-    expect(res!.status).toBe(401);
++  test("returns unauthenticated 401 without querying extensions", async () => {
++    const res = await GET(makeEvent({ locals: {} }));
++    expect(res.status).toBe(401);
++    expect(await res.json()).toEqual({ error: "Authentication required" });
++    expect(listExtensions).not.toHaveBeenCalled();
++    expect(getExtensionByName).not.toHaveBeenCalled();
+   });
+ 
+   test("returns extensions list for authenticated user", async () => {
+@@ -76,6 +72,14 @@ describe("GET /api/extensions", () => {
+     expect(res.status).toBe(200);
+   });
+ 
++  test("permits an API-key principal with read scope", async () => {
++    vi.mocked(listExtensions).mockResolvedValue([] as any);
++    const res = await GET(makeEvent({
++      locals: { user: regularUser, apiKeyScopes: ["read"], authMethod: "api-key" },
++    }));
++    expect(res.status).toBe(200);
++  });
++
+   test("the LIST branch attaches the derived flags, keyed on a real critical name", async () => {
+     // The list branch — not the `?name=` short-circuit below — is what feeds
+     // the Extensions page: `loadExtensions()` replaces the SSR rows on mount.
+@@ -140,13 +144,23 @@ describe("POST /api/extensions", () => {
+     vi.mocked(installFromLocal).mockReset();
+   });
+ 
+-  test("rejects unauthenticated request with 401", async () => {
+-    const res = await expectThrownResponse(() => POST(
++  test("returns unauthenticated 401 without invoking the retired installer", async () => {
++    const res = await POST(
+       makeEvent({ locals: {}, body: { source: "local", path: "/tmp/x" }, method: "POST" }),
+-    ), 401);
++    );
+     expect(res.status).toBe(401);
+-    const body = (await res.json()) as { error?: string };
+-    expect(body.error).toBe("Authentication required");
++    expect(await res.json()).toEqual({ error: "Authentication required" });
++    expect(installFromLocal).not.toHaveBeenCalled();
++  });
++
++  test("permits an API-key principal with extensions scope", async () => {
++    const res = await POST(makeEvent({
++      locals: { user: regularUser, apiKeyScopes: ["extensions"], authMethod: "api-key" },
++      body: { source: "local", path: "/tmp/x" },
++      method: "POST",
++    }));
++    expect(res.status).toBe(410);
++    expect(installFromLocal).not.toHaveBeenCalled();
+   });
+ 
+   test("does not execute source for a non-admin user", async () => {
+diff --git a/web/src/__tests__/extensions-api.test.ts b/web/src/__tests__/extensions-api.test.ts
+index a3071288..18d896dc 100644
+--- a/web/src/__tests__/extensions-api.test.ts
++++ b/web/src/__tests__/extensions-api.test.ts
+@@ -11,7 +11,7 @@ let authUser: { id: string; email: string; name: string; role: string } | null =
+ };
+ let apiKeyScopes: string[] | undefined ;
+ 
+-const mockRequireAuth = mock(() => {
++const mockRequireAuth = mock((_locals: unknown) => {
+ 	if (!authUser) {
+ 		throw new Response(JSON.stringify({ error: "Authentication required" }), {
+ 			status: 401,
+@@ -21,6 +21,15 @@ const mockRequireAuth = mock(() => {
+ 	return authUser;
+ });
+ 
++const mockCheckAuth = mock((locals: unknown) => {
++	try {
++		return mockRequireAuth(locals);
++	} catch (error) {
++		if (error instanceof Response) return error;
++		throw error;
++	}
++});
++
+ const mockRequireRole = mock((_locals: unknown, role: string) => {
+ 	if (!authUser) {
+ 		throw new Response(JSON.stringify({ error: "Authentication required" }), {
+@@ -70,6 +79,7 @@ const mockCheckRole = mock((locals: unknown, role: string) => {
+ 
+ mock.module("$server/auth/middleware", () => ({
+ 	requireAuth: mockRequireAuth,
++	checkAuth: mockCheckAuth,
+ 	requireRole: mockRequireRole,
+ 	checkRole: mockCheckRole,
+ }));
+@@ -390,9 +400,11 @@ describe("retired install and activation routes cannot grant authority", () => {
+     { grantedPermissions: { storage: false, grantedAt: { shell: {} } } },
+     {},
+   ];
+-  for (const [label, handler] of [
+-    ["install", (body: unknown) => installPOST(installReq(body))],
+-    ["activate", (body: unknown) => activatePOST(activateReq("ext-1", body))],
++  const install = (body: unknown) => installPOST(installReq(body));
++  const activate = (body: unknown) => activatePOST(activateReq("ext-1", body));
++  for (const [label, handler, denied] of [
++    ["install", install, install],
++    ["activate", activate, (body: unknown) => runThrowable(() => activate(body))],
+   ] as const) {
+     test.each(inputs)(label + " rejects legacy input %j without side effects", async (input) => {
+       const response = await handler(input);
+@@ -405,12 +417,12 @@ describe("retired install and activation routes cannot grant authority", () => {
+       expect(mockInsertAuditEntry).not.toHaveBeenCalled();
+       expect(mockReload).not.toHaveBeenCalled();
+     });
+-    test(label + " still requires authentication and extensions scope", async () => {
++    test(label + " requires authentication and extensions scope", async () => {
+       authUser = null;
+-      expect((await runThrowable(() => handler({}))).status).toBe(401);
++      expect((await denied({})).status).toBe(401);
+       authUser = { id: "user", email: "user@test.com", name: "User", role: "member" };
+       apiKeyScopes = ["read", "write"];
+-      expect((await runThrowable(() => handler({}))).status).toBe(403);
++      expect((await denied({})).status).toBe(403);
+       apiKeyScopes = ["extensions"];
+       expect((await handler({})).status).toBe(410);
+       expect(mockUpdateExtension).not.toHaveBeenCalled();
+@@ -537,10 +549,12 @@ describe("GET /api/extensions", () => {
+ 		expect(res.status).toBe(200);
+ 	});
+ 
+-	test("unauthenticated → 401", async () => {
++	test("unauthenticated → returned 401", async () => {
+ 		authUser = null;
+-		const res = await runThrowable(() => listGET(listReq()) as any);
++		const res = await listGET(listReq());
+ 		expect(res.status).toBe(401);
++		expect(await res.json()).toEqual({ error: "Authentication required" });
++		expect(mockListExtensions).not.toHaveBeenCalled();
+ 	});
+ 
+ 	test("API key without 'read' scope → 403", async () => {
+diff --git a/web/src/routes/api/extensions/+server.ts b/web/src/routes/api/extensions/+server.ts
+index 35235e97..fee9b65c 100644
+--- a/web/src/routes/api/extensions/+server.ts
++++ b/web/src/routes/api/extensions/+server.ts
+@@ -1,6 +1,6 @@
+ import { getExtensionByName, listExtensions, redactExtensionSecrets } from "$server/db/queries/extensions";
+ import { withListFlags, withListFlagsAll } from "$server/extensions/list-flags";
+-import { requireAuth } from "$server/auth/middleware";
++import { checkAuth } from "$server/auth/middleware";
+ import { cacheableResponse } from "$server/lib/cache-utils";
+ import { requireScope } from "$lib/server/security/api-keys";
+ import { legacyExtensionEndpoint } from "$lib/server/extensions/legacy-endpoint";
+@@ -9,7 +9,8 @@ import type { RequestHandler } from "./$types";
+ export const GET: RequestHandler = async ({ request, url, locals }) => {
+   const scopeErr = requireScope(locals, "read");
+   if (scopeErr) return scopeErr;
+-  requireAuth(locals);
++  const user = checkAuth(locals);
++  if (user instanceof Response) return user;
+ 
+   // `?name=<exact>` short-circuits the full list — used by the
+   // browser-side resolved-settings store to look up an extension's id
+@@ -32,6 +33,7 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
+ export const POST: RequestHandler = async ({ locals }) => {
+   const denial = requireScope(locals, "extensions");
+   if (denial) return denial;
+-  requireAuth(locals);
++  const user = checkAuth(locals);
++  if (user instanceof Response) return user;
+   return legacyExtensionEndpoint();
+ };

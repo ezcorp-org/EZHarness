@@ -1,0 +1,796 @@
+name: ci
+env:
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+
+# Bun is PINNED (not "latest") in every job: an unannounced bun release can
+# change install/test semantics under us — bun 1.3.14's isolated linker broke
+# cold-cache `--frozen-lockfile` installs until the @types devDeps fix.
+# 1.3.14 verified green 2026-06-11 (full local job sweep + cold-cache
+# clean-clone install). Bump deliberately, with a local re-verification.
+#
+# The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
+# composite action .github/actions/setup and every direct setup-bun call
+# (gate-integrity + coverage below — dep-free jobs that skip the composite —
+# plus visual-evidence-publish.yml, release-sdk.yml and release-image.yml)
+# read it via `bun-version-file`. Bump the pin by editing `.bun-version` only
+# (with the local re-verification above). NO workflow may use `bun-version:
+# latest` — the two release workflows did, which meant the npm-publish and
+# GHCR-push artifacts were built by whatever bun shipped that morning.
+#
+# SPEED/COST SHAPE (see scripts/test-coverage.sh + scripts/lib/test-file-sets.sh):
+# the backend suite used to run TWICE — once plain for pass/fail (`Backend
+# tests`, ~19 min) and once instrumented for coverage (`Per-file coverage gate`,
+# ~24 min). It now runs ONCE, sharded across `cov-shard` runners that gate
+# pass/fail AND emit coverage in a single pass; the two required checks `Backend
+# tests` and `Per-file coverage gate` are thin aggregators over those shards.
+# Every job shares one warm bun cache, and Playwright browsers are cached.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Cancel superseded PR runs (a new push to the same PR branch supersedes the
+# in-flight run) to stop paying for stale CI. Main pushes always run to
+# completion — the visual-evidence publisher keys off a completed CI run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      # scripts/typecheck.sh runs backend (tsconfig.typecheck.json) + web
+      # (svelte-kit sync + scoped tsc). Both currently pass, so this is a
+      # hard gate.
+      - run: bun run typecheck
+
+  # Svelte template/type check (wave 3 — previously NO job checked .svelte
+  # templates; plain tsc can't see inside them). Gate is ERRORS-only
+  # (svelte-check's default exit semantics); warnings stay visible in the
+  # log for chipping away. Measured clean at introduction (0 errors / 18
+  # warnings, 3907 files, ~1-2 min).
+  svelte-check:
+    name: Svelte check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      # --tsgo selects the TypeScript 7 native (Go) compiler. svelte-check
+      # THROWS if the resolved `typescript` package is major >= 7, so the
+      # supported shape is a dual install: `typescript` stays 6.x (what tsc
+      # and the language service use) and `@typescript/native` is an alias of
+      # typescript@7 that only this flag reaches. See web/CLAUDE.md.
+      - run: cd web && bunx svelte-check --tsgo
+
+  # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
+  # (route-handler unit tests), 3-way sharded for wall clock (per-file costs
+  # dominate the 427-file suite). Verified locally via `vitest list --json`:
+  # --shard=1/3 + 2/3 + 3/3 enumerate 143+142+142 = 427 test files and
+  # 1576+1514+1534 = 4624 tests — exactly the unsharded run's counts.
+  #
+  # Went 2 → 3 alongside the cov-shard 8 → 12 bump: at 2 shards this leg ran
+  # 168s, which would have become the run's critical path once the coverage
+  # leg dropped to ~140s. At 3 it lands ~115s, back under the coverage leg.
+  test-web-shard:
+    name: Web tests shard ${{ matrix.i }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep the /3 divisor in the run step in sync with this list length.
+        i: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Root deps too: web's *.server.test.ts import backend handlers from
+      # ../src/**, which pull in root-only deps. The composite installs both.
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/3
+
+  # Required check (branch protection): thin aggregator that KEEPS the pinned
+  # required-check name over the sharded vitest matrix — green iff every
+  # shard succeeded (same pattern as the `Backend tests` aggregator below).
+  test-web:
+    name: Web tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [test-web-shard]
+    if: always()
+    steps:
+      - name: Aggregate vitest shard results
+        run: |
+          echo "test-web-shard: ${{ needs.test-web-shard.result }}"
+          if [ "${{ needs.test-web-shard.result }}" != "success" ]; then
+            echo "::error::A vitest shard failed — see the failing shard's log."
+            exit 1
+          fi
+          echo "All vitest shards succeeded."
+
+  # Required check: the ORPHANED web bun-leg pool — plain `web/src/**/*.test.ts`
+  # that vitest does NOT match (no .component/.server/.unit suffix) and the
+  # backend coverage/passfail pools do NOT already run (~225 files, incl. the 15
+  # web/src/__tests__/security/* suites + chat page-handlers + tool-cards).
+  # These ran in NO CI job before — silent test-rot. scripts/test-web.sh runs
+  # them per-file isolated (mock.module contamination) with REAL exit-code
+  # capture (a module-load crash / OOM is a failure, not a false green).
+  web-bun-tests:
+    name: Web tests (bun-leg orphans)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - run: bash scripts/test-web.sh
+
+  e2e-mock-run:
+    name: E2E mock lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      # Mock/preview e2e gate. With no DOCKER_TEST the playwright config builds
+      # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
+      # specs hit MOCKED backends — no Docker, no live container, no seed.
+      #
+      # SCOPED to a stable, preview-runnable spec set (NOT a blanket
+      # `playwright test`): the file-organizer + Hub + extension-library/detail
+      # surface. A blanket run pulls in ~240 specs, many DOCKER_TEST-gated or
+      # seed-dependent that would fail/flake here with no live backend.
+      # file-organizer-real.spec.ts self-skips its real-backend cases.
+      #
+      # The blocking list has ONE home: the `mock-gate` lane of
+      # web/e2e/lanes.json. scripts/e2e-lane-args.ts turns it into ANCHORED
+      # regexes (Playwright file args are regexes — a bare `hub.spec.ts` once
+      # silently pulled github-projects-hub + project-hub into this gate).
+      # src/__tests__/e2e-lanes.test.ts pins manifest ↔ generator ↔ this
+      # invocation.
+      - shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
+          cd web && bunx playwright test --project=chromium "${ARGS[@]}"
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-mock-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # This is the production-image counterpart to the mock File Organizer
+  # coverage above. It is intentionally a separate job so the mock lane starts
+  # in parallel. The aggregate retaining the protected E2E context below makes
+  # this result a branch-protection dependency.
+  production-image-file-organizer:
+    name: Production image extension lifecycle
+    runs-on: ubuntu-latest
+    # R1 waits through one real build-lease expiry (~7 minutes). The remaining
+    # candidate-image replays, historical upgrade, and artifact upload need
+    # their own bounded time, so this is deliberately not a smoke-test limit.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          playwright: "true"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Build exact candidate image
+        run: docker build --load --build-arg VERSION=ci-${GITHUB_SHA::12} --build-arg REVISION=${GITHUB_SHA} --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t ezcorp:ci-production .
+      - name: Load candidate image into the extension runner store
+        run: docker save ezcorp:ci-production | podman load
+      - name: Verify Stage 2 kernel journal access
+        run: journalctl -k --no-pager -n 1 -o json | jq -e '.__CURSOR | strings | length > 0'
+      - name: Run Stage 2 real namespace proof against the candidate image
+        env:
+          EZCORP_STAGE2_PROOF: "1"
+          EZCORP_STAGE2_PROOF_IMAGE: ezcorp:ci-production
+        run: bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts
+      - name: Verify Docker engine builder for local archival bases
+        run: docker buildx inspect default | awk '/Driver:/ { found = ($2 == "docker") } END { exit !found }'
+
+      - name: Run all required candidate-image production proofs
+        shell: bash
+        run: |
+          BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+            EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \
+            EZ_SHIPPING_APP_UID="$(id -u)" EZ_SHIPPING_APP_GID="$(id -g)" \
+            EZ_SHIPPING_RUNNER_APP_UID=1001 \
+            VERIFY_UPGRADE_CANDIDATE_SOURCE="$GITHUB_SHA" \
+            bash scripts/verify-shipping-production-suite.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: production-image-lifecycle
+          path: .cache/production-lifecycle/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Existing protected context. It stays green only if the parallel mock lane
+  # and the candidate-image File Organizer replay both succeed.
+  e2e-mock:
+    name: E2E (mock, no Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [e2e-mock-run, production-image-file-organizer, extension-browser-engines]
+    if: always()
+    steps:
+      - name: Aggregate mock and candidate-image E2E results
+        run: |
+          echo "mock=${{ needs.e2e-mock-run.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
+          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
+            echo "::error::Mock E2E, production-image verification, or extension browser engine validation failed."
+            exit 1
+          fi
+
+  extension-browser-engines:
+    name: Extension lifecycle (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Install the selected browser and its system dependencies
+        run: cd web && bunx playwright install --with-deps ${{ matrix.browser }}
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Verify actual extension lifecycle, stale tabs, and build recovery
+        env:
+          PI_E2E_REAL: "1"
+          PI_E2E_REAL_BROWSER_PROJECTS: ${{ matrix.browser }}
+          EZCORP_E2E_EVIDENCE: "1"
+        run: cd web && bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: extension-lifecycle-${{ matrix.browser }}
+          path: |
+            web/test-results/
+            web/blob-report/
+          retention-days: 3
+          if-no-files-found: error
+
+  # Real-auth + real-DB + mock-LLM e2e tier (web/playwright.real.config.ts,
+  # specs under web/e2e/real-auth/). Unlike e2e-mock, the preview server boots
+  # WITHOUT PI_SKIP_INIT — the DB initialises, auth runs end-to-end, and the
+  # deterministic /api/__test/* determinism surface is opted-in. This is the
+  # only tier that proves the integrated auth + harness-control + extension
+  # seams (CRIT-2: previously wired to no workflow).
+  #
+  e2e-real-auth:
+    name: E2E (real auth + real DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      # This installs the runner and executes PodmanRunner.initialize(), which
+      # verifies that the real extension sandbox can start on the CI host.
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Verify fresh real-auth setup without committed storage state
+        shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "fresh-setup lane has no specs" >&2; exit 1; }
+          bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"
+      - run: bun scripts/run-real-e2e.ts real-auth
+      # Post-mortem debuggability: keep traces/screenshots when the gate fails
+      # (the real config uses trace: retain-on-failure).
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-real-auth-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  lint:
+    name: Lint (biome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      # Biome lint is a hard gate. Warnings and infos remain visible
+      # (`bun run lint` exits 0 on them) so we can chip away without blocking CI.
+      - run: bun run lint
+      # Architectural dependency boundaries (scripts/check-boundaries.ts).
+      # Folded into THIS job rather than run as its own: it takes ~0.2s over
+      # the whole tree, so it is free here, and `Lint (biome)` is already a
+      # required status check — a standalone job would not be required until
+      # someone with repo-admin adds the context to branch protection, which
+      # would leave it advisory and ignorable in the meantime. Kept as a
+      # separate STEP so a failure is attributable in the UI without changing
+      # what `bun run lint` itself does.
+      - name: Dependency boundaries
+        run: bun scripts/check-boundaries.ts
+      # Secret scan (gitleaks). Folded into THIS job for the same reason as the
+      # boundary check above: it is cheap enough to ride along on an existing
+      # job, and `Lint (biome)` is ALREADY a required status check. A standalone
+      # job would not be required until someone with repo-admin adds the context
+      # to branch protection, so it would ship advisory and ignorable.
+      #
+      # Cost is MEASURED, off this branch's own first CI run (job 93340841347):
+      # ~14s for the whole step — 10.6s to scan ~45.47 MB of working tree, plus
+      # ~2.5s to pull the image, which a cold runner pays every time because
+      # nothing caches it here. `Lint (biome)` went from 27-30s to 42s.
+      #
+      # The CLI in a container, not `gitleaks/gitleaks-action`: that action
+      # requires a `GITLEAKS_LICENSE` for organisation-owned repos. Image is
+      # DIGEST-pinned, matching how this file pins actions by SHA.
+      #
+      # `dir .` scans the WORKING TREE, never history. With .gitleaks.toml the
+      # tree is clean, but a history scan still returns one hit: a bare
+      # `-----BEGIN RSA PRIVATE KEY-----` header carrying NO key material, in a
+      # file that has since been deleted — unfixable by editing code and
+      # unrewritable under `allow_force_pushes: false`.
+      #
+      # `--redact` is load-bearing: without it a REAL finding would be printed
+      # verbatim into a public CI log, which is a second disclosure.
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir . --no-banner --config .gitleaks.toml --redact --exit-code 1
+
+  manifest-lock:
+    name: Manifest lockfile drift check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      # Re-derives manifest.lock.json from the bundled extensions' ezcorp.config.ts
+      # files and exits non-zero if the on-disk lockfile differs. To fix locally:
+      #   bun run scripts/regenerate-manifest-lock.ts
+      - run: bun run scripts/regenerate-manifest-lock.ts --check
+
+  gate-integrity:
+    name: Gate integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 + an explicit fetch of main so the diff-scoped checks
+      # can compute `origin/main...HEAD` (PR checkouts are otherwise shallow).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version # single pin source; see note at top
+      - run: git fetch --no-tags origin main
+      # Anti-tamper / anti-cheat meta-check (no deps needed). A maintainer-only
+      # `gate-change-approved` label sets GATE_CHANGE_APPROVED=1 to bypass.
+      - name: Gate-integrity meta-check
+        env:
+          BASE_REF: origin/main
+          GATE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'gate-change-approved') && '1' || '' }}
+        run: bun scripts/gate-integrity.ts
+
+  # ── Backend tests + coverage, sharded into a single per-file pass ──────────
+  # Each shard runs a 1-of-N stride slice of the coverage host set under
+  # --coverage, gates pass/fail (only for files in the pass/fail set P, with an
+  # isolated retry sweep for instrumentation flakes), and uploads its lcov for
+  # the coverage gate to merge. See scripts/test-coverage.sh (host-shard mode).
+  cov-shard:
+    name: Coverage shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep SHARD_TOTAL below in sync with this list length.
+        # 12 shards: ~5510s of CI-measured per-file work (sum of wall times
+        # under the PARALLEL=4 pool) spread over 12 runners ≈ 460s of pool
+        # work ≈ 115s wall + ~25s fixed overhead ≈ 2:20 for the leg (was
+        # ~3:50 at 8).
+        #
+        # Slices come from the LPT planner (scripts/shard-plan.ts over
+        # scripts/shard-timings.json). That manifest is now sourced from a
+        # REAL CI sweep (run 30387307634) rather than a dev box: the old
+        # 32-core numbers ran ~3.66x faster and unevenly (per-file CI/dev
+        # ratio p10 2.1x, median 3.3x, p90 4.6x), so the plan they produced
+        # looked balanced in dev units while leaving a measured ~93s spread
+        # across the real shards (131s fastest vs 224s slowest). Re-planned
+        # on CI weights the predicted spread is ~0s — worth ~50s of leg wall
+        # on its own, before the shard-count bump.
+        #
+        # Concurrency: VERIFIED, not assumed. Runs 30367934989 (23 jobs) and
+        # 30387307634 (24 jobs) both had every job start within 8s — no
+        # queueing. This repo is PUBLIC, so the 20-job free-plan cap does not
+        # apply. At 12 shards the workflow peaks at ~27 jobs; re-verify job
+        # start spread before pushing much past that.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Verify rootless extension runner controls
+        run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Run shard (tests + coverage)
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_TOTAL: "12"
+          COV_OUT: coverage-shard
+        run: bash scripts/test-coverage.sh
+      # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate
+      # working >24h after the shards ran.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-shard-${{ matrix.shard }}
+          path: coverage-shard
+          retention-days: 3
+          if-no-files-found: error
+
+  # SDK + harness-client + suggest + ai-kit + node-vitest coverage legs
+  # (node 22 for coverage-v8). SDK + harness-client + ai-kit + vitest gate
+  # pass/fail; suggest also gates through residual-tests. Leg file sets live
+  # in scripts/lib/test-file-sets.sh.
+  cov-extras:
+    name: Coverage extras (legs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      # @vitest/coverage-v8 needs node:inspector's Coverage domain (Bun lacks it).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Run coverage legs
+        env:
+          EZCORP_RUN_PODMAN_TESTS: "1"
+          COVERAGE_LEGS_ONLY: "1"
+          COV_OUT: coverage-shard
+        run: bash scripts/test-coverage.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-extras
+          path: coverage-shard
+          retention-days: 3 # see the cov-shard retention note
+          if-no-files-found: error
+
+  # Coverage producer for the 9 web security helpers un-excluded from
+  # scripts/coverage-config.ts. Their bun:test suites use per-`beforeEach`
+  # `mock.module` (bun-only), so they can't run in the node/vitest v8 leg;
+  # scripts/security-coverage.sh runs them under `bun --coverage` and FILTERS the
+  # lcov to exactly those 9 files (no web/src/lib union artifact). Emitted as an
+  # `lcov-cov-*` artifact so the `Per-file coverage gate` merges + enforces them.
+  web-security-coverage:
+    name: Web security coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Run security coverage
+        env:
+          COV_OUT: coverage-shard
+        run: bash scripts/security-coverage.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-security
+          path: coverage-shard
+          retention-days: 3 # see the cov-shard retention note
+          if-no-files-found: error
+
+  # Required check: a CURATED set of high-value, deterministic correctness suites
+  # gated STRICTLY on pass/fail (RBAC engine + resolver + rbac-RPC, migration
+  # idempotency, github-projects concurrency, auth, provider/extension secrets,
+  # mention-wiring). Runs PLAIN (no --coverage) via scripts/test.sh's
+  # CRITICAL_ONLY mode so it REDS CI on any assertion failure — the correctness
+  # gate the coverage shards intentionally don't provide (they tolerate pass/fail
+  # because several backend suites are env-flaky under --coverage). Membership is
+  # narrow + isolation-deterministic (verified over repeated local runs).
+  backend-critical:
+    name: Backend critical (strict pass/fail)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - name: Run curated critical set
+        env:
+          CRITICAL_ONLY: "1"
+        run: bash scripts/test.sh
+
+  # The pass/fail files that the coverage shards do NOT run: the *integration*
+  # variants excluded from the coverage set, plus route-contract.test.ts (the
+  # remote-control governance meta-test). Keeps the union of gated pass/fail
+  # files exactly equal to the full pass/fail set P — scripts/test.sh asserts
+  # route-contract's membership so set drift can never silently de-gate it.
+  residual-tests:
+    name: Residual integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Run residual pass/fail set
+        env:
+          EZCORP_RUN_PODMAN_TESTS: "1"
+          RESIDUAL_ONLY: "1"
+        run: bash scripts/test.sh
+
+  # Required check (branch protection): green iff every backend shard + the
+  # residual set succeeded. The shards run the backend suite under --coverage
+  # and gate pass/fail on P-membership with an isolated plain retry sweep for
+  # instrumentation flakes (see scripts/test-coverage.sh host-shard mode);
+  # non-P files stay coverage-only, enforced by the Per-file coverage gate's
+  # thresholds. The docs/extensions/examples suites used to be the canonical
+  # non-P case — they are now IN P (178 files), so this check is where a red
+  # assertion in that tree finally reds CI. A red here therefore means a real
+  # pass/fail-set test failure OR an infrastructure failure (runner couldn't
+  # execute) — both must block. Aggregated so the pinned required-check name
+  # keeps reporting.
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [cov-shard, residual-tests]
+    if: always()
+    steps:
+      - name: Aggregate shard results
+        run: |
+          echo "cov-shard:       ${{ needs.cov-shard.result }}"
+          echo "residual-tests:  ${{ needs.residual-tests.result }}"
+          if [ "${{ needs.cov-shard.result }}" != "success" ] || \
+             [ "${{ needs.residual-tests.result }}" != "success" ]; then
+            echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
+            exit 1
+          fi
+          echo "All backend shards succeeded."
+
+  # Required check (branch protection): merges every shard + extras lcov and
+  # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
+  # gates. No `bun install` — the gate scripts use only bun + node: builtins.
+  coverage:
+    name: Per-file coverage gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [cov-shard, cov-extras, web-security-coverage]
+    if: always()
+    steps:
+      - name: Require coverage producers to have succeeded
+        run: |
+          if [ "${{ needs.cov-shard.result }}" != "success" ] || \
+             [ "${{ needs.cov-extras.result }}" != "success" ] || \
+             [ "${{ needs.web-security-coverage.result }}" != "success" ]; then
+            echo "::error::coverage producers failed — coverage data is incomplete"
+            exit 1
+          fi
+      # fetch-depth: 0 + fetch main so the new-file / patch gates can diff
+      # origin/main...HEAD against the merged lcov.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version # single pin source; see note at top
+      - run: git fetch --no-tags origin main
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: lcov-cov-*
+          path: coverage-artifacts
+          merge-multiple: true
+      - name: Merge lcov + enforce thresholds
+        run: |
+          mkdir -p coverage
+          bun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info
+          bun scripts/check-coverage.ts
+      - name: New-file coverage gate
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/check-new-file-coverage.ts
+      - name: Patch coverage gate
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/check-patch-coverage.ts
+
+  visual-evidence:
+    # WF1 of the visual-evidence feature. SECURITY: this job runs UNTRUSTED PR
+    # code (the captured @evidence specs), so it MUST stay contents:read and
+    # never hold a write token. The privileged publish step lives in the
+    # separate `visual-evidence-publish.yml` (on: workflow_run).
+    #
+    # TWO hard red paths (wave 3 — no longer pure fail-soft after the gate):
+    #   1. the deterministic "Visual-evidence gate" step, and
+    #   2. "Enforce credited @evidence pass": when select-specs.ts returned a
+    #      non-empty capture, those specs are exactly what the gate credited
+    #      this PR for — so every required mock and real-auth run must PASS (a
+    #      credited capture that starts but never succeeds, incl. a
+    #      step-timeout kill, reds the job via the credited/credited_ok flag
+    #      pair).
+    # The manifest/upload steps remain continue-on-error so failed-run evidence
+    # is still published. The __ALL__ fallback is required evidence and fails
+    # closed when either browser tier fails.
+    #
+    # Capture is DIFF-SCOPED (scripts/visual-evidence/select-specs.ts):
+    # selection = changed @evidence-TAGGED specs ∪ covers-map specs rendering
+    # the changed visual files. A non-visual diff (incl. changed but
+    # non-@evidence specs, and pushes to main whose base...HEAD diff is empty)
+    # skips capture and uploads a `skipped` marker manifest — WF2 refreshes a
+    # stale gallery comment but never creates one. A changed visual file with
+    # no covers entry (or an unloadable covers map) falls open to the FULL
+    # @evidence suite so the change is still rendered by something.
+    name: Visual evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: visual-evidence-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Pinned bun + shared dependency cache + root deps via the composite —
+      # this job previously hand-rolled the same three steps with its own
+      # copy of the pin and cache key.
+      - uses: ./.github/actions/setup
+      - run: git fetch --no-tags origin "${{ github.event.pull_request.base.ref || 'main' }}"
+      # HARD gate (required, deterministic, NO browser): fails the PR if a
+      # visual-surface file changed without a matching @evidence e2e spec. The
+      # maintainer-only `evidence-exempt` label sets EVIDENCE_EXEMPT=1 to bypass.
+      - name: Visual-evidence gate
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+          EVIDENCE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'evidence-exempt') && '1' || '' }}
+        run: bun scripts/check-visual-evidence.ts
+      # Required capture: only the selected @evidence-tagged specs run. Browser
+      # binaries are cached to skip the ~150 MB chromium download.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        continue-on-error: true
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+      # Required, DIFF-SCOPED capture: select-specs.ts decides which
+      # @evidence specs to run from the base...HEAD diff. __NONE__ (non-visual
+      # diff, incl. main pushes) skips the browser install entirely. Derived
+      # spec paths flow through a file, never a ${{ }} interpolation, so an
+      # attacker-controlled path can't inject into the run script. Browser
+      # binaries are cached above to skip the ~150 MB chromium download.
+      - name: Capture visual evidence
+        id: capture
+        continue-on-error: true
+        # Step-level cap: a hung capture is absorbed long enough to publish its
+        # artifacts, then the credited/credited_ok enforcement step reds the job.
+        timeout-minutes: 28
+        # Explicit bash (the Actions default, but pinned so the array logic
+        # below is never run under another shell — it also works in zsh for
+        # local reproduction, unlike the previous `mapfile`).
+        shell: bash
+        env:
+          BASE_REF: origin/${{ github.event.pull_request.base.ref || 'main' }}
+          # Split install (see .github/actions/setup): apt deps only on a
+          # browser-cache miss. Empty/errored cache output reads as "miss",
+          # so deps still install (fail-safe direction).
+          PW_BROWSER_CACHE_HIT: ${{ steps.pw-cache.outputs.cache-hit }}
+        run: |
+          SPECS_FILE="$RUNNER_TEMP/evidence-specs.txt"
+          bun scripts/visual-evidence/select-specs.ts > "$SPECS_FILE" || echo __ALL__ > "$SPECS_FILE"
+          [ -s "$SPECS_FILE" ] || echo __ALL__ > "$SPECS_FILE"
+          if grep -qx '__NONE__' "$SPECS_FILE"; then
+            # Single source of truth for "capture was skipped": this step
+            # output. The manifest step turns it into a `skipped` marker
+            # manifest (so WF2 can refresh a stale gallery) instead of
+            # re-parsing the sentinel file.
+            echo "skipped=1" >> "$GITHUB_OUTPUT"
+            echo "non-visual diff — skipping visual-evidence capture"
+            exit 0
+          fi
+          # Diff-scoped selections are hard requirements. __ALL__ remains a
+          # fail-soft full fallback because no specific changed spec was selected.
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited=1" >> "$GITHUB_OUTPUT"
+          fi
+          (
+            cd web
+            bun install --frozen-lockfile
+            bunx --bun svelte-kit sync
+            bunx playwright install chromium
+            if [ "${PW_BROWSER_CACHE_HIT:-}" != "true" ]; then
+              bunx playwright install-deps chromium
+            fi
+          )
+          # The helper splits mock and real-auth evidence. Real-auth uses the
+          # production runner transport, so make it available before capture.
+          if grep -qx '__ALL__' "$SPECS_FILE" || grep -q '^e2e/real-auth/' "$SPECS_FILE"; then
+            source scripts/setup-extension-runner-ci.sh --install
+            export EZCORP_EVIDENCE_RUNNER_READY=1
+          fi
+          bash scripts/visual-evidence/capture.sh "$SPECS_FILE"
+          if ! grep -qx '__ALL__' "$SPECS_FILE"; then
+            echo "credited_ok=1" >> "$GITHUB_OUTPUT"
+          fi
+      # When capture was skipped (non-visual diff), the manifest is a `skipped`
+      # marker with zero shots: WF2 uses it to REFRESH a stale gallery comment
+      # from an earlier visual push (update-only — it never creates a comment),
+      # so screenshots never outlive the change they depicted. A capture that
+      # RAN but produced no shots writes a plain empty manifest instead, so the
+      # ⚠️ comment keeps flagging genuinely broken captures.
+      - name: Build evidence manifest
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          EVIDENCE_MANIFEST: web/blob-report/manifest.json
+          EVIDENCE_SKIPPED: ${{ steps.capture.outputs.skipped }}
+        run: bun scripts/visual-evidence/build-manifest.ts
+      - name: Upload visual evidence
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-evidence
+          path: web/blob-report
+          retention-days: 3
+          if-no-files-found: ignore
+      # HARD red path 2 (see job header): a DIFF-SCOPED (credited) capture
+      # must pass. Placed after manifest/upload so failure evidence still
+      # lands as artifacts before the job reds.
+      - name: Enforce credited @evidence pass
+        if: steps.capture.outputs.credited == '1' && steps.capture.outputs.credited_ok != '1'
+        run: |
+          echo "::error::diff-credited @evidence spec(s) failed or never completed — the Visual-evidence gate credited this PR for exactly these specs, so their capture run must pass. See the 'Capture visual evidence' step log."
+          exit 1

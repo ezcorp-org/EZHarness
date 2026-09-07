@@ -1,0 +1,2 @@
+[WebServer] {"ts":"2026-09-07T21:39:02.961Z","level":"error","msg":"server error","subsystem":"hooks.server","method":"GET","path":"/this-route-does-not-exist","status":404}
+  191 passed (1.1m)

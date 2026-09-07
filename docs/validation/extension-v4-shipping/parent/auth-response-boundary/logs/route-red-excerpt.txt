@@ -1,0 +1,16 @@
+ ❯ src/__tests__/api-extensions.server.test.ts (13 tests | 2 failed) 30ms
+     × returns unauthenticated 401 without querying extensions 20ms
+     × returns unauthenticated 401 without invoking the retired installer 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/__tests__/api-extensions.server.test.ts > GET /api/extensions > returns unauthenticated 401 without querying extensions
+  constructor: 'Function<Response>',
+  status: 401,
+    constructor: 'Function<Headers>',
+    constructor: 'Function<ReadableStream>',
+ FAIL  src/__tests__/api-extensions.server.test.ts > POST /api/extensions > returns unauthenticated 401 without invoking the retired installer
+  constructor: 'Function<Response>',
+  status: 401,
+    constructor: 'Function<Headers>',
+    constructor: 'Function<ReadableStream>',
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)

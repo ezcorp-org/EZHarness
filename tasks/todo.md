@@ -379,7 +379,7 @@ Final local production review at `2c542bac`: the v2 outer chain completes at 19:
 - [x] Finish evidence membership, checksum, local-link and mode review.
 - [x] Scan the exact staged snapshot and all expanded archives with the pinned scanner; record every exit.
 - [x] Commit the scanned index and push normally, with all hooks enabled.
-- [ ] Verify every hosted technical job against the new pushed head and retain safe results.
+- [x] Verify every hosted technical job against the published 8ae7f086 head and retain safe results; its discovered auth log defect is handled below.
 
 Plan review: local product checks are complete. The next change publishes reviewed records and the existing source commits. The remote branch will receive a normal fast-forward push. The 83 migration-policy findings remain a maintainer decision; no policy exception or shipping approval is applied.
 
@@ -394,8 +394,8 @@ Publication preflight review: all 28 new evidence folders have complete local ch
 - [x] Compare all 83 hosted migration-policy findings with the exact local ordered list; no difference or policy label change.
 - [x] Reproduce the authenticated-browser prerequisite failure: CI invokes a deleted legacy sandbox probe after current v4 runner setup passes.
 - [x] Integrate and independently verify removal of both stale invocations, keep the real kernel-control check, and guard CI/local file references against recurrence.
-- [ ] Diagnose and fix the three observed first-pass coverage failures before accepting the hosted backend result as clean.
-- [ ] Finish current hosted production and visual results, scan/commit/push reviewed repairs, then verify all technical jobs on the new head.
+- [x] Repair the observed test readiness/cleanup defects, retain first-failure output, and verify all three affected files pass on their first hosted coverage run; keep the original missing assertions explicit.
+- [x] Finish current hosted production and visual results, scan/commit/push reviewed repairs, then verify all technical jobs on 8ae7f086.
 
 Plan review: normal publication succeeds with all four typecheck sections and Svelte errors zero. Hosted real-auth fails before tests because `_sandbox-spawn-probe.bun.ts` was deliberately deleted as obsolete but remained referenced in CI and ci-local. Independent review confirms that current mandatory `PodmanRunner.initialize()` executes the supported isolation checks. Parent repeats that real native runner probe successfully with no new roots. Terra prepares a five-file workflow/local/test/documentation repair in isolation. Hosted backend and coverage jobs succeed, but three raw first passes need the existing retry sweep: chat-tools-integration, db-live-holder-guard and auto-note legacy-subprocess. Two Terra owners now inspect the actual failures and reproduce their process/API boundaries before any fixes. No timeout, coverage threshold or failure tolerance is weakened. Hosted production and visual work continues on the published head.
 
@@ -403,3 +403,18 @@ Plan review: normal publication succeeds with all four typecheck sections and Sv
 Hosted repair review: `153e74d8` removes the stale CI/local probe invocations and adds the real module-reference regression. Parent observes its original failure and repaired 12-case pass, repeats the supported kernel probe, and verifies all five committed inputs. `a28bba35` then makes the three affected tests wait for child identity, event delivery, persisted data and actual child closure. The coverage wrapper now prints its first failure before recovery or retry. Parent reproduces both the missing-output failure and premature child close against the former behavior. The repaired wrapper passes 41 cases, the holder suites pass 14 and 11, and chat/Auto Note pass 3 and 14 with coverage in separate processes. The first combined type check finds TS2352 in the new chat test; a narrow typed API result fixes it. All four types, lint, boundaries, Svelte, manifest, shell and source guards pass on the final five-file commit. Its normal hook passes. All 83 main-relative policy findings remain exactly unchanged. The original three hosted assertions were discarded by the former wrapper, so their exact causes remain unknown. The next hosted run must verify the repaired source.
 
 Hosted production finishes at 20:45:50 UTC with all eight proof exits and all eleven launcher quartets zero. Parent checks all 85 private artifact identities, the embedding runtime/log guard, nine current app logs, and all 11 short resource samples with 3,675 descriptor rows. The GitHub merge checkout 00e2b3ea has parents bd736438 and 2bdf4708, and its tree equals the published head exactly. Current workflow failures remain the repaired real-auth prerequisite and unchanged policy review. The follow-up publication now receives its exact-index scan and normal push.
+
+Normal follow-up publication at `8ae7f086` passes the exact-index expanded scan and all hooks, and its remote ref matches. Hosted run 34161268825 passes all twelve coverage shards on the first attempt without a retry sweep or pooled failure. Critical 659, residual 182 and extras 1,435 cases pass; coverage gates verify 1,260 threshold files, 134 new files and 394 patch files. Postgres passes 24 cases. Parent independently checks raw logs and all four hosted static jobs. The policy failure still matches the exact 83 reviewed findings. Browser and production jobs continue.
+
+
+## Extension authentication response boundary — 2026-09-07
+
+- [x] Reproduce the current served mock-preview GET /api/extensions denial and attribute every actual browser error record.
+- [x] Return the intended 401 through one shared authentication response adapter; preserve thrown helper behavior, role checks, API-key scopes and non-Response errors.
+- [x] Replace the web test helper that hides thrown responses with actual returned-response assertions; prove denied requests do not reach extension data or writes.
+- [ ] Verify the compiled browser path and affected complete checks, then publish and validate the repaired production candidate.
+
+Plan review: the 8ae7f086 hosted backend and browser jobs pass, but the mock browser log retains 105 structured hooks.server 500 records. Prior exact-source browser diagnostics link an unauthenticated server-side layout fetch to /api/extensions. Current middleware documentation explicitly identifies SvelteKit converting a thrown Response to500; the extension API still calls that throwing helper. The read-scoped API-key contract must remain valid. Two Terra agents separately reproduce the current served path and prepare a shared returning guard plus strict route regression. Fresh worktree dependency preparation failures are retained separately and do not count as an E2E reproduction. Root integration waits for the baseline browser failure. No mock user is invented and no error log is suppressed.
+
+
+Auth response review: the fresh 8ae7f086 browser case renders successfully but records the real GET /api/extensions status500. Both stricter old-route denial tests then fail. The repaired full mock selection passes 255 cases with 13 intentional production-only skips and no structured server errors; the visual mock selection passes 191 with no500 and one deliberate missing-page404. An incorrectly selected 2,108-case diagnostic was stopped and its owned processes removed; it is not lane evidence. The temporary hook is restored exactly before the final browser proof. Parent integrates the six frozen files, independently repeats the old-route failure and repaired 48 auth, 15 route, 45 API and one real browser cases. All four types, lint, boundaries, Svelte, manifest and source guards pass. Normal publication and repaired-head hosted checks follow.

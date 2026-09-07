@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+worktree=/home/dev/work/EZCorp/extension-v4-mock500-current-diagnostic
+bun_path=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+conmon=/tmp/ez-audit-ci-conmon
+receipt=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/hosted-8ae7f086-browser-review/error-context-review/final-status-boundary-proof-rerun
+cd "$worktree"
+PATH="$bun_path" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test ./src/__tests__/auth-middleware.test.ts > "$receipt/auth-bun.log" 2>&1
+cd "$worktree/web"
+PATH="$bun_path" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx vitest run src/__tests__/api-extensions.server.test.ts > "$receipt/route-vitest.log" 2>&1
+cd "$worktree"
+PATH="$bun_path" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test ./web/src/__tests__/extensions-api.test.ts > "$receipt/extensions-api-bun.log" 2>&1
+cd "$worktree/web"
+PATH="$bun_path" CONMON="$conmon" BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx playwright test e2e/chat-graph.spec.ts --project=chromium --grep 'header button opens the panel' > "$receipt/browser.log" 2>&1
+if grep -F '"subsystem":"hooks.server"' "$receipt/browser.log" >/dev/null; then
+  echo 'unexpected hooks.server record in final targeted browser proof' >&2
+  exit 1
+fi

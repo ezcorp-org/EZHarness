@@ -114,3 +114,7 @@
 - Treat a complete persisted resource series and its console projection as separate artifacts. Check every sample from the complete file, compare any observed prefix exactly, and retain an unexplained output limit without inventing a cause. Test that a bad unprinted sample still fails review.
 
 - Check archive signatures as well as filenames when scanning evidence. Keep classification reads bounded, reject unsupported compression, and prove the actual scanner detects a synthetic token in the expanded member. Treat exact raw log whitespace separately from authored source.
+
+- Retain the first pooled test failure before any recovery or retry. A successful retry cannot establish the cause of discarded assertion output.
+- Test child readiness through the required executable identity, and wait for actual child close when cleanup must drain its streams. Attach rejection handlers when waits start, before another awaited operation can fail.
+- A pull-request image can carry GitHub’s synthetic merge commit. Verify its parents and exact tree against the PR head before treating different commit labels as different source.

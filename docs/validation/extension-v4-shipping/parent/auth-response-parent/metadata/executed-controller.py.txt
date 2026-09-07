@@ -1,0 +1,73 @@
+from pathlib import Path
+from datetime import datetime, timezone
+import fcntl, hashlib, json, os, subprocess, sys, traceback
+
+repo = Path('/home/dev/work/EZCorp/extension-v4-independent-audit')
+source = Path('/home/dev/work/EZCorp/extension-v4-mock500-current-diagnostic')
+files = ['src/auth/middleware.ts', 'src/__tests__/auth-middleware.test.ts',
+    'web/src/routes/api/extensions/+server.ts', 'web/src/__tests__/api-extensions.server.test.ts',
+    'web/src/__tests__/extensions-api.test.ts', 'web/e2e/chat-graph.spec.ts']
+receipt = repo / '.cache/terra-shipping/parent' / ('auth-response-parent-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+receipt.mkdir()
+(receipt / 'executed-controller.py.txt').write_bytes(Path(__file__).read_bytes())
+os.chdir(repo)
+env = {**os.environ, 'PATH': '/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:' + os.environ['PATH'], 'BUN_RUNTIME_TRANSPILER_CACHE_PATH': '0', 'CONMON': '/tmp/ez-audit-ci-conmon'}
+def output(*cmd, cwd=repo): return subprocess.check_output(cmd, cwd=cwd, env=env, text=True).strip()
+def run(name, cmd, cwd=repo, expected=0):
+    with (receipt / (name+'.log')).open('wb') as log:
+        result = subprocess.run(cmd, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT)
+    with (receipt / 'results.tsv').open('a') as f: f.write(f'{name}\t{result.returncode}\t{expected}\n')
+    (receipt / (name+'.exit')).write_text(str(result.returncode)+'\n')
+    print(f'{name}: {result.returncode} (expected {expected})', flush=True)
+    if result.returncode != expected: raise RuntimeError(name+' unexpected exit')
+rc=1
+try:
+    with (repo / '.cache/validation-heavy.lock').open('a') as lock:
+        print('Waiting for shared validation lock',flush=True)
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        (receipt/'started-at.txt').write_text(datetime.now(timezone.utc).isoformat()+'\n')
+        head=output('git','rev-parse','HEAD')
+        assert head=='8ae7f0860728741c0918729452a8ec846cf6ed29'
+        assert output('git','rev-parse','HEAD',cwd=source)==head
+        assert not output('git','diff','--name-only','--',*files)
+        assert not output('git','diff','--name-only','--','web/src/hooks.server.ts',cwd=source)
+        inputs={name:(source/name).read_bytes() for name in files}
+        (receipt/'inputs.json').write_text(json.dumps({name:hashlib.sha256(data).hexdigest() for name,data in inputs.items()},indent=2)+'\n')
+        for name,data in inputs.items():
+            target=receipt/'final-source'/ (name+'.txt');target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
+            (repo/name).write_bytes(data)
+        route='web/src/routes/api/extensions/+server.ts'
+        baseline=subprocess.check_output(['git','show',head+':'+route])
+        (receipt/'baseline-route.ts.txt').write_bytes(baseline)
+        try:
+            (repo/route).write_bytes(baseline)
+            run('old-route-red',['bunx','vitest','run','src/__tests__/api-extensions.server.test.ts'],cwd=repo/'web',expected=1)
+            red=(receipt/'old-route-red.log').read_text()
+            assert '2 failed | 13 passed (15)' in red
+            assert 'returns unauthenticated 401 without querying extensions' in red
+            assert 'returns unauthenticated 401 without invoking the retired installer' in red
+        finally:
+            (repo/route).write_bytes(inputs[route])
+        run('auth-coverage',['bun','test','--coverage','./src/__tests__/auth-middleware.test.ts'])
+        run('route-vitest',['bunx','vitest','run','src/__tests__/api-extensions.server.test.ts'],cwd=repo/'web')
+        run('extensions-api-bun',['bun','test','./web/src/__tests__/extensions-api.test.ts'])
+        run('typecheck',['bun','run','typecheck'])
+        run('lint',['bun','run','lint'])
+        run('boundaries',['bun','scripts/check-boundaries.ts'])
+        run('svelte',['bun','run','check'],cwd=repo/'web')
+        run('manifest',['bun','scripts/regenerate-manifest-lock.ts','--check'])
+        run('authored-whitespace',['git','diff','--check','--','.',':(exclude)docs/validation/extension-v4-shipping/parent/**'])
+        run('browser',['bunx','playwright','test','e2e/chat-graph.spec.ts','--project=chromium','--grep','header button opens the panel'],cwd=repo/'web')
+        assert '"subsystem":"hooks.server"' not in (receipt/'browser.log').read_text()
+        assert '1 passed' in (receipt/'browser.log').read_text()
+        assert all((repo/name).read_bytes()==data for name,data in inputs.items())
+        (receipt/'source-guard.exit').write_text('0\n')
+        (receipt/'source.patch').write_text(output('git','diff','--binary','--',*files)+'\n')
+        rc=0
+except BaseException:
+    traceback.print_exc()
+finally:
+    (receipt/'controller.exit').write_text(str(rc)+'\n')
+    (receipt/'completed-at.txt').write_text(datetime.now(timezone.utc).isoformat()+'\n')
+    print('receipt='+str(receipt),flush=True)
+sys.exit(rc)

@@ -1,0 +1,3 @@
+component	pre-profile_sha256	profile_input_sha256	final_sha256	evidence
+auth helper	663054280419154d13991da5d230eb9ca894adcaa4ad143b014083b9a33bda31	not separately listed; static import by extensions route	663054280419154d13991da5d230eb9ca894adcaa4ad143b014083b9a33bda31	pre-profile and final hashes match; profile receipt pins route, which imports checkAuth
+extensions route	5e2371c4f2c037fcc908276ef34277bdff85098c7a4018bd248b22095dcfde82	5e2371c4f2c037fcc908276ef34277bdff85098c7a4018bd248b22095dcfde82	5e2371c4f2c037fcc908276ef34277bdff85098c7a4018bd248b22095dcfde82	pre-profile, both profile input receipts, and final hashes match

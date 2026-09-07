@@ -1,0 +1,36 @@
+{
+  "current-chat-graph-replay-4": {
+    "exit": 0,
+    "records": [
+      {
+        "method": "GET",
+        "path": "/api/extensions",
+        "status": 500,
+        "count": 1
+      }
+    ]
+  },
+  "route-status-red": {
+    "exit": 1,
+    "records": []
+  },
+  "current-chat-graph-status-green": {
+    "exit": 0,
+    "records": []
+  },
+  "mock-gate-status-profile": {
+    "exit": 0,
+    "records": []
+  },
+  "visual-mock-status-profile": {
+    "exit": 0,
+    "records": [
+      {
+        "method": "GET",
+        "path": "/this-route-does-not-exist",
+        "status": 404,
+        "count": 1
+      }
+    ]
+  }
+}

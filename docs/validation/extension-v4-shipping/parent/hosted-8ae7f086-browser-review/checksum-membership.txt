@@ -1,0 +1,10 @@
+README.md
+SHA256SUMS
+artifact-mapping.tsv
+assigned-jobs.tsv
+browser-observations.txt
+checksum-membership.txt
+raw-log-mapping.tsv
+raw-material-boundary.txt
+run-provenance.json
+terminal-steps.tsv

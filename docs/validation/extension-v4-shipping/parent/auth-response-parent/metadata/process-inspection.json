@@ -1,0 +1,12 @@
+{
+  "inspection_scope": "controller-owned preview and browser processes only",
+  "observed_after": "2026-09-07T21:47:06.841676+00:00",
+  "preview_port": 4173,
+  "preview_listener": null,
+  "owned_pid_sidecars": [],
+  "borrowed_browser_server": {
+    "port": 3333,
+    "excluded_reason": "pre-existing shared Playwright server; not started or stopped by this controller"
+  },
+  "limit": "This is a read-only post-controller observation. It does not claim ownership of unrelated inspector or browser processes."
+}
