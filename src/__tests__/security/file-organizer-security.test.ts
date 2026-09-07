@@ -201,12 +201,14 @@ describe("daemon: fail-closed (degraded mount never mass-quarantines)", () => {
 
   test("an unwritable / missing trash root holds the delete (engine deny ⇒ blocked, file kept)", async () => {
     // Simulate the quarantine being unreachable by denying the write.
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
     const src = join(watched, "junk.tmp");
     await writeFile(src, "j");
     const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
     const outcome = await applyProposal(p, ctx(watched, fakeEngine("deny")));
     expect(outcome.status).toBe("blocked");
     expect(await Bun.file(src).exists()).toBe(true);
+    expect(await Bun.file(join(dataDir, ".trash")).exists()).toBe(false);
   });
 });
 
@@ -414,9 +416,70 @@ describe("host applier: quarantine id containment (nothing escaping reaches the 
     await writeFile(junk, "j");
     const c = { ...ctx(watched), trashRoot: join(root, "no-such-trash") };
     const outcome = await applyProposal(quarantineOf(junk, "q1"), c);
-    expect(outcome.status).toBe("failed");
-    expect(outcome.reason).toContain("trash root unresolvable");
+    expect(outcome.status).toBe("blocked");
+    expect(outcome.reason).toContain("outside the extension private data directory");
     expect(await readFile(junk, "utf8")).toBe("j");
+  });
+
+  test("first quarantine creates the private trash root and preserves bytes", async () => {
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
+    const junk = join(watched, "first-junk.tmp");
+    const sentinel = "first-private-quarantine-sentinel";
+    await writeFile(junk, sentinel);
+
+    const outcome = await applyProposal(quarantineOf(junk, "first-q"), ctx(watched));
+
+    expect(outcome.status).toBe("applied");
+    expect(await Bun.file(junk).exists()).toBe(false);
+    expect(await readFile(join(dataDir, ".trash", "first-q", "first-junk.tmp"), "utf8")).toBe(sentinel);
+  });
+
+  test("a symlinked extension data root still creates only its canonical private trash root", async () => {
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
+    const linkedDataDir = join(root, "linked-extension-data");
+    await symlink(dataDir, linkedDataDir);
+    const junk = join(watched, "linked-data-root.tmp");
+    await writeFile(junk, "canonical-root-sentinel");
+    const linkedContext = {
+      ...ctx(watched),
+      dataDirRoot: linkedDataDir,
+      trashRoot: join(linkedDataDir, ".trash"),
+      journalPath: join(linkedDataDir, "journal.json"),
+    };
+
+    const outcome = await applyProposal(quarantineOf(junk, "linked-q"), linkedContext);
+
+    expect(outcome.status).toBe("applied");
+    expect(await readFile(join(dataDir, ".trash", "linked-q", "linked-data-root.tmp"), "utf8")).toBe("canonical-root-sentinel");
+  });
+
+  test("a planted private trash-root symlink is blocked before the source moves", async () => {
+    const outside = join(root, "outside-trash");
+    await mkdir(outside);
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
+    await symlink(outside, join(dataDir, ".trash"));
+    const junk = join(watched, "junk.tmp");
+    await writeFile(junk, "keep-me");
+
+    const outcome = await applyProposal(quarantineOf(junk, "q1"), ctx(watched));
+
+    expect(outcome.status).toBe("blocked");
+    expect(await readFile(junk, "utf8")).toBe("keep-me");
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  test("a planted quarantine-id symlink is blocked before the source moves", async () => {
+    const outside = join(root, "outside-id");
+    await mkdir(outside);
+    await symlink(outside, join(dataDir, ".trash", "q1"));
+    const junk = join(watched, "junk.tmp");
+    await writeFile(junk, "keep-me");
+
+    const outcome = await applyProposal(quarantineOf(junk, "q1"), ctx(watched));
+
+    expect(outcome.status).toBe("blocked");
+    expect(await readFile(junk, "utf8")).toBe("keep-me");
+    expect(await readdir(outside)).toEqual([]);
   });
 });
 

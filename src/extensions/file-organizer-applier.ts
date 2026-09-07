@@ -254,6 +254,46 @@ async function canonicalRoot(root: string): Promise<string | null> {
   }
 }
 
+type PrivateDirectory =
+  | { status: "ready"; path: string }
+  | { status: "blocked" | "failed"; reason: string };
+
+/**
+ * Plan the one private directory quarantine may create. `trashRoot` is part
+ * of the host context, but it must still resolve to exactly the `.trash`
+ * child of this extension's canonical data root before we make a directory.
+ */
+async function plannedPrivateTrashRoot(ctx: ApplierContext): Promise<PrivateDirectory> {
+  const dataRoot = await canonicalRoot(ctx.dataDirRoot);
+  if (dataRoot === null) return { status: "failed", reason: "extension data root unresolvable" };
+
+  const expected = join(dataRoot, ".trash");
+  const requested = await resolveCreateTarget(ctx.trashRoot);
+  if (requested !== expected) {
+    return { status: "blocked", reason: "trash root is outside the extension private data directory" };
+  }
+  return { status: "ready", path: expected };
+}
+
+/** Create then canonicalize a known private directory. Symlinks and files
+ * fail closed, including a path planted between planning and creation. */
+async function materializePrivateDirectory(path: string, expected: string): Promise<PrivateDirectory> {
+  try {
+    await mkdir(path, { recursive: true });
+  } catch {
+    return { status: "failed", reason: "could not create private quarantine directory" };
+  }
+  try {
+    const entry = await lstat(path);
+    if (!entry.isDirectory()) return { status: "blocked", reason: "private quarantine path is not a directory" };
+    const canonical = await realpath(path);
+    if (canonical !== expected) return { status: "blocked", reason: "private quarantine path resolves outside its anchor" };
+    return { status: "ready", path: canonical };
+  } catch {
+    return { status: "failed", reason: "private quarantine directory unresolvable" };
+  }
+}
+
 /**
  * True if a path crosses into a protected platform directory — never
  * readable-by-move and never writable (they hold the DB, the JWT secret
@@ -515,8 +555,6 @@ async function applyMove(
 }
 
 async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): Promise<ApplyOutcome> {
-  const realTrash = await canonicalRoot(ctx.trashRoot);
-  if (realTrash === null) return { status: "failed", reason: "trash root unresolvable" };
   const quarantineId = proposal.quarantineId ?? proposal.id;
   // Validate BEFORE the id can reach `.trash/manifest.json`: the manifest
   // is what the pruner reads back, so an escaping id recorded here is a
@@ -524,16 +562,25 @@ async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): 
   if (!isQuarantineId(quarantineId)) {
     return { status: "blocked", reason: "invalid quarantine id" };
   }
-  const trashDir = join(realTrash, quarantineId);
-  const desired = join(trashDir, basename(proposal.src));
+
+  const plannedTrash = await plannedPrivateTrashRoot(ctx);
+  if (plannedTrash.status !== "ready") return plannedTrash;
+  // Authorize the exact initial target BEFORE creating even the private
+  // directory, so a denied operation leaves no new filesystem state.
+  const desired = join(plannedTrash.path, quarantineId, basename(proposal.src));
 
   // Audit gate on the trash destination.
   const auditId = await authorizeWrite(ctx, desired);
   if (auditId === null) return { status: "blocked", reason: "engine denied the quarantine write" };
 
+  const realTrash = await materializePrivateDirectory(plannedTrash.path, plannedTrash.path);
+  if (realTrash.status !== "ready") return realTrash;
+  const plannedTrashDir = join(realTrash.path, quarantineId);
+  const trashDir = await materializePrivateDirectory(plannedTrashDir, plannedTrashDir);
+  if (trashDir.status !== "ready") return trashDir;
+
   try {
-    await mkdir(trashDir, { recursive: true });
-    const trashPath = await resolveNonOverwrite(desired);
+    const trashPath = await resolveNonOverwrite(join(trashDir.path, basename(proposal.src)));
     // Journal the quarantine intent.
     await writeJournal(ctx.journalPath, [
       { op: "quarantine", src: proposal.src, dst: trashPath, quarantineId, phase: "copy-pending" },
