@@ -101,6 +101,7 @@ if [ "$FAST" = "0" ]; then
   run_step "E2E (mock gate, chromium)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
     [ "${#ARGS[@]}" -gt 0 ] || exit 1
     cd web && bunx playwright test --project=chromium "${ARGS[@]}"'
+  run_step "E2E (real auth sandbox spawn probe)" bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
   run_step "E2E (fresh setup, real PGlite)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
     [ "${#ARGS[@]}" -gt 0 ] || exit 1
     cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.fresh-setup.config.ts "${ARGS[@]}"'

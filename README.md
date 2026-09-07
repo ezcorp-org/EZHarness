@@ -203,6 +203,13 @@ bash scripts/ci-local.sh --fast  # fast checks before each push
 bash scripts/ci-local.sh         # full checks, including CI's browser lanes
 ```
 
+The full command needs Playwright Chromium. Install it once per machine, and
+again after a Playwright browser update:
+
+```bash
+cd web && bunx playwright install chromium
+```
+
 The full command uses the exact lane definitions that CI consumes. Do not run
 bare `bun test` at the repository root: backend tests require the isolated
 per-file wrapper exposed by `bun run test`. See

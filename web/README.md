@@ -8,6 +8,13 @@ bun install --frozen-lockfile
 bun install --cwd web --frozen-lockfile
 ```
 
+Browser lanes also need Playwright Chromium. Install it once per machine, and
+again after a Playwright browser update:
+
+```sh
+cd web && bunx playwright install chromium
+```
+
 For local development, use the root `bun run dev:stack` command. It starts the
 supported service stack and avoids a host-side embedded database that looks like
 an empty installation. For a production-shape web build:
