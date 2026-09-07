@@ -21,8 +21,6 @@
  *     `fetch` and breaks real-auth specs) doesn't sneak in.
  */
 import { defineConfig } from "@playwright/test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,12 +40,9 @@ const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
-// Fresh PGlite dir per run. Reused across the webServer + every
-// spec — the same directory must survive for the whole `playwright
-// test` invocation. Best-effort cleanup happens at process exit
-// (see globalTeardown).
-const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
-  ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
+// The preview wrapper creates a fixture-owned root only for the default
+// database path, then removes it after the preview process exits. A caller
+// supplied `PI_E2E_REAL_DB_PATH` stays caller-owned and is never removed.
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -135,7 +130,7 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: "bash ../scripts/start-real-extension-preview.sh",
+    command: "bash e2e/run-real-auth-fixture.sh bash ../scripts/start-real-extension-preview.sh",
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
     // Real harness MUST never reuse a stale server — a previous run
@@ -147,7 +142,6 @@ export default defineConfig({
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
-      EZCORP_DB_PATH: DB_DIR,
       EZCORP_PORT: new URL(baseURL).port || "4173",
       ORIGIN: new URL(baseURL).origin,
       PI_E2E_REAL: "1",
