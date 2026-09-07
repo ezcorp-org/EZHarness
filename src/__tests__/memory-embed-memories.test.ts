@@ -105,6 +105,19 @@ describe("insertMemory — atomic row + junction + audit", () => {
     expect(audits.length).toBe(1);
     expect(audits[0]!.action).toBe("created");
   });
+
+  test("an explicit global projectIds set clears a supplied legacy projectId", async () => {
+    const mem = await insertMemory({
+      content: "explicit-global-memory",
+      category: "preferences",
+      userId: OWNER_A,
+      projectId: projectP1,
+      projectIds: [],
+    } as never);
+
+    expect(mem.projectId).toBeNull();
+    expect(await getMemoryProjectIds(mem.id)).toEqual([]);
+  });
 });
 
 describe("mergeMemoriesAtomically — replacement and source removal", () => {
@@ -128,6 +141,10 @@ describe("mergeMemoriesAtomically — replacement and source removal", () => {
       ownerUserId: OWNER_A,
       projectIds: [projectP1],
       injectionEligible: true,
+      sourceSnapshots: {
+        [first.id]: { content: first.content, updatedAt: first.updatedAt },
+        [second.id]: { content: second.content, updatedAt: second.updatedAt },
+      },
     }, {
       content: "would-be merged",
       category: "technical",

@@ -29,7 +29,8 @@ export async function assignMemoryToProjects(memoryId: string, projectIds: strin
   const db = getDb();
   await db.transaction(async (tx: DbTransaction) => {
     const memory = (await tx.select({ projectId: memories.projectId }).from(memories)
-      .where(eq(memories.id, memoryId)))[0];
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories }))[0];
     await tx.insert(memoryProjects)
       .values(projectIds.map((projectId) => ({ memoryId, projectId })))
       .onConflictDoNothing();
@@ -43,7 +44,8 @@ export async function removeMemoryFromProjects(memoryId: string, projectIds: str
   const db = getDb();
   await db.transaction(async (tx: DbTransaction) => {
     const memory = (await tx.select({ projectId: memories.projectId }).from(memories)
-      .where(eq(memories.id, memoryId)))[0];
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories }))[0];
     await tx.delete(memoryProjects).where(
       and(eq(memoryProjects.memoryId, memoryId), inArray(memoryProjects.projectId, projectIds)),
     );
@@ -64,6 +66,9 @@ export async function removeMemoryFromProjects(memoryId: string, projectIds: str
 export async function setMemoryProjects(memoryId: string, projectIds: string[]): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx: DbTransaction) => {
+    await tx.select({ id: memories.id }).from(memories)
+      .where(eq(memories.id, memoryId))
+      .for("update", { of: memories });
     await tx.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
     if (projectIds.length > 0) {
       await tx.insert(memoryProjects)
@@ -116,10 +121,10 @@ async function insertMemoryInTransaction(
 ): Promise<Memory> {
   const { projectIds, auditReason, ...memoryData } = data;
 
-  // Set legacy projectId to first project for backward compat
-  if (projectIds && projectIds.length > 0 && !memoryData.projectId) {
-    memoryData.projectId = projectIds[0];
-  }
+  // An explicit membership set owns the compatibility mirror too. In
+  // particular, `projectIds: []` means global even when an older caller also
+  // supplied the legacy projectId field.
+  if (projectIds !== undefined) memoryData.projectId = projectIds[0] ?? null;
 
   // Assign to projects via junction table
   const resolvedProjectIds = projectIds ?? (memoryData.projectId ? [memoryData.projectId] : []);
@@ -171,26 +176,36 @@ export async function mergeMemoriesAtomically(
     ownerUserId: string;
     projectIds: string[];
     injectionEligible: boolean;
+    sourceSnapshots: Record<string, { content: string; updatedAt: Date }>;
   },
   merged: NewMemory & { projectIds: string[] },
 ): Promise<Memory | null> {
   const db = getDb();
   return db.transaction(async (tx: DbTransaction) => {
+    // All contenders lock the same two rows in ID order. Locking the source
+    // table explicitly avoids attempting to lock the nullable conversation
+    // side of the owner join.
+    const lockedSourceIds = [...sourceIds].sort() as [string, string];
     const sources = await tx.select({
       id: memories.id,
       status: memories.status,
       userId: memories.userId,
       conversationUserId: conversations.userId,
       injectionEligible: memories.injectionEligible,
+      content: memories.content,
+      updatedAt: memories.updatedAt,
     })
       .from(memories)
       .leftJoin(conversations, eq(memories.conversationId, conversations.id))
-      .where(inArray(memories.id, sourceIds));
+      .where(inArray(memories.id, lockedSourceIds))
+      .for("update", { of: memories });
     if (sources.length !== 2) return null;
     if (sources.some((source) =>
       source.status !== "active"
       || source.injectionEligible !== expected.injectionEligible
       || (source.userId ?? source.conversationUserId) !== expected.ownerUserId
+      || source.content !== expected.sourceSnapshots[source.id]?.content
+      || source.updatedAt.getTime() !== expected.sourceSnapshots[source.id]?.updatedAt.getTime()
     )) return null;
 
     const memberships = await tx.select({
@@ -198,7 +213,7 @@ export async function mergeMemoriesAtomically(
       projectId: memoryProjects.projectId,
     })
       .from(memoryProjects)
-      .where(inArray(memoryProjects.memoryId, sourceIds));
+      .where(inArray(memoryProjects.memoryId, lockedSourceIds));
     const projectIdsByMemory = new Map(sourceIds.map((id) => [id, [] as string[]]));
     for (const membership of memberships) projectIdsByMemory.get(membership.memoryId)!.push(membership.projectId);
     if (sourceIds.some((id) => !sameProjectIds(projectIdsByMemory.get(id)!, expected.projectIds))) {
@@ -206,7 +221,7 @@ export async function mergeMemoriesAtomically(
     }
 
     const replacement = await insertMemoryInTransaction(tx, merged);
-    await tx.delete(memories).where(inArray(memories.id, sourceIds));
+    await tx.delete(memories).where(inArray(memories.id, lockedSourceIds));
     return replacement;
   });
 }

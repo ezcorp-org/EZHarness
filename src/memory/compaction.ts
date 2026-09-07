@@ -182,6 +182,10 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
       ownerUserId: owner,
       projectIds: memoryProjectIds,
       injectionEligible: memory.injectionEligible,
+      sourceSnapshots: {
+        [memory.id]: { content: memory.content, updatedAt: memory.updatedAt },
+        [similarMemory.id]: { content: similarMemory.content, updatedAt: similarMemory.updatedAt },
+      },
     }, {
       content: mergedContent,
       category: memory.category,

@@ -1171,29 +1171,28 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // exactly once. `migrate()` runs on every boot: repeating that import would
   // turn a later, deliberate removal of every junction row back into a
   // project assignment because `memories.project_id` is compatibility data.
-  const memoryProjectsExisted = (await db.execute(sql`
-    SELECT to_regclass('memory_projects') IS NOT NULL AS exists
-  `)) as { rows: Array<{ exists: boolean }> };
+  // A `DO` block is one PostgreSQL statement. It must contain both table
+  // creation and import: separate execute calls could crash after CREATE,
+  // then see the table on restart and permanently skip the legacy import.
   await db.execute(sql`
-    CREATE TABLE IF NOT EXISTS memory_projects (
-      memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-      UNIQUE(memory_id, project_id)
-    )
+    DO $$
+    BEGIN
+      IF to_regclass('memory_projects') IS NULL THEN
+        CREATE TABLE memory_projects (
+          memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+          UNIQUE(memory_id, project_id)
+        );
+        INSERT INTO memory_projects (memory_id, project_id)
+        SELECT id, project_id FROM memories WHERE project_id IS NOT NULL
+        ON CONFLICT DO NOTHING;
+      END IF;
+    END
+    $$
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_memory ON memory_projects(memory_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_project ON memory_projects(project_id)`);
-
-  if (!memoryProjectsExisted.rows[0]?.exists) {
-    // First creation only: all non-null legacy values were the authoritative
-    // single-project scope before this table existed.
-    await db.execute(sql`
-      INSERT INTO memory_projects (memory_id, project_id)
-      SELECT id, project_id FROM memories WHERE project_id IS NOT NULL
-      ON CONFLICT DO NOTHING
-    `);
-  }
 
   // ── Message Attachments (multi-modal uploads) ──────────────────
   await db.execute(sql`

@@ -54,7 +54,7 @@ mock.module("../db/queries/settings", () => {
 mockDbConnection();
 mockEmbeddingsModule();
 
-const { insertMemory, searchMemories, getMemoryById, getMemoryProjectIds } = await import("../db/queries/memories");
+const { insertMemory, searchMemories, getMemoryById, getMemoryProjectIds, updateMemory } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
@@ -226,6 +226,22 @@ describe("Memory Compaction", () => {
 
     expect(await runCompaction(projectId, testMergeFn)).toBe(0);
     expect(await searchMemories({ projectId, status: "active" })).toHaveLength(2);
+  });
+
+  test("runCompaction cancels if a source changes while the LLM is merging", async () => {
+    const vectorA = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+    const vectorB = Array.from({ length: 384 }, (_, i) => i === 0 ? 0.95 : i === 1 ? Math.sqrt(1 - 0.95 ** 2) : 0);
+    const source = await insertTestMemory("original source", { embedding: vectorA });
+    const candidate = await insertTestMemory("merge candidate", { embedding: vectorB });
+
+    const merged = await runCompaction(projectId, async () => {
+      await updateMemory(source.id, { content: "edited during merge" });
+      return "merged result";
+    });
+
+    expect(merged).toBe(0);
+    expect((await getMemoryById(source.id))?.content).toBe("edited during merge");
+    expect(await getMemoryById(candidate.id)).toBeDefined();
   });
 
   test("runCompaction never merges across users — similar rows owned by different users both survive", async () => {
