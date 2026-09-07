@@ -79,10 +79,14 @@
 		if (e.key === 'Escape') cancelDelay();
 	}
 
+	function repositionIfShown() {
+		if (show) positionTooltip();
+	}
+
 	onDestroy(cancelDelay);
 </script>
 
-<svelte:window onresize={show ? positionTooltip : undefined} onscroll={show ? positionTooltip : undefined} />
+<svelte:window onresize={repositionIfShown} onscroll={repositionIfShown} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <span

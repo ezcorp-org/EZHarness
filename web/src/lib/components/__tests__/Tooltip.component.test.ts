@@ -29,6 +29,20 @@ function renderTooltip(props: Record<string, unknown> = {}) {
 	return render(Tooltip, { text: "A helpful description", children, ...props });
 }
 
+function rect(left: number, top: number, width = 20, height = 20): DOMRect {
+	return {
+		bottom: top + height,
+		height,
+		left,
+		right: left + width,
+		top,
+		width,
+		x: left,
+		y: top,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
+
 describe("Tooltip", () => {
 	test("hidden until hovered; shows after the delay", async () => {
 		const { getByText, queryByRole, getByRole } = renderTooltip();
@@ -80,6 +94,62 @@ describe("Tooltip", () => {
 			await vi.advanceTimersByTimeAsync(300);
 			expect(queryByRole("tooltip")).toBeNull();
 		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	test.each([
+		["top", rect(100, 20), "95px", "48px"],
+		["bottom", rect(100, window.innerHeight - 40), "95px", `${window.innerHeight - 58}px`],
+		["left", rect(20, 100), "48px", "105px"],
+		["right", rect(window.innerWidth - 40, 100), `${window.innerWidth - 78}px`, "105px"],
+	])("flips %s placement at a viewport edge", async (position, triggerRect, expectedLeft, expectedTop) => {
+		vi.useFakeTimers();
+		try {
+			const { getByText, getByRole } = renderTooltip({ position });
+			const wrapper = getByText("trigger").parentElement!;
+			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+				return this === wrapper ? triggerRect : rect(0, 0, 30, 10);
+			});
+
+			await fireEvent.mouseEnter(wrapper);
+			await vi.advanceTimersByTimeAsync(300);
+
+			const tooltip = getByRole("tooltip");
+			expect(tooltip).toHaveStyle({ left: expectedLeft, top: expectedTop });
+		} finally {
+			vi.restoreAllMocks();
+			vi.useRealTimers();
+		}
+	});
+
+	test("repositions an open tooltip after resize and scroll", async () => {
+		vi.useFakeTimers();
+		try {
+			const { getByText, getByRole } = renderTooltip();
+			const wrapper = getByText("trigger").parentElement!;
+			let triggerRect = rect(100, 100);
+			vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+				return this === wrapper ? triggerRect : rect(0, 0, 30, 10);
+			});
+
+			await fireEvent.mouseEnter(wrapper);
+			await vi.advanceTimersByTimeAsync(300);
+			await vi.advanceTimersByTimeAsync(0);
+			const tooltip = getByRole("tooltip");
+			expect(tooltip).toHaveStyle({ left: "95px", top: "82px" });
+
+			triggerRect = rect(200, 200);
+			window.dispatchEvent(new Event("resize"));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(tooltip).toHaveStyle({ left: "195px", top: "182px" });
+
+			triggerRect = rect(300, 300);
+			window.dispatchEvent(new Event("scroll"));
+			await vi.advanceTimersByTimeAsync(0);
+			expect(tooltip).toHaveStyle({ left: "295px", top: "282px" });
+		} finally {
+			vi.restoreAllMocks();
 			vi.useRealTimers();
 		}
 	});
