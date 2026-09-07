@@ -74,6 +74,23 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
     }
   });
 
+  test("keeps the configured durable cache when relational data uses external Postgres", async () => {
+    const previousDbPath = process.env.EZCORP_DB_PATH;
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.EZCORP_DB_PATH = "/owned/data/ezcorp";
+    process.env.DATABASE_URL = "postgres://db.example/ezcorp";
+    try {
+      await generateEmbedding("external database cache location");
+      expect(pipelineOptions).toHaveLength(1);
+      expect(pipelineOptions[0]).toMatchObject({ cache_dir: "/owned/data/embedding-model-cache" });
+    } finally {
+      if (previousDbPath === undefined) delete process.env.EZCORP_DB_PATH;
+      else process.env.EZCORP_DB_PATH = previousDbPath;
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
   test("resetEmbeddingProvider flips state back to false", async () => {
     await generateEmbedding("warm me up");
     expect(isEmbeddingReady()).toBe(true);

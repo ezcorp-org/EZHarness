@@ -20,9 +20,15 @@ describe("embedded database paths", () => {
     expect(embeddedStateDir(env)).toBe("/home/app/ez-corp/.data");
   });
 
-  test("uses the current working directory when HOME is absent", () => {
+  test("corrects a missing HOME without creating a literal undefined path", () => {
     expect(embeddedDatabasePath({})).toBe(`${process.cwd()}/ez-corp/.data/ez-corp-db`);
     expect(embeddedStateDir({})).toBe(`${process.cwd()}/ez-corp/.data`);
+  });
+
+  test("keeps a configured durable path when relational data uses external Postgres", () => {
+    const env = { DATABASE_URL: "postgres://db.example/ezcorp", EZCORP_DB_PATH: "/owned/data/ezcorp", HOME: "/home/app" };
+    expect(embeddedDatabasePath(env)).toBe("/owned/data/ezcorp");
+    expect(embeddedStateDir(env)).toBe("/owned/data");
   });
 
   test("does not place in-memory database caches in the current package directory", () => {
