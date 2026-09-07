@@ -106,7 +106,6 @@ mock.module("../extensions/bundled-ceiling", () => {
     "code-review-delegator": { grantedAt: {} },
     "github-stats": {
       network: ["api.github.com"],
-      env: ["GITHUB_TOKEN"],
       grantedAt: {},
     },
     "multi-agent-orchestrator": { grantedAt: {} },

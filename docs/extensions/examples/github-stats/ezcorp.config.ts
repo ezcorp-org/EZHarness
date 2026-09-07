@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineExtension } from "@ezcorp/sdk";
 
 export default defineExtension({
   schemaVersion: 2,
@@ -63,7 +63,6 @@ export default defineExtension({
   ],
   permissions: {
     network: ["api.github.com"],
-    env: ["GITHUB_TOKEN"],
   },
   resources: {
     memory: "256MB",

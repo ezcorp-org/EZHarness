@@ -53,7 +53,7 @@ export default defineExtension({
     {
       name: "markdown-style",
       description: "Guidelines for writing clean, consistent markdown",
-      content: "# Markdown Style Guide\n\n- Use ATX-style headings (# not underlines)\n- One sentence per line for better diffs\n- Blank line before and after headings, lists, and code blocks\n- Use fenced code blocks with language identifiers\n- Prefer reference-style links for repeated URLs\n- Tables: align pipes, use header separator row\n- Lists: consistent marker (- not mixed with *)\n- Maximum line length: 120 characters for prose",
+      prompt: "# Markdown Style Guide\n\n- Use ATX-style headings (# not underlines)\n- One sentence per line for better diffs\n- Blank line before and after headings, lists, and code blocks\n- Use fenced code blocks with language identifiers\n- Prefer reference-style links for repeated URLs\n- Tables: align pipes, use header separator row\n- Lists: consistent marker (- not mixed with *)\n- Maximum line length: 120 characters for prose",
     },
   ],
   agent: {

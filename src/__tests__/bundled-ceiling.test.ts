@@ -664,10 +664,10 @@ describe("eventSubscriptions clamp drops un-listed events", () => {
   });
 });
 
-// ── env clamp ───────────────────────────────────────────────────────
+// ── public GitHub stats does not receive credentials ─────────────────
 
-describe("env clamp drops un-listed env vars", () => {
-  test("github-stats ceiling = ['GITHUB_TOKEN']; requesting AWS_KEY → dropped", () => {
+describe("public github-stats ceiling", () => {
+  test("drops every requested environment variable", () => {
     const requested: ExtensionPermissions = {
       network: ["api.github.com"],
       env: ["GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY"],
@@ -675,7 +675,7 @@ describe("env clamp drops un-listed env vars", () => {
     };
     const { effective, clamped } = clampToBundledCeiling("github-stats", requested);
     expect(clamped).toBe(true);
-    expect(effective.env).toEqual(["GITHUB_TOKEN"]);
+    expect(effective.env).toBeUndefined();
     expect(effective.network).toEqual(["api.github.com"]);
   });
 });

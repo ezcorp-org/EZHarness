@@ -132,7 +132,7 @@ describe("getting-started.md", () => {
 
   test("covers skill creation (Part 1)", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(content).toContain("ezcorp ext init");
+    expect(content).toContain("bun src/cli.ts ext init");
     expect(content).toContain("--type skill");
   });
 
@@ -143,7 +143,7 @@ describe("getting-started.md", () => {
 
   test("covers publishing", async () => {
     content ??= await readText(join(DOCS_DIR, "getting-started.md"));
-    expect(content).toContain("ezcorp ext publish");
+    expect(content).toContain('bun "$EZCORP_HOST/src/cli.ts" ext publish');
   });
 
   test("has troubleshooting section", async () => {

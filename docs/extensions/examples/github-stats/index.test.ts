@@ -18,8 +18,6 @@ globalThis.fetch = mockFetch as unknown as typeof fetch;
 // assert behavior without spinning up the stdin-driven dispatcher.
 async function githubFetch(path: string) {
   const headers: Record<string, string> = { "User-Agent": "github-stats-ext" };
-  const token = process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetchPermitted(`https://api.github.com${path}`, { headers });
   const data = await res.json();
   return { ok: res.ok, status: res.status, data };
@@ -96,14 +94,12 @@ test("handles 403 rate limit", async () => {
   expect(result.status).toBe(403);
 });
 
-test("includes auth header when GITHUB_TOKEN set", async () => {
-  process.env.GITHUB_TOKEN = "test-token";
+test("uses only the public API header", async () => {
   mockFetch.mockResolvedValueOnce(new Response("{}", { status: 200 }));
 
   await githubFetch("/users/test");
 
   const callArgs = at(mockFetch.mock.calls, 0, "fetch call");
   const headers = (callArgs[1] as RequestInit).headers as Record<string, string>;
-  expect(headers.Authorization).toBe("Bearer test-token");
-  delete process.env.GITHUB_TOKEN;
+  expect(headers).toEqual({ "User-Agent": "github-stats-ext" });
 });

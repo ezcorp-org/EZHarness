@@ -38,7 +38,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 | `project-analyzer` | `docs/extensions/examples/project-analyzer` | Reads project files; postinstall may shell out | `filesystem:$CWD`, `shell` |
 | `markdown-utils` | `docs/extensions/examples/markdown-utils` | Pure markdown helper tools + skill + agent | no runtime perms |
 | `code-review-delegator` | `docs/extensions/examples/code-review-delegator` | Delegator that fans out to dependency extensions | no runtime perms |
-| `github-stats` | `docs/extensions/examples/github-stats` | Read-only GitHub API stats | `network:api.github.com`, `env:GITHUB_TOKEN` |
+| `github-stats` | `docs/extensions/examples/github-stats` | Public GitHub API stats | `network:api.github.com` |
 | `multi-agent-orchestrator` | `docs/extensions/examples/multi-agent-orchestrator` | Forward-looking sub-agent orchestrator skeleton | no runtime perms |
 | `research-agent` | `docs/extensions/examples/research-agent` | Pure-prompt research agent (agent-only manifest) | no runtime perms |
 | `file-refactor` | `docs/extensions/examples/file-refactor` | File-rename previews with convention selection | `filesystem:$CWD`, **no shell** |

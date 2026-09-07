@@ -1,6 +1,6 @@
 # github-stats Extension
 
-A tool extension that fetches GitHub repository and user statistics via the GitHub API. This example demonstrates **network permissions**, **environment variables**, and **resource limits**.
+A tool extension that fetches public GitHub repository and user statistics via the GitHub API. This example demonstrates **network permissions** and **resource limits**.
 
 ## Install
 
@@ -30,13 +30,9 @@ Each tool declares an `inputSchema` so the platform knows what arguments to pass
 
 This extension makes outbound HTTP requests to `api.github.com`. The platform enforces that only this domain is reachable -- any other network calls are blocked.
 
-### `permissions.env`
+### Public GitHub API only
 
-```json
-"env": ["GITHUB_TOKEN"]
-```
-
-The extension can read the `GITHUB_TOKEN` environment variable for authenticated API requests. Without it, the extension still works but is subject to lower rate limits.
+This extension does not read a GitHub token. It can query public repositories and public user profiles only. GitHub can rate-limit public requests; the tool returns a clear retry-later error when that happens. It does not support private repositories.
 
 ### `resources.memory`
 

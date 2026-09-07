@@ -17,8 +17,6 @@ import {
 // not present in `EZCORP_PERMITTED_HOSTS`.
 async function githubFetch(path: string): Promise<{ ok: boolean; status: number; data: unknown }> {
   const headers: Record<string, string> = { "User-Agent": "github-stats-ext" };
-  const token = process.env.GITHUB_TOKEN;
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetchPermitted(`https://api.github.com${path}`, { headers });
   const data = await res.json();
@@ -33,7 +31,7 @@ const repoStats: ToolHandler = async (args) => {
   const { ok, status, data } = await githubFetch(`/repos/${owner}/${repo}`);
   if (!ok) {
     if (status === 404) return toolError(`Repository ${owner}/${repo} not found`);
-    if (status === 403) return toolError("GitHub API rate limit exceeded");
+    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
     return toolError(`GitHub API error: ${status}`);
   }
   const d = data as Record<string, unknown>;
@@ -48,7 +46,7 @@ const userProfile: ToolHandler = async (args) => {
   const { ok, status, data } = await githubFetch(`/users/${username}`);
   if (!ok) {
     if (status === 404) return toolError(`User ${username} not found`);
-    if (status === 403) return toolError("GitHub API rate limit exceeded");
+    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
     return toolError(`GitHub API error: ${status}`);
   }
   const d = data as Record<string, unknown>;
@@ -63,7 +61,7 @@ const repoLanguages: ToolHandler = async (args) => {
   const { ok, status, data } = await githubFetch(`/repos/${owner}/${repo}/languages`);
   if (!ok) {
     if (status === 404) return toolError(`Repository ${owner}/${repo} not found`);
-    if (status === 403) return toolError("GitHub API rate limit exceeded");
+    if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
     return toolError(`GitHub API error: ${status}`);
   }
   return toolResult(JSON.stringify(data));

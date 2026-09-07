@@ -175,7 +175,6 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // GitHub stats — read-only API access.
   "github-stats": {
     network: ["api.github.com"],
-    env: ["GITHUB_TOKEN"],
     grantedAt: {},
   },
 

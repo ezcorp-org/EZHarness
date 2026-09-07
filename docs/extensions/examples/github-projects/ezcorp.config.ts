@@ -27,12 +27,6 @@ export default defineExtension({
   category: "Development",
   tags: ["hub", "pages", "github", "projects", "tickets", "orchestration"],
 
-  // Event-only live path: the daemon's proposal updates + the Hub page-action
-  // buttons drive everything, so the subprocess must stay resident to receive
-  // them (same rationale as ping-loop). The 6 tools below also spawn it lazily
-  // on first chat use, but bootSpawn keeps the dashboard live without a chat.
-  bootSpawn: true,
-
   // ── LLM-callable tools (THIN — each emits a reverse-RPC intent) ──────────
   //
   // None carries a board id. The host derives projectId from the conversation
