@@ -254,6 +254,10 @@ const PG_URL = process.env.DATABASE_URL;
 
 describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   let conn: typeof import("../db/connection");
+  // The pool-one regression owns this exact child. A test timeout interrupts
+  // its body before it can await child.exited, so afterAll must terminate it
+  // rather than leave a session-level advisory lock on the shared test server.
+  let poolOneMigrationChild: ReturnType<typeof Bun.spawn> | null = null;
 
   beforeAll(async () => {
     restoreModuleMocks();
@@ -272,6 +276,20 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    const child = poolOneMigrationChild;
+    poolOneMigrationChild = null;
+    if (child) {
+      try {
+        child.kill();
+      } catch {
+        /* child already exited */
+      }
+      try {
+        await child.exited;
+      } catch {
+        /* best-effort cleanup after a test failure */
+      }
+    }
     if (conn) await conn.closeDb();
     restoreModuleMocks();
   });
@@ -320,12 +338,14 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
       stdout: "pipe",
       stderr: "pipe",
     });
+    poolOneMigrationChild = child;
     const [exitCode, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
     ]);
     expect(exitCode, `pool-one migration failed:\n${stdout}\n${stderr}`).toBe(0);
+    poolOneMigrationChild = null;
   });
 
   test("execute() wrapper normalizes bun-sql arrays to { rows }", async () => {
