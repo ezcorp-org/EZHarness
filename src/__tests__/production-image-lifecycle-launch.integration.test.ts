@@ -10,6 +10,17 @@ async function executable(path: string, source: string): Promise<void> {
   await writeFile(path, source, { mode: 0o700 });
 }
 
+async function launcherDiagnostics(receipt: string): Promise<string> {
+  const read = async (name: string) => {
+    try {
+      return await readFile(join(receipt, name), "utf8");
+    } catch (error) {
+      return `<unavailable: ${String(error)}>`;
+    }
+  };
+  return `runner.log:\n${await read("runner.log")}\ncommand.log:\n${await read("command.log")}`;
+}
+
 test("long persistent state keeps the authenticated runner transport below the Unix-path limit", async () => {
   const directory = await mkdtemp(join(tmpdir(), "production-lifecycle-launch-"));
   const bin = join(directory, "bin");
@@ -102,7 +113,8 @@ printf '%s' "$code"
       new Response(launched.stdout).text(),
       new Response(launched.stderr).text(),
     ]);
-    expect(timedOut).toBe(false);
+    const diagnostics = await launcherDiagnostics(receipt);
+    expect(timedOut, `launcher exceeded the 20s deadline\n${diagnostics}\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(false);
     expect(exit, `${stdout}\n${stderr}`).toBe(0);
     expect(await readFile(commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: state, id: "launcher-readiness", state: "unknown" })}\n`);
     const generatedCompose = await readFile(compose, "utf8");
