@@ -36,6 +36,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
+const previewPort = new URL(baseURL).port || "4173";
 
 // The deterministic mock LLM is served by this same preview server; pi-ai's
 // HTTP client must reach it on the actual bound port (vite preview's :4173),
@@ -47,8 +48,16 @@ const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/
 // spec — the same directory must survive for the whole `playwright
 // test` invocation. Best-effort cleanup happens at process exit
 // (see globalTeardown).
-const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
-  ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
+const callerDbDir = process.env.PI_E2E_REAL_DB_PATH;
+const DB_DIR = callerDbDir ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
+const ownsDbDir = callerDbDir === undefined;
+
+// Test workers need the same identity to clean only records they created.
+// Metadata below preserves ownership because this assignment happens after we
+// capture whether a caller supplied the path.
+process.env.PI_E2E_REAL_DB_PATH = DB_DIR;
+if (ownsDbDir) process.env.PI_E2E_REAL_DB_GENERATED = "1";
+else delete process.env.PI_E2E_REAL_DB_GENERATED;
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -59,6 +68,10 @@ const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 
 export default defineConfig({
+  // Playwright passes config metadata to global teardown even though it loads
+  // teardown separately from this config module. It is the ownership handoff
+  // for the exact temporary DB passed to the webServer child below.
+  metadata: { e2eDbDir: DB_DIR, e2eDbOwned: ownsDbDir },
   testDir: "./e2e/real-auth",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
@@ -129,7 +142,7 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: "bun run build && bun run preview",
+    command: `bun run build && bun run preview -- --port ${previewPort} --strictPort`,
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
     // Real harness MUST never reuse a stale server — a previous run

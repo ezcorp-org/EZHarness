@@ -1,7 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const isDocker = !!process.env.DOCKER_TEST;
-const baseURL = isDocker ? "http://localhost:3000" : "http://localhost:4173";
+const baseURL = isDocker
+	? "http://localhost:3000"
+	: process.env.PI_E2E_MOCK_BASE_URL ?? "http://localhost:4173";
+const previewPort = new URL(baseURL).port || "4173";
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). When set, the
 // `captureEvidence` helper owns screenshotting and attaches PNGs to each
@@ -14,8 +17,9 @@ const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 
 export default defineConfig({
 	testDir: "./e2e",
-	// The real-auth tier lives INSIDE this testDir, so without an explicit
-	// ignore a bare `playwright test` sweeps it into the mock lane. Those specs
+	// The fresh-setup spec and real-auth tier live inside this testDir, so without
+	// an explicit ignore a bare `playwright test` sweeps them into the mock lane.
+	// Those specs
 	// need a webServer booted with `PI_E2E_REAL=1`; under the mock preview
 	// `isTestSurfaceEnabled()` fail-closes and every `/api/__test/**` route
 	// 404s, so they fail on their own guard rather than on anything they test
@@ -29,10 +33,10 @@ export default defineConfig({
 	// worth pinning — the protection today is the arg list, and a future switch
 	// to plain `testDir` collection would re-open it silently.
 	//
-	// playwright.real.config.ts scopes ITSELF correctly (`testDir:
-	// "./e2e/real-auth"`), so the two configs now partition e2e/ instead of
-	// overlapping. Pinned in src/__tests__/e2e-lanes.test.ts.
-	testIgnore: "**/real-auth/**",
+	// The dedicated configs scope themselves to `setup-first-run.spec.ts` and
+	// `./e2e/real-auth`, so the configs partition e2e/ instead of overlapping.
+	// Pinned in src/__tests__/e2e-lanes.test.ts.
+	testIgnore: ["**/setup-first-run.spec.ts", "**/real-auth/**"],
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	// retries: 0 even in CI — a retry that turns a red test green hides a real
@@ -82,15 +86,15 @@ export default defineConfig({
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
 			command:
-				"PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview",
-			url: "http://localhost:4173",
+				`PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
+			url: baseURL,
 			// The command runs a full production `bun run build` before `preview`
 			// can bind the port. On the constrained CI runner that build alone
 			// exceeds Playwright's 60s default, so the webServer is reported as
 			// timed-out before it is ever ready. Give build+preview real headroom
 			// (this is server BOOT time, not a test retry — `retries` stays 0).
 			timeout: 180_000,
-			reuseExistingServer: !process.env.CI,
+			reuseExistingServer: false,
 		},
 	}),
 });

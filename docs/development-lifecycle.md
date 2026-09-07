@@ -132,7 +132,7 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Web tests (vitest)** | component + server-route units pass | — |
 | **Web tests (bun-leg orphans)** | the plain web unit tests the Vitest leg doesn't run (`scripts/test-web.sh`) | — |
 | **E2E (mock, no Docker)** | UI render + action wiring works | broken UI shipped green |
-| **E2E (real auth + real DB)** | real-auth/real-DB tier (`PI_E2E_REAL=1`, `playwright.real.config.ts`), incl. a sandbox spawn probe so extension specs can't silently skip | mock-only green hiding real-stack breakage |
+| **E2E (real auth + real DB)** | fresh first-user setup plus real-auth/real-DB tiers (`PI_E2E_REAL=1`, `playwright.fresh-setup.config.ts` and `playwright.real.config.ts`), incl. a sandbox spawn probe so extension specs can't silently skip | mock-only green hiding real-stack breakage |
 | **Lint (biome)** | style/lint clean | — |
 | **Manifest lockfile drift check** | bundled-ext lockfile in sync | stale lockfile |
 | **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job, and it fails unless all coverage producers (backend shards, extras legs, **Web security coverage**) succeeded | undertested code / incomplete coverage data |
@@ -236,14 +236,11 @@ below has already cost someone a red CI run or a wrong conclusion.
 A green `bun run test` therefore says nothing about three separate CI jobs. Run
 `bash scripts/test-web.sh` too when you touch anything under `web/`.
 
-**`bun run test:e2e` is NOT the e2e gate.** It runs `testDir: "./e2e"` — all
-**345** spec files across two projects (~4102 tests), including the 232 that
-`web/e2e/lanes.json` deliberately parks in the `unwired` lane because they need
-a live backend, and the 20 real-tier specs under `e2e/real-auth/` that
-fail-closed to 404 without `PI_E2E_REAL=1`. Expect it to be substantially red;
-that is by design, not a regression. CI's `E2E (mock, no Docker)` gates the
-**24-spec `mock-gate` lane on chromium only**. To reproduce exactly what CI
-gates:
+**`bun run test:e2e` is NOT the e2e gate.** It collects the whole `e2e/` tree,
+including the `unwired` backlog that has no CI server fixture and the real-PGlite
+tiers that require a fresh database. Expect it to be substantially red. CI
+derives every blocking browser file list from `web/e2e/lanes.json`. To reproduce
+the mock gate exactly:
 
 ```sh
 bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
@@ -251,9 +248,10 @@ bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
 ```
 
 `mapfile` is **bash-only**. Under zsh it is not a builtin, `ARGS` silently comes
-out EMPTY, and playwright runs the whole 4102-test backlog instead of the lane —
-which looks like a catastrophic regression and is nothing of the sort. Keep the
-`bash -c`, and sanity-check `${#ARGS[@]}` is 24.
+out empty, and Playwright runs the whole backlog instead of the lane. Keep the
+`bash -c`, and verify `${#ARGS[@]}` is non-zero. The same CI job then runs the
+fresh-setup and real-auth real-PGlite configs. `bash scripts/ci-local.sh` runs
+all three browser commands from the same manifest.
 
 **A rebase invalidates your baselines. Re-measure the control on the new base.**
 Comparing post-rebase numbers against pre-rebase ones silently attributes

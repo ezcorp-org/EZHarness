@@ -188,14 +188,23 @@ See [docs/extensions/](docs/extensions/) for the full extension development guid
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -am 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
-
-Please ensure tests pass before submitting:
+Use the Bun version pinned in [`.bun-version`](.bun-version) (currently
+`1.3.14`). A fresh checkout needs separate root and web installs:
 
 ```bash
-bun test
+bun install --frozen-lockfile
+bun install --cwd web --frozen-lockfile
 ```
+
+Run the supported local CI path before opening a pull request:
+
+```bash
+bash scripts/ci-local.sh --fast  # fast checks before each push
+bash scripts/ci-local.sh         # full checks, including CI's browser lanes
+```
+
+The full command uses the exact lane definitions that CI consumes. Do not run
+bare `bun test` at the repository root: backend tests require the isolated
+per-file wrapper exposed by `bun run test`. See
+[the development lifecycle](docs/development-lifecycle.md) for targeted checks
+and the complete required-check list.

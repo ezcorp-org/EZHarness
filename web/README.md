@@ -1,53 +1,31 @@
-# sv
+# EZCorp web
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
-
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+This SvelteKit application has its own Bun install. From the repository root,
+use the Bun version in `.bun-version` and run:
 
 ```sh
-# create a new project
-npx sv create my-app
+bun install --frozen-lockfile
+bun install --cwd web --frozen-lockfile
 ```
 
-To recreate this project with the same configuration:
+For local development, use the root `bun run dev:stack` command. It starts the
+supported service stack and avoids a host-side embedded database that looks like
+an empty installation. For a production-shape web build:
 
 ```sh
-# recreate this project
-npx sv@0.12.5 create --template minimal --types ts --no-install web
+cd web
+bun run build
+bun run preview
 ```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
 
 ## End-to-end tests
 
-Two Playwright modes are wired:
+Three Playwright modes are wired:
 
 | Script              | Config                       | DB        | Auth                       | When to use                                                                 |
 | ------------------- | ---------------------------- | --------- | -------------------------- | --------------------------------------------------------------------------- |
-| `test:e2e`          | `playwright.config.ts`       | none      | `PI_SKIP_INIT=1` (bypass)  | Fast. Every spec under `e2e/` mocks `fetch` via `e2e/fixtures/test-base`.   |
+| `test:e2e`          | `playwright.config.ts`       | none      | `PI_SKIP_INIT=1` (bypass)  | Fast. The explicit mock lane uses `e2e/fixtures/test-base`.                 |
+| —                   | `playwright.fresh-setup.config.ts` | PGlite | no session | Blocking first-user `/setup` journey. Run through `scripts/ci-local.sh`. |
 | `test:e2e:real`     | `playwright.real.config.ts`  | PGlite    | real cookie session        | Slow. Specs under `e2e/real-auth/` drive the full stack end-to-end.         |
 
 ### Real-auth mode
@@ -70,8 +48,8 @@ What happens:
    the cookie to `e2e/.real-auth.json` (gitignored).
 3. Every spec under `e2e/real-auth/*.spec.ts` reuses that storage
    state via `use.storageState`.
-4. `globalTeardown` removes the per-run PGlite dir and the storage
-   state file.
+4. `globalTeardown` removes only the PGlite dir it created and the storage
+   state file. A caller-supplied `PI_E2E_REAL_DB_PATH` remains intact.
 
 **Test user credentials** (see `e2e/real-auth-setup.ts`):
 
@@ -95,7 +73,7 @@ under `$TMPDIR/ezcorp-e2e-XXXXXX` per invocation. Override with
 endpoint then returns 403 "setup already completed" — the harness
 falls back to login).
 
-**Inner-loop dev**: keep a `bun run dev` or `bun run preview` running
-locally and pass `--reuse-existing-server` to `playwright test`. The
-30s+ `build` step in the webServer command is the slowest part of a
-cold run.
+**Port isolation**: the mock and real configs start a strict preview server.
+Set `PI_E2E_MOCK_BASE_URL` or `PI_E2E_REAL_BASE_URL` to a free explicit port
+when another browser lane is active. The server uses that exact port and fails
+if it is occupied; it never attaches to another checkout's preview.

@@ -218,6 +218,13 @@ jobs:
       # Fail fast if the sandbox can't spawn here — otherwise the two extension
       # specs would silently skip and the job would go green without them (#55).
       - run: bun web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
+      # Fresh setup is a separate real-PGlite invocation so it can prove the
+      # zero-user /setup route before real-auth globalSetup creates an admin.
+      - shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty fresh-setup lane args"; exit 1; }
+          cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.fresh-setup.config.ts "${ARGS[@]}"
       - run: cd web && PI_E2E_REAL=1 bunx playwright test --config playwright.real.config.ts
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure).
