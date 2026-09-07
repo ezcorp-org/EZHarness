@@ -50,5 +50,6 @@ test("@evidence failed instruction save keeps the typed draft and shows the serv
 	await expect(page.getByTestId("conversation-settings-save-error")).toHaveText("Instruction service unavailable");
 	await expect(instructions).toBeEditable();
 	await expect(instructions).toHaveValue("Keep these instructions");
+	await expect(page.getByRole("tooltip").filter({ hasText: "Configure this conversation" })).toHaveCount(0);
 	await captureEvidence(page, testInfo, "conversation-instructions-save-error");
 });

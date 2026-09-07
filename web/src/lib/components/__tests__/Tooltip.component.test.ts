@@ -16,7 +16,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { createRawSnippet } from "svelte";
 
 import Tooltip from "$lib/components/Tooltip.svelte";
@@ -66,6 +66,22 @@ describe("Tooltip", () => {
 		await waitFor(() => expect(getByRole("tooltip")).toBeInTheDocument());
 		await fireEvent.mouseLeave(wrapper);
 		expect(queryByRole("tooltip")).toBeNull();
+	});
+
+	test("click cancels overlapping hover and focus delays", async () => {
+		vi.useFakeTimers();
+		try {
+			const { getByText, queryByRole } = renderTooltip();
+			const wrapper = getByText("trigger").parentElement!;
+			await fireEvent.mouseEnter(wrapper);
+			await fireEvent.focusIn(wrapper);
+			await fireEvent.click(wrapper);
+
+			await vi.advanceTimersByTimeAsync(300);
+			expect(queryByRole("tooltip")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("hides on Escape", async () => {
