@@ -151,6 +151,16 @@ function readWriterJson<T>(path: string): T | null {
   }
 }
 
+/** True only when the container confirmed the leaf is neither a file nor a link. */
+function writerPathAbsent(path: string): boolean {
+  try {
+    execFileSync("docker", ["exec", CONTAINER, "sh", "-c", 'test ! -e "$1" && test ! -L "$1"', "sh", path]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function readWriterConfig(): { folders: Array<Record<string, unknown>> } {
   return readWriterJson<{ folders: Array<Record<string, unknown>> }>(CONFIG_PATH) ?? { folders: [] };
 }
@@ -394,7 +404,7 @@ test.describe(
       expect(readWriterConfig().folders.some((f) => f.id === folderId)).toBe(false);
     });
 
-    // ── Proposal lifecycle (conditional — needs a daemon-produced proposal) ──
+    // ── Proposal lifecycle (the daemon must produce the owned input) ──────────
 
     test("proposal lifecycle: daemon proposes and accepts a REAL move on disk", async ({ request }, testInfo) => {
       test.setTimeout(180_000);
@@ -455,8 +465,9 @@ test.describe(
       const recordedDestination = manifest?.entries?.find((entry) => entry.proposalId === pending!.id);
       const destinationContent = recordedDestination ? readWriterFile(recordedDestination.trashPath) : null;
       const sourceContent = readWriterFile(source);
+      const sourceAbsent = writerPathAbsent(source);
       await testInfo.attach("file-organizer-accept-result.json", {
-        body: JSON.stringify({ responseStatus: response.status(), body, applied, recordedDestination, sourceContent, destinationContent }, null, 2),
+        body: JSON.stringify({ responseStatus: response.status(), body, applied, recordedDestination, sourceContent, sourceAbsent, destinationContent }, null, 2),
         contentType: "application/json",
       });
       await testInfo.attach("file-organizer-accept-journal.json", {
@@ -470,7 +481,7 @@ test.describe(
       expect(applied?.status).toBe("applied");
       expect(recordedDestination?.originalPath).toBe(source);
       expect(recordedDestination?.trashPath).toBeTruthy();
-      expect(sourceContent).toBeNull();
+      expect(sourceAbsent).toBe(true);
       expect(destinationContent).toBe(sentinel);
     });
 
