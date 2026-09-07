@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Caller owns the shared heavy lock. This controller never acquires it again.
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+cd "$repo"
+expected_source=${1:?Expected integrated source commit}
+receipt=${2:?New absolute private receipt directory}
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 2
+[[ "$(git rev-parse HEAD)" == "$expected_source" ]] || exit 3
+git diff --quiet HEAD -- src web scripts packages .github Dockerfile .dockerignore package.json bun.lock || exit 4
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon
+unset PI_E2E_REAL_DB_PATH PI_E2E_REAL_BASE_URL EZCORP_JWT_SECRET PW_TEST_CONNECT_WS_ENDPOINT PW_TEST_CONNECT_EXPOSE_NETWORK
+mkdir -p "$receipt/frozen-inputs" "$receipt/private-auth"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+printf '%s\n' "$expected_source" > "$receipt/source-commit-sha.txt"
+cp "${BASH_SOURCE[0]}" "$receipt/controller.sh.txt"
+inputs=(web/e2e/real-auth-setup.ts web/e2e/run-real-auth-fixture.sh web/e2e/real-auth-teardown.ts web/playwright.real.config.ts scripts/stage2-raw-network-proof.sh src/extensions/mcp-launcher.sh src/extensions/mcp-proxy.ts scripts/lib/stage2-network-proof.mjs src/__tests__/helpers/stage2-proof.ts src/__tests__/mcp-netns-raw-socket-blocked.test.ts src/__tests__/mcp-stage2-ipv6-disabled.test.ts)
+for input in "${inputs[@]}"; do
+  target="$receipt/frozen-inputs/${input//\//__}.txt"
+  cp "$input" "$target"
+  sha256sum "$input" >> "$receipt/source-inputs.sha256"
+done
+fixture_parent=${TMPDIR:-/tmp}
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/fixture-roots.before.txt"
+check_cleanup() {
+  local label=$1
+  find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/fixture-roots.$label.txt" || return $?
+  comm -13 "$receipt/fixture-roots.before.txt" "$receipt/fixture-roots.$label.txt" > "$receipt/fixture-roots.new.$label.txt" || return $?
+  test ! -s "$receipt/fixture-roots.new.$label.txt" || return $?
+  test ! -e web/e2e/.real-auth.json || return $?
+}
+run() {
+  local label=$1
+  shift
+  local started rc
+  started=$(date +%s)
+  if "$@" > "$receipt/$label.log" 2>&1; then rc=0; else rc=$?; fi
+  printf '%s\t%s\t%s\n' "$label" "$rc" "$(( $(date +%s) - started ))" >> "$receipt/results.tsv"
+  return "$rc"
+}
+run_browser() {
+  local label=$1
+  shift
+  (
+    cd "$repo/web"
+    env CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=chromium EZCORP_E2E_EVIDENCE=1 \
+      PLAYWRIGHT_BLOB_OUTPUT_FILE="$receipt/private-auth/$label.zip" \
+      bunx playwright test --config playwright.real.config.ts --project=chromium \
+        --output="$receipt/$label-test-results" "$@"
+  )
+}
+finish() {
+  local rc=$?
+  trap - EXIT
+  if check_cleanup final > "$receipt/final-cleanup.log" 2>&1; then cleanup_rc=0; else cleanup_rc=$?; fi
+  printf '%s\n' "$cleanup_rc" > "$receipt/cleanup.exit"
+  if [[ "$rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then rc=$cleanup_rc; fi
+  [[ "$(git rev-parse HEAD)" == "$expected_source" ]] || rc=5
+  git diff --quiet HEAD -- src web scripts packages .github Dockerfile .dockerignore package.json bun.lock || rc=6
+  printf '%s\n' "$rc" > "$receipt/controller.exit"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+  exit "$rc"
+}
+trap finish EXIT
+run_stage2() {
+  local candidate=ezcorp:stage2-parent-review-a6f3036b
+  local expected_id=f3355f1eb5e5d38ef4a871fe3a9a82eabbb46c16eb5295e894d441648dcb4ff2
+  local actual_id
+  actual_id=$(/tmp/ez-audit-ci-conmon/podman --remote=false image inspect "$candidate" --format '{{.Id}}') || return $?
+  [[ "${actual_id#sha256:}" == "$expected_id" ]] || return 8
+  printf 'image=%s\nimage_id=%s\n' "$candidate" "$actual_id" > "$receipt/stage2-image.txt"
+  env PATH="/tmp/ez-audit-ci-conmon:$PATH" EZCORP_STAGE2_PROOF=1 EZCORP_STAGE2_PROOF_IMAGE="$candidate" \
+    EZCORP_STAGE2_RUN_ID=parent-hosted-fix-check \
+    bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts || return $?
+  /tmp/ez-audit-ci-conmon/podman --remote=false ps -aq --filter label=ezcorp.stage2-proof=parent-hosted-fix-check > "$receipt/stage2-owned-containers.txt" || return $?
+  test ! -s "$receipt/stage2-owned-containers.txt" || return $?
+}
+run stage2-direct-and-ipv6 run_stage2
+run typecheck-all4 bun run typecheck
+failed=0
+run real-auth-full run_browser real-auth-full || failed=1
+run cleanup-after-full check_cleanup after-full || failed=1
+run real-auth-visual run_browser real-auth-visual --grep @evidence || failed=1
+run cleanup-after-visual check_cleanup after-visual || failed=1
+exit "$failed"

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "full",
+    "privatePath": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/hosted-fixes-0aa3567e-20260907T125920Z/private-auth/real-auth-full.zip",
+    "sha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+    "bytes": 5648493,
+    "report": {
+      "onTestBegin": 59,
+      "onTestEnd": 59,
+      "retryCounts": {
+        "0": 59
+      },
+      "statuses": {
+        "passed": 59
+      },
+      "onTestEndErrorCount": 0,
+      "parseErrors": 0
+    }
+  },
+  {
+    "label": "visual",
+    "privatePath": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/hosted-fixes-0aa3567e-20260907T125920Z/private-auth/real-auth-visual.zip",
+    "sha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+    "bytes": 5193972,
+    "report": {
+      "onTestBegin": 10,
+      "onTestEnd": 10,
+      "retryCounts": {
+        "0": 10
+      },
+      "statuses": {
+        "passed": 10
+      },
+      "onTestEndErrorCount": 0,
+      "parseErrors": 0
+    }
+  }
+]

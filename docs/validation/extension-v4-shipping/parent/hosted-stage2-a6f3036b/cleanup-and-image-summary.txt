@@ -1,0 +1,10 @@
+original_image=ezcorp:stage2-fixed-a6f3036b
+original_image_id=f3355f1eb5e5d38ef4a871fe3a9a82eabbb46c16eb5295e894d441648dcb4ff2
+original_image_revision=a6f3036b1996ceb056e8062fe1160d64c6b8e611
+retained_image=ezcorp:stage2-parent-review-a6f3036b
+retained_image_id=f3355f1eb5e5d38ef4a871fe3a9a82eabbb46c16eb5295e894d441648dcb4ff2
+post_run_original_tag_exists=false
+post_run_retained_tag_exists=true
+explicit_owned_container_check=remaining-owned-containers.txt was zero bytes
+trap_cleanup_note=the controller suppresses image-cleanup errors; this evidence does not treat the trap as proof of cleanup
+retained_image_note=parent-review tag is deliberately retained for independent inspection

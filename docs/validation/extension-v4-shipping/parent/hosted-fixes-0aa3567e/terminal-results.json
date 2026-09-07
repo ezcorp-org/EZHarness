@@ -1,0 +1,39 @@
+{
+  "sourceCommit": "0aa3567ec07640345f4a8787c33cd08c59a057db",
+  "startedAt": "2026-09-07T12:59:15Z",
+  "completedAt": "2026-09-07T13:09:23Z",
+  "controllerExit": 0,
+  "cleanupExit": 0,
+  "results": [
+    {
+      "label": "stage2-direct-and-ipv6",
+      "exit": 0,
+      "durationSeconds": 5
+    },
+    {
+      "label": "typecheck-all4",
+      "exit": 0,
+      "durationSeconds": 28
+    },
+    {
+      "label": "real-auth-full",
+      "exit": 0,
+      "durationSeconds": 345
+    },
+    {
+      "label": "cleanup-after-full",
+      "exit": 0,
+      "durationSeconds": 1
+    },
+    {
+      "label": "real-auth-visual",
+      "exit": 0,
+      "durationSeconds": 227
+    },
+    {
+      "label": "cleanup-after-visual",
+      "exit": 0,
+      "durationSeconds": 0
+    }
+  ]
+}

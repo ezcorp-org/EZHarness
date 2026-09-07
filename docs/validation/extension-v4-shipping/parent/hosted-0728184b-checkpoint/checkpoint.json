@@ -1,0 +1,105 @@
+{
+  "ci": {
+    "conclusion": "failure",
+    "failed_jobs": [
+      {
+        "classification": "Stage 2 container launch failure: the hosted conmon lacked journald support; workers exited 126. The killed-worker control could not reach its SIGKILL action because launch failed first.",
+        "conclusion": "failure",
+        "job_id": 101739432125,
+        "name": "Production image extension lifecycle",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432125"
+      },
+      {
+        "classification": "Browser global setup required Chromium, but this job installed Firefox only. No lifecycle test result was reached.",
+        "conclusion": "failure",
+        "job_id": 101739432126,
+        "name": "Extension lifecycle (firefox)",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432126"
+      },
+      {
+        "classification": "Browser global setup required Chromium, but this job installed WebKit only. No lifecycle test result was reached.",
+        "conclusion": "failure",
+        "job_id": 101739432181,
+        "name": "Extension lifecycle (webkit)",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432181"
+      },
+      {
+        "classification": "84 policy findings. The hosted ordered findings equal the local ordered findings; approval was unset.",
+        "conclusion": "failure",
+        "job_id": 101739432227,
+        "name": "Gate integrity",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432227"
+      },
+      {
+        "classification": "Aggregate consequence of failed E2E child jobs; not a separate mock test failure.",
+        "conclusion": "failure",
+        "job_id": 101741143426,
+        "name": "E2E (mock, no Docker)",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101741143426"
+      }
+    ],
+    "run_id": 34121216099,
+    "successful_jobs": 30,
+    "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099"
+  },
+  "gate_integrity": {
+    "categories": {
+      "test_deleted": 28,
+      "test_gutted": 31,
+      "test_renamed": 24,
+      "threshold_removed": 1
+    },
+    "findings": 84,
+    "gate_change_approved": "unset",
+    "hosted_log_download_exit": 0,
+    "job_conclusion": "failure",
+    "job_exit_code": 1,
+    "job_id": 101739432227,
+    "ordered_findings_equal": true,
+    "ordered_findings_sha256": "36f3837536cb8847f880bfa0fd78a8beebce0b4440942d1c96e0bf1d1bb262ac",
+    "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432227"
+  },
+  "head_commit_sha": "0728184bfec77d6b3a8dba2b38b431bfed2ad5ef",
+  "kind": "historical_first_pushed_head_checkpoint",
+  "not_final_success": true,
+  "passed_browser_jobs": {
+    "mock": {
+      "conclusion": "success",
+      "job_id": 101739432278,
+      "name": "E2E mock lane",
+      "result": "220 passed (5.0m), 13 skipped",
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432278"
+    },
+    "real_auth": {
+      "conclusion": "success",
+      "job_id": 101739432157,
+      "name": "E2E (real auth + real DB)",
+      "result": "59 passed (8.3m)",
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432157"
+    },
+    "visual": {
+      "conclusion": "success",
+      "job_id": 101739432102,
+      "name": "Visual evidence",
+      "results": [
+        "181 passed (4.4m)",
+        "10 passed (5.9m)"
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216099/job/101739432102"
+    }
+  },
+  "separate_workflows": {
+    "dependency_audit": {
+      "conclusion": "success",
+      "run_id": 34121216039,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216039"
+    },
+    "external_postgres": {
+      "conclusion": "success",
+      "job_id": 101739430780,
+      "job_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216102/job/101739430780",
+      "run_id": 34121216102,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34121216102"
+    }
+  }
+}

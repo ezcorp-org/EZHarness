@@ -1,0 +1,5 @@
+controller_raw_sha256=98312a9a26ea730c504afcdcc1be3f4e398f4ec56f99a583813699a3a0e04dac
+controller_curated_sha256=6c2f916375dc9b00a1f003e014ccc433b6582f73fa282996ae7ca80a492b7d4b
+controller_lock=shared validation-heavy.lock via one self-locking foreground controller
+controller_action=build fixed candidate, load into pinned rootless Podman, run unchanged Stage 2 suite, check owned-container absence
+controller_text_transform=replace audit worktree path with <audit-worktree>; replace UUID-shaped values with <uuid>

@@ -1,0 +1,41 @@
+{
+  "files": [
+    {
+      "bytes": 104466,
+      "path": "hosted-real-auth.log",
+      "sha256": "488d81893c30ec78adfa3f513b84c2efcc0d2218b09bf138d88c56a3ea0fc08f"
+    },
+    {
+      "bytes": 138915,
+      "path": "hosted-mock.log",
+      "sha256": "8e9830befb87bf62855e9329d15ec8e89c5fb5d136beafcef6a72f2c51687725"
+    },
+    {
+      "bytes": 177172,
+      "path": "hosted-visual.log",
+      "sha256": "820efe9b4e45e86adc3f92709fb7cdc426e9ac64c7427c92a15d90ccc878d378"
+    },
+    {
+      "bytes": 104312,
+      "path": "firefox-failure/firefox-job.log",
+      "sha256": "606ba15c49fc727019c174ada49809660e45de40ad74834bca1866ef78290c38"
+    },
+    {
+      "bytes": 184182,
+      "path": "firefox-failure/webkit-job.log",
+      "sha256": "95c43928be3eac765b12ec63790fbc7d059b1364280f1cca00db86e5e48d9013"
+    },
+    {
+      "bytes": 421952,
+      "path": "stage2-failure/job-api-full.log",
+      "sha256": "32df5b9edd3698057a41c2be874ff113915728d617f881f8540edaf385afe3f2"
+    },
+    {
+      "bytes": 46429,
+      "path": "policy-review/hosted-gate-integrity.log",
+      "sha256": "8b7c59255f5935d588ed32ac56309bee5dd287b18b3a276b53128292738e994e"
+    }
+  ],
+  "private_receipt_root": ".cache/terra-shipping/parent/final-publication-825dc780",
+  "scope": "Hashes identify private inputs. The input logs are not copied into this directory."
+}

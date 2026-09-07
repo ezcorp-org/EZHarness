@@ -267,3 +267,18 @@ Final local review at `825dc780`: b5 finishes with thirteen successful lanes and
 
 
 Evidence review: parent independently compares every logical member of the two sanitized historical coverage archives and permits only one incidental extension UUID field replacement per archive. All other test and coverage bytes remain unchanged. The complete recursive staged scan then exits 0 with zero findings and cleanup 0. The sixteen archive controls pass; original raw browser archives remain privately preserved with historical publication disclosed. The final index scan, normal commit/push hooks, and new-head hosted checks follow this recorded snapshot.
+
+
+## Hosted follow-up at 0728184b — 2026-09-07
+
+- [x] Commit the exact scanned index and push normally; all commit/push hooks pass.
+- [x] Compare hosted Gate integrity findings with the local source checkpoint: the same 84 ordered findings remain.
+- [x] Reproduce and repair browser setup when only Firefox or WebKit is installed; verify both full lifecycle suites without Chromium.
+- [x] Reproduce and repair the Stage 2 proof container launch with the hosted conmon configuration; retain every network and kernel audit assertion.
+- [x] Independently verify both repairs and all affected authenticated/visual consumers.
+- [ ] Scan the final changes, push normally, and check every repaired-head hosted technical job.
+
+Plan review: hosted Firefox and WebKit stop in global setup because it launches Chromium, which the selected-engine jobs do not install. The Stage 2 job builds and loads its candidate and passes kernel journal access, then fails container creation because its conmon cannot use the default journald log driver. Neither failure reaches the claimed browser or namespace assertions. Terra owns separate worktrees for these two fixes; the parent verifies exact results and monitors all other jobs.
+
+
+Parent review at `0aa3567e`: the exact integrated controller exits 0. TCP and IPv6 positive/fault controls pass independently, all four type-check sections pass, all 59 authenticated cases and 10 authenticated visual cases pass with zero retries or reporter errors. Default fixture-root and saved-auth cleanup pass after each browser run and at controller exit. Parent verifies all eleven frozen inputs against committed source and opens eight selected visual images. No visibly clipped or unreadable control appears in those images. Safe evidence and final publication checks follow; earlier pending entries describe their recorded historical checkpoints.
