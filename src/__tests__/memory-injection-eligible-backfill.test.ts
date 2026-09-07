@@ -26,7 +26,7 @@ mock.module("../db/queries/settings", () => ({
 mockDbConnection();
 
 import { memories, users, projects, conversations, extensions, sdkCapabilityCalls, memoryAuditLog } from "../db/schema";
-import { handlePiMemory, _resetMemoryWriteQuotaForTests } from "../extensions/memory-handler";
+import { handlePiMemory } from "../extensions/memory-handler";
 import type { ExtensionPermissions } from "../extensions/types";
 import { eq } from "drizzle-orm";
 
@@ -85,7 +85,6 @@ describe("memories.injection_eligible migration backfill", () => {
       source: "test", enabled: true, grantedPermissions: {} as never,
     }).returning({ id: extensions.id });
 
-    _resetMemoryWriteQuotaForTests();
     const granted: ExtensionPermissions = {
       grantedAt: { memory: Date.now() },
       memory: { access: "write", maxWritesPerDay: 100, selfOnly: true },

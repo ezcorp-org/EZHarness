@@ -17,7 +17,7 @@ async function syncLegacyProjectId(
   const rows = await tx.select({ projectId: memoryProjects.projectId })
     .from(memoryProjects)
     .where(eq(memoryProjects.memoryId, memoryId));
-  const projectIds = rows.map((row) => row.projectId);
+  const projectIds = rows.map((row: { projectId: string }) => row.projectId);
   const projectId = preferredProjectId && projectIds.includes(preferredProjectId)
     ? preferredProjectId
     : (projectIds[0] ?? null);
@@ -200,7 +200,15 @@ export async function mergeMemoriesAtomically(
       .where(inArray(memories.id, lockedSourceIds))
       .for("update", { of: memories });
     if (sources.length !== 2) return null;
-    if (sources.some((source) =>
+    if (sources.some((source: {
+      id: string;
+      status: MemoryStatus;
+      userId: string | null;
+      conversationUserId: string | null;
+      injectionEligible: boolean;
+      content: string;
+      updatedAt: Date;
+    }) =>
       source.status !== "active"
       || source.injectionEligible !== expected.injectionEligible
       || (source.userId ?? source.conversationUserId) !== expected.ownerUserId
