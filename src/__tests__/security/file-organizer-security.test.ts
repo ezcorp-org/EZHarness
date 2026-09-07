@@ -208,7 +208,7 @@ describe("daemon: fail-closed (degraded mount never mass-quarantines)", () => {
     const outcome = await applyProposal(p, ctx(watched, fakeEngine("deny")));
     expect(outcome.status).toBe("blocked");
     expect(await Bun.file(src).exists()).toBe(true);
-    expect(await Bun.file(join(dataDir, ".trash")).exists()).toBe(false);
+    await expect(lstat(join(dataDir, ".trash"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
