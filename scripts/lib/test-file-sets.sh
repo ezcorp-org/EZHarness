@@ -77,6 +77,7 @@
 shipping_fixture_files() {
   printf '%s\n' \
     scripts/lib/shipping-bootstrap-state.test.ts \
+    scripts/verify-shipping-embedding-log.test.ts \
     scripts/verify-shipping-runtime-resources-config.test.ts \
     scripts/verify-shipping-runtime-resource-accounting.test.ts \
     scripts/lib/shipping-runtime-cycle-conversation.test.ts

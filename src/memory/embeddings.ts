@@ -1,5 +1,5 @@
 // Local embedding generation using Transformers.js (all-MiniLM-L6-v2)
-import { pipeline, type FeatureExtractionPipeline, type PreTrainedTokenizer } from "@huggingface/transformers";
+import { env, pipeline, type FeatureExtractionPipeline, type PreTrainedTokenizer } from "@huggingface/transformers";
 import { join } from "node:path";
 import { embeddedStateDir } from "../db/data-path";
 import { EMBEDDING_DIMENSIONS } from "./types";
@@ -35,9 +35,13 @@ async function getExtractor(onProgress?: (message: string) => void): Promise<Fea
   if (_extractor) return _extractor;
   if (!_initPromise) {
     onProgress?.("Initializing embedding model...");
+    const cacheDir = embeddingCacheDir();
+    // Transformers preflights config.json before forwarding pipeline options.
+    // Keep that auxiliary request in the application-owned cache too.
+    env.cacheDir = cacheDir;
     _initPromise = pipeline("feature-extraction", EMBEDDING_MODEL_NAME, {
       dtype: "fp32",
-      cache_dir: embeddingCacheDir(),
+      cache_dir: cacheDir,
       progress_callback: (event: { status: string; progress?: number }) => {
         if (event.status === "download" && event.progress != null) {
           onProgress?.(`Downloading embedding model... ${Math.round(event.progress)}%`);

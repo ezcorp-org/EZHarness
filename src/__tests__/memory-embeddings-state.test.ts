@@ -1,11 +1,43 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 
 // Mock transformers before importing embeddings — prevents native library load.
 let pipelineCallCount = 0;
 let nextPipelineRejects = false;
 const pipelineOptions: unknown[] = [];
+const transformersEnv = { backends: { onnx: {} }, cacheDir: "" };
+const root = resolve(import.meta.dir, "..");
+const CHILD_DEADLINE_MS = 5_000;
+const CHILD_STOP_GRACE_MS = 1_000;
+
+type ChildCompletion = [number, string, string];
+
+async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<undefined>((resolveTimeout) => { timer = setTimeout(() => resolveTimeout(undefined), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function stopAndDrainOwnedChild(
+  child: ReturnType<typeof Bun.spawn>,
+  completion: Promise<ChildCompletion>,
+): Promise<ChildCompletion | undefined> {
+  if (child.exitCode === null) child.kill("SIGTERM");
+  let result = await settlesWithin(completion, CHILD_STOP_GRACE_MS);
+  if (result === undefined && child.exitCode === null) child.kill("SIGKILL");
+  result ??= await settlesWithin(completion, CHILD_STOP_GRACE_MS);
+  return result;
+}
 
 mock.module("@huggingface/transformers", () => ({
   pipeline: async (_task: unknown, _model: unknown, options: unknown) => {
@@ -29,7 +61,7 @@ mock.module("@huggingface/transformers", () => ({
     (extractor as unknown as { tokenizer: { config: { model_max_length?: number } } }).tokenizer = { config: {} };
     return extractor;
   },
-  env: { backends: { onnx: {} } },
+  env: transformersEnv,
 }));
 
 const {
@@ -46,6 +78,7 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
     pipelineCallCount = 0;
     nextPipelineRejects = false;
     pipelineOptions.length = 0;
+    transformersEnv.cacheDir = "";
   });
 
   afterAll(() => {
@@ -68,6 +101,7 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
       await generateEmbedding("cache location");
       expect(pipelineOptions).toHaveLength(1);
       expect(pipelineOptions[0]).toMatchObject({ cache_dir: "/owned/data/embedding-model-cache" });
+      expect(transformersEnv.cacheDir).toBe("/owned/data/embedding-model-cache");
     } finally {
       if (previous === undefined) delete process.env.EZCORP_DB_PATH;
       else process.env.EZCORP_DB_PATH = previous;
@@ -83,6 +117,7 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
       await generateEmbedding("external database cache location");
       expect(pipelineOptions).toHaveLength(1);
       expect(pipelineOptions[0]).toMatchObject({ cache_dir: "/owned/data/embedding-model-cache" });
+      expect(transformersEnv.cacheDir).toBe("/owned/data/embedding-model-cache");
     } finally {
       if (previousDbPath === undefined) delete process.env.EZCORP_DB_PATH;
       else process.env.EZCORP_DB_PATH = previousDbPath;
@@ -90,6 +125,92 @@ describe("isEmbeddingReady / resetEmbeddingProvider state machine", () => {
       else process.env.DATABASE_URL = previousDatabaseUrl;
     }
   });
+
+  test("real Transformers config preflight stores config.json in the selected filesystem cache", async () => {
+    // This child has no Bun test mocks. It imports the pinned library's actual
+    // AutoConfig preflight, which is the library path pipeline() reaches before
+    // it forwards cache_dir to later model loads.
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "transformers-preflight-"));
+    const normalCache = join(fixtureRoot, "normal-cache");
+    const durableCache = join(fixtureRoot, "durable-cache");
+    await Promise.all([mkdir(normalCache), mkdir(durableCache)]);
+    const childProgram = `
+      import { readdir } from "node:fs/promises";
+      const normalCache = process.env.TRANSFORMERS_NORMAL_CACHE;
+      const durableCache = process.env.TRANSFORMERS_DURABLE_CACHE;
+      if (!normalCache || !durableCache) throw new Error("missing owned cache paths");
+      const entry = Bun.resolveSync("@huggingface/transformers", process.cwd());
+      const libraryRoot = entry.slice(0, entry.lastIndexOf("/dist/"));
+      const { env } = await import(libraryRoot + "/src/env.js");
+      const { AutoConfig } = await import(libraryRoot + "/src/configs.js");
+      const config = JSON.stringify({ model_type: "bert" });
+      const requests = [];
+      const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+        const url = new URL(request.url);
+        requests.push(request.method + " " + url.pathname);
+        if (url.pathname === "/Xenova/all-MiniLM-L6-v2/resolve/main/config.json") {
+          return new Response(config, { headers: { "content-type": "application/json", "content-length": String(config.length) } });
+        }
+        return new Response("not found", { status: 404 });
+      }});
+      try {
+        env.cacheDir = normalCache;
+        env.remoteHost = "http://127.0.0.1:" + server.port + "/";
+        env.allowLocalModels = false;
+        env.useBrowserCache = false;
+        env.cacheDir = durableCache;
+        const loaded = await AutoConfig.from_pretrained("Xenova/all-MiniLM-L6-v2");
+        const durableEntries = (await readdir(durableCache, { recursive: true })).sort();
+        const normalEntries = (await readdir(normalCache, { recursive: true })).sort();
+        console.log(JSON.stringify({ modelType: loaded.model_type, requests, durableEntries, normalEntries }));
+      } finally {
+        server.stop(true);
+      }
+    `;
+    let child: ReturnType<typeof Bun.spawn> | undefined;
+    let completion: Promise<ChildCompletion> | undefined;
+    const failures: unknown[] = [];
+    try {
+      const launched = Bun.spawn([process.execPath, "--eval", childProgram], {
+        cwd: root,
+        env: { ...process.env, TRANSFORMERS_NORMAL_CACHE: normalCache, TRANSFORMERS_DURABLE_CACHE: durableCache },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      child = launched;
+      completion = Promise.all([
+        launched.exited,
+        new Response(launched.stdout).text(),
+        new Response(launched.stderr).text(),
+      ]);
+      let result = await settlesWithin(completion, CHILD_DEADLINE_MS);
+      if (result === undefined) {
+        result = await stopAndDrainOwnedChild(child, completion);
+        const [exit, stdout, stderr] = result ?? [child.exitCode, "<stdout did not drain>", "<stderr did not drain>"];
+        throw new Error(`Transformers preflight child exceeded ${CHILD_DEADLINE_MS}ms; exit=${exit}; stdout=${stdout}; stderr=${stderr}`);
+      }
+      const [exit, stdout, stderr] = result;
+      expect(exit, stderr).toBe(0);
+      expect(JSON.parse(stdout)).toEqual({
+        modelType: "bert",
+        requests: ["GET /Xenova/all-MiniLM-L6-v2/resolve/main/config.json"],
+        durableEntries: ["Xenova", "Xenova/all-MiniLM-L6-v2", "Xenova/all-MiniLM-L6-v2/config.json"],
+        normalEntries: [],
+      });
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      if (child && completion && child.exitCode === null) {
+        const result = await stopAndDrainOwnedChild(child, completion);
+        if (result === undefined) throw new Error("Transformers preflight child did not drain after termination");
+      }
+      await rm(fixtureRoot, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length) throw new AggregateError(failures, "Transformers preflight or owned cleanup failed");
+  }, { timeout: CHILD_DEADLINE_MS + CHILD_STOP_GRACE_MS * 2 + 1_000 });
 
   test("resetEmbeddingProvider flips state back to false", async () => {
     await generateEmbedding("warm me up");
