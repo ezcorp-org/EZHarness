@@ -81,6 +81,16 @@ interface FakeSqlClient {
   release?: () => void;
 }
 
+function createReservedClient(events: string[]): FakeSqlClient {
+  return Object.assign(
+    (strings: TemplateStringsArray): Promise<unknown[]> => {
+      events.push(strings.join("?"));
+      return Promise.resolve([]);
+    },
+    { release: () => { events.push("release"); } },
+  );
+}
+
 interface FakePool {
   execute: (...a: unknown[]) => Promise<unknown[]>;
   transaction: (fn: (tx: FakeTx) => unknown, config?: unknown) => Promise<unknown>;
@@ -214,13 +224,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
 
   test("migrates on the reserved connection's normalized Drizzle handle", async () => {
     const events: string[] = [];
-    const reserved = Object.assign(
-      (strings: TemplateStringsArray): Promise<unknown[]> => {
-        events.push(strings.join("?"));
-        return Promise.resolve([]);
-      },
-      { release: () => events.push("release") },
-    );
+    const reserved = createReservedClient(events);
     nextReservedClient = reserved;
     const priorMigrateCalls = migrateCalls;
 
@@ -251,13 +255,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
 describe("withPostgresMigrateLock — reserved migration failure cleanup (unit, mocked driver)", () => {
   test("unlocks and releases the reserved client when its callback throws", async () => {
     const events: string[] = [];
-    const reserved = Object.assign(
-      (strings: TemplateStringsArray): Promise<unknown[]> => {
-        events.push(strings.join("?"));
-        return Promise.resolve([]);
-      },
-      { release: () => events.push("release") },
-    );
+    const reserved = createReservedClient(events);
     const primaryPool = createFakePool();
     primaryPool.$client.reserve = async () => reserved;
     conn.__test.setState(primaryPool, null);
