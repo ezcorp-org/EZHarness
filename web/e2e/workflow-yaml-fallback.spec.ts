@@ -31,9 +31,11 @@ test.describe("@evidence workflow YAML fallback", () => {
 		await page.goto(`/workflows/${workflow.name}`);
 		await page.getByTestId("workflow-edit").click();
 		await expect(page.getByTestId("workflow-yaml-fallback")).toContainText("approve.kind");
+		await captureEvidence(page, testInfo, "workflow-inline-yaml-fallback", { fullPage: true });
 		await page.getByTestId("workflow-open-yaml").click();
 		await expect(page).toHaveURL(new RegExp(`/workflows/${workflow.name}/edit\\?tab=yaml$`));
 		await expect(page.getByTestId("yaml-editor")).toHaveValue(/kind: approval/);
 		await expect(page.getByTestId("yaml-editor")).toHaveValue(/workflow: child-flow/);
+		await captureEvidence(page, testInfo, "workflow-yaml-handoff", { fullPage: true });
 	});
 });
