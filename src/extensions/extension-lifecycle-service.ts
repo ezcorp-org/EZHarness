@@ -12,6 +12,7 @@ import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-m
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
 import { getFiles } from "./v4/blobs";
+import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -122,7 +123,7 @@ export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecy
 }
 
 interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
-export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
+export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover" | "reconcile">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -157,6 +158,7 @@ async function initialize(): Promise<LifecycleServices> {
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
+    onBuildSettled: operation => lifecycleRecovery.request({ followUp: operation.state !== "queued" }),
   });
   return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
 }
@@ -279,9 +281,67 @@ export async function recoverInstallation(services: RecoveryServices, installati
 }
 
 export async function recoverExtensionLifecycle(): Promise<void> {
+  lifecycleRecovery.request();
+  await lifecycleRecovery.drain();
+}
+
+function recoveryRank(state: InstallationState | undefined, now: number): number {
+  const operations = Object.values(state?.operations ?? {});
+  if (operations.some(operation => operation.kind === "build" && ["building", "verifying"].includes(operation.state) && (!operation.lease || operation.lease.until <= now))) return 0;
+  if (operations.some(operation => operation.kind === "build" && operation.state === "queued")) return 1;
+  return 2;
+}
+
+export async function recoverInstallations(services: RecoveryServices, installations: readonly InstallationRecord[]): Promise<number | undefined> {
+  const ordered = [...installations].sort((left, right) => left.id.localeCompare(right.id));
+  const reconciled = await reconcileInstallations(services, ordered);
+  const snapshots = await Promise.all(ordered.filter(installation => reconciled.has(installation.id)).map(async installation => ({ installation, state: await services.repository.read(installation.id) })));
+  snapshots.sort((left, right) => recoveryRank(left.state ?? undefined, Date.now()) - recoveryRank(right.state ?? undefined, Date.now()) || left.installation.id.localeCompare(right.installation.id));
+  let earliest: number | undefined;
+  for (const { installation } of snapshots) {
+    try {
+      await services.lifecycle.recover({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id);
+    } catch (error) {
+      log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
+      continue;
+    }
+    const state = await services.repository.read(installation.id);
+    const deadline = state ? recoveryDeadline(state) : undefined;
+    if (deadline !== undefined) earliest = Math.min(earliest ?? deadline, deadline);
+  }
+  return earliest;
+}
+
+export async function reconcileInstallations(services: RecoveryServices, installations: readonly InstallationRecord[]): Promise<Set<string>> {
+  const reconciled = new Set<string>();
+  await Promise.all(installations.map(async installation => {
+    try {
+      await services.migrations.recover(installation.id);
+      await services.lifecycle.reconcile({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id);
+      reconciled.add(installation.id);
+    } catch (error) {
+      log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
+    }
+  }));
+  return reconciled;
+}
+
+async function recoverAllInstallations(): Promise<number | undefined> {
   const services = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
   const rows = releaseRows<{ payload: string }>(result);
-  for (const row of rows) await recoverInstallation(services, (JSON.parse(row.payload) as InstallationRecord).id);
+  return recoverInstallations(services, rows.map(row => JSON.parse(row.payload) as InstallationRecord));
 }
+
+export async function reconcileExtensionLifecycle(): Promise<void> {
+  const services = await getServices();
+  const { getDb } = await import("../db/connection");
+  const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
+  await reconcileInstallations(services, releaseRows<{ payload: string }>(result).map(row => JSON.parse(row.payload) as InstallationRecord));
+}
+
+const lifecycleRecovery = createLifecycleRecoveryScheduler(
+  recoverAllInstallations,
+  error => log.error("Extension recovery requires attention", { code: error instanceof LifecycleError ? error.code : "recovery_failed" }),
+);

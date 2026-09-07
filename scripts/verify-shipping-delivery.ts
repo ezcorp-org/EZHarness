@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { productionLifecycleClient, readStoppedProductionDatabase, command, required } from "./lib/production-lifecycle-client";
 import { releaseAllShippingEffects, releaseShippingEffect, shippingEffectState, startShippingEffectCallback, waitForShippingState } from "./lib/shipping-effect-client";
+import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
 
 const CALLBACK_PORT = 7071;
 function hash(value: string): string {
@@ -114,6 +115,7 @@ async function main(): Promise<void> {
     await proveBeforePositive();
     await proveKilledDelivery("before");
     await proveKilledDelivery("after");
+    requireBundledBootstrapVerified(await waitForBundledBootstrap(lifecycle.client, { requireObservedPending: false }), "after delivery app restarts");
     const freshKey = `fresh-${crypto.randomUUID()}`;
     const fresh = await fire(freshKey, "success");
     assert.equal(fresh.status, 200, "A distinct delivery after uncertain history must succeed");

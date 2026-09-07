@@ -13,6 +13,7 @@ import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases
 import { canonicalJson, digestObject, FileBlobStore, getFiles, putFiles } from "./blobs";
 import { ExtensionLifecycle } from "./lifecycle";
 import { LifecycleError, type LifecycleActor, type LifecycleDependencies, type LifecycleRepository } from "./types";
+import { createLifecycleRecoveryScheduler } from "../lifecycle-recovery-scheduler";
 
 const actor: LifecycleActor = { principalId: "owner", scope: "project:one", kind: "agent" };
 const human: LifecycleActor = { ...actor, kind: "human" };
@@ -239,10 +240,66 @@ describe("durable extension lifecycle", () => {
     const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "console.log('queued')" } });
     const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-diagnostic" });
     const result = await setup.lifecycle.runBuild(actor, installation.id, operation.id);
-    expect(result).toMatchObject({ state: "failed", diagnostics: [{ code: "runner_busy", stage: "runner", message: "The runner is busy; retry after the current build.", retryable: true }] });
+    expect(result).toMatchObject({ state: "queued", diagnostics: [{ code: "runner_busy", stage: "runner", message: "The runner is busy; retry after the current build.", retryable: true }], lease: { fence: 1 } });
+    expect(result.lease?.until).toBeLessThanOrEqual(Date.now());
     setup.dependencies.runner.build = async () => { throw new RunnerError("command_failed", "private child stderr", "compile", false); };
     const next = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-redaction" });
     expect((await setup.lifecycle.runBuild(actor, installation.id, next.id)).diagnostics).toContainEqual(expect.objectContaining({ code: "operation_failed", message: "Operation failed. See host diagnostics." }));
+  });
+
+  test("a runner-busy build retains its operation and advances its durable fence on recovery", async () => {
+    const setup = harness();
+    const build = setup.dependencies.runner.build;
+    let calls = 0;
+    setup.dependencies.runner.build = async request => {
+      calls += 1;
+      if (calls === 1) throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true);
+      return build(request);
+    };
+    const { installation, workspace } = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "queued" } });
+    const operation = await setup.lifecycle.build(actor, { installationId: installation.id, workspaceId: workspace.id, expectedRevision: 1, idempotencyKey: "runner-busy-recover" });
+    expect((await setup.lifecycle.runBuild(actor, installation.id, operation.id)).state).toBe("queued");
+    const recovered = await setup.lifecycle.runBuild(actor, installation.id, operation.id);
+    expect(recovered).toMatchObject({ id: operation.id, state: "verified", lease: { fence: 2 } });
+    expect(Object.keys((await setup.lifecycle.inspect(actor, installation.id)).releases)).toHaveLength(1);
+  });
+
+  test("a completed build drains another installation deferred by runner capacity", async () => {
+    const setup = harness();
+    const originalBuild = setup.dependencies.runner.build;
+    let active = false;
+    let firstStarted: () => void = () => {};
+    const started = new Promise<void>(resolve => { firstStarted = resolve; });
+    let releaseFirst: () => void = () => {};
+    const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+    let calls = 0;
+    setup.dependencies.runner.build = async request => {
+      if (active) throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true);
+      active = true;
+      try {
+        calls += 1;
+        if (calls === 1) { firstStarted(); await firstGate; }
+        return await originalBuild(request);
+      } finally { active = false; }
+    };
+    const first = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "first" } });
+    const second = await setup.lifecycle.createWorkspace(actor, { files: { "extension.ts": "second" } });
+    const firstOperation = await setup.lifecycle.build(actor, { installationId: first.installation.id, workspaceId: first.workspace.id, expectedRevision: 1, idempotencyKey: "first" });
+    const secondOperation = await setup.lifecycle.build(actor, { installationId: second.installation.id, workspaceId: second.workspace.id, expectedRevision: 1, idempotencyKey: "second" });
+    const scheduler = createLifecycleRecoveryScheduler(async () => {
+      await setup.lifecycle.recover(actor, first.installation.id);
+      await setup.lifecycle.recover(actor, second.installation.id);
+      return undefined;
+    }, error => { throw error; });
+    setup.dependencies.onBuildSettled = operation => scheduler.request({ followUp: operation.state !== "queued" });
+    const firstRun = setup.lifecycle.runBuild(actor, first.installation.id, firstOperation.id);
+    await started;
+    expect((await setup.lifecycle.runBuild(actor, second.installation.id, secondOperation.id)).state).toBe("queued");
+    releaseFirst();
+    await firstRun;
+    await scheduler.drain();
+    const state = await setup.lifecycle.inspect(actor, second.installation.id);
+    expect(state.operations[secondOperation.id]).toMatchObject({ id: secondOperation.id, state: "verified" });
   });
 
   test("lost acknowledgement is durable and recovers without a second pointer switch", async () => {

@@ -191,6 +191,12 @@ export class ExtensionLifecycle {
       const operation = this.operation(state, operationId);
       if (operation.lease?.holder !== holder || operation.lease.fence !== fence || ["cancelled", "reconciling", "active", "verified"].includes(operation.state)) return;
       const runner = this.safeRunnerFailure(error);
+      if (operation.kind === "build" && runner?.code === "runner_busy" && runner.retryable) {
+        operation.diagnostics = [{ ...runner, stage: "runner" }];
+        operation.lease.until = this.now();
+        this.transition(operation, "queued");
+        return;
+      }
       const known = error instanceof LifecycleError || error instanceof ContractError;
       operation.diagnostics.push(runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
       this.transition(operation, "failed");
@@ -230,7 +236,9 @@ export class ExtensionLifecycle {
         this.transition(current, "verified");
       });
     } catch (error) { await this.failure(actor, installationId, operationId, holder, fence, error); }
-    return this.operation(await this.inspect(actor, installationId), operationId);
+    const settled = this.operation(await this.inspect(actor, installationId), operationId);
+    this.dependencies.onBuildSettled?.(settled);
+    return settled;
   }
 
   async requestApproval(actor: LifecycleActor, input: { installationId: string; releaseId: string; grants: string[]; expectedActiveReleaseId: string | null }): Promise<LifecycleApproval> {

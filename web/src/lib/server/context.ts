@@ -30,7 +30,7 @@ import {
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
 import { getPermissionEngine } from "$server/extensions/permission-engine";
-import { recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
+import { reconcileExtensionLifecycle, recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
 import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
 import {
   ExtensionStateMediator,
@@ -131,7 +131,10 @@ export async function ensureInitialized(): Promise<void> {
   const { initializeExtensionCredentials } = await import("$lib/server/extensions/credential-resolver");
   initializeHostApiTransport();
   initializeExtensionCredentials();
-  await recoverExtensionLifecycle().catch((error) => {
+  await reconcileExtensionLifecycle().catch((error) => {
+    console.error("Extension runner recovery unavailable; extension execution remains disabled", { error: String(error) });
+  });
+  void recoverExtensionLifecycle().catch((error) => {
     console.error("Extension runner recovery unavailable; extension execution remains disabled", { error: String(error) });
   });
   await ensureBundledExtensions().catch((error) => {

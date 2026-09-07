@@ -3,8 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
-import { resolveBundledExtensions } from "../src/extensions/bundled";
-import { bundledInstallationId } from "../src/extensions/bundled-bootstrap";
+import { waitForBundledBootstrap, type BundledBootstrapState } from "./lib/shipping-bootstrap-state";
 import type { InstallationState, LifecycleOperation } from "../src/extensions/v4/types";
 
 type Receipt = {
@@ -13,13 +12,7 @@ type Receipt = {
   owner: { id: string; email: string; name: string; role: string };
   installation: { id: string; name: string; ownerId: string; source: string; installPath: string; storageKey: string; value: string };
   conversationId: string;
-  runnerCapacity?: {
-    bootstrapInstallations: number;
-    initialPending: number;
-    maximumPending: number;
-    terminalOperationStates: Record<string, number>;
-    terminalOperations: Array<{ name: string; installationId: string; operations: Array<Pick<LifecycleOperation, "id" | "kind" | "state" | "diagnostics">> }>;
-  };
+  runnerCapacity?: BundledBootstrapState;
 };
 
 const mode = process.env.EZ_LEGACY_ADOPTION_MODE;
@@ -50,54 +43,6 @@ function legacyFiles(name: string, storageKey: string) {
 function outputText(value: unknown): string | undefined {
   if (value && typeof value === "object" && "text" in value && typeof value.text === "string") return value.text;
   if (typeof value === "string") { try { const parsed = JSON.parse(value) as { text?: unknown }; return typeof parsed.text === "string" ? parsed.text : value; } catch { return value; } }
-}
-
-function operationStateCounts(states: InstallationState[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const state of states) for (const operation of Object.values(state.operations)) counts[operation.state] = (counts[operation.state] ?? 0) + 1;
-  return counts;
-}
-
-function terminalOperations(entries: Array<{ name: string; installationId: string; state: InstallationState }>): NonNullable<Receipt["runnerCapacity"]>["terminalOperations"] {
-  return entries.map(({ name, installationId, state }) => ({
-    name,
-    installationId,
-    operations: Object.values(state.operations).map(({ id, kind, state: operationState, diagnostics }) => ({ id, kind, state: operationState, diagnostics })),
-  }));
-}
-
-async function waitForRunnerIdle(legacyInstallationId: string): Promise<NonNullable<Receipt["runnerCapacity"]>> {
-  const deadline = Date.now() + 360_000;
-  const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
-  let idleChecks = 0;
-  let initialPending = 0;
-  let maximumPending = 0;
-  while (Date.now() < deadline) {
-    const extensions = await client.listExtensions();
-    const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
-    const lifecycleInstallations = [...bootstrapNames].map((name) => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
-    const lifecycleIds = lifecycleInstallations.map(({ installationId }) => installationId);
-    assert.equal(new Set(lifecycleIds).size, bootstrapNames.size, "Candidate bootstrap installation IDs are not unique");
-    const states = await Promise.all(lifecycleInstallations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
-    const installationStates = states.map(({ state }) => state);
-    const pending = installationStates.reduce((count, state) => count + Object.values(state.operations).filter((operation) => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
-    maximumPending = Math.max(maximumPending, pending);
-    if (pending > 0) {
-      if (initialPending === 0) initialPending = pending;
-      idleChecks = 0;
-    } else if (initialPending > 0) {
-      idleChecks += 1;
-      if (idleChecks === 2) return {
-        bootstrapInstallations: lifecycleIds.length,
-        initialPending,
-        maximumPending,
-        terminalOperationStates: operationStateCounts(installationStates),
-        terminalOperations: terminalOperations(states),
-      };
-    }
-    await Bun.sleep(1_000);
-  }
-  throw new Error("Candidate bootstrap did not reach an observed terminal runner state before adoption");
 }
 
 if (mode === "seed") {
@@ -140,7 +85,7 @@ if (mode === "seed") {
   assert.deepEqual(owner(await session("/api/auth/me")), receipt.owner, "Owner identity changed across image upgrade");
   const legacyAttempt = await client.invokeExtensionTool(receipt.conversationId, receipt.installation.name, "echo");
   assert.equal(legacyAttempt.success, false, "Candidate ran a legacy extension before explicit v4 adoption");
-  const runnerCapacity = await waitForRunnerIdle(receipt.installation.id);
+  const runnerCapacity = await waitForBundledBootstrap(client);
   await Bun.write(receiptPath, `${JSON.stringify({ ...receipt, runnerCapacity })}\n`);
   assert.equal(runnerCapacity.terminalOperationStates.failed ?? 0, 0, `Candidate bootstrap has failed operations: ${JSON.stringify(runnerCapacity.terminalOperations)}`);
   const container = required("EZ_PRODUCTION_CONTAINER");

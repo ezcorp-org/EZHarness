@@ -11,6 +11,7 @@ import type { HarnessClient } from "@ezcorp/harness-client";
 import type { InstallationRecord, InstallationState, LifecycleOperation, WorkspaceRecord } from "../src/extensions/v4/types";
 import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
+import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
 
 type WorkspaceResult = { installation: InstallationRecord; workspace: WorkspaceRecord };
 
@@ -162,6 +163,7 @@ const recovered = await waitForVerified(client, installationId, build.id, 24, st
 runnerEvidence.afterRecovery = await ownedRunnerState(runRoot, paused.runnerOperationId);
 await writeRunnerEvidence();
 requireRunnerState(runnerEvidence.afterRecovery, ["succeeded", "failed", "cancelled"], "after lifecycle recovery");
+requireBundledBootstrapVerified(await waitForBundledBootstrap(client, { requireObservedPending: false }), "after the R1 app restart");
 const candidate = recovered.releases[recovered.operations[build.id]!.releaseId!]!;
 const candidates = Object.values(recovered.releases).filter((release) => release.workspaceId === workspaceId && release.workspaceRevision === revision);
 if (candidates.length !== 1 || candidate.id !== candidates[0]?.id) throw new Error(`Recovery produced ${candidates.length} v2 candidates, expected one.`);

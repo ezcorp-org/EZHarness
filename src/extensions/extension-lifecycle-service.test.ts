@@ -1,6 +1,6 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 import type { ReleaseRecord, Runner, RunnerExecution } from "@ezcorp/extension-contract";
-import { createLifecycleAuthorization, recoverInstallation, recoveryDeadline, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
+import { createLifecycleAuthorization, recoverInstallation, recoverInstallations, recoveryDeadline, runStorageMigration, verifyExtensionCandidate, type LifecyclePolicyLookup } from "./extension-lifecycle-service";
 import { requestedReleaseGrants } from "./extension-control";
 import type { InstallationRecord, InstallationState, LifecycleActor } from "./v4";
 import type { RecoveryServices } from "./extension-lifecycle-service";
@@ -81,7 +81,7 @@ function recoveryFixture(completeOnSecondRecovery = true) {
   const operation = { id: "build", kind: "build" as const, state: "building" as const, idempotencyKey: "build", inputDigest: "build", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: "first-holder", fence: 1, until: Date.now() + 60_000 } };
   const state: InstallationState = { installation: { ...installation }, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: { [operation.id]: operation } };
   const timers: DeferredTimer[] = [];
-  const setTimer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler) => {
+  const setTimer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
     timers.push(callback as DeferredTimer);
     return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
   }) as unknown as typeof setTimeout);
@@ -90,7 +90,7 @@ function recoveryFixture(completeOnSecondRecovery = true) {
   const services: RecoveryServices = {
     repository: { async read() { return state; } },
     migrations: { async recover() {} },
-    lifecycle: { async recover() {
+    lifecycle: { async reconcile() {}, async recover() {
       recoverCalls++;
       if (completeOnSecondRecovery && recoverCalls === 2) state.operations[operation.id] = { ...operation, state: "verified", lease: undefined };
     } },
@@ -172,6 +172,21 @@ test("deferred recovery contains a later lifecycle failure", async () => {
     fixture.setTimer.mockRestore();
     fixture.clearTimer.mockRestore();
   }
+});
+
+test("a failed installation recovery does not strand another queued build", async () => {
+  const blocked = { ...installation, id: "a-blocked" };
+  const ready = { ...installation, id: "b-ready" };
+  const state = (installation: InstallationRecord, operationState: "queued" | "failed"): InstallationState => ({ installation, workspaces: {}, revisions: {}, releases: {}, approvals: {}, operations: { build: { id: "build", kind: "build", state: operationState, idempotencyKey: "build", inputDigest: "build", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() } } });
+  const states = new Map([[blocked.id, state(blocked, "failed")], [ready.id, state(ready, "queued")]]);
+  const recovered: string[] = [];
+  const services: RecoveryServices = {
+    repository: { async read(id) { return states.get(id) ?? null; } },
+    migrations: { async recover(id) { if (id === blocked.id) throw new Error("owner unavailable"); } },
+    lifecycle: { async reconcile() {}, async recover(_actor, id) { recovered.push(id); } },
+  };
+  await recoverInstallations(services, [blocked, ready]);
+  expect(recovered).toEqual([ready.id]);
 });
 
 test("recovery wake-up selects the earliest live recoverable lease only", () => {
