@@ -16,6 +16,7 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
 import { makeProject } from "./fixtures/data.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const EXT_ID = "ext-ecf";
 
@@ -110,8 +111,10 @@ test.describe("Extension install-granted capabilities", () => {
 		await expect(permissions).toContainText("storage");
 		await permissions.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "install-granted-capabilities-v4", { fullPage: true });
+		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
 		await page.getByTestId("review-extension-release").click();
-		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
+		await review.expectReview();
+		await review.close();
 
 		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
 			expect(

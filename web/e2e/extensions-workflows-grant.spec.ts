@@ -20,6 +20,7 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const proj = makeProject({ id: "proj-1" });
 
@@ -182,8 +183,10 @@ test.describe("Extensions review dialog — workflows grant", () => {
 		await permissions.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "extensions-workflows-grant-v4", { fullPage: true });
 		// Live approval behavior is covered by the real-auth release-gate lane.
+		const review = await setupAuthorReviewMock(page, { installationId: "ext-wf" });
 		await page.getByTestId("review-extension-release").click();
-		await expect(page).toHaveURL("/extensions/author?installation=ext-wf");
+		await review.expectReview();
+		await review.close();
 
 		// Assert the capture contract in BOTH modes (mirrors extensions-sort)
 		// so the test is meaningful without the flag, not a bare screenshot.

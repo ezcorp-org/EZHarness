@@ -17,6 +17,7 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 import { makeProject } from "./fixtures/data.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const proj = makeProject({ id: "proj-1" });
 const EXT_ID = "mcp-perms-1";
@@ -135,8 +136,10 @@ test.describe("Extensions — MCP network permission", () => {
 		});
 		// The real-auth release-gate spec proves the live approval submission.
 		// This mock visual proof also pins the supported route into that flow.
+		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
 		await page.getByTestId("review-extension-release").click();
-		await expect(page).toHaveURL(`/extensions/author?installation=${EXT_ID}`);
+		await review.expectReview();
+		await review.close();
 	});
 
 	test("a stdio server naming no host shows the deny-by-default state", async ({

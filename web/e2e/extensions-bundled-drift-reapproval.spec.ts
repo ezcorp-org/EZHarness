@@ -11,6 +11,7 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeExtension } from "./fixtures/data.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const OLD_HOSTS = [
 	"geocoding-api.open-meteo.com",
@@ -72,8 +73,10 @@ test("bundled city-conditions shows Atlanta website access and opens release rev
 	await expect(page.getByTestId("review-extension-release")).toBeVisible();
 	await preview.scrollIntoViewIfNeeded();
 	await captureEvidence(page, testInfo, "bundled-release-permissions-v4", { fullPage: true });
+	const review = await setupAuthorReviewMock(page, { installationId: "ext-city-conditions" });
 	await page.getByTestId("review-extension-release").click();
-	await expect(page).toHaveURL(/\/extensions\/author\?installation=ext-city-conditions$/);
+	await review.expectReview();
+	await review.close();
 });
 
 /**
