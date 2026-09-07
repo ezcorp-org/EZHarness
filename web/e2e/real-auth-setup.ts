@@ -22,7 +22,7 @@
  * use that path; subsequent runs against the same DB fall back to
  * `/api/auth/login` (idempotent contract).
  */
-import { chromium, type APIRequestContext } from "@playwright/test";
+import { request, type APIRequestContext } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -84,22 +84,10 @@ async function markOnboarded(request: APIRequestContext, baseURL: string): Promi
 export default async function globalSetup(): Promise<void> {
   const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 
-  // Launch a real browser context. We use it for two reasons:
-  //  (1) `context.storageState()` captures the cookies set on the
-  //      context, which Playwright's spec runner then replays via
-  //      `use.storageState`.
-  //  (2) The `setSessionCookie()` helper writes an HttpOnly cookie
-  //      with the JWT — `request.post` from `chromium.launch()`'s
-  //      context honours `Set-Cookie` and stores it for us.
-  // `channel: "chromium"` keeps globalSetup on the SAME binary the spec
-  // projects use (playwright.real.config.ts pins it too, with the crash
-  // rationale). A bare `chromium.launch()` is headless, so Playwright would
-  // substitute `chrome-headless-shell` here — the binary this suite has been
-  // segfaulting in on CI. One binary for the whole tier means the browser the
-  // harness boots is the browser the specs run against.
-  const browser = await chromium.launch({ channel: "chromium" });
-  const context = await browser.newContext({ baseURL });
-  const apiRequest = context.request;
+  // APIRequestContext keeps the Set-Cookie jar and can persist it as a
+  // Playwright storage state. It needs no browser executable, so a Firefox or
+  // WebKit-only CI job does not accidentally require Chromium during setup.
+  const apiRequest = await request.newContext({ baseURL });
 
   try {
     await setupAdmin(apiRequest, baseURL);
@@ -113,8 +101,8 @@ export default async function globalSetup(): Promise<void> {
       throw new Error(`/api/auth/me failed after login (${me.status()}): ${body}`);
     }
 
-    await context.storageState({ path: STORAGE_STATE_PATH });
+    await apiRequest.storageState({ path: STORAGE_STATE_PATH });
   } finally {
-    await browser.close();
+    await apiRequest.dispose();
   }
 }
