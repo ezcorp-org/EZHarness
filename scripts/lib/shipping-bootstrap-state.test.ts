@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import type { HarnessClient } from "@ezcorp/harness-client";
 import { resolveBundledExtensions } from "../../src/extensions/bundled";
-import { BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
+import { type BundledBootstrapTimeoutError, requireBundledBootstrapVerified, waitForBundledBootstrap } from "./shipping-bootstrap-state";
 
 function state(status: "queued" | "verified" | "failed") {
   return { operations: { build: { id: "build", kind: "build", state: status, diagnostics: [] } } };
