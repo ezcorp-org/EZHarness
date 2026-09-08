@@ -1,0 +1,23 @@
+[
+  {
+    "commit": "0733ca51daf570227bd801b14991700ad0ca0c12",
+    "repository_path": "web/e2e/real-auth/extension-source-import.spec.ts",
+    "curated_path": "sources/extension-source-import.spec.ts.txt",
+    "sha256": "0ab41374216a867e89826e68bb2ee16b0d6e0722e452f2fdf9044a72ea6e781d",
+    "bytes": 26353
+  },
+  {
+    "commit": "0733ca51daf570227bd801b14991700ad0ca0c12",
+    "repository_path": "web/e2e/real-auth/extension-lifecycle-flow.spec.ts",
+    "curated_path": "sources/extension-lifecycle-flow.spec.ts.txt",
+    "sha256": "e65a18a442d021364c62a2bb8b3c5d5d3eb8a090454436ec7fd7ef21d01d8e8e",
+    "bytes": 53552
+  },
+  {
+    "commit": "0733ca51daf570227bd801b14991700ad0ca0c12",
+    "repository_path": "web/e2e/real-auth/extension-author-flow.spec.ts",
+    "curated_path": "sources/extension-author-flow.spec.ts.txt",
+    "sha256": "f89d920c8454fc086eb029a6fb0d6ee0f565afefa9aefec9dd70b75d71279e93",
+    "bytes": 6756
+  }
+]

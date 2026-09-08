@@ -1,0 +1,149 @@
+{
+  "head_sha": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "jobs": [
+    {
+      "job_id": 101874032844,
+      "name": "Coverage shard 0",
+      "bytes": 40199,
+      "sha256": "956d249f4ce97b2d0148d00ecc965130d0315c612d5dcdbb3d2468ba4a830dbf",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032780,
+      "name": "Coverage shard 1",
+      "bytes": 42079,
+      "sha256": "47473c761e73a938dee463db801977f842a5952207a18a86ffa70c4811e16ed4",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032759,
+      "name": "Coverage shard 2",
+      "bytes": 42124,
+      "sha256": "47467723f7725be5b7088c457f6baf8e1898b23f0a9df6d5b2d1728db689d8f6",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032799,
+      "name": "Coverage shard 3",
+      "bytes": 41893,
+      "sha256": "667cb3b5247c6baaf695f8f198583c2af57eaa5146e25d6b082faef1963384ed",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032837,
+      "name": "Coverage shard 4",
+      "bytes": 41704,
+      "sha256": "98de2e5008ef1afe1cb21d0339b9edb21ba210dff9ec063c01c1cdb6a268fc06",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032791,
+      "name": "Coverage shard 5",
+      "bytes": 39388,
+      "sha256": "5fb18c242d64df0045f498ad1cafa7244d4eb92742d5df56e28737b70c2d9052",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032859,
+      "name": "Coverage shard 6",
+      "bytes": 39133,
+      "sha256": "2dc0ac38e1e80f113517fa2c6881c12caa3e6ba85286778a8d72ebbf196a86e8",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032812,
+      "name": "Coverage shard 7",
+      "bytes": 42159,
+      "sha256": "67173a87e924280cedc2bc1e4577dc054741df7ef09708dbb544754cbb9321d2",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032846,
+      "name": "Coverage shard 8",
+      "bytes": 41767,
+      "sha256": "6b26ff62b3df074e753ae9b2e22fe42f837e291be6b6480132e10bf91a4a717d",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032823,
+      "name": "Coverage shard 9",
+      "bytes": 41893,
+      "sha256": "28f2e61f9d2ebf67d4cd0611a9dd113b579fd704af16f25fceb737c0ce7473bc",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032841,
+      "name": "Coverage shard 10",
+      "bytes": 42377,
+      "sha256": "419cd730ffcda1ce24778241c7f761c8bb5cdcdaa8f5d56c748dbe6a88e95d63",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032826,
+      "name": "Coverage shard 11",
+      "bytes": 41541,
+      "sha256": "6607454c215ad21318530d1c16f03c8ab9bddc2a674f303008585d1e93abec51",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032730,
+      "name": "Coverage extras (legs)",
+      "bytes": 352303,
+      "sha256": "e1f949cd14a47500b39a8c167c8da7116c139164ab0bb4bc9118f59e66329322",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032787,
+      "name": "Residual integration tests",
+      "bytes": 38934,
+      "sha256": "ca98063394183e885e5260e4bed760f1682313f9c4f71c56a9f3e79c032aaaa0",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032802,
+      "name": "Backend critical (strict pass/fail)",
+      "bytes": 30087,
+      "sha256": "d6921031330fd552cc5195feb3b10b35e25e0fea0dbdbd4a9c136d83b8a11a02",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101875033851,
+      "name": "Per-file coverage gate",
+      "bytes": 43294,
+      "sha256": "81c94ef521e72ec031bf397e17710f8d798d1aa0f5bb02fa6159392df8002cf5",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032295,
+      "name": "External Postgres (Bun.sql)",
+      "bytes": 46441,
+      "sha256": "0ed321f41d9b7d50a18972750cb0413358c16c1fb45ac90d3091edeaf4a51d19",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    },
+    {
+      "job_id": 101874032347,
+      "name": "Dependency audit",
+      "bytes": 17264,
+      "sha256": "4c8b28771fac708721cbd1028bb480da3e93638c56804a022aa114dd16245cb1",
+      "actual_summary_verified": true,
+      "no_retry_or_pooled_failure": true
+    }
+  ]
+}

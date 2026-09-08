@@ -1,0 +1,43 @@
+{
+  "artifact": {
+    "bytes": 5543425,
+    "id": 10034766343,
+    "sha256": "75494177023fc7b57d1d28f49bbb7aaf93d391e61c7fa700fd9e4387e1d5bdee"
+  },
+  "attempt": 2,
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "job": {
+    "completed_at": "2026-09-07T22:49:24Z",
+    "conclusion": "failure",
+    "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101880979836",
+    "id": 101880979836,
+    "name": "E2E (real auth + real DB)",
+    "started_at": "2026-09-07T22:38:45Z",
+    "status": "completed"
+  },
+  "kernel_prerequisite": "Extension runner kernel controls verified before Playwright",
+  "private_inputs": [
+    {
+      "bytes": 544634,
+      "path": "raw/real-auth-rerun-job.log",
+      "sha256": "5ca3541c51ee6d4bc279f9aa558e781a03f94046a22a037baf5a5090b7c7f140"
+    },
+    {
+      "bytes": 5543425,
+      "path": "raw/real-auth-rerun-test-results.zip",
+      "sha256": "75494177023fc7b57d1d28f49bbb7aaf93d391e61c7fa700fd9e4387e1d5bdee"
+    },
+    {
+      "bytes": 84594,
+      "path": "raw/attempt2-jobs-terminal.json",
+      "sha256": "35efd33e4f8e24e655f3332d3a3b93f230977e289a78bfaef5799356e613a4ba"
+    }
+  ],
+  "real_auth_suite": {
+    "failed": 1,
+    "passed": 61,
+    "planned": 62
+  },
+  "run_id": 34164945893,
+  "setup_first_run": "3 passed"
+}

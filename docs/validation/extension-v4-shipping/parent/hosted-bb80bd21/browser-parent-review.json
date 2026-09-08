@@ -1,0 +1,54 @@
+[
+  {
+    "lane": "firefox",
+    "job_id": 101897937943,
+    "counts": [
+      3
+    ],
+    "file": ".cache/terra-shipping/parent/hosted-bb80bd21-browser/firefox/job-101897937943.log",
+    "sha256": "fb41faf830b9f6fd38268a3cad88fdf1f695f74d2dd90abd9dbbf5d7dc8978a7",
+    "structured_500_records": 0
+  },
+  {
+    "lane": "webkit",
+    "job_id": 101897937892,
+    "counts": [
+      3
+    ],
+    "file": ".cache/terra-shipping/parent/hosted-bb80bd21-browser/webkit/job-101897937892.log",
+    "sha256": "fa79c01e51d3a0234dfa66f5b36da160f347aea0147d522adc6a5499a8acd0b5",
+    "structured_500_records": 0
+  },
+  {
+    "lane": "mock",
+    "job_id": 101897937775,
+    "counts": [
+      255
+    ],
+    "file": ".cache/terra-shipping/parent/hosted-bb80bd21-browser/mock/job-101897937775.log",
+    "sha256": "da0d3ce984dc23b32341b58e57304fba6088c15b50baf21ed13cb4b992ce72fa",
+    "structured_500_records": 0
+  },
+  {
+    "lane": "real-auth",
+    "job_id": 101897938045,
+    "counts": [
+      3,
+      62
+    ],
+    "file": ".cache/terra-shipping/parent/hosted-bb80bd21-browser/real-auth/job-101897938045.log",
+    "sha256": "e1d5f00a524b70cda621bc5e6282c338a0f1cc21ef5e0f9a09241b78ee07d275",
+    "structured_500_records": 0
+  },
+  {
+    "lane": "visual",
+    "job_id": 101897937875,
+    "counts": [
+      191,
+      13
+    ],
+    "file": ".cache/terra-shipping/parent/hosted-bb80bd21-browser/visual/job-101897937875.log",
+    "sha256": "5340cdb1ea8eb492b96b4c97cf55c8f9b80bab7ff05ab6ec190e46e1b2ccf645",
+    "structured_500_records": 0
+  }
+]

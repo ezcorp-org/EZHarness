@@ -1,0 +1,203 @@
+web/src/__tests__/extensions-api.test.ts:151:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+
+  ! Change to an optional chain.
+  
+    149 │ 	redactExtensionSecrets: (ext: any) => {
+    150 │ 		const m = ext?.manifest;
+  > 151 │ 		if (!m || m.kind !== "mcp" || !m.mcpServers?.length) return ext;
+        │ 		    ^^^^^^^^^^^^^^^^^^^^^^
+    152 │ 		const blank = (map: any) =>
+    153 │ 			Object.fromEntries(Object.keys(map ?? {}).map((k) => [k, ""]));
+  
+  i Unsafe fix: Change to an optional chain.
+  
+    149 149 │     redactExtensionSecrets: (ext: any) => {
+    150 150 │       const m = ext?.manifest;
+    151     │ - → → if·(!m·||·m.kind·!==·"mcp"·||·!m.mcpServers?.length)·return·ext;
+        151 │ + → → if·(m?.kind·!==·"mcp"·||·!m.mcpServers?.length)·return·ext;
+    152 152 │       const blank = (map: any) =>
+    153 153 │         Object.fromEntries(Object.keys(map ?? {}).map((k) => [k, ""]));
+  
+
+Checked 26 files in 35ms. No fixes applied.
+Found 1 warning.
+[extension-v4-independent-audit 0733ca51] fix: return extension authentication denials as HTTP responses
+ 188 files changed, 10700 insertions(+), 46 deletions(-)
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/artifact-mapping.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/cleanup/generated-output-cleanup.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/cleanup/owned-browser-processes-after-cleanup.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/controllers/final-targeted.sh.sha256
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/controllers/final-targeted.sh.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/final-isolated-git-status.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/final-proof-input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/final-targeted-exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/api-extensions-route.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/api-extensions-route.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/auth-middleware.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/auth-middleware.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/chat-graph.spec.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/inputs/extensions-api.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/classification.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/preview-process-cleanup.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/preview-process-group.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/test-process-cleanup.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/invalid-run/test-process-group.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/e2e-baseline-red-excerpt.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/final-auth-bun.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/final-browser.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/final-extensions-api-bun.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/final-route-vitest.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/logs/route-red-excerpt.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/permanent-diff-paths.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-args.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-hook-errors.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-list-count.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-list-exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/mock-gate-terminal.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/parent-profile-log-review.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/profile-runtime-dependency-provenance.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/route-red-input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/status-boundary-preprofile-input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/visual-mock-exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/visual-mock-hook-errors.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/visual-mock-input-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/profiles/visual-mock-terminal.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/sanitization.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-boundary/source-sha256.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/auth-coverage.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/authored-whitespace.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/boundaries.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/browser.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/controller.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/extensions-api-bun.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/lint.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/manifest.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/old-route-red.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/route-vitest.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/source-guard.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/svelte.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/exits/typecheck.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/auth-coverage.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/authored-whitespace.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/boundaries.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/browser.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/extensions-api-bun.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/lint.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/manifest.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/old-route-red.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/route-vitest.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/svelte.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/logs/typecheck.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/baseline-route.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/completed-at.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/executed-controller.py.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/inputs.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/parent-curation-review.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/process-inspection.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/raw-mapping.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/results.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/source.patch
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/started-at.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/src/__tests__/auth-middleware.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/src/auth/middleware.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/web/e2e/chat-graph.spec.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/web/src/__tests__/api-extensions.server.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/web/src/__tests__/extensions-api.test.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/auth-response-parent/sources/web/src/routes/api/extensions/+server.ts.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-backend-review/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-backend-review/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-backend-review/raw-log-mapping.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/artifact-mapping.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/assigned-jobs.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/browser-observations.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/checksum-membership.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/raw-log-mapping.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/raw-material-boundary.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/run-provenance.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-browser-review/terminal-steps.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-coverage-review/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-coverage-review/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-coverage-review/checkpoint.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/inputs/ci.yml.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/inspection.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/parent-production-review.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/parent-resource-review.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/private-raw-inventory.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/delivery/runtime/bundled-bootstrap-r2.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/delivery/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/delivery/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/delivery/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/embedding-log-guard.exit
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/embeddings/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/embeddings/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/embeddings/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/file-organizer/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/file-organizer/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/file-organizer/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-candidate/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-candidate/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-candidate/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-restore/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-restore/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/assert-restore/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/seed-previous/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/seed-previous/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/seed-previous/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/historical-upgrade/upgrade/upgrade-state.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/adopt/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/adopt/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/adopt/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/adoption-state.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/seed/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/seed/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/legacy-adoption/legacy/seed/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/revocation/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/revocation/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/revocation/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime-resources/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime-resources/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime-resources/runtime/r4-resource-samples.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime-resources/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime/runtime/bundled-bootstrap-r1.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime/runtime/command.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime/runtime/provenance.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/runtime/runtime/verification.log
+ create mode 100644 docs/validation/extension-v4-shipping/parent/hosted-8ae7f086-production-review/proofs/summary.tsv
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/README.md
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/SHA256SUMS
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/authored-whitespace.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/checksums.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/commit.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/controller.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/exact-index-scan-cleanup.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/exact-index-scan-controller.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/exact-index-scan-exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/expanded-scan.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/exits/push.exit.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/findings.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/completed-at.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/exact-index-tree.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/published-head.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/remote-after.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/remote-before.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/identity/started-at.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/authored-whitespace.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/checksums.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/commit.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/exact-index-scan.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/expanded-scan.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/logs/push.log.txt
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/parent-publication-verification.json
+ create mode 100644 docs/validation/extension-v4-shipping/parent/publication-8ae7f086/raw-mapping.json

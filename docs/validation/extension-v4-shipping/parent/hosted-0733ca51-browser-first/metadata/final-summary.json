@@ -1,0 +1,121 @@
+{
+  "assigned_jobs": {
+    "firefox": {
+      "job_id": 101874032777,
+      "log_bytes": 279471,
+      "log_file": "firefox-job.log",
+      "log_sha256": "76d3f2811e36665f2a0321ec30d2049aa7203972ee682072a83493110c6d4e73"
+    },
+    "mock": {
+      "job_id": 101874032590,
+      "log_bytes": 113479,
+      "log_file": "mock-job.log",
+      "log_sha256": "38b8b6adb9e038982817eb36991eb9743d409e7a2f5324a264e593d2547adf79"
+    },
+    "real_auth": {
+      "job_id": 101874032881,
+      "log_bytes": 274188,
+      "log_file": "real-auth-job.log",
+      "log_sha256": "6691c915af89b7c44d6899475f96a7022a66618abe1eb24c2f01f8cd6f89a512"
+    },
+    "visual": {
+      "job_id": 101874032872,
+      "log_bytes": 352224,
+      "log_file": "visual-job.log",
+      "log_sha256": "e17ee667cc9e820cd401ae7bb5f0cce9bb695f97273aa92f8ae4147b7ec7a9c9"
+    },
+    "web_bun": {
+      "job_id": 101874032654,
+      "log_bytes": 32491,
+      "log_file": "web-bun-job.log",
+      "log_sha256": "006a5f74c683d7fa48db1e734eccb244fe19346b44712738f0c3b7738f81ccc2"
+    },
+    "web_security": {
+      "job_id": 101874032749,
+      "log_bytes": 30417,
+      "log_file": "web-security-job.log",
+      "log_sha256": "cfbb8982679900a4561fa0494476286cec7952910a010595cebaab3ce89ed5ec"
+    },
+    "web_shard1": {
+      "job_id": 101874032879,
+      "log_bytes": 83112,
+      "log_file": "shard1-job.log",
+      "log_sha256": "6d55b230d2fbb35ae0400072a1fbea9827affcadf679b28a34b63a469fb53d03"
+    },
+    "web_shard2": {
+      "job_id": 101874032625,
+      "log_bytes": 94736,
+      "log_file": "shard2-job.log",
+      "log_sha256": "5745af9d0c7a93be49912a9078f2ab1f1e24171a9e4a6a94176b74c916571e72"
+    },
+    "web_shard3": {
+      "job_id": 101874032905,
+      "log_bytes": 103583,
+      "log_file": "shard3-job.log",
+      "log_sha256": "8c8778acb7930532b690dbd8bef8134d6d008211fee433d90093ce96fc664215"
+    },
+    "webkit": {
+      "job_id": 101874032800,
+      "log_bytes": 379139,
+      "log_file": "webkit-job.log",
+      "log_sha256": "7dfebeaaeb120922489fa06526066681b17b56b8d4ffbb0000d580352384454f"
+    }
+  },
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "outcomes": {
+    "firefox": {
+      "conclusion": "success",
+      "playwright": "3 passed",
+      "structured_hooks_server_errors": 0
+    },
+    "mock": {
+      "conclusion": "success",
+      "playwright": "255 passed; 13 skipped",
+      "structured_hooks_server_500": 0
+    },
+    "real_auth": {
+      "artifact_id": 10033875960,
+      "artifact_sha256": "9833cf46de6ce9ee991cdfe48d3b514fda9a6cce90869b995f01fa40c8a98f19",
+      "conclusion": "failure",
+      "failing_test": "e2e/setup-first-run.spec.ts:68 creates the first admin through the shipped setup page",
+      "failure": "Chromium SEGV_MAPERR during Playwright Create context, before test body/page.goto or a product request",
+      "kernel_prerequisite": "passed",
+      "playwright": "2 passed; 1 failed"
+    },
+    "visual": {
+      "conclusion": "success",
+      "intentional_404_path": "/this-route-does-not-exist",
+      "linked_test": "e2e/hydration-marker.spec.ts:99",
+      "playwright": [
+        "191 passed",
+        "13 passed"
+      ],
+      "structured_hooks_server_404": 1,
+      "structured_hooks_server_500": 0
+    },
+    "web_bun": {
+      "bun": "4084 passed; 0 failed; 220 files",
+      "conclusion": "success"
+    },
+    "web_components": {
+      "conclusion": "success",
+      "vitest": {
+        "shard1": "183 files; 2415 tests",
+        "shard2": "183 files; 2418 tests",
+        "shard3": "183 files; 2314 tests"
+      }
+    },
+    "web_security": {
+      "conclusion": "success",
+      "scope": "18 security bun:test suites under coverage"
+    },
+    "webkit": {
+      "conclusion": "success",
+      "playwright": "3 passed",
+      "structured_hooks_server_errors": 0
+    }
+  },
+  "raw_scope": "Raw job logs, trace, and browser artifact remain private under this receipt.",
+  "retry_scope": "No Playwright retry-attempt syntax (`retry #<number>`) was observed in the collected assigned-job logs. Test names containing \u201cretry\u201d are excluded from this observation.",
+  "run_id": 34164945893
+}

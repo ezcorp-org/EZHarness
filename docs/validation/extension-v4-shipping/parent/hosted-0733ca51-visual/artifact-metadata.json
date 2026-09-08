@@ -1,0 +1,59 @@
+{
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "workflow_run_id": 34164945893,
+  "job": {
+    "id": 101874032872,
+    "name": "Visual evidence",
+    "status": "completed",
+    "conclusion": "success",
+    "started_at": "2026-09-07T21:57:08Z",
+    "completed_at": "2026-09-07T22:09:00Z",
+    "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032872"
+  },
+  "artifact": {
+    "id": 10034044248,
+    "name": "visual-evidence",
+    "size_in_bytes": 41926941,
+    "expired": false,
+    "private_zip_path": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/visual-0733-final-review/visual-evidence.zip",
+    "private_zip_sha256": "a7c87ef23404e6a0f6dc07d7466e50526ddded7c1245dfeb929e05c1fb3a99a8"
+  },
+  "archive_structure": "Selected PNGs are direct members of the workflow artifact ZIP under extracted/. Nested mock-evidence.zip and real-auth-evidence.zip were not opened or copied.",
+  "selected_images": [
+    {
+      "artifact_member": "extracted/extension-source-import.spec.ts__extension-source-import-review.png",
+      "curated_path": "images/extension-source-import.spec.ts__extension-source-import-review.png",
+      "sha256": "e111529adb0a85946b1bac0c86c71c7fcc4d5daa466606faffe3defaa0c6e5a8",
+      "bytes": 149929,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-lifecycle-flow.spec.ts__extension-lifecycle-review-desktop.png",
+      "curated_path": "images/extension-lifecycle-flow.spec.ts__extension-lifecycle-review-desktop.png",
+      "sha256": "708155719930a81114738b6c3d3ecb3030c793a54b29cc1194ea67a55fb5638b",
+      "bytes": 97066,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "curated_path": "images/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "sha256": "80b5bb54da4764095039135cd29c7cf95141c74d5a4cb92b60d59871c599afa4",
+      "bytes": 40246,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "curated_path": "images/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "sha256": "a1c5ff561e23bc20a413f2721004a670eca4f21e13e708efdf67901e9518d1aa",
+      "bytes": 128532,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-source-import.spec.ts__extension-source-import-mobile.png",
+      "curated_path": "images/extension-source-import.spec.ts__extension-source-import-mobile.png",
+      "sha256": "10c07f7d2fca5e3c02fc4fab38beadabc1ca375d257e645b60a8faff3db9dea2",
+      "bytes": 47779,
+      "archive_extraction_and_curation_bytes_identical": true
+    }
+  ]
+}

@@ -1,0 +1,246 @@
+{
+  "source": "bb80bd21de2eb6c9dbe33454b227ff6887a35563",
+  "run": 34173371290,
+  "first_pass_shards": [
+    {
+      "shard": 0,
+      "pass": 2391,
+      "fail": 0,
+      "files": 129,
+      "file": "coverage-0.log",
+      "sha256": "a7eb8b1222b2e702b878bf51cdbb5dabe26ec4848d429210151d3b09f199c4ff"
+    },
+    {
+      "shard": 1,
+      "pass": 1890,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-1.log",
+      "sha256": "1fc7cd75b847d5c95469f7c34cc28bcc3b5df25c35a1dce16b56e9521dfe0f16"
+    },
+    {
+      "shard": 2,
+      "pass": 2045,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-2.log",
+      "sha256": "41138f2d9cfa7745a01e67ba69da80fa361d1ea205b557ef68d4c69654b9472f"
+    },
+    {
+      "shard": 3,
+      "pass": 2146,
+      "fail": 0,
+      "files": 131,
+      "file": "coverage-3.log",
+      "sha256": "e2334635decd2f54c9e60ecbb0efbc72636d84d6d45cdb12208917cdc089adf7"
+    },
+    {
+      "shard": 4,
+      "pass": 1990,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-4.log",
+      "sha256": "86b20868a70a55baabc9f3a1bbfc2e7e1e5ecebdaa50bcca09884ec1720943e1"
+    },
+    {
+      "shard": 5,
+      "pass": 2426,
+      "fail": 0,
+      "files": 131,
+      "file": "coverage-5.log",
+      "sha256": "981f8ac2865085a8780d6e5927573d3f9e85bd0c020ed0c8dc9c82a0ae03eae3"
+    },
+    {
+      "shard": 6,
+      "pass": 1737,
+      "fail": 0,
+      "files": 131,
+      "file": "coverage-6.log",
+      "sha256": "ad91151b52729dba56740bef4c3b9b81caf25336764861ac8e85c7434bb34a8d"
+    },
+    {
+      "shard": 7,
+      "pass": 2079,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-7.log",
+      "sha256": "32b87973edda73f9b98fd8247b5d1976c90a3df9231bd2fc580d1429c0d455a5"
+    },
+    {
+      "shard": 8,
+      "pass": 1843,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-8.log",
+      "sha256": "0bebb010267a0e9a97804e8b3ec9352066bfd91622234e2883fbd8f6d8e3da36"
+    },
+    {
+      "shard": 9,
+      "pass": 2061,
+      "fail": 0,
+      "files": 131,
+      "file": "coverage-9.log",
+      "sha256": "711f6c9a598cf3a7cddb1a594cf8ddd6c159f90ea8804c167fa915155aca4cf5"
+    },
+    {
+      "shard": 10,
+      "pass": 1928,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-10.log",
+      "sha256": "d5cf6a2b307d9cbe1171e17b32ff49e426754dce2bb1743099a865bc9b0415fa"
+    },
+    {
+      "shard": 11,
+      "pass": 2071,
+      "fail": 0,
+      "files": 130,
+      "file": "coverage-11.log",
+      "sha256": "32af82818f4e54819f18eee3f8392ddaa15b5df2e21d3ecfe85f6c9fb48fa4b6"
+    }
+  ],
+  "other_actual_logs": [
+    {
+      "file": "backend-critical.log",
+      "bytes": 29885,
+      "sha256": "26aeb89d773e3a37183beaa97fdcdbd95dd13e4b55d3a6bfab7af350b6225773",
+      "summary_lines": [
+        "2026-09-08T00:30:53.3946434Z   662 pass | 0 fail | 38 files"
+      ]
+    },
+    {
+      "file": "coverage-extras.log",
+      "bytes": 349916,
+      "sha256": "0a6777e0768bd4142d84c2dea27a643e78ef19da541ddbf1eab38c50d5333fbc",
+      "summary_lines": [
+        "2026-09-08T00:32:26.4643546Z  0 fail",
+        "2026-09-08T00:32:26.4680834Z  93 pass",
+        "2026-09-08T00:32:26.4680920Z  0 fail",
+        "2026-09-08T00:32:26.4699347Z (pass) rankCandidates > orders by blended score, filters below minScore [0.34ms]",
+        "2026-09-08T00:32:26.4702062Z (pass) maxExampleCosine > a weak example never drags the score below the description cosine [0.02ms]",
+        "2026-09-08T00:32:26.4702639Z (pass) rankCandidates \u2014 example-aware cosine (suggestExamples) > an authored example rescues a candidate whose description cosine is below the gate [0.10ms]",
+        "2026-09-08T00:32:26.4707626Z (pass) buildTrainingExamples (pure) > drops prompts below the signal floor [0.05ms]",
+        "2026-09-08T00:32:26.4712111Z (pass) buildTrainingExamples \u2014 synthetic provenance + grouping > synthetic prompts below the signal floor are dropped like real ones [0.04ms]",
+        "2026-09-08T00:32:26.4718402Z  104 pass",
+        "2026-09-08T00:32:26.4718487Z  0 fail",
+        "2026-09-08T00:32:26.4816946Z  220 pass",
+        "2026-09-08T00:32:26.4817032Z  0 fail",
+        "2026-09-08T00:32:26.5074719Z  Test Files  291 passed (291)",
+        "2026-09-08T00:32:26.5074974Z       Tests  4708 passed (4708)",
+        "2026-09-08T00:32:26.5076032Z   1435 pass | 0 fail | legs"
+      ]
+    },
+    {
+      "file": "db-external-postgres.log",
+      "bytes": 46287,
+      "sha256": "d6079122cb01dcd880af9d8b195370324b0e7241d08ddd4a429ca8154bd1c62f",
+      "summary_lines": [
+        "2026-09-08T00:28:27.1411799Z  24 pass",
+        "2026-09-08T00:28:27.1412092Z  0 fail"
+      ]
+    },
+    {
+      "file": "dependency-audit.log",
+      "bytes": 19649,
+      "sha256": "3157baa7b799fdffce3855cb10cc0d8c34b185ce7a7edc1409ec90d58cf6ae8e",
+      "summary_lines": [
+        "2026-09-08T00:27:37.9356077Z \u2714 dependency audit clean at the high floor (4 allowlisted, 6 below floor)."
+      ]
+    },
+    {
+      "file": "lint.log",
+      "bytes": 59123,
+      "sha256": "46d313f9070bf41704865f6d4d1054c4f99879aea282f840e75a191f029c296f",
+      "summary_lines": [
+        "2026-09-08T00:28:31.4990351Z     187 \u2502     // Fall through \u2014 handled below.",
+        "2026-09-08T00:28:31.4992942Z     187 187 \u2502       // Fall through \u2014 handled below.",
+        "2026-09-08T00:28:32.3598905Z Dependency boundaries OK \u2014 4686 source files, 0 violations."
+      ]
+    },
+    {
+      "file": "manifest.log",
+      "bytes": 26928,
+      "sha256": "399eee64b3f5f54cc8ba78956436b0070da0e321f7ad85937cdc6458010e80ed",
+      "summary_lines": []
+    },
+    {
+      "file": "per-file-coverage.log",
+      "bytes": 43246,
+      "sha256": "0fa6c94d01b1b03fbbd1ece707cb7a88964feeef9a0462f1a2f31f60a9d6416b",
+      "summary_lines": [
+        "2026-09-08T00:33:10.0957228Z Coverage gate PASSED: 1260 enforced file(s) at or above threshold.",
+        "2026-09-08T00:33:11.6676473Z New-file coverage gate PASSED: 134 new source file(s) gated.",
+        "2026-09-08T00:33:12.1882445Z Patch coverage gate PASSED: all changed executable lines covered (396 file(s))."
+      ]
+    },
+    {
+      "file": "residual.log",
+      "bytes": 39464,
+      "sha256": "996c4a2341c5e0e918609d50b1e154c951ee23cbcd2a9ec2f39839d9c1159e57",
+      "summary_lines": [
+        "2026-09-08T00:29:16.8057242Z   182 pass | 0 fail | 15 files"
+      ]
+    },
+    {
+      "file": "svelte.log",
+      "bytes": 42670,
+      "sha256": "2a8c782f7059308a657df34321c0e65fa8638ab36190e2333dcc6fd2cf4e2969",
+      "summary_lines": [
+        "2026-09-08T00:28:43.9004480Z svelte-check found 0 errors and 13 warnings in 5 files"
+      ]
+    },
+    {
+      "file": "typecheck.log",
+      "bytes": 30186,
+      "sha256": "cb4de2fdd6ac4aac25b13c3daf9e90503ef31daf0fd540cb1596d8dfa272762f",
+      "summary_lines": [
+        "2026-09-08T00:29:19.8858584Z \u2713 Typecheck passed."
+      ]
+    },
+    {
+      "file": "web-bun.log",
+      "bytes": 32704,
+      "sha256": "f67a65993359e58a5925634df65c3673d86af86daa0a78dd7916842d49a32736",
+      "summary_lines": [
+        "2026-09-08T00:28:44.8224793Z   Web: 4084 pass | 0 fail | 220 files"
+      ]
+    },
+    {
+      "file": "web-vitest-1.log",
+      "bytes": 82813,
+      "sha256": "e19eb2d3ffbf6c6391aaccb2bdb4b19d464c88de496a7091a9478ec9bf210843",
+      "summary_lines": [
+        "2026-09-08T00:30:02.1934065Z  \u2713 src/__tests__/api-extensions-id-violations.server.test.ts (7 tests) 19ms",
+        "2026-09-08T00:30:28.2556771Z  Test Files  183 passed (183)",
+        "2026-09-08T00:30:28.2561492Z       Tests  2415 passed (2415)"
+      ]
+    },
+    {
+      "file": "web-vitest-2.log",
+      "bytes": 92585,
+      "sha256": "4767ad177283133f0a3152d517a31f9d35a4a6495f302f950b6ef712afb78b6e",
+      "summary_lines": [
+        "2026-09-08T00:28:56.5054103Z      \u2713 modal has no axe violations when open with extensions loaded  387ms",
+        "2026-09-08T00:30:05.0387867Z  Test Files  183 passed (183)",
+        "2026-09-08T00:30:05.0397207Z       Tests  2418 passed (2418)"
+      ]
+    },
+    {
+      "file": "web-vitest-3.log",
+      "bytes": 100893,
+      "sha256": "918b053e2033cd1c20a5fe14dcfe53dfe1b9a0451d4eef7ae8dd3970498986cd",
+      "summary_lines": [
+        "2026-09-08T00:28:56.1213870Z      \u2713 touchmove before threshold cancels the hold (scrolling, not pressing)  808ms",
+        "2026-09-08T00:28:56.1243726Z      \u2713 touchend before threshold cancels the hold  810ms",
+        "2026-09-08T00:30:02.1275002Z  Test Files  183 passed (183)",
+        "2026-09-08T00:30:02.1290547Z       Tests  2314 passed (2314)"
+      ]
+    },
+    {
+      "file": "web-vitest-aggregate.log",
+      "bytes": 2517,
+      "sha256": "8d80050a28f6ae3bddfdc461caf0f4a37a67d4731a6d32de65f7dcfab44e0b49",
+      "summary_lines": []
+    }
+  ]
+}

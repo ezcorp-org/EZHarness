@@ -1,0 +1,71 @@
+{
+  "tested_source": "bb80bd21de2eb6c9dbe33454b227ff6887a35563",
+  "ci_run": 34173371290,
+  "ci_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34173371290",
+  "technical_jobs_passed": 34,
+  "failed_job": "Gate integrity",
+  "unapproved_policy_findings": 83,
+  "production": {
+    "private_inventory_bytes_verified": 81,
+    "proof_rows": 8,
+    "launcher_quartets": 11,
+    "embedding_runtime_guard_exact_once_zero": true,
+    "current_image": "sha256:b4f081c6a25c04025f30297d0457012e5fd7568495effa269b8c30122efb58d2",
+    "current_app_logs_reviewed": [
+      "delivery/runtime/compose.log",
+      "embeddings/runtime/compose.log",
+      "file-organizer/runtime/compose.log",
+      "historical-upgrade/upgrade/assert-candidate/compose.log",
+      "historical-upgrade/upgrade/assert-restore/compose.log",
+      "legacy-adoption/legacy/adopt/compose.log",
+      "revocation/runtime/compose.log",
+      "runtime/runtime/compose.log",
+      "runtime-resources/runtime/compose.log"
+    ],
+    "error_fatal_records": [],
+    "checkout_commit": "af4ba84e776674c8b6f006f2fa5264775881a1d0",
+    "checkout_parents": [
+      "bd7364388d0106364864e18a3d321b13ba978c36",
+      "bb80bd21de2eb6c9dbe33454b227ff6887a35563"
+    ],
+    "pr_head": "bb80bd21de2eb6c9dbe33454b227ff6887a35563",
+    "equal_tree": "572bfff1c50c894748acce60dc9abe4b4932d48d",
+    "actual_production_and_aggregate_jobs_success": true
+  },
+  "resource": {
+    "console_complete": true,
+    "console_observed_bytes": 4462,
+    "console_sha256": "9dd219d40e4fb4d2426d0d2addb724f615a5dbbb7f226a27dac81a000d92dade",
+    "console_review": "complete parsed summary",
+    "authoritative_series": "r4-resource-samples.json",
+    "raw_samples_sha256": "da380176f0fb56b0e95d867d7e814a38c579f0f27cb3ad2f98e831089ffbe74e",
+    "mode": "cycles",
+    "cycles": 10,
+    "reconnects": 100,
+    "actual_duration_ms": 88851,
+    "last_sample_receipt_duration_ms": 88848,
+    "required_minimum_ms": 0,
+    "samples_verified": 11,
+    "relation_descriptor_rows_verified": 3675,
+    "runner_fds_each": 26,
+    "owned_workers_each": 0,
+    "remaining_sse_connections_each_cycle": 0,
+    "warm_memory_bytes": 847459123,
+    "maximum_post_warm_memory_bytes": 855323443,
+    "post_warm_growth_bytes": 7864320,
+    "final_memory_bytes": 845991117,
+    "memory_bound_bytes": 67108864,
+    "all_four_launcher_exits": 0
+  },
+  "local_policy_check": {
+    "source": "bb80bd21de2eb6c9dbe33454b227ff6887a35563",
+    "local_exit": 1,
+    "finding_count": 83,
+    "exact_ordered_findings_match_hosted": true,
+    "elapsed_seconds": 4.26,
+    "command": "BASE_REF=origin/main GATE_CHANGE_APPROVED= bun scripts/gate-integrity.ts",
+    "log_sha256": "564a4161316bb5b0bc94d7f6443d590a5f578570c453e503c011c862e5c2f92f"
+  },
+  "independent_terra_review": "Actual raw proof, provenance, application log and resource review agrees with parent helpers; no mismatch.",
+  "scope": "Ten-cycle current-image resource proof; earlier thirty-minute evidence remains tied to its recorded image. No twenty-four-hour result or policy approval."
+}

@@ -1,0 +1,42 @@
+{
+  "files": [
+    {
+      "bytes": 4131,
+      "path": "metadata/final-summary.json",
+      "sha256": "01602007798129f00f9cad1e55fffd27b9d1549bb59d086cd19e2442512fe263",
+      "source": "safe/final-summary.json"
+    },
+    {
+      "bytes": 1261,
+      "path": "metadata/raw-input-mapping.tsv",
+      "sha256": "ea56d953e95f38a47f3b5dfb1c57ed41c6db7fed0467c7caabd226a378d60b5a",
+      "source": "safe/raw-input-mapping.tsv"
+    },
+    {
+      "bytes": 217,
+      "path": "metadata/provenance.txt",
+      "sha256": "1a6e4fe2c2e57ee9d7f19091c37a48b92e80b1f62db057ecd5fa57f1b85bea05",
+      "source": "safe/provenance.txt"
+    },
+    {
+      "bytes": 3397,
+      "path": "metadata/terminal-jobs.json",
+      "sha256": "8f8070e41b5d5d02f31dd2660be6bf8a4ff534d5794770b4bd99ab23ea4e09de",
+      "source": "raw/jobs-poll-8.json (filtered fields only)"
+    },
+    {
+      "bytes": 814,
+      "path": "failure/real-auth-context-crash.txt",
+      "sha256": "fde8dec828f4f953eb650e52f1a0898df8ed7c4c35260a2ccd59e855ee173e26",
+      "source": "private real-auth log plus private trace, reduced to phase and artifact identity"
+    },
+    {
+      "bytes": 1082,
+      "path": "README.txt",
+      "sha256": "2b5670c16319a26f8d94caef0cd111c0fa8091900844013e328df258c738ccac",
+      "source": "curated terminal summary from the copied metadata"
+    }
+  ],
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "run_id": 34164945893
+}

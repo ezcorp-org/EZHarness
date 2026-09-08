@@ -1,0 +1,8 @@
+First attempt only: CI job 101874032881 failed.
+
+Kernel prerequisite completed before Playwright. The first two setup-first-run Chromium cases passed. The third case, `e2e/setup-first-run.spec.ts:68:3` (`creates the first admin through the shipped setup page`), failed when Playwright created the test context. The private trace records `Create context` as the failing fixture action. It did not reach `page.goto("/setup")`, the test body, or a product request. Chromium reported `SEGV_MAPERR`.
+
+Result: 2 passed; 1 failed.
+Private artifact identity: GitHub artifact 10033875960; SHA-256 9833cf46de6ce9ee991cdfe48d3b514fda9a6cce90869b995f01fa40c8a98f19; uploaded size 8758 bytes. The trace archive and its contents remain private.
+
+This bundle covers the first attempt only. It does not include a later job rerun.

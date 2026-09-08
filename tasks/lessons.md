@@ -118,3 +118,15 @@
 - Retain the first pooled test failure before any recovery or retry. A successful retry cannot establish the cause of discarded assertion output.
 - Test child readiness through the required executable identity, and wait for actual child close when cleanup must drain its streams. Attach rejection handlers when waits start, before another awaited operation can fail.
 - A pull-request image can carry GitHub’s synthetic merge commit. Verify its parents and exact tree against the PR head before treating different commit labels as different source.
+
+- Capture the entire PIPESTATUS array in one assignment immediately after a pipeline. Reading one element first resets the array. Prove producer failure, collector failure, and combined failure before using the wrapper for evidence.
+
+- When validation finds a tool failure, bound diagnosis and compare one supported repair early. Do not spend repeated cycles on symbols, receipt curation, or unchanged broad suites. Reuse source-matched passing evidence and give the user a clear next decision.
+
+- State explicitly when E2E checks use the Playwright test runner. Keep the actual user journey visible in updates; browser-engine and CI diagnosis must not obscure which product flows were exercised.
+
+- Parallelize independent reviews and hosted CI jobs. Schedule local builds, browser runs, coverage, and scans under one shared lock; check available RAM and swap activity before increasing local concurrency. More agents must not mean more heavy local processes.
+
+- Releasing a stream reader lock does not cancel its pipe. Preserve an explicit byte-overflow flag, confirm an exact-limit read against EOF, and cancel overflow before awaiting the child exit.
+
+- Reproduce each CI failure with the smallest matching local check before another push. Run affected tests and types first; reuse passing evidence for unchanged source. Use hosted CI to confirm the repair, and do not wait for unrelated jobs to diagnose a known failure.

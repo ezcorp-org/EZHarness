@@ -110,8 +110,8 @@ Review: four Terra reviews and parent source checks identify real-version upgrad
 - [x] Implement interrupted source acquisition/retry and owner-deactivation integration.
 - [x] Replace Stage2 TODOs with real checks; verify kernel/provider prerequisites and available cases.
 - [x] Integrate and independently review/replay team changes; repair observed failures.
-- [ ] Verify complete relevant regressions, final image, screenshots/logs, coverage, secret scan and evidence.
-- [ ] Push with normal hooks and inspect all hosted jobs; report remaining external decisions precisely.
+- [x] Verify complete relevant regressions, final image, screenshots/logs, coverage, secret scan and evidence.
+- [x] Push with normal hooks and inspect all hosted jobs; report remaining external decisions precisely.
 
 Plan review: the user approved all ranked additions. Work continues through the gates in gates/shipping-root.md and each shipping leaf; no permission request is needed for the agreed browser/API/container tests. Existing 84 policy findings require maintainer review independently.
 
@@ -186,7 +186,7 @@ The first actual30-minute resource attempt exits1 after27 completed cycles; cycl
 - [x] Complete final canonical backend coverage: 25,975 passes, zero failures; all five command exits are zero.
 - [x] Complete the real 1,800-second resource run after memory diagnosis.
 - [x] Repair and verify strict WebKit reload diagnostics; all three engines pass 3/3 and the full typecheck passes. Parent reviewed all 12 final WebKit images and committed source `7f9a7035` with normal hooks.
-- [ ] Finish evidence review, final static checks, expanded secret scan, normal push, and every hosted technical check.
+- [x] Finish evidence review, final static checks, expanded secret scan, normal push, and every hosted technical check.
 
 Plan review: the current candidate app image remains byte-identical to `adbba8a6`. The resource run used committed test-driver `156fd9a4` and failed the unchanged memory limit at cycle 36 after 190,920 ms. Backend coverage now passes at `156fd9a4`, including the repaired SDK fixture and new accounting controls. The next resource diagnostic will record memory from the exact app process and container. Browser tests remain under repair in a separate source file. A passing focused WebKit control did not prove the complete lane: its later failure belongs to a different request, so a proposed duplicate-event exception was rejected.
 
@@ -195,7 +195,7 @@ Plan review: the current candidate app image remains byte-identical to `adbba8a6
 - [x] Preserve the failed private observation with explicit duration checks, unchanged 64 MiB limit, absent snapshot result, and exact source limits; complete diagnosis through the real HTTP reproduction. The canonical repaired-image run supplies the full duration.
 - [x] Diagnose memory retention from the observed trend, private heap graph, and real HTTP reproduction; implement and independently verify the supported repair.
 - [x] Reproduce and repair the production launcher's long private Unix socket path; verify authenticated readiness with a long persistent-state path.
-- [ ] Pass the final production resource duration check, then finish static, evidence, secret-scan, push, and hosted checks.
+- [x] Pass the final production resource duration check, then finish static, evidence, secret-scan, push, and hosted checks.
 
 Plan review: the user authorized the Terra team and complete validation. The parent accepted the private observation driver only as diagnosis: it records all memory-limit breaches and must exit nonzero when any occur. The first short run was invalid duration evidence. Two later launches failed before app startup because their private socket paths exceeded the Linux limit. The next launch uses a short owned path and a frozen launcher while a separate Terra agent repairs the canonical launcher. No full-duration pass is claimed.
 
@@ -223,7 +223,7 @@ Final test source is `d4ffe706c86049ee15515c79377234765ee86208`; only payload.te
 - [x] Repair R1 inspection to use the launcher's exported runner socket and token paths; cover the actual inspection consumer with the real long-state launcher integration.
 - [x] Ensure inspection failure retains evidence and attempts to unpause the exact owned worker; preserve strict state checks and retain primary and cleanup failures.
 - [x] Pass actual app-crash recovery and the complete production suite on the unchanged product image.
-- [ ] Complete the final backend and web regression lanes, evidence/secret checks, and authorized push with hosted CI review.
+- [x] Complete the final backend and web regression lanes, evidence/secret checks, and authorized push with hosted CI review.
 
 Plan review: current canonical source `d4ffe706` passes File Organizer and embeddings, but R1 exits 1 before app death because its inspection code reconstructs the former socket location. Owned app cleanup exits 0. The new launcher exports a short transport path separately from persistent state; only the R1 child still reconstructs it. The remaining canonical leaves continue without source changes. Backend and full web waiters were confirmed idle and cancelled before starting; neither provides a test result.
 
@@ -238,7 +238,7 @@ Current full web controller at `d2222840` exits 0 with all 12 lane exits 0: all 
 - [x] Reproduce the four mock review tests accepting an error page after checking only its URL.
 - [x] Repair their shared mock navigation boundary without weakening click, target, or destination assertions; retain real-auth destination coverage.
 - [x] Independently review the patch and run the affected complete mock and visual cases.
-- [ ] Finish the final staged secret scan, normal push, and hosted checks.
+- [x] Finish the final staged secret scan, normal push, and hosted checks.
 
 Plan review: all initialized production and authenticated checks pass. Mock Playwright deliberately runs without database initialization, so server-side API loads have no authenticated principal and log 500 responses. Four visual tests also click into an authenticated author page and accept its URL despite an error page. This is a mock-evidence defect. Terra will reproduce and repair these four tests in an isolated worktree; the parent retains the successful d222 checkpoint and checks the final source. Production source and image remain unchanged.
 
@@ -246,7 +246,7 @@ Plan review: all initialized production and authenticated checks pass. Mock Play
 
 - [x] Preserve exact raw browser artifacts privately, remove them from published evidence, and repair checksum membership and references.
 - [x] Verify the test-token scope from source without publishing tokens or signing material.
-- [ ] Run the unchanged recursive archive secret scan against the final staged tree, then commit and push normally.
+- [x] Run the unchanged recursive archive secret scan against the final staged tree, then commit and push normally.
 
 Plan review: the expanded staged scan fails on JWTs inside historical browser traces. Seven flagged raw archives already exist on the remote feature branch. Current-tree deletion cannot erase Git history. The parent will preserve private originals, publish safe identity metadata, and verify the fixture key lifecycle before stating the credential scope. No scanner exception or history rewrite is authorized.
 
@@ -256,7 +256,7 @@ Plan review: the expanded staged scan fails on JWTs inside historical browser tr
 - [x] Create and remove the default database and encryption-key root in the server wrapper, after the server exits; preserve caller-supplied data.
 - [x] Prove success, failure, ownership rejection, and actual browser shutdown; integrate with normal hooks.
 - [x] Repeat the final combined authenticated and mock browser checks.
-- [ ] Finish safe evidence checks and hosted results.
+- [x] Finish safe evidence checks and hosted results.
 
 Plan review: default config loading creates more than one temporary database directory, and global teardown does not receive that path. Installed Playwright also runs global teardown before server shutdown. The repair assigns the default directory to the server process wrapper, which can remove it after child shutdown. External database paths remain caller-owned. The product image is unchanged.
 
@@ -276,7 +276,7 @@ Evidence review: parent independently compares every logical member of the two s
 - [x] Reproduce and repair browser setup when only Firefox or WebKit is installed; verify both full lifecycle suites without Chromium.
 - [x] Reproduce and repair the Stage 2 proof container launch with the hosted conmon configuration; retain every network and kernel audit assertion.
 - [x] Independently verify both repairs and all affected authenticated/visual consumers.
-- [ ] Scan the final changes, push normally, and check every repaired-head hosted technical job.
+- [x] Scan the final changes, push normally, and check every repaired-head hosted technical job.
 
 Plan review: hosted Firefox and WebKit stop in global setup because it launches Chromium, which the selected-engine jobs do not install. The Stage 2 job builds and loads its candidate and passes kernel journal access, then fails container creation because its conmon cannot use the default journald log driver. Neither failure reaches the claimed browser or namespace assertions. Terra owns separate worktrees for these two fixes; the parent verifies exact results and monitors all other jobs.
 
@@ -290,8 +290,8 @@ Parent review at `0aa3567e`: the exact integrated controller exits 0. TCP and IP
 - [x] Identify the actual app error: EACCES creating the Transformers cache under packaged node_modules while running as UID 1001.
 - [x] Reproduce with the hosted runtime identity against the equivalent production image; independently confirm EACCES, the unchanged three-minute assertion, command exit 1 and successful owned cleanup.
 - [x] Repair the writable cache location and add meaningful regressions.
-- [ ] Independently check source, focused tests, built-server persisted vectors, app logs and owned cleanup; run affected complete checks.
-- [ ] Build and validate the repaired candidate, scan final evidence, push normally and check the resulting hosted jobs.
+- [x] Independently check source, focused tests, built-server persisted vectors, app logs and owned cleanup; run affected complete checks.
+- [x] Build and validate the repaired candidate, scan final evidence, push normally and check the resulting hosted jobs.
 
 Plan review: the three-minute assertion is valid. Dockerfile owns application files as the bun image user, but supported runtime execution can use the host UID for runner-socket access. A package-relative model cache therefore depends on installation-directory ownership. Terra owns the embedding repair and reproduction in isolation, with a separate read-only review of the pinned library options and existing cache-path contracts. Parent verifies the other seven hosted leaves and checks the final fix. No timeout relaxation or broad image permission change is planned.
 
@@ -304,8 +304,8 @@ Parent review: the shared path helper removes a duplicated database default. Rev
 - [x] Start the merge and preserve existing cache commits, private evidence and uncommitted report/task updates.
 - [x] Resolve all 39 conflicts by preserving v4 contracts and compatible main fixes; independently review automatic merges.
 - [x] Regenerate the manifest lock, run focused checks and typechecks, then complete the merge normally.
-- [ ] Freeze merged source and repeat complete backend, browser and production-image validation; finish the UID 1001 cache proof.
-- [ ] Scan reviewed evidence, push normally and verify hosted results at the merged head.
+- [x] Freeze merged source and repeat complete backend, browser and production-image validation; finish the UID 1001 cache proof.
+- [x] Scan reviewed evidence, push normally and verify hosted results at the merged head.
 
 Plan review: main's new commit changes 143 files across legacy extension types, memory queries, SDK scaffolds, browser fixtures and product UI. The pre-merge image build and complete backend run have not started. Four Terra owners resolve disjoint files in the shared merge checkout; the parent owns the merge index, lockfile, remaining conflicts and final validation. Existing passing receipts remain tied to their old source identities.
 
@@ -326,7 +326,7 @@ Backend review at `da6bc4db`: parent verifies all 19 frozen inputs, 1,412 retain
 - [x] Verify the full merged web/browser checkpoint and inspect its actual attachments and cleanup.
 - [x] Correct the observed light-theme extension header badge contrast; verify all three badge states in both themes through the existing browser fixture.
 - [x] Reproduce cancellation after an observed live verifier boundary; if it leaves owned children, repair launcher cleanup and prove actual process exit.
-- [ ] Integrate reviewed changes, run affected browser/residual/static checks, then build the final image and complete production validation.
+- [x] Integrate reviewed changes, run affected browser/residual/static checks, then build the final image and complete production validation.
 
 Plan review: the complete web run stays frozen at `480f7c71`. The parent opened the actual deep-link screenshot and found pale Verified text. Separate source review found that launcher cancellation does not explicitly stop its verifier process. Two Terra agents prepare bounded changes in isolated worktrees; cancellation is not identified as the cause of the earlier 20-second timeout. No deadline or coverage assertion is relaxed.
 
@@ -345,7 +345,7 @@ Final source freeze: `79108f9d` contains both reviewed UI files and both launche
 - [x] Independently inspect actual app logs and reject the checkpoint's remaining package-cache EACCES warning.
 - [x] Attribute the unoptioned metadata request, repair its durable cache path, and verify the real library behavior.
 - [x] Add a permanent embedding app-log guard that fails on the retained error and preserves runtime failures.
-- [ ] Integrate reviewed repairs, validate affected code, rebuild, then finish production, resource and hosted checks.
+- [x] Integrate reviewed repairs, validate affected code, rebuild, then finish production, resource and hosted checks.
 
 Plan review: the 79108f9d cache controller exits 0 and both stored-vector assertions pass (7,371 ms cold; 284 ms on the read-only cache). Each actual compose log still has one cache EACCES warning. The `app_log_exit` field proves log collection, not clean logs. Transformers' warning says “browser cache” for all cache backends; this image has browser caching disabled. The likely source is the library's preflight metadata request, which omits the per-call cache option. Two Terra agents independently check the library path and repair it; a third owns a permanent log guard. Historical image transfer passes independently and all images are retained. No full production run has started on the rejected image.
 
@@ -361,7 +361,7 @@ Parent in-progress production review: File Organizer passes all 13 ordered Chrom
 - [x] Prove the local reader/app group mismatch against the same live owned container; keep strict descriptor checks.
 - [x] Create separate private controller versions using the verifier primary group, as CI does; keep source and image unchanged.
 - [x] Pass the focused 10-cycle resource path, then repeat the full canonical/independent/30-minute chain.
-- [ ] Complete reviewed evidence, exact-index expanded scan, normal push and final-head hosted checks.
+- [x] Complete reviewed evidence, exact-index expanded scan, normal push and final-head hosted checks.
 
 Plan review: parent actual readlink receives EACCES at UID1001/GID100 and reads the same descriptor at UID1001/GID1001. The old private controller hard-coded app GID1001. CI and the standard runtime wrapper select id -g. New private v2 controllers use local GID100 and record it. No product change, permissive descriptor catch, or deadline increase is needed. The separate two-start cache proof remains scoped to UID/GID1001:1001.
 
@@ -412,9 +412,58 @@ Normal follow-up publication at `8ae7f086` passes the exact-index expanded scan 
 - [x] Reproduce the current served mock-preview GET /api/extensions denial and attribute every actual browser error record.
 - [x] Return the intended 401 through one shared authentication response adapter; preserve thrown helper behavior, role checks, API-key scopes and non-Response errors.
 - [x] Replace the web test helper that hides thrown responses with actual returned-response assertions; prove denied requests do not reach extension data or writes.
-- [ ] Verify the compiled browser path and affected complete checks, then publish and validate the repaired production candidate.
+- [x] Verify the compiled browser path and affected complete checks, then publish and validate the repaired production candidate.
 
 Plan review: the 8ae7f086 hosted backend and browser jobs pass, but the mock browser log retains 105 structured hooks.server 500 records. Prior exact-source browser diagnostics link an unauthenticated server-side layout fetch to /api/extensions. Current middleware documentation explicitly identifies SvelteKit converting a thrown Response to500; the extension API still calls that throwing helper. The read-scoped API-key contract must remain valid. Two Terra agents separately reproduce the current served path and prepare a shared returning guard plus strict route regression. Fresh worktree dependency preparation failures are retained separately and do not count as an E2E reproduction. Root integration waits for the baseline browser failure. No mock user is invented and no error log is suppressed.
 
 
 Auth response review: the fresh 8ae7f086 browser case renders successfully but records the real GET /api/extensions status500. Both stricter old-route denial tests then fail. The repaired full mock selection passes 255 cases with 13 intentional production-only skips and no structured server errors; the visual mock selection passes 191 with no500 and one deliberate missing-page404. An incorrectly selected 2,108-case diagnostic was stopped and its owned processes removed; it is not lane evidence. The temporary hook is restored exactly before the final browser proof. Parent integrates the six frozen files, independently repeats the old-route failure and repaired 48 auth, 15 route, 45 API and one real browser cases. All four types, lint, boundaries, Svelte, manifest and source guards pass. Normal publication and repaired-head hosted checks follow.
+
+
+Historical task review: the parent checks the remaining earlier umbrella items against their recorded source checkpoints and the complete 8ae7f086 technical CI results. Those items are now marked complete for their historical scope. The current auth-source hosted check remains open: 0733ca51 passes backend/coverage/static/mock/Firefox/WebKit checks, but Chromium crashes during context creation before the fresh-setup case 3 body. The unchanged local canonical three-case replay passes with owned cleanup. This does not establish the native crash cause. The original hosted failure and source-matched local receipt remain evidence; a targeted hosted rerun is pending until GitHub permits it. Production is still active.
+
+
+Production at 0733ca51 completes successfully at 22:37:38 UTC. Parent independently checks 81 raw artifact identities and complete membership, 8 proof outcomes, 11 cleanup quartets, 9 current app logs, the embedding guard, and all 11 resource samples with 3,675 descriptor rows. Synthetic merge f4bc16e4 has the exact 0733ca51 tree. GitHub then accepts the targeted unchanged-source real-auth job rerun; its fresh-setup prerequisite passes and the authenticated suite runs. The original native crash remains unexplained.
+
+
+## Repeated native Chromium context crash — 2026-09-07
+
+- [x] Preserve both hosted failures and compare the native crash signature and trace phase.
+- [x] Compare the exact failing browser binary and launch options with the passing mock/visual lanes; check why each setting exists.
+- [x] Run bounded repeated-context diagnostics on local and hosted Linux; retain both original failures and passing controls without claiming a reproduced native cause.
+- [x] Validate the supported Playwright dependency update, preserving browser assertions, coverage, deadlines and retry policy; retain that neither diagnostic pair reproduces the native crash.
+- [x] Verify the updated full authenticated/browser lanes, source checks and normal publication at d5. Track the subsequent grep/event repairs in final-source validation below.
+
+Plan review: targeted hosted attempt 2 passes fresh setup 3/3 and 61 authenticated cases, but Chromium again exits with SEGV_MAPERR 0x1b0 while creating the context for auth-fixture.spec.ts:26, before that test body. The failure matches the first attempt's native signature. The source has not changed. Three Terra tasks now compare actual launch settings, run a bounded context-creation reproduction and inspect the exact binary for symbols. A different failing test location is not evidence of a different cause. No further blind hosted rerun or permanent browser setting change is made.
+
+
+Native-crash diagnosis review: both hosted attempts use full Chromium revision 1234 with the same 45 launch flags after normalizing only the temporary profile path. The historical switch from headless shell was a mitigation and does not prevent this failure. Exact binary disassembly places both faults at chrome+0x46c991d: a read at 0x108 from register value 0xa8 reaches address 0x1b0. Function identity is still unproved. Attempt 2 crashes about 15 ms after the ninth test (provider checklist) completes its page context; the tenth API-only test then passes and test 11 detects the closed browser. The final 61-pass count includes later tests. One hundred fresh browser/context cycles pass locally, but each cycle starts a new browser and therefore does not cover this teardown sequence. The next controlled run reuses a browser across real pages. Parent independently verifies the repeated-failure artifact bytes, trace phase, and five curated screenshot copies; its visual inspection covers only the three actually opened images. Main remains bd736438 and the remote feature remains 0733ca51.
+
+
+Hosted diagnostic plan: the final local control passes 40 hydrated localhost setup contexts, alternating browser constraints and real client-invalid form submissions, under Node22 with CPU affinity to cores0–3. This is affinity, not a CPU quota or a matching hosted OS. Actual final input bytes are retained separately. A branch-only diagnostic now prepares the same locked browser on GitHub ubuntu-latest with one reused browser, 20 contexts, executable/host identity, retained first failure, and no shipping-gate change. Its initial pipeline recorder fails a parent negative control because separate PIPESTATUS reads erase the second status; the corrected wrapper must snapshot the entire array and pass all four producer/collector controls. A separate isolated worktree prepares the supported Playwright1.63.0 candidate; no release note establishes a fix for this crash, so this remains a paired experiment. No candidate package change is in the feature branch yet.
+
+
+User speed correction: stop low-yield native-symbol investigation and repeated broad checks. Finish the active local diagnostic once, compare the locked and supported updated Playwright pair on hosted runners, then run only affected browser checks. Reuse independently verified production/backend evidence for unchanged product source. Keep first failures and material limits, but stop expanding evidence curation.
+
+
+## Final source validation and delivery — 2026-09-08
+
+- [x] Run the remaining failed policy check locally and compare its findings with the hosted result; reuse the completed 53-case local repair proof.
+- [x] Run paired hosted Playwright checks; preserve both successful controls and the lack of a causal crash fix.
+- [x] Pin Playwright 1.63.0, verify exact installed packages, and publish source d5e70867 through the expanded scan and normal hooks.
+- [x] Complete ordinary CI 34173371290 at bb80bd21 and independently review browser, backend, and production results.
+- [x] Finish the current-source report, check safe evidence, and publish the documentation through normal hooks.
+
+Plan review: run independent Terra reviews in parallel. Browser, backend/static, production, and report reviews have separate owners. Heavy browser and production tests run on GitHub. Local builds, scans, and test processes use one shared heavy-job lock. Do not rerun unchanged whole suites or restart native-symbol analysis. The old and new browser pairs each pass one loop test, three setup cases, and 62 authenticated cases; neither reproduces the failure. The dependency update is a validated candidate, not a demonstrated causal fix. The new ordinary CI run is required before closing validation.
+
+
+Two first-pass failures at d5 remain open despite passing retries: task-event <200ms receives220ms, and real grep output loses its truncation marker at a4KB read boundary. Plan: independently fix the event test with a causal assertion and reproduce/fix bounded real grep output. Preserve existing deadlines, output limit and coverage selection. No broad suite starts before the affected regressions pass.
+
+
+Follow-up review: parent integrates and checks the actual task-event mutant failure and exact-source green. The search failure is reproduced with a real GNU grep child and controlled stdout chunks; the child and exit stay real. The repaired reader passes overflow, exact EOF and UTF-8 boundary cases. Parent runs all17 grep,35 argument and1 event cases with coverage. The merged search record is189/189 measured lines. A test type error is fixed with a real stream type guard; repeated cap cleanup moves to existing afterEach. All four typecheck sections and lint now pass. The initial private coverage merge found no input through a hidden-path glob; explicit owned temporary input copies merge successfully with no source or coverage-rule change. Normal source publication follows.
+
+Normal source push `bb80bd21` completes with all hooks and expanded scan at zero. The remote head and scanned tree match. GitHub cancels superseded d5 production; its successful browser results retain their source scope. New CI34173371290 now runs on the three-file repair.
+
+Local-first review: the remaining Gate integrity failure reproduces in 4.26 seconds at bb80bd21. All 83 ordered findings exactly match the hosted log. No approval flag is set. The 53 affected regression cases already pass locally with coverage, and all current hosted coverage shards pass on their first attempt. Further failure diagnosis starts with a matching local check before a source push.
+
+Final source review: all 34 technical CI jobs at bb80bd21 pass, as do Postgres and dependency audit. Parent and Terra independently verify the actual eight production proofs, eleven cleanup records, nine current application logs, source/tree/image identity, and the complete short resource series. Gate integrity alone fails with the unchanged 83 unapproved findings. Final documentation publication is complete only when its exact-index scan, normal hooks, source-equivalence check and remote verification all succeed; the task must stay active until those terminal receipts exist. No new source-equivalent full-suite wait is required for the report-only commit.

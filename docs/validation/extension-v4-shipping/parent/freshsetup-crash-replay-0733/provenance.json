@@ -1,0 +1,21 @@
+{
+  "source_head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "command": "flock --close .cache/validation-heavy.lock env -u PI_E2E_REAL_DB_PATH -u PI_E2E_REAL_DB_GENERATED -u PI_E2E_REAL_BASE_URL -u PI_E2E_REAL_BROWSER_PROJECTS -u PW_TEST_CONNECT_WS_ENDPOINT -u PW_TEST_CONNECT_EXPOSE_NETWORK -u EZCORP_DB_PATH -u EZCORP_JWT_SECRET -u EZCORP_SECRETS CI=1 BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun scripts/run-real-e2e.ts fresh-setup",
+  "exit": 0,
+  "tests": {
+    "passed": 3,
+    "failed": 0,
+    "suite": "web/e2e/setup-first-run.spec.ts via fresh-setup config"
+  },
+  "browser_crash_signature_present": false,
+  "generated_fixture_roots_after_minus_before": [],
+  "port4173_listener_after": "",
+  "log_sha256": "4e0e935bfcd5d3670f1ea11749147f6cb7375b8b931dac3c151c97061615aac0",
+  "input_sha256": [
+    "c00b124a1f45d85f234f7e79e8e3b4816be13570ec9270535f0e6d22beeb7d50  scripts/run-real-e2e.ts",
+    "105e895fa879224bc8332f28f1a61895475ef60b97a8f72145ef904ba9644291  web/playwright.real.config.ts",
+    "f78aaf6f22c047a6883c97f2f7de306721956172b2a85c09ae6db3885a80b0ce  web/playwright.fresh-setup.config.ts",
+    "625402c73429180db3a8d4dba0bc76c1dba4122fd7129b3d6063e988117251c4  web/e2e/setup-first-run.spec.ts"
+  ],
+  "limit": "A clean local replay does not identify the hosted Chromium crash cause."
+}
