@@ -166,3 +166,29 @@ test("recovery wake-up selects the earliest live recoverable lease only", () => 
   expect(recoveryDeadline(state, 400)).toBeUndefined();
   expect(recoveryDeadline({ ...state, installation: { ...installation, uninstalled: true } }, 100)).toBeUndefined();
 });
+
+test("recovery sweeps installations one at a time so a wide install cannot deadlock the pool", async () => {
+  // Each step opens a transaction and takes further pool connections while
+  // holding it, so a sweep wider than DB_POOL_MAX (20) deadlocks the pool and
+  // wedges the boot that awaits it. Peak concurrency is the invariant, not
+  // elapsed time — measure it directly rather than racing a clock.
+  let active = 0;
+  let peak = 0;
+  const step = async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await Promise.resolve();
+    await Promise.resolve();
+    active--;
+  };
+  const records = ["a", "b", "c", "d"].map((id) => ({ ...installation, id }));
+  const services: RecoveryServices = {
+    repository: { async read() { await step(); return null; } },
+    migrations: { async recover() {} },
+    lifecycle: { async recover() {}, async reconcile() { await step(); } },
+  };
+
+  await recoverInstallations(services, records);
+
+  expect(peak).toBe(1);
+});

@@ -296,7 +296,8 @@ function recoveryRank(state: InstallationState | undefined, now: number): number
 export async function recoverInstallations(services: RecoveryServices, installations: readonly InstallationRecord[], capacityAvailable = false): Promise<number | undefined> {
   const ordered = [...installations].sort((left, right) => left.id.localeCompare(right.id));
   const reconciled = await reconcileInstallations(services, ordered);
-  const snapshots = await Promise.all(ordered.filter(installation => reconciled.has(installation.id)).map(async installation => ({ installation, state: await services.repository.read(installation.id) })));
+  const snapshots: { installation: InstallationRecord; state: InstallationState | null }[] = [];
+  for (const installation of ordered) if (reconciled.has(installation.id)) snapshots.push({ installation, state: await services.repository.read(installation.id) });
   snapshots.sort((left, right) => recoveryRank(left.state ?? undefined, Date.now()) - recoveryRank(right.state ?? undefined, Date.now()) || left.installation.id.localeCompare(right.installation.id));
   let earliest: number | undefined;
   for (const { installation } of snapshots) {
@@ -313,9 +314,25 @@ export async function recoverInstallations(services: RecoveryServices, installat
   return earliest;
 }
 
+/**
+ * Visits installations ONE AT A TIME. Never fan this out with `Promise.all`.
+ *
+ * Each step opens a database transaction and takes FURTHER pool connections
+ * while holding it, so a sweep wider than the pool deadlocks it: every
+ * connection sits in an open transaction waiting for one that can never come
+ * free. The pool is 20 by default (`DB_POOL_MAX`, src/db/connection.ts) while a
+ * stock install stages one installation per bundled extension — 28 here — so
+ * the fan-out form wedged boot on an ORDINARY install, not an extreme one.
+ * `ensureInitialized` awaits this sweep, so the server accepted connections and
+ * answered nothing, with no error on any log to say why.
+ *
+ * The recover loop below is sequential for the same reason. Serialising at the
+ * call site is what the pool comment in src/db/connection.ts prescribes for
+ * this exact failure; widening the pool only moves the cliff.
+ */
 export async function reconcileInstallations(services: RecoveryServices, installations: readonly InstallationRecord[]): Promise<Set<string>> {
   const reconciled = new Set<string>();
-  await Promise.all(installations.map(async installation => {
+  for (const installation of installations) {
     try {
       await services.migrations.recover(installation.id);
       await services.lifecycle.reconcile({ principalId: installation.ownerId, scope: installation.scope, kind: "service" }, installation.id);
@@ -323,7 +340,7 @@ export async function reconcileInstallations(services: RecoveryServices, install
     } catch (error) {
       log.error("Extension recovery requires attention", { installationId: installation.id, code: error instanceof LifecycleError ? error.code : "recovery_failed" });
     }
-  }));
+  }
   return reconciled;
 }
 
