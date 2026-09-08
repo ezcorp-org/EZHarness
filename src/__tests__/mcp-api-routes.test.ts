@@ -113,3 +113,27 @@ test("edit and refresh report missing installations without creating source", as
   expect((await refresh(event(undefined, { params: { id: "missing" } }))).status).toBe(404);
   expect(staged).toBe(0);
 });
+
+test("a successful HTTP probe records one isolated source workspace", async () => {
+  const response = await POST(event());
+  expect(response.status).toBe(202);
+  expect(staged).toBe(1);
+  expect(files["mcp.manifest.json"]).toContain('"remote"');
+  expect(operations).toHaveLength(1);
+});
+
+test("a successful source probe never promotes the candidate to an active release", async () => {
+  const response = await POST(event());
+  const result = await response.json();
+  expect(result.installation.activeReleaseId).toBeUndefined();
+  expect(result.operation.state).toBe("queued");
+  expect(result.workspace.sourceDigest).toBe("source-1");
+});
+
+test("a failed connection does not leave a partial workspace or build operation", async () => {
+  failConnection = true;
+  const response = await POST(event());
+  expect(response.status).toBe(500);
+  expect(staged).toBe(0);
+  expect(operations).toHaveLength(0);
+});

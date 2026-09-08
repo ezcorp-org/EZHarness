@@ -1,6 +1,8 @@
 # Extension v4 shipping validation
 
-## Current status — `bb80bd21de2eb6c9dbe33454b227ff6887a35563`
+The follow-up [Gate integrity repair](extension-v4-gate-integrity-repair.md) restores protected test paths and the missing coverage obligation. Earlier results below retain their original source scope. The current PR checks determine delivery readiness.
+
+## Previous shipping status — `bb80bd21de2eb6c9dbe33454b227ff6887a35563`
 
 All **34 technical CI jobs pass** at this source, with separate Postgres and dependency workflows also successful. All twelve backend coverage shards pass on the first attempt without a retry sweep. Browser checks pass: fresh setup 3, real auth 62, mock 255, Firefox and WebKit 3 each, and visual 204. The [final parent review](validation/extension-v4-shipping/parent/hosted-bb80bd21/README.md) verifies actual logs and artifacts. Gate integrity remains failed with **83 unapproved policy findings**; a local replay reproduces the exact ordered list in 4.26 seconds.
 

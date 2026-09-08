@@ -6,12 +6,13 @@ import { createLazyExtensionRunner } from "./runner-connection";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
-import { ExtensionControl, requestedReleaseGrants } from "./extension-control";
+import { ExtensionControl } from "./extension-control";
 import { ExtensionLifecycle, FileBlobStore, LifecycleError, type InstallationState, type LifecycleActor, type LifecycleDependencies, type LifecycleRelease } from "./v4";
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
 import { getFiles } from "./v4/blobs";
+import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 
 const log = extensionLogger("author", "lifecycle");
@@ -55,8 +56,7 @@ export function createLifecycleAuthorization(lookup: LifecyclePolicyLookup): Pic
       const owner = await activeUser(installation.ownerId);
       await scopeAccess({ principalId: owner.id, scope: installation.scope, kind: "service" }, owner);
       if (user.id !== owner.id && user.role !== "admin") throw new LifecycleError("not_found", "Installation not found.");
-      const requested = requestedReleaseGrants(release.manifest);
-      if (grants && canonicalJson([...new Set(grants)].sort()) !== canonicalJson(requested)) throw new LifecycleError("grant_mismatch", "Approval must match the exact declared permissions.");
+      if (grants && !hasExactReleaseGrants(release.manifest, grants)) throw new LifecycleError("grant_mismatch", "Approval must match the exact declared permissions.");
       const existing = await lookup.projectionById(installation.id);
       if (existing && existing.name !== release.manifest.name) throw new LifecycleError("extension_name_changed", "A release cannot rename its installation or data namespace.");
       if (existing?.creatorUserId && existing.creatorUserId !== owner.id) throw new LifecycleError("ownership_mismatch", "Installed source ownership does not match its release installation.");
@@ -202,7 +202,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
-    if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || canonicalJson([...new Set(current.grants)].sort()) !== canonicalJson(requestedReleaseGrants(release.manifest)))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
+    if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || !hasExactReleaseGrants(release.manifest, current.grants))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));
       const [projection] = await transaction.select({ name: extensions.name }).from(extensions).where(eq(extensions.id, installation.id));

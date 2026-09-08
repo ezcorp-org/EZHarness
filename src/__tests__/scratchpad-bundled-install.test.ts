@@ -16,6 +16,9 @@ mock.module("../db/queries/audit-log", () => ({
 }));
 
 import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
+import { getProjectRoot } from "../extensions/bundled";
+import { join } from "node:path";
 
 const extStore = createMockExtensionsStore({ keyBy: "name" });
 
@@ -84,5 +87,54 @@ describe("isBundledExtensionName — scratchpad is recognized", () => {
 
   test("returns false for unrelated names", () => {
     expect(isBundledExtensionName("user-installed-ext")).toBe(false);
+  });
+});
+
+
+describe("scratchpad source registration", () => {
+  async function manifest() {
+    return discoverFirstPartyManifest(join(getProjectRoot(), "docs/extensions/examples/scratchpad"));
+  }
+
+  test("discovers a v4 scratchpad source through the isolated runner", async () => {
+    const discovered = await manifest();
+    expect(discovered.schemaVersion).toBe(4);
+    expect(discovered.name).toBe("scratchpad");
+    expect(discovered.entrypoint).toBe("./extension.ts");
+  });
+
+  test("declares write and read tools as separate current operations", async () => {
+    const names = (await manifest()).tools?.map((tool) => tool.name).sort();
+    expect(names).toEqual(["scratchpad_read", "scratchpad_write"]);
+    expect(names).not.toContain("scratchpad_delete");
+    expect(names).not.toContain("shell");
+  });
+
+  test("requires a key and value for writes in the discovered source", async () => {
+    const write = (await manifest()).tools?.find((tool) => tool.name === "scratchpad_write");
+    expect(write).toBeDefined();
+    expect(JSON.stringify(write?.inputSchema)).toContain('"key"');
+    expect(JSON.stringify(write?.inputSchema)).toContain('"value"');
+  });
+
+  test("requires a key for reads in the discovered source", async () => {
+    const read = (await manifest()).tools?.find((tool) => tool.name === "scratchpad_read");
+    expect(read).toBeDefined();
+    expect(JSON.stringify(read?.inputSchema)).toContain('"key"');
+    expect(JSON.stringify(read?.inputSchema)).not.toContain('"value"');
+  });
+
+  test("limits the source to conversation storage capability", async () => {
+    const permissions = (await manifest()).permissions;
+    expect(permissions.storage).toBe(true);
+    expect(permissions.network).toBeUndefined();
+    expect(permissions.filesystem).toBeUndefined();
+  });
+
+  test("does not make scratchpad a persistent boot worker", async () => {
+    const discovered = await manifest();
+    expect(discovered.persistent).toBe(false);
+    expect(discovered.permissions.shell).toBeUndefined();
+    expect(discovered.permissions.env).toBeUndefined();
   });
 });

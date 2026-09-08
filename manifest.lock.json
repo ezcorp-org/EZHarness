@@ -40,15 +40,15 @@
       "directory": "docs/extensions/examples/code-quality",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 10347,
-      "sourceDigest": "e0f594334e3b2f29ef303a7c250bf5e9190ff25b29917f99f34f54a4ee46f960"
+      "bytes": 11160,
+      "sourceDigest": "4b7cde7fea31410ad5c69013942658f36255ae4c1ed2f7867b78ab0d1335179b"
     },
     "code-review-delegator": {
       "directory": "docs/extensions/examples/code-review-delegator",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 8216,
-      "sourceDigest": "57e2a07f08f0decef81e78f07972860146b133c9b892c78f5c8df06a392d42bf"
+      "bytes": 9435,
+      "sourceDigest": "65e8c9d83bbacec045f7c624e6f2efcbaf96172f187b61254db65d3fdfa75476"
     },
     "cron-dashboard": {
       "directory": "docs/extensions/examples/cron-dashboard",
@@ -74,9 +74,9 @@
     "extension-author": {
       "directory": "docs/extensions/examples/extension-author",
       "entrypoint": "extension.ts",
-      "files": 6,
-      "bytes": 3213,
-      "sourceDigest": "ec31fa39b7a1d2ea4093ce0fbc8960462d61d94718e15e018392a215c08a9dfb"
+      "files": 5,
+      "bytes": 3173,
+      "sourceDigest": "f73cfdc1b9ac9bcec8a899b9583efc21a27728dbf5d75d5cb457e721ce9e2325"
     },
     "ez-code": {
       "directory": "docs/extensions/examples/ez-code",
@@ -341,8 +341,8 @@
       "directory": "extensions/memory-extractor",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 77466,
-      "sourceDigest": "847c45877d9f7161eb9ff16dc563871c557a71ffb2272738f286fa8b7f2f1fbd"
+      "bytes": 78048,
+      "sourceDigest": "4898ef4c3ef1ffb09cbb0157a3ba432379b6fc28012fbf2ce68fc1fca2e4ce40"
     },
     "ai-kit": {
       "directory": "packages/@ezcorp/ai-kit",

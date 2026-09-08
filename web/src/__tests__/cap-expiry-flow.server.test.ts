@@ -19,6 +19,9 @@ vi.mock("$server/db/queries/expired-grants", () => ({
 	listExpiredGrantsForExtension: vi.fn(),
 }));
 
+const getSetting = vi.fn();
+vi.mock("$server/db/queries/settings", () => ({ getSetting }));
+
 vi.mock("$server/db/queries/audit-log", () => ({
 	insertAuditEntry: vi.fn(async () => "audit-id-mock"),
 }));
@@ -70,6 +73,8 @@ beforeEach(() => {
 	vi.mocked(updateExtension).mockReset();
 	vi.mocked(listExpiredGrantsForExtension).mockReset();
 	vi.mocked(insertAuditEntry).mockReset();
+	getSetting.mockReset();
+	getSetting.mockResolvedValue(undefined);
 
 	// Default: updateExtension echoes back its input shape.
 	vi.mocked(updateExtension).mockImplementation(async (_id: string, data: any) => ({
@@ -141,4 +146,70 @@ describe("cap-expiry flow — banner load → reapprove → grantedAt resets", (
     expect(insertAuditEntry).not.toHaveBeenCalled();
     expect(current.grantedPermissions).toEqual({ grantedAt: {} });
   });
+
+	test("projects a valid sticky duration onto its matching capability", async () => {
+		vi.mocked(getExtension).mockResolvedValue({ id: "scratchpad" } as never);
+		vi.mocked(listExpiredGrantsForExtension).mockResolvedValue([{ auditId: "a", extensionId: "scratchpad", capability: "shell", ageMs: DAY_MS, expiredAt: 1 }] as never);
+		getSetting.mockResolvedValue(86_400_000);
+		const response = await expiredGrantsRoute.GET(makeEvent({ locals: { user: memberUser } }));
+		const body = await response.json();
+		expect(response.status).toBe(200);
+		expect(body.grants[0].capabilityKind).toBe("shell");
+		expect(body.grants[0].stickyTtlMs).toBe(86_400_000);
+		expect(getSetting).toHaveBeenCalledWith("user:u-member:reapprove:lastTtl:shell");
+	});
+
+	test("does not expose malformed or nonpositive saved durations", async () => {
+		vi.mocked(getExtension).mockResolvedValue({ id: "scratchpad" } as never);
+		vi.mocked(listExpiredGrantsForExtension).mockResolvedValue([{ auditId: "a", extensionId: "scratchpad", capability: "shell", ageMs: DAY_MS, expiredAt: 1 }] as never);
+		for (const saved of [0, -1, Number.NaN, "one day", null]) {
+			getSetting.mockResolvedValueOnce(saved);
+			const body = await (await expiredGrantsRoute.GET(makeEvent({ locals: { user: memberUser } }))).json();
+			expect(body.grants[0].stickyTtlMs).toBeNull();
+		}
+	});
+
+	test("keeps banner data available when a sticky-setting read fails", async () => {
+		vi.mocked(getExtension).mockResolvedValue({ id: "scratchpad" } as never);
+		vi.mocked(listExpiredGrantsForExtension).mockResolvedValue([{ auditId: "a", extensionId: "scratchpad", capability: "network", ageMs: DAY_MS, expiredAt: 1 }] as never);
+		getSetting.mockRejectedValue(new Error("settings unavailable"));
+		const response = await expiredGrantsRoute.GET(makeEvent({ locals: { user: memberUser } }));
+		const body = await response.json();
+		expect(response.status).toBe(200);
+		expect(body.grants).toHaveLength(1);
+		expect(body.grants[0].capabilityKind).toBe("network");
+		expect(body.grants[0].stickyTtlMs).toBeNull();
+	});
+
+	test("uses the requesting user for each separate capability preference", async () => {
+		vi.mocked(getExtension).mockResolvedValue({ id: "scratchpad" } as never);
+		vi.mocked(listExpiredGrantsForExtension).mockResolvedValue([{ auditId: "a", extensionId: "scratchpad", capability: "shell", ageMs: DAY_MS, expiredAt: 1 }, { auditId: "b", extensionId: "scratchpad", capability: "filesystem", ageMs: DAY_MS, expiredAt: 2 }] as never);
+		getSetting.mockResolvedValueOnce(100).mockResolvedValueOnce(200);
+		const body = await (await expiredGrantsRoute.GET(makeEvent({ locals: { user: memberUser } }))).json();
+		expect(body.grants).toHaveLength(2);
+		expect(body.grants.map((grant: { stickyTtlMs: number }) => grant.stickyTtlMs)).toEqual([100, 200]);
+		expect(getSetting).toHaveBeenNthCalledWith(1, "user:u-member:reapprove:lastTtl:shell");
+		expect(getSetting).toHaveBeenNthCalledWith(2, "user:u-member:reapprove:lastTtl:filesystem");
+	});
+
+	test("renewal endpoint stays retired for authenticated users", async () => {
+		for (const user of [memberUser, adminUser]) {
+			const response = await reapproveRoute.POST(makeEvent({ method: "POST", locals: { user }, body: { capability: "shell" } }));
+			expect(response.status).toBe(410);
+			expect(await response.json()).toMatchObject({ code: "extension_v4_required", controlUrl: "/api/extensions/control" });
+		}
+		expect(updateExtension).not.toHaveBeenCalled();
+		expect(insertAuditEntry).not.toHaveBeenCalled();
+	});
+
+});
+
+test("an empty expiry history does not read capability preferences or modify grants", async () => {
+  vi.mocked(getExtension).mockResolvedValue({ id: "scratchpad" } as never);
+  vi.mocked(listExpiredGrantsForExtension).mockResolvedValue([]);
+  const response = await expiredGrantsRoute.GET(makeEvent({ locals: { user: memberUser } }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ grants: [] });
+  expect(getSetting).not.toHaveBeenCalled();
+  expect(updateExtension).not.toHaveBeenCalled();
 });

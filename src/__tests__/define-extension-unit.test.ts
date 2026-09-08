@@ -1,175 +1,89 @@
-/**
- * Comprehensive unit tests for defineExtension, stripFunctions (via loadManifest),
- * loadManifestFresh, and test helpers (configContent/writeConfig).
- *
- * Does NOT duplicate tests in manifest-loader.test.ts.
- */
+import { describe, expect, mock, test } from "bun:test";
+import { createExtensionFiles, ExtensionControl, extensionControlTools, requestedReleaseGrants } from "../extensions/extension-control";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
+import type { ExtensionLifecycle } from "../extensions/v4";
+import type { InstallationState, LifecycleActor } from "../extensions/v4/types";
+import { createExtensionControlTools, getExtensionControlMetadata } from "../runtime/tools/extensions";
 
-import { test, expect, describe } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { controlActor as actor, controlFixture as fixture, controlInstallation as installation, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
 
-import { loadManifest, loadManifestFresh } from "../extensions/loader";
-import { defineExtension } from "../extensions/sdk/define";
-import { configContent, writeConfig } from "./helpers/write-config";
-
-function at<T>(arr: readonly T[] | undefined, i: number, what: string): T {
-  const v = arr?.[i];
-  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
-  return v;
-}
-function need<T>(v: T | undefined, what: string): T {
-  if (v === undefined) throw new Error(`expected ${what}`);
-  return v;
-}
-
-async function makeTempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "define-ext-test-"));
-}
-
-const BASE = {
-  schemaVersion: 2 as const,
-  name: "test-ext",
-  version: "1.0.0",
-  description: "Test",
-  author: { name: "Test" },
-  permissions: {},
-};
-
-// ── defineExtension ─────────────────────────────────────────────────
-
-describe("defineExtension", () => {
-  test("returns exact same reference (identity)", () => {
-    const obj = { ...BASE };
-    expect(defineExtension(obj)).toBe(obj);
+describe("extension control", () => {
+  test("workspace control accepts bounded binary assets above the invocation frame limit", async () => {
+    const { control, lifecycle } = fixture();
+    const file = { encoding: "base64", data: "AAAA".repeat(400_000), executable: false };
+    await control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file } });
+    expect(lifecycle.editWorkspace).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file }, deletes: undefined });
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "asset.bin": { ...file, data: "AB==" } } })).rejects.toThrow("canonical");
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "extension.ts": file } })).rejects.toThrow("must be text");
+    expect(lifecycle.createWorkspace).not.toHaveBeenCalled();
   });
 
-  test("works with tools", () => {
-    const config = defineExtension({
-      ...BASE,
-      tools: [{ name: "t", description: "d", inputSchema: { type: "object", properties: {} } }],
-    });
-    expect(config.tools).toHaveLength(1);
+
+
+  test("lists, reads and revision-checks edits", async () => {
+    const { control, lifecycle } = fixture();
+    expect(await control.execute(actor, "extensions_workspace", { action: "list" })).toEqual([installation]);
+    await control.execute(actor, "extensions_workspace", { action: "read", installationId: "installation", workspaceId: "workspace" });
+    await control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "nested/file.ts": "text" }, deletes: ["old.ts"] });
+    expect(lifecycle.editWorkspace).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "nested/file.ts": "text" }, deletes: ["old.ts"] });
   });
 
-  test("works with skills", () => {
-    const config = defineExtension({
-      ...BASE,
-      skills: [{ name: "s", description: "d", prompt: "do stuff" }],
-    });
-    expect(at(config.skills, 0, "skill").name).toBe("s");
+
+
+  test("resolves dependencies through revision-checked workspace action without building", async () => {
+    const { control, lifecycle } = fixture();
+    const input = { action: "resolveDependencies", installationId: "installation", workspaceId: "workspace", expectedRevision: 1 };
+    expect(await control.execute(actor, "extensions_workspace", input)).toMatchObject({ revision: 2 });
+    expect(lifecycle.resolveWorkspaceDependencies).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1 });
+    expect(lifecycle.build).not.toHaveBeenCalled();
+    await expect(control.execute(actor, "extensions_workspace", { action: input.action, installationId: input.installationId, workspaceId: input.workspaceId })).rejects.toThrow("expectedRevision");
   });
 
-  test("works with agent", () => {
-    const config = defineExtension({
-      ...BASE,
-      agent: { prompt: "be helpful", category: "general" },
-    });
-    expect(config.agent!.prompt).toBe("be helpful");
-  });
-
-  test("works with mcpServers", () => {
-    const config = defineExtension({
-      ...BASE,
-      mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./mcp.ts"] }],
-    });
-    const s = at(config.mcpServers, 0, "mcp server");
-    expect(s.transport).toBe("stdio");
-    expect(s.transport === "stdio" && s.command).toBe("node");
-  });
-
-  test("preserves function-valued handler properties at config level", () => {
-    const handler = () => "hello";
-    const config = defineExtension({
-      ...BASE,
-      tools: [{ name: "t", description: "d", inputSchema: { type: "object", properties: {} }, handler } as any],
-    });
-    expect((config.tools![0] as any).handler).toBe(handler);
-  });
-
-  test("works with empty config (just required fields)", () => {
-    const config = defineExtension({ ...BASE });
-    expect(config.name).toBe("test-ext");
-    expect((config as { tools?: unknown }).tools).toBeUndefined();
-  });
-
-  test("works with deeply nested config objects", () => {
-    const config = defineExtension({
-      ...BASE,
-      agent: {
-        prompt: "test",
-        modelRequirements: { tier: "powerful" },
-        exampleConversations: [{
-          title: "demo",
-          messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hey" }],
-        }],
-      },
-    });
-    const agent = need(config.agent, "config.agent");
-    expect(need(agent.modelRequirements, "modelRequirements").tier).toBe("powerful");
-    expect(at(agent.exampleConversations, 0, "example conversation").messages).toHaveLength(2);
-  });
-});
-
-// ── stripFunctions (tested via loadManifest roundtrip) ──────────────
-
-describe("host manifest entrypoints are retired", () => {
-  for (const source of [
-    "export default {skills:[{handler:()=>null}]};",
-    "export default {agent:{handler:()=>null}};",
-    "export default {mcpServers:[{handler:()=>null}]};",
-    "export default {tools:[{run:()=>null,handler:()=>null}]};",
-    "export default {tools:[],skills:[]};",
-    "export default {extra:{nested:[1,2]}};",
-    "export const config = {};",
-    "export default null;",
-    "export default [];",
-    "export default 42;",
-  ]) {
-    test(`refuses configuration without evaluating: ${source}`, async () => {
-      const directory = await makeTempDir();
-      const marker = join(directory, "executed");
-      try {
-        await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); ${source}`);
-        await expect(loadManifest(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
-        await expect(loadManifestFresh(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
-        expect(await Bun.file(marker).exists()).toBe(false);
-        await Bun.write(join(directory, "ezcorp.config.ts"), "export default {name:'edited'};");
-        await expect(loadManifestFresh(directory)).rejects.toThrow("Host configuration evaluation is disabled");
-      } finally { await rm(directory, { recursive: true, force: true }); }
-    });
-  }
-});
-
-describe("configContent", () => {
-  test("generates valid TS export default", () => {
-    const content = configContent({ name: "test", version: "1.0.0" });
-    expect(content).toStartWith("export default ");
-    expect(content).toEndWith(";\n");
-    expect(content).toContain('"name": "test"');
-  });
-});
-
-describe("writeConfig", () => {
-  test("creates ezcorp.config.ts in target dir", async () => {
-    const dir = await makeTempDir();
-    try {
-      await writeConfig(dir, BASE);
-      const file = Bun.file(join(dir, "ezcorp.config.ts"));
-      expect(await file.exists()).toBe(true);
-      const text = await file.text();
-      expect(text).toContain("test-ext");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+  test("rejects extra input, invalid revisions, missing fields and approval attempts", async () => {
+    const { control, lifecycle } = fixture();
+    for (const input of [{ action: "approve", installationId: "installation" }, { action: "activate", installationId: "installation" }, { action: "disable", installationId: "installation", approved: true }]) {
+      await expect(control.execute(actor, "extensions_release", input)).rejects.toHaveProperty("code", "invalid_input");
     }
+    for (const expectedRevision of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) await expect(control.execute(actor, "extensions_build", { installationId: "installation", workspaceId: "workspace", expectedRevision, idempotencyKey: "key" })).rejects.toHaveProperty("code", "invalid_input");
+    await expect(control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", writes: { "file.ts": 1 } })).rejects.toHaveProperty("code", "invalid_input");
+    expect(lifecycle.activate).not.toHaveBeenCalled();
   });
 
-  test("generated legacy metadata cannot re-enable host execution", async () => {
-    const directory = await makeTempDir();
-    try {
-      await writeConfig(directory, BASE);
-      await expect(loadManifest(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
-    } finally { await rm(directory, { recursive: true, force: true }); }
+
+
+  test("activation, rollback, disable and uninstall all use the same lifecycle", async () => {
+    const { control, lifecycle } = fixture();
+    for (const action of ["activate", "rollback"]) await control.execute(actor, "extensions_release", { action, installationId: "installation", approvalId: "approval", idempotencyKey: "key" });
+    for (const action of ["disable", "uninstall"]) await control.execute(actor, "extensions_release", { action, installationId: "installation" });
+    expect(lifecycle.activate).toHaveBeenCalledWith(actor, { installationId: "installation", approvalId: "approval", idempotencyKey: "key" });
+    expect(lifecycle.rollback).toHaveBeenCalledTimes(1);
+    expect(lifecycle.disable).toHaveBeenCalledWith(actor, "installation");
+    expect(lifecycle.uninstall).toHaveBeenCalledWith(actor, "installation");
   });
+
+  test("inspect is owner-scoped, bounded, and abortable", async () => {
+    const { control, state } = fixture();
+    expect(await control.execute(actor, "extensions_inspect", { installationId: "installation" })).toEqual(state);
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation", operationId: "missing" })).rejects.toHaveProperty("code", "not_found");
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation", waitMs: 300001 })).rejects.toHaveProperty("code", "invalid_input");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation" }, controller.signal)).rejects.toBeDefined();
+  });
+
+
+  test("rejects unsupported tools and malformed workspace revisions before lifecycle calls", async () => {
+    const { control, lifecycle } = fixture();
+    await expect(control.execute(actor, "extensions_unknown" as never, {})).rejects.toMatchObject({ code: "unknown_tool" });
+    await expect(control.execute(actor, "extensions_workspace", null as never)).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "read", installationId: "installation" })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1.5 })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "resolveDependencies", installationId: "installation", workspaceId: "workspace", expectedRevision: "stale" })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "stale-action", installationId: "installation", workspaceId: "workspace" })).rejects.toMatchObject({ code: "invalid_input" });
+    expect(lifecycle.readWorkspace).not.toHaveBeenCalled();
+    expect(lifecycle.editWorkspace).not.toHaveBeenCalled();
+    expect(lifecycle.resolveWorkspaceDependencies).not.toHaveBeenCalled();
+  });
+
+
 });

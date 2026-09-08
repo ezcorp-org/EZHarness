@@ -94,6 +94,7 @@
   "packages/@ezcorp/sdk/src/v4/runtime.ts": 100,
   "packages/@ezcorp/sdk/src/v4/serve.ts": 100,
   "src/extensions/bundled-bootstrap.ts": 100,
+  "src/extensions/bundled-drift-reapprove.ts": 100,
   "src/extensions/candidate-verification-broker.ts": 100,
   "src/extensions/cli-control.ts": 100,
   "src/extensions/credential-broker.ts": 100,

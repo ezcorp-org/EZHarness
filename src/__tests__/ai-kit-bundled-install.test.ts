@@ -1,6 +1,9 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
+import { getProjectRoot } from "../extensions/bundled";
+import { join } from "node:path";
 
 const extStore = createMockExtensionsStore({ keyBy: "name" });
 
@@ -86,5 +89,49 @@ describe("resolveBundledExtensions — opt-out gate", () => {
     expect(list.some((e) => e.name === "project-analyzer")).toBe(true);
     // Only ai-kit should be removed.
     expect(list.some((e) => e.name === "ai-kit")).toBe(false);
+  });
+});
+
+
+describe("ai-kit source registration", () => {
+  async function manifest() {
+    return discoverFirstPartyManifest(join(getProjectRoot(), "packages/@ezcorp/ai-kit"));
+  }
+
+  test("discovers the registered v4 source instead of trusting a host projection", async () => {
+    const discovered = await manifest();
+    expect(discovered.schemaVersion).toBe(4);
+    expect(discovered.name).toBe("ai-kit");
+    expect(discovered.entrypoint).toBe("./extension.ts");
+  });
+
+  test("declares orchestration discovery tools in the executable manifest", async () => {
+    const names = (await manifest()).tools?.map((tool) => tool.name);
+    expect(names).toContain("list_projects");
+    expect(names).toContain("list_agents");
+    expect(names).toContain("list_extensions");
+  });
+
+  test("declares controlled chat operations rather than shell access", async () => {
+    const discovered = await manifest();
+    const names = discovered.tools?.map((tool) => tool.name);
+    expect(names).toContain("start_chat");
+    expect(names).toContain("send_message");
+    expect(discovered.permissions.shell).toBeUndefined();
+  });
+
+  test("declares bounded fan-out operations in the executable source", async () => {
+    const discovered = await manifest();
+    const spawn = discovered.tools?.find((tool) => tool.name === "spawn_chats");
+    expect(spawn).toBeDefined();
+    expect(JSON.stringify(spawn?.inputSchema)).toContain('"maxItems":20');
+    expect(discovered.permissions.filesystem).toBeUndefined();
+  });
+
+  test("does not make the discovered source persistent at boot", async () => {
+    const discovered = await manifest();
+    expect(discovered.persistent).toBe(false);
+    expect(discovered.permissions.env).toBeUndefined();
+    expect(discovered.permissions.network).toBeUndefined();
   });
 });

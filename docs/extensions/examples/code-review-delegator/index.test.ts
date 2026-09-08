@@ -39,3 +39,21 @@ test("a denied file read preserves its error and never invokes quality analysis"
   expect(await tools.reviewFile!({ filePath: "private" })).toEqual(toolError("Transport denied"));
   expect(request).toHaveBeenCalledTimes(1);
 });
+
+test("keeps a structured quality denial optional after a successful file read", async () => {
+  const request = spyOn(getChannel(), "request").mockReset().mockResolvedValueOnce(toolResult("const answer = 42;"))
+    .mockResolvedValueOnce(toolError("quality denied"));
+  const result = await tools.reviewFile!({ filePath: "src/answer.ts" });
+  const report = JSON.parse(result.content[0]!.text!);
+  expect(report.qualityAnalysis).toBe("Analysis unavailable");
+  expect(report.recommendations).not.toContain("Review quality issues listed above");
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+test("reports the delegated path in both source and optional quality calls", async () => {
+  const request = spyOn(getChannel(), "request").mockReset().mockResolvedValueOnce(toolResult("// TODO"))
+    .mockResolvedValueOnce(toolResult("warning"));
+  await tools.reviewFile!({ filePath: "nested/module.ts" });
+  expect(request).toHaveBeenNthCalledWith(1, "ezcorp/invoke", { tool: "project-analyzer.readFile", arguments: { path: "nested/module.ts" } }, undefined);
+  expect(request).toHaveBeenNthCalledWith(2, "ezcorp/invoke", { tool: "code-quality.analyzeFile", arguments: { filePath: "nested/module.ts" } }, undefined);
+});

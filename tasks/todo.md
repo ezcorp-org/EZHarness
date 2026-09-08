@@ -467,3 +467,30 @@ Normal source push `bb80bd21` completes with all hooks and expanded scan at zero
 Local-first review: the remaining Gate integrity failure reproduces in 4.26 seconds at bb80bd21. All 83 ordered findings exactly match the hosted log. No approval flag is set. The 53 affected regression cases already pass locally with coverage, and all current hosted coverage shards pass on their first attempt. Further failure diagnosis starts with a matching local check before a source push.
 
 Final source review: all 34 technical CI jobs at bb80bd21 pass, as do Postgres and dependency audit. Parent and Terra independently verify the actual eight production proofs, eleven cleanup records, nine current application logs, source/tree/image identity, and the complete short resource series. Gate integrity alone fails with the unchanged 83 unapproved findings. Final documentation publication is complete only when its exact-index scan, normal hooks, source-equivalence check and remote verification all succeed; the task must stay active until those terminal receipts exist. No new source-equivalent full-suite wait is required for the report-only commit.
+
+
+## Watch PR 246 and leave draft when ready — 2026-09-08
+
+- [x] Watch every CI job on 93742772 to completion; retain actual results without another evidence-only push.
+- [x] Review current failures and use local reproduction for new technical failures; none occurred in this run.
+- [ ] Require a passing Gate integrity result and all other CI before changing draft state; verify the current head again at that step.
+- [ ] Mark PR 246 ready for review when those conditions hold, and verify GitHub records the change.
+
+Plan review: the user authorizes the draft-state change once ready. Continue current hosted jobs with a lightweight poller. The failed policy check has already been reproduced locally; its protected migration dispositions need maintainer review. The existing code and test sources are unchanged from the fully passing technical run at bb80bd21. Human review approval is required to merge, not to request review. No merge or automatic policy approval is authorized.
+
+Watch review: CI34176057760 finishes on 93742772 with all 34 technical jobs successful. External Postgres and dependency audit also pass. Parent verifies all twelve raw coverage first-pass summaries with no retry or failed case; corrected private hash metadata now matches all twelve raw logs. Gate integrity alone fails with the exact same 83 ordered findings already reproduced locally. The PR stays draft because the user requires all CI to pass first. A maintainer approval question remains unanswered, and no approval label, draft-state change or merge is applied. The watch is complete; the requested draft transition remains blocked on that external decision. This local status note is not pushed, so it does not restart CI.
+
+
+## Repair Gate integrity without an override — 2026-09-08
+
+- [x] Reproduce all 83 current findings locally and map each to a concrete repair.
+- [x] Restore protected test coverage and discovery at the affected paths, keeping shared fixtures and current v4 security behavior.
+- [x] Restore the missing coverage obligation with live, fully tested source ownership.
+- [ ] Verify every affected test locally, all static checks, unchanged gate rejection controls, and a zero-finding gate run.
+- [ ] Integrate independently reviewed Terra changes, push normally, watch CI, and mark PR 246 ready when all CI passes.
+
+Plan review: the user explicitly asks to fix the failure. Investigate real test/coverage repairs before treating findings as an approval-only outcome. Keep the gate implementation, thresholds and discovery protections intact. Do not add approval flags, empty compatibility tests, duplicate test bodies or unrelated retired product behavior. Four isolated Terra analyses cover disjoint categories while the parent checks the overall repair design and local gate reproduction. Heavy test/build work remains serial under the shared lock.
+
+Repair review in progress: root rejects literal refusal/constant-return and per-capability preference padding in three proposed batches. Restored28 moved test paths pass explicit local preview; original source snapshot locks remain unchanged for that slice. Root restores grant normalization as a shared live module at the protected coverage path (6/6 measured lines,20 tests), with independent Terra production review finding no weakened approval condition. Root moves32of36 actual durable lifecycle test bodies into12protectedpaths, preserves all36 original cases and adds4 distinct rejection/grant-validation/disable cases; all13individual Bun processes pass. Root rebuilds author import, permission and drift tests preserving meaningful current route cases; browser batches77and29 pass. Remaining integration includes8installerpaths,20backendpaths (4stillbeingfilled), finalownwebcases,types/lint/fullgate,andallCI. No approvaloverride,commit,push,orPRstatechange yet.
+
+Integration review: all82protected test paths clear the unchanged working-tree checks. Restored host tests remain in normal pass/fail and coverage discovery. The three SDK-only example suites remain portable; author portable assertions move into its canonical extension.test.ts. Four source snapshot digests change for those portable test updates. Parent preserves the original private-source HTTP secrecy tests after detecting an accidental omission in a team patch. The exact full gate still requires a normal local commit.

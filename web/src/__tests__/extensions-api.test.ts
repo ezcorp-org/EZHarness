@@ -113,6 +113,10 @@ const extensionFixture = {
 };
 
 let extensionStore: any = null;
+let listedExtensions: any[] | undefined;
+let nameLookup: any | undefined;
+let lifecycleDisableFailure: unknown = null;
+let lifecycleUninstallFailure: unknown = null;
 
 const mockGetExtension = mock(async (_id: string) => extensionStore as any);
 const mockUpdateExtension = mock(async (_id: string, patch: Partial<any>) => {
@@ -121,8 +125,9 @@ const mockUpdateExtension = mock(async (_id: string, patch: Partial<any>) => {
 	return extensionStore;
 });
 const mockResetFailures = mock(async (_id: string) => {});
-const mockListExtensions = mock(async () => (extensionStore ? [extensionStore] : []));
+const mockListExtensions = mock(async () => listedExtensions ?? (extensionStore ? [extensionStore] : []));
 const mockDeleteExtension = mock(async (_id: string) => true);
+const mockGetExtensionByName = mock(async (_name: string) => nameLookup);
 
 mock.module("$server/db/queries/extensions", () => ({
 	getExtension: mockGetExtension,
@@ -140,7 +145,7 @@ mock.module("$server/db/queries/extensions", () => ({
 	listExtensions: mockListExtensions,
 	deleteExtension: mockDeleteExtension,
 	createExtension: mock(async (d: any) => d),
-	getExtensionByName: mock(async () => null),
+	getExtensionByName: mockGetExtensionByName,
 	incrementFailures: mock(async () => 0),
 	// Faithful double of the real redaction: blanks MCP transport-secret
 	// VALUES (headers/env) while keeping the KEY set, non-MCP passes through.
@@ -264,8 +269,13 @@ mock.module("$server/lib/cache-utils", () => ({
 }));
 
 let legacy = false;
-const lifecycleUninstall = mock(async () => {});
-const lifecycleDisable = mock(async () => { extensionStore = { ...extensionStore, enabled: false, disabledByUser: true }; });
+const lifecycleUninstall = mock(async () => {
+  if (lifecycleUninstallFailure) throw lifecycleUninstallFailure;
+});
+const lifecycleDisable = mock(async () => {
+  if (lifecycleDisableFailure) throw lifecycleDisableFailure;
+  extensionStore = { ...extensionStore, enabled: false, disabledByUser: true };
+});
 mock.module("$server/extensions/extension-lifecycle-service", () => ({
   getExtensionLifecycle: async () => ({
     inspect: async () => {
@@ -279,7 +289,13 @@ mock.module("$server/extensions/extension-lifecycle-service", () => ({
     uninstall: lifecycleUninstall,
   }),
 }));
-beforeEach(() => { legacy = false; lifecycleUninstall.mockClear(); lifecycleDisable.mockClear(); });
+beforeEach(() => {
+  legacy = false;
+  lifecycleDisableFailure = null;
+  lifecycleUninstallFailure = null;
+  lifecycleUninstall.mockClear();
+  lifecycleDisable.mockClear();
+});
 
 // ── Import handlers AFTER mocks ──────────────────────────────────────────
 const { POST: installPOST, GET: listGET } = await import("../routes/api/extensions/+server");
@@ -380,6 +396,9 @@ beforeEach(() => {
   authUser = { id: "admin-1", email: "admin@test.com", name: "Admin", role: "admin" };
   apiKeyScopes = undefined;
   extensionStore = { ...extensionFixture };
+  listedExtensions = undefined;
+  nameLookup = undefined;
+  mockGetExtensionByName.mockClear();
   mockUpdateExtension.mockClear();
   mockDeleteExtension.mockClear();
   mockReload.mockClear();
@@ -481,6 +500,42 @@ describe("PATCH /api/extensions/:id", () => {
 		expect(res.status).toBe(403);
 		expect(mockUpdateExtension).not.toHaveBeenCalled();
 	});
+
+	test("missing enabled input is rejected before lifecycle inspection", async () => {
+		for (const body of [{}, null]) {
+			const res = await extPATCH(patchReq("ext-1", body));
+			expect(res.status).toBe(400);
+			expect(await res.json()).toMatchObject({ error: "Provide enabled:false" });
+		}
+		expect(lifecycleDisable).not.toHaveBeenCalled();
+	});
+
+	test("non-false enabled values remain retired, without invoking lifecycle control", async () => {
+		for (const body of [{ enabled: true }, { enabled: "false" }]) {
+			const res = await extPATCH(patchReq("ext-1", body));
+			expect(res.status).toBe(410);
+			expect(await res.json()).toMatchObject({ code: "extension_v4_required" });
+		}
+		expect(lifecycleDisable).not.toHaveBeenCalled();
+	});
+
+	test("a current lifecycle denial does not fall back to legacy projection", async () => {
+		lifecycleDisableFailure = { code: "forbidden", message: "Approval revoked" };
+		const res = await extPATCH(patchReq("ext-1", { enabled: false }));
+		expect(res.status).toBe(403);
+		expect(await res.json()).toEqual({ code: "forbidden", message: "Approval revoked" });
+		expect(extensionStore).toMatchObject({ enabled: true });
+	});
+
+	test("an inspect miss only maps an existing legacy projection to the v4 migration response", async () => {
+		legacy = true;
+		const legacyResponse = await extPATCH(patchReq("ext-1", { enabled: false }));
+		expect(legacyResponse.status).toBe(410);
+		extensionStore = null;
+		const missingResponse = await extPATCH(patchReq("missing", { enabled: false }));
+		expect(missingResponse.status).toBe(404);
+		expect(lifecycleDisable).not.toHaveBeenCalled();
+	});
 });
 
 describe("GET /api/extensions", () => {
@@ -557,11 +612,42 @@ describe("GET /api/extensions", () => {
 		expect(mockListExtensions).not.toHaveBeenCalled();
 	});
 
+	test("exact name lookup returns only the matching redacted row", async () => {
+		const other = { ...extensionFixture, id: "other", name: "other" };
+		listedExtensions = [extensionStore, other];
+		nameLookup = {
+			...extensionFixture,
+			manifest: {
+				kind: "mcp", name: "sample-ext", tools: [], permissions: {},
+				mcpServers: [{ transport: "stdio", name: "worker", command: "tool", env: { TOKEN: "private" } }],
+			},
+		};
+		const res = await listGET(listReq("?name=sample-ext"));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toHaveLength(1);
+		expect(body[0]).toMatchObject({ id: "ext-1", name: "sample-ext" });
+		expect(body[0].manifest.mcpServers[0].env).toEqual({ TOKEN: "" });
+		expect(mockGetExtensionByName).toHaveBeenCalledWith("sample-ext");
+		expect(mockListExtensions).not.toHaveBeenCalled();
+	});
+
+	test("unknown exact name returns an empty list without enumerating extensions", async () => {
+		listedExtensions = [{ ...extensionFixture }, { ...extensionFixture, id: "other", name: "other" }];
+		nameLookup = null;
+		const res = await listGET(listReq("?name=missing"));
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual([]);
+		expect(mockGetExtensionByName).toHaveBeenCalledWith("missing");
+		expect(mockListExtensions).not.toHaveBeenCalled();
+	});
+
 	test("API key without 'read' scope → 403", async () => {
 		authUser = { id: "api-user", email: "api@test.com", name: "API", role: "member" };
 		apiKeyScopes = ["extensions"];
 		const res = await runThrowable(() => listGET(listReq()) as any);
 		expect(res.status).toBe(403);
+		expect(mockListExtensions).not.toHaveBeenCalled();
 	});
 });
 
@@ -599,11 +685,35 @@ describe("GET /api/extensions/:id", () => {
 		expect(res.status).toBe(401);
 	});
 
+	test("member with a read-scoped API key can read one current extension", async () => {
+		authUser = { id: "api-member", email: "api@test.com", name: "API", role: "member" };
+		apiKeyScopes = ["read"];
+		const res = await extGET(detailReq("sample-ext"));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.id).toBe("ext-1");
+		expect(body.name).toBe("sample-ext");
+	});
+
+	test("detail redacts legacy MCP header values for a read-scoped member", async () => {
+		authUser = { id: "member", email: "member@test.com", name: "Member", role: "member" };
+		extensionStore = {
+			...extensionFixture,
+			manifest: { kind: "mcp", name: "sample-ext", tools: [], permissions: {}, mcpServers: [{ transport: "http", name: "remote", url: "https://mcp.test", headers: { Authorization: "Bearer secret" } }] },
+		};
+		const res = await extGET(detailReq("ext-1"));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.manifest.mcpServers[0].headers).toEqual({ Authorization: "" });
+		expect(JSON.stringify(body)).not.toContain("Bearer secret");
+	});
+
 	test("API key without 'read' scope → 403", async () => {
 		authUser = { id: "api-user", email: "api@test.com", name: "API", role: "member" };
 		apiKeyScopes = ["extensions"];
 		const res = await runThrowable(() => extGET(detailReq("ext-1")) as any);
 		expect(res.status).toBe(403);
+		expect(mockGetExtension).not.toHaveBeenCalled();
 	});
 });
 
@@ -641,5 +751,23 @@ describe("DELETE /api/extensions/:id", () => {
     apiKeyScopes = ["admin"];
     expect((await extDELETE(deleteReq("ext-1"))).status).toBe(403);
     expect(lifecycleUninstall).not.toHaveBeenCalled();
+  });
+
+  test("lifecycle conflict keeps the installed row and returns a conflict response", async () => {
+    lifecycleUninstallFailure = { code: "generation_superseded", message: "A newer release is active" };
+    const response = await extDELETE(deleteReq("ext-1"));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: "generation_superseded", message: "A newer release is active" });
+    expect(extensionStore.id).toBe("ext-1");
+    expect(mockDeleteExtension).not.toHaveBeenCalled();
+  });
+
+  test("uninstall maps a lifecycle availability failure without retaining a success status", async () => {
+    lifecycleUninstallFailure = { code: "runner_unavailable", message: "Runner offline" };
+    const response = await extDELETE(deleteReq("ext-1"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "runner_unavailable", message: "Runner offline" });
+    expect(lifecycleUninstall).toHaveBeenCalledTimes(1);
+    expect(mockKillAll).not.toHaveBeenCalled();
   });
 });

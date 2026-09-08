@@ -233,3 +233,68 @@ describe("DELETE — discard", () => {
 });
 
 // ── POST /api/extensions/author/draft/[id]/validate ───────────────
+
+// The former draft validation route is intentionally retired: validation now
+// occurs in the v4 build/release operation. Keep this boundary beside edit and
+// discard tests so the author page cannot accidentally restore host evaluation.
+import { POST as validateDraft } from "../routes/api/extensions/author/draft/[id]/validate/+server";
+
+describe("POST validate draft — v4 release boundary", () => {
+  test("requires a signed-in author before returning the migration response", async () => {
+    const response = await validateDraft(makeReq({ method: "POST", user: null }));
+    expect(response.status).toBe(401);
+    expect(draftStore.size).toBe(0);
+  });
+
+
+
+  test("returns a structured v4 migration response without reading draft files", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    const response = await validateDraft(makeReq({ method: "POST" }));
+    const body = await response.json();
+    expect(response.status).toBe(410);
+    expect(body).toMatchObject({ code: "extension_v4_required", controlUrl: "/api/extensions/control" });
+    expect(readFileSync(join(DRAFT_ROOT, USER.id, "d1", "ezcorp.config.ts"), "utf8")).toContain("defineExtension");
+    expect(draftStore.get("d1")?.consumedAt).toBeNull();
+  });
+
+
+
+  test("rejects a non-string draft content without changing an existing file", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    const response = await PUT(makeReq({ body: { path: "ezcorp.config.ts", content: { source: "bad" } } }));
+    expect(response.status).toBe(400);
+    expect(readFileSync(join(DRAFT_ROOT, USER.id, "d1", "ezcorp.config.ts"), "utf8")).toBe(validManifestSrc);
+  });
+
+  test("rejects a non-extension draft before writing its directory", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    draftStore.get("d1")!.kind = "chat";
+    const response = await PUT(makeReq({ body: { path: "ezcorp.config.ts", content: "changed" } }));
+    expect(response.status).toBe(400);
+    expect(readFileSync(join(DRAFT_ROOT, USER.id, "d1", "ezcorp.config.ts"), "utf8")).toBe(validManifestSrc);
+  });
+
+  test("rejects an invalid draft id before looking up a user draft", async () => {
+    const response = await PUT(makeReq({ params: { id: "../d1" }, body: { path: "ezcorp.config.ts", content: "changed" } }));
+    expect(response.status).toBe(400);
+    expect(draftStore.size).toBe(0);
+  });
+
+  test("rejects a save when the owner-scoped draft directory has been removed", async () => {
+    seedDraft("d1", USER.id, { "ezcorp.config.ts": validManifestSrc });
+    rmSync(join(DRAFT_ROOT, USER.id, "d1"), { recursive: true });
+    const response = await PUT(makeReq({ body: { path: "ezcorp.config.ts", content: "changed" } }));
+    expect(response.status).toBe(404);
+    expect(draftStore.get("d1")?.consumedAt).toBeNull();
+  });
+
+  test("discard is owner scoped and cannot consume another user draft", async () => {
+    seedDraft("d1", "other", { "ezcorp.config.ts": validManifestSrc });
+    const response = await DELETE(makeReq({ method: "DELETE" }));
+    expect(response.status).toBe(404);
+    expect(draftStore.get("d1")?.consumedAt).toBeNull();
+    expect(existsSync(join(DRAFT_ROOT, "other", "d1"))).toBe(true);
+  });
+
+});

@@ -17,9 +17,24 @@ export interface SourceSnapshot {
 
 const SOURCE_ROOTS = ["extensions", "docs/extensions/examples", "packages/@ezcorp"];
 const EXCLUDED_DIRECTORIES = new Set(["node_modules", ".git", ".ezcorp", "dist", "coverage", ".svelte-kit", "test-results", "playwright-report"]);
+const HOST_INTEGRATION_TEST_MARKER = "// @ezcorp-host-integration\n";
+const TEST_FILE = /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const CANONICAL_PORTABLE_TEST = /(?:^|\/)extension\.test\.ts$/;
 const MAX_FILES = 4096;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Host integration suites can live beside the extension they exercise without
+ * becoming candidate input. The marker is intentionally narrow: it is valid
+ * only as byte zero of a test/spec filename. Runtime files and the portable
+ * `extension.test.ts` feature test always remain sealed and runner-tested.
+ */
+function isMarkedHostIntegrationTest(filePath: string, contents: Buffer): boolean {
+  if (!TEST_FILE.test(filePath) || !contents.subarray(0, Buffer.byteLength(HOST_INTEGRATION_TEST_MARKER)).equals(Buffer.from(HOST_INTEGRATION_TEST_MARKER))) return false;
+  if (CANONICAL_PORTABLE_TEST.test(filePath)) throw new Error(`Canonical portable test cannot be host integration: ${filePath}`);
+  return true;
+}
 
 export async function listFirstPartyExtensionSources(projectRoot: string): Promise<FirstPartyExtensionSource[]> {
   const sources: FirstPartyExtensionSource[] = [];
@@ -92,6 +107,7 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
           chunks.push(chunk.subarray(0, bytesRead));
         }
         const contents = Buffer.concat(chunks);
+        if (isMarkedHostIntegrationTest(filePath, contents)) continue;
         bytes += contents.byteLength;
         if (bytes > MAX_SOURCE_BYTES || Object.keys(files).length >= MAX_FILES) throw new Error("Extension source limit exceeded");
         files[filePath] = encodeWorkspaceFile(contents, !isWorkspaceTextPath(filePath) && (stat.mode & 0o111) !== 0);

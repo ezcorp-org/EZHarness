@@ -48,3 +48,16 @@ for (const [name, delegatedTool, input] of [
     expect(request).toHaveBeenCalledTimes(1);
   });
 }
+
+test("uses the documented source extension set when no filter is supplied", async () => {
+  const request = spyOn(getChannel(), "request").mockReset().mockResolvedValue(toolResult("a.ts\nb.js\nc.tsx\nd.jsx\ne.md"));
+  const result = await tools.analyzeDirectory!({ dirPath: "src" });
+  expect(JSON.parse(result.content[0]!.text!).filesAnalyzed).toBe(4);
+  expect(request).toHaveBeenCalledWith("ezcorp/invoke", { tool: "project-analyzer.listFiles", arguments: { path: "src" } }, undefined);
+});
+
+test("reports every warning-comment spelling with the source line", () => {
+  const issues = _internals.analyzeContent("TODO\nFIXME\nHACK\nXXX", "src/notes.ts");
+  expect(issues.map((issue) => issue.line)).toEqual([1, 2, 3, 4]);
+  expect(issues.every((issue) => issue.rule === "no-warning-comments")).toBe(true);
+});

@@ -29,6 +29,26 @@ test("collects every first-party and reference source without executing config",
   expect(await listFirstPartyExtensionSources(root)).toHaveLength(1);
 });
 
+test("keeps portable tests sealed while omitting explicitly marked host integration tests", async () => {
+  const { extension, root } = await fixture();
+  await writeFile(join(extension, "extension.test.ts"), "import { test } from 'bun:test'; test('portable', () => {});");
+  await writeFile(join(extension, "host-flow.test.ts"), "// @ezcorp-host-integration\nimport { test } from 'bun:test'; test('host', () => {});");
+  await writeFile(join(extension, "runtime.ts"), "// @ezcorp-host-integration\nexport const runtime = true;");
+  await writeFile(join(extension, "not-leading.test.ts"), "\n// @ezcorp-host-integration\nexport const retained = true;");
+
+  const result = await snapshotFirstPartyExtension(root, "candidate");
+  expect(result.files["extension.test.ts"]).toContain("portable");
+  expect(result.files["host-flow.test.ts"]).toBeUndefined();
+  expect(result.files["runtime.ts"]).toContain("runtime");
+  expect(result.files["not-leading.test.ts"]).toContain("retained");
+});
+
+test("refuses a host-integration marker on the canonical portable test", async () => {
+  const { extension, root } = await fixture();
+  await writeFile(join(extension, "extension.test.ts"), "// @ezcorp-host-integration\nimport { test } from 'bun:test'; test('portable', () => {});");
+  await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("Canonical portable test");
+});
+
 test("rejects links and oversized files but preserves binary assets", async () => {
   const { root, extension } = await fixture();
   await symlink("/etc/passwd", join(extension, "link"));

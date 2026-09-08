@@ -130,3 +130,5 @@
 - Releasing a stream reader lock does not cancel its pipe. Preserve an explicit byte-overflow flag, confirm an exact-limit read against EOF, and cancel overflow before awaiting the child exit.
 
 - Reproduce each CI failure with the smallest matching local check before another push. Run affected tests and types first; reuse passing evidence for unchanged source. Use hosted CI to confirm the repair, and do not wait for unrelated jobs to diagnose a known failure.
+
+- A failed policy check still needs a concrete repair analysis. Check whether test locations, lost assertions and coverage obligations can be repaired before treating every finding as an approval-only outcome. Never substitute a bypass or artificial assertions for restored coverage.

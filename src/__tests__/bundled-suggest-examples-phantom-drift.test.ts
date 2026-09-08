@@ -36,4 +36,28 @@ describe("canonicalizeAndHashForReapproval", () => {
     expect(canonicalizeAndHashForReapproval([base, second]))
       .not.toBe(canonicalizeAndHashForReapproval([base]));
   });
+
+test("reapproval hashing ignores the known presentation card type", () => {
+  const card = { ...base, cardType: "search-results" } as ToolDefinition;
+  expect(canonicalizeAndHashForReapproval([card])).toBe(canonicalizeAndHashForReapproval([base]));
+  expect(canonicalizeAndHash([card])).not.toBe(canonicalizeAndHash([base]));
+});
+
+test("reapproval hashing canonicalizes tool ordering", () => {
+  const second = { ...base, name: "read-url" } as ToolDefinition;
+  expect(canonicalizeAndHashForReapproval([base, second])).toBe(canonicalizeAndHashForReapproval([second, base]));
+  expect(canonicalizeAndHash([base, second])).toBe(canonicalizeAndHash([second, base]));
+});
+
+test("reapproval hashing canonicalizes schema object keys", () => {
+  const reordered = { ...base, inputSchema: { properties: { query: { type: "string" } }, type: "object" } } as ToolDefinition;
+  expect(canonicalizeAndHashForReapproval([reordered])).toBe(canonicalizeAndHashForReapproval([base]));
+  expect(canonicalizeAndHash([reordered])).toBe(canonicalizeAndHash([base]));
+});
+
+test("reapproval hashing treats an empty examples list as presentation only", () => {
+  const examples = { ...base, suggestExamples: [] } as ToolDefinition;
+  expect(canonicalizeAndHashForReapproval([examples])).toBe(canonicalizeAndHashForReapproval([base]));
+  expect(canonicalizeAndHash([examples])).not.toBe(canonicalizeAndHash([base]));
+});
 });

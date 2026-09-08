@@ -39,3 +39,29 @@ for (const type of EXT_TYPES) {
     } finally { await worker.close(); }
   }, 120_000);
 }
+
+test("scaffold rejects an unknown extension type before producing files", () => {
+  expect(() => scaffoldExtension({ name: "invalid", description: "Validation fixture", type: "unknown" as never })).toThrow(/type must be one of/);
+});
+
+test("scaffold rejects an empty extension name before producing files", () => {
+  expect(() => scaffoldExtension({ name: "", description: "Validation fixture", type: "tool" })).toThrow();
+});
+
+test("scaffold rejects traversal-like extension names before producing files", () => {
+  expect(() => scaffoldExtension({ name: "../outside", description: "Validation fixture", type: "tool" })).toThrow();
+});
+
+test("scaffold preserves an escaped description as source data", () => {
+  const { files } = scaffoldExtension({ name: "quoted", type: "tool", description: "a 'quote' and a newline\n" });
+  expect(files["ezcorp.config.ts"]).toContain("a 'quote'");
+  expect(files["README.md"]).toContain("a 'quote'");
+  expect(files["package.json"]).toContain("quoted");
+});
+
+test("scaffold is deterministic for an identical v4 request", () => {
+  const first = scaffoldExtension({ name: "repeatable", type: "skill", description: "same" });
+  const second = scaffoldExtension({ name: "repeatable", type: "skill", description: "same" });
+  expect(filesDigest(first.files)).toBe(filesDigest(second.files));
+  expect(first.files["ezcorp.config.ts"]).toBe(second.files["ezcorp.config.ts"]);
+});

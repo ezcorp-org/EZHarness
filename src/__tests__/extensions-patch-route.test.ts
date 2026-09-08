@@ -102,3 +102,33 @@ test("single-row reads scrub MCP query, header and argv credentials", async () =
   for (const value of ["URL-LEAK", "HDR-LEAK", "ARGV-LEAK"]) expect(body).not.toContain(value);
   for (const value of ["api_key=", "--token=", "Authorization"]) expect(body).toContain(value);
 });
+
+test("read returns a redacted ordinary v4 projection without lifecycle mutation", async () => {
+  const response = await request("GET", { user: ADMIN_USER });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ id: "installation", name: "fixture", enabled: true });
+  expect(mutations).toHaveLength(0);
+  expect(directWrites).not.toHaveBeenCalled();
+});
+
+test("purging data through uninstall is rejected before lifecycle mutation", async () => {
+  const event = createMockEvent({ method: "DELETE", url: "http://localhost/api/extensions/installation?purgeData=1", params: { id: "installation" }, user: ADMIN_USER });
+  const response = await DELETE(event as never);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: expect.stringContaining("preserves data") });
+  expect(mutations).toHaveLength(0);
+});
+
+test("a browser session marks an uninstall as a human lifecycle action", async () => {
+  const response = await request("DELETE", { session: true });
+  expect(response.status).toBe(204);
+  expect(mutations[0]?.actor.kind).toBe("human");
+  expect(directWrites).not.toHaveBeenCalled();
+});
+
+test("an API-key uninstall remains an agent lifecycle action", async () => {
+  const response = await request("DELETE");
+  expect(response.status).toBe(204);
+  expect(mutations[0]?.actor.kind).toBe("agent");
+  expect(reload).not.toHaveBeenCalled();
+});

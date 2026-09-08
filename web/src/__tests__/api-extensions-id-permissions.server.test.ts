@@ -87,13 +87,57 @@ describe("GET /api/extensions/[id]/permissions", () => {
 
 describe("retired permission mutations cannot replace sealed release approval", () => {
   beforeEach(() => { vi.clearAllMocks(); });
-  for (const permissions of [{ shell: true, filesystem: ["/"] }, { search: { quota: 500 } }, { search: false }, { acceptsCallerCaps: true, escalateChildCaps: true }, null, [], "invalid"]) {
-    test(`refuses mutation ${JSON.stringify(permissions)} without changing grants or audit`, async () => {
-      const response = await PUT(makeEvent({ method: "PUT", locals: { user: adminUser }, body: { permissions } }));
-      expect(response.status).toBe(410);
-      expect(await response.json()).toMatchObject({ reviewUrl: "/extensions/author?installation=ext-1" });
-      expect(updateExtension).not.toHaveBeenCalled();
-      expect(insertAuditEntry).not.toHaveBeenCalled();
-    });
-  }
+  test("redirects mutable permission consent to exact release review without changing grants", async () => {
+    const response = await PUT(makeEvent({ method: "PUT", locals: { user: adminUser }, body: { permissions: { shell: true } } }));
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: "extension_v4_required", reviewUrl: "/extensions/author?installation=ext-1" });
+    expect(getExtensionByRef).not.toHaveBeenCalled();
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(insertAuditEntry).not.toHaveBeenCalled();
+  });
+});
+
+for (const [label, locals, expectedStatus] of [
+  ["missing user", {}, 401],
+  ["API key without read scope", { user: regularUser, apiKeyScopes: ["extensions"] }, 403],
+  ["API key with read scope", { user: regularUser, apiKeyScopes: ["read"] }, 200],
+] as const) {
+  test(`GET ${label} observes the read boundary without mutating an extension`, async () => {
+    vi.mocked(getExtensionByRef).mockResolvedValue({ id: "ext-1", grantedPermissions: { storage: true } } as any);
+    let response: Response | undefined;
+    try { response = await GET(makeEvent({ locals })); } catch (error) { expect(error).toBeInstanceOf(Response); response = error as Response; }
+    expect(response!.status).toBe(expectedStatus);
+    if (expectedStatus === 200) expect(await response!.json()).toEqual({ storage: true });
+    else expect(vi.mocked(getExtensionByRef)).not.toHaveBeenCalled();
+    expect(vi.mocked(updateExtension)).not.toHaveBeenCalled();
+    expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
+  });
+}
+
+beforeEach(() => vi.clearAllMocks());
+
+// Sealed release approval replaces mutable permission updates.
+import { approval, approvalEvent, setupApprovalRoute } from "./helpers/release-approval-route-fixture";
+import { POST as approve } from "../routes/api/extensions/releases/[installationId]/approve/+server";
+
+describe("exact release permission approval", () => {
+  setupApprovalRoute();
+  test("API keys and internal credentials cannot grant release permissions", async () => {
+    for (const kind of ["api-key", "internal", ""]) {
+      expect((await approve(approvalEvent({ approvalId: "approval", decision: true }, kind))).status).toBe(403);
+    }
+    expect(approval).not.toHaveBeenCalled();
+  });
+  test("human approval names one installation and one immutable approval", async () => {
+    const response = await approve(approvalEvent({ approvalId: "approval", decision: true }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "approved" });
+    expect(approval).toHaveBeenCalledExactlyOnceWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "approval", true);
+  });
+  test("malformed approval identities and decisions cannot reach the lifecycle", async () => {
+    for (const body of [null, {}, { approvalId: 3, decision: true }, { approvalId: "approval", decision: "true" }]) {
+      expect((await approve(approvalEvent(body))).status).toBe(400);
+    }
+    expect(approval).not.toHaveBeenCalled();
+  });
 });

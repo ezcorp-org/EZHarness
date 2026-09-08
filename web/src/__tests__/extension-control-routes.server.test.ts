@@ -42,17 +42,6 @@ test("oversized streamed control requests are refused before lifecycle dispatch"
   expect(mocks.execute).not.toHaveBeenCalled();
 });
 
-test("approval rejects API keys, internal credentials and unstamped authentication", async () => {
-  for (const authMethod of ["api-key", "internal", ""]) expect((await approve(event({ approvalId: "approval", decision: true }, authMethod, ["admin", "extensions"]))).status).toBe(403);
-  expect(mocks.approve).not.toHaveBeenCalled();
-});
-
-test("human sessions approve the exact named release approval", async () => {
-  expect((await approve(event({ approvalId: "approval", decision: true }, "session"))).status).toBe(200);
-  expect(mocks.approve).toHaveBeenCalledWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "approval", true);
-  expect((await approve(event({ approvalId: 3, decision: true }, "session"))).status).toBe(400);
-});
-
 test("lifecycle conflicts and denial codes remain machine-readable", async () => {
   expect(extensionControlError({ code: "INVALID_FILES", message: "Invalid binary file." }).status).toBe(400);
   expect(extensionControlError({ code: "DATA_LIMIT", message: "Too large." }).status).toBe(400);
@@ -63,6 +52,4 @@ test("lifecycle conflicts and denial codes remain machine-readable", async () =>
   expect(extensionControlError(new Response("denied", { status: 403 })).status).toBe(403);
   expect(extensionControlError({ code: "generation_superseded", message: "Release changed." }).status).toBe(409);
   expect(extensionControlError({ code: "uninstalled", message: "Installation removed." }).status).toBe(409);
-  mocks.approve.mockRejectedValue({ code: "stale_approval", message: "Release changed." });
-  expect((await approve(event({ approvalId: "approval", decision: true }, "session"))).status).toBe(409);
 });

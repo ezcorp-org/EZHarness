@@ -1,10 +1,13 @@
-import type { ExtensionManifestV4, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
-import { canonicalJson, compileValueSchema, validateWorkspaceFiles, WORKSPACE_FILE_SCHEMA } from "@ezcorp/extension-contract";
+import { compileValueSchema, validateWorkspaceFiles, WORKSPACE_FILE_SCHEMA } from "@ezcorp/extension-contract";
 import type { ExtensionLifecycle } from "./v4";
 import type { LifecycleActor, InstallationState } from "./v4/types";
 import { extensionLogger } from "../logger";
 import { inspectRuntimeLocks, recoverRuntimeLock } from "./runtime-locks";
+
+import { requestedReleaseGrants } from "./bundled-drift-reapprove";
+export { requestedReleaseGrants } from "./bundled-drift-reapprove";
 
 const log = extensionLogger("author", "control");
 const identifier = { type: "string", minLength: 1, maxLength: 128 };
@@ -47,10 +50,7 @@ function sourceFiles(value: unknown): WorkspaceFiles | undefined {
   return validateWorkspaceFiles(value);
 }
 
-export function requestedReleaseGrants(manifest: ExtensionManifestV4): string[] {
-  const permissions = { ...manifest.permissions, ...(manifest.acceptsCallerCaps === undefined ? {} : { acceptsCallerCaps: manifest.acceptsCallerCaps }), ...(manifest.escalateChildCaps === undefined ? {} : { escalateChildCaps: manifest.escalateChildCaps }) };
-  return Object.entries(permissions).map(([name, value]) => canonicalJson([name, value])).sort();
-}
+
 
 export function createExtensionFiles(name = "my-extension", description = "A new extension"): WorkspaceFiles {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) throw new ExtensionControlError("invalid_name", "Use a lowercase extension name with letters, numbers and hyphens.");
