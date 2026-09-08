@@ -1,7 +1,15 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
+
+const writes = mock(() => { throw new Error("Legacy development must not write host state"); });
+mock.module("../db/connection", () => ({ initDb: writes }));
+mock.module("../extensions/installer", () => ({ installFromLocal: writes }));
+afterAll(() => restoreModuleMocks());
+const { startDevServer } = await import("../extensions/sdk/dev");
 
 let user: unknown = { id: "admin", role: "admin", status: "active" };
 let extension: unknown = { id: "extension" };
@@ -11,7 +19,7 @@ const createWorkspace = mock(async () => ({ installation: { id: "extension" }, w
 const imported = mock(async (_actor: unknown, source: unknown) => ({ source }));
 const build = mock(async (input: unknown) => ({ state: "succeeded", input }));
 mock.module("../db/queries/users", () => ({ getUserById: async () => user }));
-mock.module("../db/queries/extensions", () => ({ getExtensionByName: async () => extension }));
+mock.module("../db/queries/extensions", () => ({ getExtensionByName: async () => extension, listExtensions: writes, deleteExtension: writes }));
 mock.module("../extensions/source-import", () => ({ importExtensionSource: imported }));
 mock.module("../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ inspect: async () => ({ installation: { activeReleaseId } }), createWorkspace, uninstall }) }));
 mock.module("@ezcorp/extension-runner", () => ({ buildLimits: { timeoutMs: 1 }, filesDigest: () => "digest", RunnerClient: class { build = build; } }));
@@ -69,4 +77,18 @@ test("scaffold is exclusive and standalone validation uses the isolated runner",
   process.env.EZCORP_EXTENSION_RUNNER_TOKEN = "x".repeat(64);
   expect(await verifyCliExtension(directory!)).toHaveProperty("state", "succeeded");
   expect(build).toHaveBeenCalledWith(expect.objectContaining({ sourceDigest: "digest", entrypoint: "extension.ts", files: expect.objectContaining({ "src/echo.test.ts": expect.any(String) }) }));
+});
+
+test("legacy development rejects before config execution, DB writes or hot reload", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "retired-development-"));
+  const marker = join(directory, "executed");
+  await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); export default {};`);
+  try {
+    for (const signal of [undefined, AbortSignal.abort()]) {
+      await expect(startDevServer({ extDir: directory, _signal: signal })).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+    }
+    await expect(startDevServer()).rejects.toThrow(/workspace.*build.*inspect.*human approval/);
+    expect(writes).not.toHaveBeenCalled();
+    expect(await Bun.file(marker).exists()).toBe(false);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
