@@ -1,11 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createExtensionFiles, ExtensionControl, extensionControlTools, requestedReleaseGrants } from "../extensions/extension-control";
-import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
-import type { ExtensionLifecycle } from "../extensions/v4";
-import type { InstallationState, LifecycleActor } from "../extensions/v4/types";
+import { requestedReleaseGrants } from "../extensions/extension-control";
 import { createExtensionControlTools, getExtensionControlMetadata } from "../runtime/tools/extensions";
 
-import { controlActor as actor, controlFixture as fixture, controlInstallation as installation, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
+import { controlActor as actor, controlFixture as fixture, controlInstallation as installation, } from "./helpers/extension-control-fixture";
 
 describe("extension control", () => {
   test("workspace control accepts bounded binary assets above the invocation frame limit", async () => {
@@ -85,5 +82,41 @@ describe("extension control", () => {
     expect(lifecycle.resolveWorkspaceDependencies).not.toHaveBeenCalled();
   });
 
+
+
+  test("approval requests bind all authority declarations, never caller-supplied grants", async () => {
+    const { control, lifecycle, state } = fixture();
+    const manifest = { schemaVersion: 4 as const, name: "test", version: "1", description: "test", author: { name: "test" }, permissions: { storage: true }, acceptsCallerCaps: true, escalateChildCaps: true };
+    state.releases.release = { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", manifest, evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, runnerProfile: "podman", releaseDigest: "release-digest", policyDigest: "policy", createdAt: "now" };
+    const grants = requestedReleaseGrants(manifest);
+    expect(grants).toEqual(['["acceptsCallerCaps",true]', '["escalateChildCaps",true]', '["storage",true]']);
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "missing", expectedActiveReleaseId: null })).rejects.toHaveProperty("code", "not_found");
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release" })).rejects.toHaveProperty("code", "invalid_input");
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release", expectedActiveReleaseId: null, grants: [] })).rejects.toHaveProperty("code", "invalid_input");
+    expect(lifecycle.requestApproval).not.toHaveBeenCalled();
+    await control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release", expectedActiveReleaseId: null });
+    expect(lifecycle.requestApproval).toHaveBeenCalledWith(actor, { installationId: "installation", releaseId: "release", grants, expectedActiveReleaseId: null });
+  });
+
+  test("builtins preserve structured errors and force agent identity", async () => {
+    const { control } = fixture();
+    const execute = mock(control.execute.bind(control));
+    control.execute = execute;
+    const tools = createExtensionControlTools({ ...actor, kind: "human" }, async () => control);
+    expect(getExtensionControlMetadata()).toHaveLength(5);
+    const describe = tools.find((tool) => tool.name === "extensions_describe")!;
+    const result = await describe.execute("call", {}, undefined);
+    expect(result.content[0]).toHaveProperty("type", "text");
+    expect(execute.mock.calls[0]![0].kind).toBe("agent");
+    expect((await describe.execute("call", null, undefined)).details).toHaveProperty("isError", true);
+    expect((await describe.execute("call", { invalid: true }, undefined)).details).toMatchObject({ isError: true, code: "invalid_input" });
+  });
+
+  test("queues an exact revision and returns before durable worker finishes", async () => {
+    const { control, lifecycle } = fixture();
+    expect(await control.execute(actor, "extensions_build", { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" })).toMatchObject({ id: "operation" });
+    expect(lifecycle.runBuild).toHaveBeenCalledWith(actor, "installation", "operation");
+    expect(lifecycle.build).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" });
+  });
 
 });

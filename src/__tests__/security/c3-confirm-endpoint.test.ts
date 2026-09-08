@@ -1,5 +1,4 @@
-import { controlActor, controlFixture, controlInstallation as installation, controlWorkspace as workspace } from "../helpers/extension-control-fixture";
-import { createExtensionControlTools, getExtensionControlMetadata } from "../../runtime/tools/extensions";
+
 import { afterAll, expect, mock, test, beforeEach } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "../helpers/mock-request";
@@ -112,26 +111,54 @@ let bindingOwner = "";
 mock.module("../../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ inspect: async () => ({ installation: { ownerId: bindingOwner } }) }) }));
 const { getExtensionProjectBinding, setExtensionProjectBinding } = await import("../../extensions/project-binding");
 
-test("a human project binding stays tied to the exact active release and only local paths", async () => {
-  const { id, user, project, database } = await fixture();
+test("human binds exact active release and revokes without child-writable storage", async () => {
+  const { id, user, project } = await fixture();
   bindingOwner = user.id;
-  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1, writePaths: ["docs/", "README.md", "docs/"] };
-  const binding = await setExtensionProjectBinding({ kind: "human", principalId: user.id, scope: "global" }, input);
-  expect(binding).toMatchObject({ projectId: project.id, ownerId: user.id, releaseId: "release", generation: 1, writePaths: ["README.md", "docs/"] });
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
+  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
+  expect(await getExtensionProjectBinding("missing")).toBeNull();
+  const binding = await setExtensionProjectBinding(actor, input);
+  expect(binding).toMatchObject({ projectId: project.id, ownerId: user.id, releaseId: "release", generation: 1 });
   expect(await getExtensionProjectBinding(id)).toEqual(binding);
-  await database.execute(sql`UPDATE extension_release_installations SET payload=${JSON.stringify({ id, ownerId: user.id, scope: "global", activeReleaseId: "replaced", generation: 1, enabled: true, uninstalled: false })} WHERE id=${id}`);
+  const replacement = await setExtensionProjectBinding(actor, { ...input, writePaths: ["docs/", "README.md", "docs/"] });
+  expect(replacement?.id).not.toBe(binding?.id);
+  expect(replacement?.writePaths).toEqual(["README.md", "docs/"]);
+  expect(await setExtensionProjectBinding(actor, { ...input, projectId: null })).toBeNull();
   expect(await getExtensionProjectBinding(id)).toBeNull();
 });
 
-test("only a current human project member can create a project binding", async () => {
-  const { id, user, project, database } = await fixture();
+test("binding requires human active owner membership local project and exact revision", async () => {
+  const { id, user, project, database, binding } = await fixture();
   bindingOwner = user.id;
-  const actor = { kind: "human" as const, principalId: user.id, scope: "global" as const };
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
   const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
   await expect(setExtensionProjectBinding({ ...actor, kind: "agent" }, input)).rejects.toThrow("human session");
   await expect(setExtensionProjectBinding(actor, { ...input, generation: -1 })).rejects.toThrow("exact release");
-  await expect(setExtensionProjectBinding(actor, { ...input, writePaths: ["../outside"] })).rejects.toThrow("safe relative");
+  for (const path of ["../outside", "/absolute", "docs//", "docs/./file", "docs/*", "docs/\\bad", ""]) await expect(setExtensionProjectBinding(actor, { ...input, writePaths: [path] })).rejects.toThrow("safe relative");
+  bindingOwner = "other";
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("installation owner");
+  bindingOwner = user.id;
+  await database.execute(sql`UPDATE users SET status='inactive' WHERE id=${user.id}`);
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("active user");
+  await database.execute(sql`UPDATE users SET status='active' WHERE id=${user.id}`);
+  await database.execute(sql`UPDATE projects SET path='' WHERE id=${project.id}`);
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("local project");
+  await database.execute(sql`UPDATE projects SET path='/project' WHERE id=${project.id}`);
+  await expect(setExtensionProjectBinding(actor, { ...input, generation: 0 })).rejects.toThrow("active release changed");
   await database.execute(sql`DELETE FROM project_members WHERE project_id=${project.id} AND user_id=${user.id}`);
   await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("membership");
-  expect(await getExtensionProjectBinding(id)).not.toBeNull();
+  expect(await getExtensionProjectBinding(id)).toEqual(binding);
+});
+
+test("disabled changed uninstalled or transferred releases immediately invalidate binding", async () => {
+  const { id, user, project, database, installation } = await fixture();
+  bindingOwner = user.id;
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
+  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
+  await setExtensionProjectBinding(actor, input);
+  for (const patch of [{ enabled: false }, { uninstalled: true }, { activeReleaseId: "new" }, { generation: 2 }, { ownerId: "other" }]) {
+    await database.execute(sql`UPDATE extension_release_installations SET payload=${JSON.stringify({ ...installation, ...patch })} WHERE id=${id}`);
+    expect(await getExtensionProjectBinding(id)).toBeNull();
+    await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("active release changed");
+  }
 });

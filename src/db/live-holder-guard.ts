@@ -59,8 +59,10 @@ function pidIsAlive(pid: number): boolean {
  * run vite's own node binary even when launched via `bunx --bun`), so any
  * other cmdline means the pid was recycled by an unrelated process after a
  * container restart, and refusing to boot over it would crash-loop the
- * server. When cmdline can't be read (non-Linux, hidepid, EPERM) we stay
- * CONSERVATIVE and treat the holder as live — a false refusal has a
+ * server. During exec, Linux can expose an empty readable cmdline briefly;
+ * that is also indeterminate. When cmdline is empty or can't be read
+ * (non-Linux, hidepid, EPERM) we stay CONSERVATIVE and treat the holder as
+ * live — a false refusal has a
  * documented remediation, silent datadir corruption does not.
  * `procRoot` is injectable for tests only.
  */
@@ -68,6 +70,7 @@ export function isLiveHolder(pid: number, procRoot = "/proc"): boolean {
   if (!pidIsAlive(pid)) return false;
   try {
     const cmdline = readFileSync(`${procRoot}/${pid}/cmdline`, "utf8");
+    if (!cmdline) return true;
     return ["bun", "node", "ezcorp"].some((needle) => cmdline.includes(needle));
   } catch {
     return true; // can't inspect — conservative: assume it's a real holder

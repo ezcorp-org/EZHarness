@@ -1,5 +1,7 @@
 # Extension cutover test mapping
 
+This ledger records the earlier migration. The follow-up [Gate integrity repair](../../docs/extension-v4-gate-integrity-repair.md) restores the protected test paths and coverage obligation. Earlier deletion, rename, and approval-required findings below retain their historical scope.
+
 ## Library control follow-up
 
 `web/e2e/extensions-install-gate.spec.ts` now exercises source admission in

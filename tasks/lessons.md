@@ -132,3 +132,7 @@
 - Reproduce each CI failure with the smallest matching local check before another push. Run affected tests and types first; reuse passing evidence for unchanged source. Use hosted CI to confirm the repair, and do not wait for unrelated jobs to diagnose a known failure.
 
 - A failed policy check still needs a concrete repair analysis. Check whether test locations, lost assertions and coverage obligations can be repaired before treating every finding as an approval-only outcome. Never substitute a bypass or artificial assertions for restored coverage.
+
+- A test move needs an inventory of original test bodies and all explicit coverage producers. Passing glob discovery does not prove that a named coverage leg follows the move. Preserve each authority and rejection branch before removing the old file.
+- On Linux, matching /proc/<pid>/exe does not prove that cmdline is populated. A live process with an empty readable cmdline is indeterminate during exec; keep the database guard conservative and wait for arguments before asserting a non-runtime PID is stale.
+- Store private authentication review metadata under the existing masked agent directory. A metadata filename can match a credential-path guard even when the JSON contains no credential. Keep the guard unchanged.

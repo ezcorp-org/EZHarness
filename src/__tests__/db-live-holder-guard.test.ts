@@ -43,6 +43,15 @@ async function waitForExecutable(pid: number, executable: string): Promise<void>
   throw new Error(`Child ${pid} did not exec ${expected} within 5000ms`);
 }
 
+/** Wait until Linux has published the exec arguments, rather than its empty exec window. */
+async function waitForCmdline(pid: number): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    if (readFileSync(`/proc/${pid}/cmdline`, "utf8")) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Child ${pid} did not publish cmdline within 5000ms`);
+}
+
 function tempDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "ezcorp-holder-guard-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -129,6 +138,7 @@ describe("assertNoLiveHolder", () => {
     const child = Bun.spawn([sleep, "30"]);
     trackChild(child);
     await waitForExecutable(child.pid, sleep);
+    await waitForCmdline(child.pid);
     expect(isLiveHolder(child.pid)).toBe(false);
     writeFileSync(holderPidPath(db), String(child.pid));
     expect(() => assertNoLiveHolder(db)).not.toThrow();
@@ -147,6 +157,20 @@ describe("isLiveHolder", () => {
     const emptyProc = tempDbPath(); // just a fresh temp path; no /<pid> inside
     expect(isLiveHolder(process.pid, emptyProc)).toBe(true);
   });
+
+  test("alive runtime with an empty readable cmdline counts as live during exec", async () => {
+    const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(30_000)"]);
+    trackChild(child);
+    await waitForExecutable(child.pid, process.execPath);
+
+    const procRoot = mkdtempSync(join(tmpdir(), "ezcorp-holder-guard-proc-"));
+    cleanups.push(() => rmSync(procRoot, { recursive: true, force: true }));
+    mkdirSync(join(procRoot, String(child.pid)));
+    writeFileSync(join(procRoot, String(child.pid), "cmdline"), "");
+
+    expect(isLiveHolder(child.pid, procRoot)).toBe(true);
+  });
+
 });
 
 describe("claimHolder / releaseHolder", () => {

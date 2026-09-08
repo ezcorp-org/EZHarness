@@ -379,6 +379,7 @@ run_legs() {
       src/lib/components/extensions/ExtensionBrowser.component.test.ts \
       'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
       src/__tests__/extension-control-routes.server.test.ts \
+      src/__tests__/api-extensions-id-permissions.server.test.ts \
       src/__tests__/extension-project-binding.server.test.ts \
       src/__tests__/project-proposal-fixture.server.test.ts \
       src/__tests__/marketplace-release-fixture.server.test.ts \
@@ -390,10 +391,8 @@ run_legs() {
       src/__tests__/extension-credential-resolver.server.test.ts \
       src/__tests__/extension-host-api-transport.server.test.ts \
       src/__tests__/extension-legacy-cutover.server.test.ts \
-      src/__tests__/extension-source-import.server.test.ts \
       src/__tests__/extension-source-import-page.server.test.ts \
       src/__tests__/extension-source-import-page.component.test.ts \
-      src/__tests__/extension-control-actor.server.test.ts \
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
