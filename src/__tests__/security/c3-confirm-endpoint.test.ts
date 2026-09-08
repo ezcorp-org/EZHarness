@@ -60,7 +60,7 @@ async function fixture() {
   const grants = { shell: true, network: ["api.github.com"], grantedAt: { shell: Date.now(), network: Date.now() } };
   await createExtension({ id, name: manifest.name, manifest, version: manifest.version, creatorUserId: user!.id, source: "release-v4", enabled: true, grantedPermissions: grants });
   const installation = { id, ownerId: user!.id, scope: "global", activeReleaseId: "release", generation: 1, enabled: true, uninstalled: false };
-  const binding = { id: "binding", projectId: project.id, ownerId: user!.id, releaseId: "release", generation: 1, writePaths: ["docs/"] };
+  const binding = { id: "binding", projectId: project.id, ownerId: user!.id, releaseId: "release", generation: 1, approvedAt: "2026-01-01T00:00:00.000Z", writePaths: ["docs/"] };
   await database.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES(${id},${user!.id},'global',${JSON.stringify(installation)})`);
   await database.execute(sql`INSERT INTO extension_project_bindings(installation_id,payload) VALUES(${id},${JSON.stringify(binding)})`);
   const registry = { getManifest: () => manifest, getGrantedPermissions: () => grants } as unknown as ExtensionRegistry;
