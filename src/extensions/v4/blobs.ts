@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, link, unlink, realpath, lstat } from "node:fs/promises";
+import { mkdir, open, link, unlink, realpath, lstat, type FileHandle } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { canonicalJson, validateArtifactFiles, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { LifecycleError, type BlobStore } from "./types";
@@ -77,7 +77,13 @@ export class FileBlobStore implements BlobStore {
   async get(digest: string): Promise<Uint8Array> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new LifecycleError("invalid_digest", "Invalid content digest.");
     await this.directory();
-    const handle = await open(join(this.root, digest), constants.O_RDONLY | constants.O_NOFOLLOW);
+    let handle: FileHandle;
+    try {
+      handle = await open(join(this.root, digest), constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LifecycleError("artifact_missing", "Stored extension files are missing. Restore extension release storage from backup.");
+      throw cause;
+    }
     try {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.size > 192 * 1024 * 1024) throw new LifecycleError("artifact_corrupt", "Stored content is not a bounded regular file.");

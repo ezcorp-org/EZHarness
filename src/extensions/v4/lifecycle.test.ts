@@ -24,11 +24,16 @@ test("concurrent identical writes are content addressed and tampering fails", as
     await expect(blobs.get(results[0]!)).rejects.toMatchObject({ code: "artifact_corrupt" });
   });
 
+test("a missing real blob is reported as an unavailable artifact", async () => {
+  await expect(blobs.get("a".repeat(64))).rejects.toMatchObject({ code: "artifact_missing" });
+});
+
 test("symlink objects and roots are refused", async () => {
     const target = join(root, "target");
     await writeFile(target, "secret");
     await symlink(target, join(root, "e".repeat(64)));
     await expect(blobs.get("e".repeat(64))).rejects.toThrow();
+    await expect(blobs.get("e".repeat(64))).rejects.not.toMatchObject({ code: "artifact_missing" });
     const linkRoot = `${root}-link`;
     await symlink(root, linkRoot);
     try { await expect(new FileBlobStore(linkRoot).put(new Uint8Array())).rejects.toMatchObject({ code: "unsafe_blob_root" }); } finally { await rm(linkRoot); }

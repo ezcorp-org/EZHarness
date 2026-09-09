@@ -55,7 +55,7 @@ Before applying this config and recreating `app`, copy the old container's
 artifact directory to a host backup through the supported wrapper:
 
 ```sh
-bun run podman cp app:/app/.ezcorp/extension-releases ./extension-releases-backup
+bun run podman cp app:/app/.ezcorp/extension-releases ./.ezcorp/extension-releases-backup
 ```
 
 After updating the compose file, import that backup into the new volume. This
@@ -64,7 +64,7 @@ copying it, so it cannot overwrite existing artifact bytes:
 
 ```sh
 bun run podman run --rm --no-deps --user 0 \
-  -v "$PWD/extension-releases-backup:/from:ro" \
+  -v "$PWD/.ezcorp/extension-releases-backup:/from:ro" \
   --entrypoint sh app -ec '
     set -eu
     test -z "$(find /app/.ezcorp/extension-releases -mindepth 1 -print -quit)"

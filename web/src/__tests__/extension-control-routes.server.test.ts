@@ -52,4 +52,5 @@ test("lifecycle conflicts and denial codes remain machine-readable", async () =>
   expect(extensionControlError(new Response("denied", { status: 403 })).status).toBe(403);
   expect(extensionControlError({ code: "generation_superseded", message: "Release changed." }).status).toBe(409);
   expect(extensionControlError({ code: "uninstalled", message: "Installation removed." }).status).toBe(409);
+  expect(extensionControlError({ code: "artifact_missing", message: "Saved source is unavailable." }).status).toBe(503);
 });
