@@ -54,7 +54,7 @@
 		"marked": "^18.0.11",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
-		"zod": "^4.5.2"
+		"zod": "^4.5.4"
 	},
 	"overrides": {
 		"sharp": "0.35.4"
