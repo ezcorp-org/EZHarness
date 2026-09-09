@@ -53,6 +53,22 @@ test("unexpected storage failures remain errors, not empty workspaces", async ()
   await expect(load(event("?installation=installation"))).rejects.toBe(failure);
 });
 
+test("a missing saved source preserves release history without exposing files", async () => {
+  const missing = { id: "missing", revision: 3, sourceDigest: "a".repeat(64), createdAt: "2026-02-01" };
+  const available = { id: "available", revision: 2, sourceDigest: "b".repeat(64), createdAt: "2026-01-01" };
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation", ownerId: "owner" }, workspaces: { missing, available }, releases: { release: { id: "release" } } });
+  mocks.readWorkspace.mockRejectedValue({ code: "artifact_missing" });
+  expect(await load(event("?installation=installation&workspace=missing"))).toMatchObject({ state: { workspaces: { missing, available }, releases: { release: { id: "release" } } }, workspace: null, files: {}, sourceUnavailable: { workspaceId: "missing" }, canApprove: false });
+  expect(mocks.readWorkspace).toHaveBeenCalledWith(expect.anything(), "installation", "missing");
+});
+
+test("a source read failure other than a missing artifact remains an error", async () => {
+  const failure = new Error("storage unavailable");
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation" }, workspaces: { workspace: { id: "workspace", createdAt: "2026-02-01" } } });
+  mocks.readWorkspace.mockRejectedValue(failure);
+  await expect(load(event("?installation=installation&workspace=workspace"))).rejects.toBe(failure);
+});
+
 test("an installation opens its most recent workspace without a workspace query", async () => {
   mocks.inspect.mockResolvedValue({ installation: { id: "installation" }, workspaces: { old: { id: "old", createdAt: "2026-01-01" }, latest: { id: "latest", createdAt: "2026-02-01" } } });
   mocks.readWorkspace.mockResolvedValue({ workspace: { id: "latest" }, files: {} });

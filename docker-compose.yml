@@ -215,6 +215,12 @@ services:
       # mount, every container restart wipes the images and the tool-card
       # URLs 404 silently.
       - ext-data:/app/web/.ezcorp
+      # Release artifacts are addressed by digest in the persistent database.
+      # Keep their bytes in a dedicated volume instead of the `/app` overlay:
+      # FileBlobStore resolves this exact path from getProjectRoot(). The
+      # stable volume name survives an app recreate and a checkout-path
+      # change without binding release state to a serving worktree.
+      - extension-releases:/app/.ezcorp/extension-releases
       # Scoped host bind mounts for extension state: authored/installed
       # extensions and their persistent extension-data land in the host
       # tree at ./.ezcorp/ so they're editable/inspectable from the host.
@@ -632,4 +638,8 @@ volumes:
   testenv-state:
   model-cache:
   ext-data:
+  extension-releases:
+    # A dev release database can outlive the checkout that served it. Keep
+    # artifact bytes on this stable volume, separate from the prod volume.
+    name: "${EZCORP_EXTENSION_RELEASES_VOLUME:-ezcorp-dev-extension-releases}"
   ollama-models:

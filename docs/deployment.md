@@ -44,6 +44,49 @@ once per host:
 systemctl --user enable --now podman.socket
 ```
 
+### Preserving dev release artifacts after this update
+
+The dev stack stores immutable extension release artifacts in the stable
+`ezcorp-dev-extension-releases` named volume at
+`/app/.ezcorp/extension-releases`. Set `EZCORP_EXTENSION_RELEASES_VOLUME` to
+use an isolated volume. The database stores only each artifact digest.
+
+Before applying this config and recreating `app`, copy the old container's
+artifact directory to a host backup through the supported wrapper:
+
+```sh
+bun run podman cp app:/app/.ezcorp/extension-releases ./.ezcorp/extension-releases-backup
+```
+
+After updating the compose file, import that backup into the new volume. This
+refuses a non-empty destination and verifies every digest-named blob before
+copying it, so it cannot overwrite existing artifact bytes:
+
+```sh
+bun run podman run --rm --no-deps --user 0 \
+  -v "$PWD/.ezcorp/extension-releases-backup:/from:ro" \
+  --entrypoint sh app -ec '
+    set -eu
+    test -z "$(find /app/.ezcorp/extension-releases -mindepth 1 -print -quit)"
+    test -z "$(find /from -mindepth 1 -maxdepth 1 ! -type f -print -quit)"
+    sums=$(mktemp)
+    trap "rm -f $sums" EXIT
+    find /from -mindepth 1 -maxdepth 1 -type f -exec sha256sum {} + > "$sums"
+    while IFS=" " read -r hash file; do
+      name=${file##*/}
+      test ${#name} -eq 64
+      case "$name" in *[!0-9a-f]*) exit 1 ;; esac
+      test "$hash" = "$name"
+    done < "$sums"
+    cp -a /from/. /app/.ezcorp/extension-releases/
+  '
+bun run podman up -d --no-deps --force-recreate app
+```
+
+The backup must contain only 64-character lowercase SHA-256 filenames. Do not
+run `docker compose down -v` while the development database still references
+these digests.
+
 The wrapper also refuses two invocations that would quietly undo what it
 just set up:
 

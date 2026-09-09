@@ -56,7 +56,11 @@ const workspace = { id: "workspace", installationId: installation.id, revision: 
 
 function pageData(approval = false, canApprove = true): ComponentProps<typeof AuthorPage>["data"] {
   const state: InstallationState = { installation, workspaces: { workspace }, revisions: {}, operations: {}, releases: {}, approvals: approval ? { approval: { id: "approval", installationId: installation.id, releaseId: "release", releaseDigest: "exact-release-digest", principalId: "owner", scope: "global", grants: ['["storage",true]'], runnerProfile: "podman", expectedActiveReleaseId: null, expectedGeneration: 0, status: "pending", createdAt: "2026-09-04" } } : {} };
-  return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
+  return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], sourceUnavailable: null, canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
+}
+
+function emptyPageData(): ComponentProps<typeof AuthorPage>["data"] {
+  return { ...pageData(), state: null, workspace: null, files: {}, installations: [], sourceUnavailable: null, projects: [], projectBinding: null, canBindProject: false };
 }
 
 test("human approval shows explicit opaque TCP and raw secret disclosure warnings", () => {
@@ -160,8 +164,23 @@ test("non-session visitors cannot approve", () => {
   expect(view.getByRole("button", { name: "Reject" })).toBeDisabled();
 });
 
+test("missing source blocks new and pending approval controls without exposing the editor", () => {
+  const data = pageData(true, false);
+  data.state!.releases.release = verifiedRelease();
+  data.workspace = null;
+  data.files = {};
+  data.sourceUnavailable = { workspaceId: workspace.id };
+  const view = render(AuthorPage, { data });
+  expect(view.getByRole("alert")).toHaveTextContent("Saved source is unavailable");
+  expect(view.getByRole("button", { name: "Request approval" })).toBeDisabled();
+  expect(view.getByRole("checkbox", { name: "I reviewed this release and its permissions." })).toBeDisabled();
+  expect(view.getByRole("button", { name: "Approve exact release" })).toBeDisabled();
+  expect(view.queryByRole("heading", { name: "01 / Source" })).not.toBeInTheDocument();
+  expect(view.queryByRole("button", { name: "Save and build" })).not.toBeInTheDocument();
+});
+
 test("empty workspace list offers an isolated scaffold, not an install shortcut", async () => {
-  const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false };
+  const data = emptyPageData();
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ openUrl: "/extensions/author?installation=new" }));
   vi.stubGlobal("fetch", fetcher);
   const view = render(AuthorPage, { data });
@@ -174,7 +193,7 @@ test("empty workspace list offers an isolated scaffold, not an install shortcut"
 
 test("create failures show the error and do not navigate", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => new Response("{}", { status: 503 })));
-  const view = render(AuthorPage, { data: { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false } });
+  const view = render(AuthorPage, { data: emptyPageData() });
   await fireEvent.click(view.getByRole("button", { name: "Create workspace" }));
   await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Request failed (503)"));
   expect(goto).not.toHaveBeenCalled();

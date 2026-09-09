@@ -31,8 +31,9 @@ COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-r
 # package.json files have been COPY'd at this stage (the SDK source +
 # tsconfig.build.json land later via `COPY . .`). Skipping lifecycle
 # scripts lets the cache-friendly install layer succeed; the dev image
-# relies on Bun's "bun" exports condition (raw .ts at runtime), so dist/
-# is unnecessary here. Same rationale for the web install below.
+# builds the trusted workspace packages after their sources are copied below.
+# Vite resolves their standard import exports, which require dist/ even when
+# its dev server runs under Bun. Same install ordering for the web package.
 #
 # The cache mount keeps Bun's global package cache across builds, so an
 # invalidated install layer re-links from disk instead of re-downloading the
@@ -47,6 +48,11 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && 
 
 # Copy everything for initial setup (source is bind-mounted over this at runtime)
 COPY . .
+
+# The SDK build also builds its extension-contract project reference. Keep
+# standard import exports available to Vite on the first clean app start.
+RUN bun run --cwd packages/@ezcorp/sdk build --force \
+ && bun run --cwd packages/@ezcorp/harness-client build --force
 
 EXPOSE 3000
 

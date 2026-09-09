@@ -94,6 +94,35 @@ test.describe("Extensions review — workflow declaration", () => {
 		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
 	});
 
+	test("Review shows saved-source recovery without edit or build controls @evidence", async ({ page, mockApi }, testInfo) => {
+		await openWorkflowDetail(page, mockApi);
+		const mutations: string[] = [];
+		await page.route("**/api/**", async route => {
+			if (route.request().method() === "GET") return route.fallback();
+			mutations.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+			return route.fulfill({ status: 409, json: { message: "Source recovery must not mutate authority." } });
+		});
+		const missing = { id: "missing-workspace", installationId: EXT_ID, revision: 3, sourceDigest: "a".repeat(64), createdAt: "2026-09-09T00:00:00.000Z" };
+		const available = { id: "available-workspace", installationId: EXT_ID, revision: 2, sourceDigest: "b".repeat(64), createdAt: "2026-09-08T00:00:00.000Z" };
+		const installation = { id: EXT_ID, ownerId: "mock-owner", scope: "global", activeReleaseId: null, generation: 0, enabled: false, uninstalled: false, status: "disabled", grants: [], acknowledgedGeneration: 0 };
+		const review = await setupAuthorReviewMock(page, {
+			installationId: EXT_ID,
+			reviewData: () => ({ installations: [installation], state: { installation, workspaces: { [missing.id]: missing, [available.id]: available }, revisions: {}, releases: {}, approvals: {}, operations: {} }, workspace: null, files: {}, sourceUnavailable: { workspaceId: missing.id }, canApprove: false, canBindProject: false, projects: [], projectBinding: null }),
+		});
+
+		await page.getByTestId("review-extension-release").click();
+		await review.expectReview();
+		const recovery = page.getByTestId("source-unavailable");
+		await expect(recovery).toContainText("Saved source is unavailable");
+		await expect(recovery.getByRole("link", { name: "Import source to create a new candidate" })).toHaveAttribute("href", "/extensions/import-source");
+		await expect(recovery.getByRole("link", { name: "Revision 2" })).toHaveAttribute("href", `?installation=${EXT_ID}&workspace=${available.id}`);
+		await expect(page.getByRole("button", { name: "Save revision" })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Save and build" })).toHaveCount(0);
+		await captureEvidence(page, testInfo, "extensions-source-unavailable-recovery", { fullPage: true });
+		expect(mutations).toEqual([]);
+		await review.close();
+	});
+
 	test("renders the workflows release declaration and captures evidence @evidence", async ({ page, mockApi }, testInfo) => {
 		await openWorkflowDetail(page, mockApi);
 		const permissions = page.getByTestId("release-permissions");

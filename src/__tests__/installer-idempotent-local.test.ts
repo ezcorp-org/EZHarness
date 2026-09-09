@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -324,4 +324,17 @@ test("a project member imports and opens the real scoped review loader without d
   await expect(loadAuthorPage({ ...event, locals: { ...event.locals, user: stranger } })).rejects.toMatchObject({ status: 404 });
   await database.delete(projectMembers).where(eq(projectMembers.projectId, "owned-project"));
   await expect(loadAuthorPage(event)).rejects.toMatchObject({ status: 404 });
+});
+
+test("the author loader keeps lifecycle history when its real workspace blob is missing", async () => {
+  const database = getTestDb();
+  await database.update(users).set({ role: "admin" }).where(eq(users.id, owner.principalId));
+  const created = await lifecycle.createWorkspace(owner, { files });
+  const user = (await getUserById(owner.principalId))!;
+  const event = { url: new URL(`http://localhost/extensions/author?installation=${created.installation.id}&workspace=${created.workspace.id}`), locals: { user, authMethod: "session" } } as unknown as Parameters<typeof loadAuthorPage>[0];
+
+  expect(await loadAuthorPage(event)).toMatchObject({ workspace: { id: created.workspace.id }, files, canApprove: true });
+  await unlink(join(root, created.workspace.sourceDigest));
+
+  expect(await loadAuthorPage(event)).toMatchObject({ state: { installation: { id: created.installation.id }, workspaces: { [created.workspace.id]: { sourceDigest: created.workspace.sourceDigest } } }, workspace: null, files: {}, sourceUnavailable: { workspaceId: created.workspace.id }, canApprove: false });
 });

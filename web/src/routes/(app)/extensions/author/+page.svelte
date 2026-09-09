@@ -19,6 +19,7 @@
   let failure = $state("");
   let notice = $state("");
   let reviewedApproval = $state("");
+  let sourceUnavailable = $state<{ workspaceId: string } | null>(untrack(() => data.sourceUnavailable ?? null));
   let projectBinding = $state<ExtensionProjectBinding | null>(untrack(() => data.projectBinding ?? null));
   let projectId = $state(untrack(() => data.projectBinding?.projectId ?? ""));
   let writeScope = $state(untrack(() => data.projectBinding?.writePaths.join(", ") ?? ""));
@@ -30,6 +31,7 @@
   const operations = $derived(Object.values(installationState?.operations ?? {}).sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
   const releases = $derived(Object.values(installationState?.releases ?? {}).sort((left, right) => right.createdAt.localeCompare(left.createdAt)));
   const approvals = $derived(Object.values(installationState?.approvals ?? {}).filter((approval) => approval.status === "pending" || approval.status === "approved"));
+  const alternateWorkspaces = $derived(sourceUnavailable && installationState ? Object.values(installationState.workspaces).filter((candidate) => candidate.id !== sourceUnavailable?.workspaceId).sort((left, right) => right.createdAt.localeCompare(left.createdAt)) : []);
 
   $effect(() => {
     const next = data;
@@ -40,6 +42,7 @@
       saved = JSON.stringify(next.files);
       selected = Object.keys(next.files).sort()[0] ?? "";
       reviewedApproval = "";
+      sourceUnavailable = next.sourceUnavailable ?? null;
       projectBinding = next.projectBinding ?? null;
       projectId = next.projectBinding?.projectId ?? "";
       writeScope = next.projectBinding?.writePaths.join(", ") ?? "";
@@ -185,6 +188,17 @@
     <section class="panel create-panel"><h2>Start a workspace</h2><p class="muted">Includes a small SDK example and its first test.</p><label for="extension-name">Extension name</label><input id="extension-name" bind:value={name} disabled={!!busy} /><button class="primary" onclick={create} disabled={!!busy}>Create workspace</button></section>
     <section class="panel"><h2>Your installations</h2>{#each data.installations as installation (installation.id)}<a class="installation-link" href={`?installation=${encodeURIComponent(installation.id)}`}>{installation.id}<span>{installation.status}</span></a>{:else}<p class="muted">No workspaces yet.</p>{/each}</section>
   {:else}
+    {#if sourceUnavailable}
+      <section class="panel source-unavailable" role="alert" data-testid="source-unavailable">
+        <h2>Saved source is unavailable</h2>
+        <p>The files for this saved workspace could not be found. Restore them from a backup or choose another source below.</p>
+        <p><a href="/extensions/import-source">Import source to create a new candidate</a>.</p>
+        {#if alternateWorkspaces.length}
+          <p>Open another saved workspace:</p>
+          <ul>{#each alternateWorkspaces as candidate (candidate.id)}<li><a href={`?installation=${encodeURIComponent(installationState!.installation.id)}&workspace=${encodeURIComponent(candidate.id)}`}>Revision {candidate.revision}</a></li>{/each}</ul>
+        {:else}<p class="muted">No other saved workspaces are available.</p>{/if}
+      </section>
+    {/if}
     {#if workspace}
       <section class="panel editor-panel">
         <div class="section-heading"><h2>01 / Source</h2><span class="muted">Revision {workspace.revision} · {dirty ? "Unsaved changes" : "Saved"}</span></div>
@@ -202,7 +216,7 @@
       {#each operations as operation (operation.id)}<article class="operation"><div class="section-heading"><code>{operation.id}</code><strong>{operation.state}</strong></div>{#each operation.diagnostics as diagnostic, index (`${operation.id}-${index}`)}<p class="diagnostic"><strong>{diagnostic.stage} / {diagnostic.code}</strong> {diagnostic.message}{#if diagnostic.file}<code>{diagnostic.file}{diagnostic.line ? `:${diagnostic.line}` : ""}</code>{/if}</p>{/each}</article>{:else}<p class="muted">Build a saved revision to get host checks and test results.</p>{/each}
     </section>
     <section class="panel"><h2>03 / Release review</h2><p class="muted">Approval applies to one tested release, permission set, runner policy, and installation generation. New code needs new approval.</p>
-      {#each releases as release (release.id)}<article class="release"><div class="section-heading"><h3>{release.manifest.name} <span class="muted">{release.manifest.version}</span></h3><strong>{installationState.installation.activeReleaseId === release.id ? (installationState.installation.uninstalled ? "Previously active" : "Active") : "Verified"}</strong></div><dl><dt>Release</dt><dd><code>{release.releaseDigest}</code></dd><dt>Source</dt><dd><code>{release.sourceDigest}</code></dd><dt>Artifact</dt><dd><code>{release.artifactDigest}</code></dd><dt>Runner</dt><dd>{release.runnerProfile}<code>{release.imageDigest}</code></dd></dl><details><summary>Permissions and test evidence</summary><pre>{JSON.stringify({ permissions: release.manifest.permissions, tests: release.evidence.tests }, null, 2)}</pre></details><button disabled={!!busy || installationState.installation.uninstalled} onclick={() => releaseAction("requestApproval", { releaseId: release.id, expectedActiveReleaseId: installationState!.installation.activeReleaseId })}>Request approval</button></article>{:else}<p class="muted">No verified releases yet. Failed builds cannot be approved.</p>{/each}
+      {#each releases as release (release.id)}<article class="release"><div class="section-heading"><h3>{release.manifest.name} <span class="muted">{release.manifest.version}</span></h3><strong>{installationState.installation.activeReleaseId === release.id ? (installationState.installation.uninstalled ? "Previously active" : "Active") : "Verified"}</strong></div><dl><dt>Release</dt><dd><code>{release.releaseDigest}</code></dd><dt>Source</dt><dd><code>{release.sourceDigest}</code></dd><dt>Artifact</dt><dd><code>{release.artifactDigest}</code></dd><dt>Runner</dt><dd>{release.runnerProfile}<code>{release.imageDigest}</code></dd></dl><details><summary>Permissions and test evidence</summary><pre>{JSON.stringify({ permissions: release.manifest.permissions, tests: release.evidence.tests }, null, 2)}</pre></details><button disabled={!!busy || installationState.installation.uninstalled || !!sourceUnavailable} onclick={() => releaseAction("requestApproval", { releaseId: release.id, expectedActiveReleaseId: installationState!.installation.activeReleaseId })}>Request approval</button></article>{:else}<p class="muted">No verified releases yet. Failed builds cannot be approved.</p>{/each}
       {#each approvals as approval (approval.id)}<article class="approval"><h3>{approval.status === "approved" ? "Approved release" : "Human approval required"}</h3><p class="muted">Installation owner: {approval.principalId} · Scope: {approval.scope}</p><code>{approval.releaseDigest}</code><pre>{JSON.stringify(approval.grants.map((grant) => JSON.parse(grant)), null, 2)}</pre>
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.networkTcp?.length}<p role="note"><strong>Opaque TCP access:</strong> Native code can send traffic to the listed exact host and port. The host does not inspect this traffic or TLS content. A private IP exception can reach an internal service; approve only a destination you trust.</p>{/if}
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.secretRead?.length}<p role="note"><strong>Raw credential extraction:</strong> Native code can read these provider secrets, return them in tool output, or send them to an approved network destination. Only active administrators can use this grant. Prefer opaque credential handles. Approval does not grant access to another user's or project's credentials.</p>{/if}
@@ -238,5 +252,6 @@
   .actions{justify-content:flex-start}.message{padding:1rem;border:1px solid var(--color-border,#555);border-radius:8px;font-size:.85rem}.failure{border-color:#bc5757;color:var(--color-text-primary)}.operation,.release,.approval{padding:1rem 0;border-top:1px solid var(--color-border,#444);margin-top:1rem}.approval{border:1px solid var(--color-accent,#8498ff);border-radius:8px;padding:1rem}.diagnostic{font-size:.85rem;white-space:pre-wrap;overflow-wrap:anywhere}code,pre{font-family:var(--font-mono,monospace);font-size:.75rem;overflow-wrap:anywhere}pre{white-space:pre-wrap;max-height:360px;overflow:auto;padding:1rem;background:var(--color-surface,transparent);border-radius:6px}dl{display:grid;grid-template-columns:70px minmax(0,1fr);gap:.5rem;font-size:.8rem}dt{color:var(--color-text-muted)}dd{margin:0;overflow-wrap:anywhere}dd code{display:block}details{margin:1rem 0}summary{cursor:pointer;font-size:.85rem}.review-check{display:flex;gap:.65rem;align-items:center;margin:1rem 0}.installation-link{display:flex;justify-content:space-between;gap:1rem;padding:1rem 0;overflow-wrap:anywhere}
   @media(max-width:700px){.workspace-shell{padding:1rem}.editor-grid{grid-template-columns:1fr}.file-tree{border-right:0;border-bottom:1px solid var(--color-border,#444);max-height:240px;overflow:auto}h1{font-size:1.55rem}.state-badge{font-size:.65rem}}
   .file-tree>*{flex-shrink:0}.code-pane>p,.code-pane>button{margin:1rem}.code-pane>button{align-self:flex-start;margin-top:0}
+  .source-unavailable a{text-decoration:underline;text-underline-offset:.2em}
   .project-access{display:grid;gap:.75rem}.project-access select{font:inherit;width:100%;padding:.55rem;border:1px solid var(--color-border);border-radius:6px;background:var(--color-surface);color:var(--color-text)}
 </style>

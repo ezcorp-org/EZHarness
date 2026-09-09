@@ -74,3 +74,21 @@ test("shows exact release evidence without creating an implicit approval control
   expect(view.getByRole("button", { name: "Request approval" })).toBeEnabled();
   expect(view.queryByRole("button", { name: "Approve exact release" })).not.toBeInTheDocument();
 });
+
+test("a missing saved source offers recovery without exposing edit or build controls", () => {
+  const input = data({ workspace: null, files: {}, sourceUnavailable: { workspaceId: "workspace" } });
+  input.state.workspaces.available = { id: "available", installationId: "installation", revision: 2, sourceDigest: "other", createdAt: "later" };
+  const view = render(AuthorPage, { data: input });
+  expect(view.getByRole("alert")).toHaveTextContent("Saved source is unavailable");
+  expect(view.getByRole("link", { name: "Import source to create a new candidate" })).toHaveAttribute("href", "/extensions/import-source");
+  expect(view.getByRole("link", { name: "Revision 2" })).toHaveAttribute("href", "?installation=installation&workspace=available");
+  expect(view.queryByRole("button", { name: "Save revision" })).not.toBeInTheDocument();
+  expect(view.queryByRole("button", { name: "Save and build" })).not.toBeInTheDocument();
+  expect(view.getByRole("button", { name: "Request approval" })).toBeDisabled();
+});
+
+test("a missing saved source does not substitute another revision", () => {
+  const view = render(AuthorPage, { data: data({ workspace: null, files: {}, sourceUnavailable: { workspaceId: "workspace" } }) });
+  expect(view.getByRole("alert")).toHaveTextContent("No other saved workspaces are available.");
+  expect(view.queryByRole("link", { name: /Revision/ })).not.toBeInTheDocument();
+});
