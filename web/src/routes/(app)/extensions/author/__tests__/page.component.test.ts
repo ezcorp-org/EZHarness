@@ -84,7 +84,7 @@ test("a missing saved source offers recovery without exposing edit or build cont
   expect(view.getByRole("link", { name: "Revision 2" })).toHaveAttribute("href", "?installation=installation&workspace=available");
   expect(view.queryByRole("button", { name: "Save revision" })).not.toBeInTheDocument();
   expect(view.queryByRole("button", { name: "Save and build" })).not.toBeInTheDocument();
-  expect(view.getByRole("button", { name: "Request approval" })).toBeEnabled();
+  expect(view.getByRole("button", { name: "Request approval" })).toBeDisabled();
 });
 
 test("a missing saved source does not substitute another revision", () => {

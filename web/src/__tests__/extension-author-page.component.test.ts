@@ -160,6 +160,21 @@ test("non-session visitors cannot approve", () => {
   expect(view.getByRole("button", { name: "Reject" })).toBeDisabled();
 });
 
+test("missing source blocks new and pending approval controls without exposing the editor", () => {
+  const data = pageData(true, false);
+  data.state!.releases.release = verifiedRelease();
+  data.workspace = null;
+  data.files = {};
+  data.sourceUnavailable = { workspaceId: workspace.id };
+  const view = render(AuthorPage, { data });
+  expect(view.getByRole("alert")).toHaveTextContent("Saved source is unavailable");
+  expect(view.getByRole("button", { name: "Request approval" })).toBeDisabled();
+  expect(view.getByRole("checkbox", { name: "I reviewed this release and its permissions." })).toBeDisabled();
+  expect(view.getByRole("button", { name: "Approve exact release" })).toBeDisabled();
+  expect(view.queryByRole("heading", { name: "01 / Source" })).not.toBeInTheDocument();
+  expect(view.queryByRole("button", { name: "Save and build" })).not.toBeInTheDocument();
+});
+
 test("empty workspace list offers an isolated scaffold, not an install shortcut", async () => {
   const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false };
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ openUrl: "/extensions/author?installation=new" }));
