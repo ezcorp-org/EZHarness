@@ -9,7 +9,7 @@ vi.mock("$server/auth/middleware", () => ({
 }));
 vi.mock("$lib/server/security/api-keys", () => ({ requireScope: (locals: { scopes?: string[]; authMethod?: string }, scope: string) => locals.authMethod === "session" || locals.scopes?.includes(scope) ? null : new Response("Missing scope", { status: 403 }) }));
 import { POST as control } from "../routes/api/extensions/control/+server";
-import { POST as approve } from "../routes/api/extensions/releases/[installationId]/approve/+server";
+import type { POST as approve } from "../routes/api/extensions/releases/[installationId]/approve/+server";
 import { extensionControlError } from "$lib/server/extensions/control-errors";
 
 function event(body: unknown, authMethod = "api-key", scopes = ["extensions"]) {
