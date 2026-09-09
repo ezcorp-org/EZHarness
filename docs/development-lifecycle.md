@@ -249,7 +249,7 @@ bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
 
 `mapfile` is **bash-only**. Under zsh it is not a builtin, `ARGS` silently comes
 out empty, and Playwright runs the whole backlog instead of the lane. Keep the
-`bash -c`, and verify `${#ARGS[@]}` is non-zero. The same CI job then runs the
+`bash -c`, and verify `${#ARGS[@]}` is non-zero. A separate CI job runs the
 fresh-setup and real-auth real-PGlite configs. `bash scripts/ci-local.sh` runs
 all three browser commands from the same manifest.
 

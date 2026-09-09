@@ -516,3 +516,24 @@ Final local review: the Terra review identified an enabled new-approval request 
 Hosted follow-up: visual evidence initially failed because the new screenshot spec lacked its author-page mapping; the mapping now passes the unchanged local gate and all 10 Playwright cases. Firefox initially failed on a Docker Hub Postgres-download HTTP 502, then passed on the next source run. The actual hosted coverage merge reproduces one uncovered catch line (author loader line 26), despite all 1265 file thresholds and the focused V8 checks passing. A producer-specific regression is in progress; no coverage threshold or rule changes are allowed.
 
 Coverage repair review: added one regression to the existing Bun installer/author-loader suite. It creates and reads a real workspace, removes its digest-named blob, then verifies retained history, empty source, and disabled approval. All 15 cases pass; the previously missed loader line now has 23 hits. Parent merges this source-matched result with all 18 downloaded CI LCOV files. The unchanged gates pass: 1265 file thresholds, no new source files, and all four changed source files.
+
+## Test infrastructure review — 2026-09-09
+
+Scope: EZHarness current origin/main, a1837d51181ae0b2d1093483166f7d50d1fbc134, in an isolated checkout. Keep existing checkout edits intact.
+
+- [x] Read project rules and lessons; inspect the test entry points and CI jobs.
+- [x] Check in with the review plan before implementation.
+- [x] Install locked root and web dependencies with the pinned Bun runtime.
+- [x] Verify test discovery, runner isolation, failure propagation, and CI coverage.
+- [x] Run backend, web Bun, Node Vitest, coverage, types, lint, and build checks.
+- [x] Run the mock browser gate, fresh setup, and real-auth browser tests; inspect UI evidence.
+- [x] Repair the two confirmed infrastructure gaps; verify each repair and record the unreproduced Postgres CI timeout.
+- [x] Record results, limits, and the final review.
+
+Plan review: compare local commands with CI, test failure handling as well as successful runs, and keep complete logs. Use private test databases and unused browser ports. Do not weaken checks.
+
+## Review
+
+Completed review. Fixed two omitted script test suites and the missing local dependency-boundary check in commit `a1b5a6835`. Backend: 24,875 passes, plus 10 restored script tests. Web Bun: 4,094 passes. Node Vitest: 7,146 passes. Browser lanes: 256 mock + 3 setup + 62 real-auth passes, with 13 configured mock skips. Full coverage passes all 1,265 thresholds (26,141 Bun tests and 4,717 Node tests). Types, lint, Svelte check, build, manifest, boundary, gate-integrity, and diff-coverage checks pass.
+
+Current main CI has 35 successful jobs, including production-image and Firefox/WebKit proofs. Its separate external-Postgres job still has an unexplained 5-second pool-one test timeout; 11 complete local Postgres runs and 20 focused runs passed without a retry or timeout change. The report records 226 unwired browser specs and existing warning/type-check backlogs. Local test databases and the review Postgres container were cleaned up. The primary checkout is unchanged; no push or settings change occurred. Full local report and logs: `tasks/testing-infrastructure-review-2026-09-09.md`.
