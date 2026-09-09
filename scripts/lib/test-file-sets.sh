@@ -73,14 +73,10 @@
 # can never drift apart.
 
 # P — the pass/fail set.
-# The same shipping fixture checks run in both P and C.
-shipping_fixture_files() {
-  printf '%s\n' \
-    scripts/lib/shipping-bootstrap-state.test.ts \
-    scripts/verify-shipping-embedding-log.test.ts \
-    scripts/verify-shipping-runtime-resources-config.test.ts \
-    scripts/verify-shipping-runtime-resource-accounting.test.ts \
-    scripts/lib/shipping-runtime-cycle-conversation.test.ts
+# Script behavior tests belong to both P and C. Discover them together so a
+# new migration or test-fixture regression cannot fall outside every CI job.
+script_test_files() {
+  find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
 passfail_files() {
@@ -132,9 +128,7 @@ passfail_files() {
     # The scoped web bun:test files — ONE definition shared with C (see
     # web_host_files). P consumes it so C\P stays empty by construction.
     web_host_files
-    # Shipping bootstrap state is production-suite control logic. Keep its
-    # mock-client receipt checks in both canonical pools.
-    shipping_fixture_files
+    script_test_files
     # Remote-control route-contract governance meta-test — a HARD pass/fail gate
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
@@ -313,7 +307,7 @@ coverage_host_files() {
     # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
     # a C-only web entry is a DE-GATED file, not a coverage-only one).
     web_host_files
-    shipping_fixture_files
+    script_test_files
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)

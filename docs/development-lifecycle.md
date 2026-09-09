@@ -236,9 +236,9 @@ below has already cost someone a red CI run or a wrong conclusion.
 A green `bun run test` therefore says nothing about three separate CI jobs. Run
 `bash scripts/test-web.sh` too when you touch anything under `web/`.
 
-**`bun run test:e2e` is NOT the e2e gate.** It collects the whole `e2e/` tree,
-including the `unwired` backlog that has no CI server fixture and the real-PGlite
-tiers that require a fresh database. Expect it to be substantially red. CI
+**`bun run test:e2e` is NOT the e2e gate.** It collects the mock-tier `e2e/` tree,
+including the `unwired` backlog that has no CI server fixture. Fresh setup and
+real-auth tests use separate configs and are excluded from that command. CI
 derives every blocking browser file list from `web/e2e/lanes.json`. To reproduce
 the mock gate exactly:
 
@@ -252,6 +252,11 @@ out empty, and Playwright runs the whole backlog instead of the lane. Keep the
 `bash -c`, and verify `${#ARGS[@]}` is non-zero. The same CI job then runs the
 fresh-setup and real-auth real-PGlite configs. `bash scripts/ci-local.sh` runs
 all three browser commands from the same manifest.
+
+`ci-local.sh` does not run the production-image suite, kernel proofs,
+Firefox/WebKit jobs, secret scan, dependency audit, or external-Postgres job.
+Check those CI results separately. A local pass covers only the steps listed
+in its summary.
 
 **A rebase invalidates your baselines. Re-measure the control on the new base.**
 Comparing post-rebase numbers against pre-rebase ones silently attributes

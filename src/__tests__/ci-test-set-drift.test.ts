@@ -1,7 +1,7 @@
 /**
  * Orphan-drift meta-test (wave 3, CI audit item 3.1).
  *
- * Asserts every `src/**​/*.test.ts` and `packages/**​/*.test.ts` belongs to
+ * Asserts every test under `src/`, `packages/`, and `scripts/` belongs to
  * at least one CI-EXECUTED test set:
  *
  *   - P  (passfail_files)        — shards (P∩C) + `residual-tests` (P\C)
@@ -67,7 +67,7 @@ function setMembers(fn: (typeof SET_FUNCTIONS)[number]): string[] {
 
 describe("CI test-set drift", () => {
   const allTestFiles = bashLines(
-    "find src packages -name '*.test.ts' ! -path '*/node_modules/*' | sort -u",
+    "find src packages scripts -name '*.test.ts' ! -path '*/node_modules/*' | sort -u",
   );
 
   const union = new Set<string>();
@@ -92,13 +92,13 @@ describe("CI test-set drift", () => {
     expect(allTestFiles.length).toBeGreaterThanOrEqual(900);
   });
 
-  test("every src/ + packages/ test file belongs to >=1 CI-executed set", () => {
+  test("every src/ + packages/ + scripts/ test file belongs to >=1 CI-executed set", () => {
     const excepted = new Set(DOCUMENTED_EXCEPTIONS.map((e) => e.file));
     const orphans = allTestFiles.filter((f) => !union.has(f) && !excepted.has(f));
     expect(
       orphans,
       `${orphans.length} test file(s) run in NO CI job:\n  ${orphans.join("\n  ")}\n` +
-        `A src/**/*.test.ts should be caught by the P/C sweeps in ${SETS_LIB} — ` +
+        `A src/ or scripts/ test should be caught by the P/C sweeps in ${SETS_LIB} — ` +
         `if it appears here, check the sweeps' named exclusions. A packages/** file ` +
         `belongs in a cov-extras leg (add/extend a *_leg_files function AND the ` +
         `matching leg in scripts/test-coverage.sh run_legs). Only a file that ` +
@@ -113,6 +113,15 @@ describe("CI test-set drift", () => {
       expect(union.has(e.file), `exception '${e.file}' is now covered by a CI set — remove it`).toBe(false);
     }
   });
+
+  test.each(["passfail_files", "coverage_host_files"] as const)(
+    "every script test belongs to %s",
+    (fn) => {
+      const members = new Set(setMembers(fn));
+      const missing = allTestFiles.filter((file) => file.startsWith("scripts/") && !members.has(file));
+      expect(missing, `Script tests missing from ${fn}: ${missing.join(", ")}`).toEqual([]);
+    },
+  );
 });
 
 /**

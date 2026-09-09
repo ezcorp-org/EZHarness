@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Run the PR CI gates locally, in roughly the same order CI does, with a
-# single PASS/FAIL summary at the end. Every CI job in .github/workflows/ci.yml
-# is a thin wrapper around a repo script, so local parity is near-total; the
-# only things this CANNOT reproduce are the GitHub-side pieces (branch
-# protection rollup, PR bots, the visual-evidence PUBLISH workflow) and the CI
-# runner's exact environment (a handful of timing-sensitive suites flake
-# differently across machines).
+# single PASS/FAIL summary at the end. This runs the source checks, test pools,
+# coverage, and Chromium browser lanes. Separate CI jobs also check the
+# production image, kernel controls, Firefox/WebKit, secrets, dependencies,
+# and external Postgres. Those jobs and the GitHub review rules must be
+# checked separately before claiming complete CI validation.
 #
 # Usage:
-#   bash scripts/ci-local.sh           # full parity (~15-30 min: coverage + gated e2e)
+#   bash scripts/ci-local.sh           # local suite (coverage + gated e2e)
 #   bash scripts/ci-local.sh --fast    # pre-push sanity (~5 min: skips
 #                                      # coverage merge/gates + playwright)
 #   BASE_REF=origin/main               # diff base for the diff-scoped gates
@@ -77,6 +76,7 @@ git fetch origin main --quiet 2>/dev/null || true
 # ── Fast, always-on gates (mirror the cheap CI jobs) ────────────────────────
 run_step "Typecheck" bun run typecheck
 run_step "Lint (biome)" lint_step
+run_step "Dependency boundaries" bun scripts/check-boundaries.ts
 run_step "Gate integrity (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/gate-integrity.ts
 run_step "Visual evidence (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-visual-evidence.ts
 run_step "Manifest lockfile drift" bun run scripts/regenerate-manifest-lock.ts --check
