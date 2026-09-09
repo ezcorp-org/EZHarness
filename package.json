@@ -8,7 +8,8 @@
   "overrides": {
     "@earendil-works/pi-ai": "0.84.3",
     "@earendil-works/pi-telemetry": "0.84.3",
-    "zod": "4.5.2"
+    "zod": "4.5.2",
+    "sharp": "0.35.4"
   },
   "scripts": {
     "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh",
